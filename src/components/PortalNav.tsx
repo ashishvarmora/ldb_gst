@@ -2,17 +2,29 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, FolderOpen, Home, Search, Truck } from "lucide-react";
+import { Bell, FolderOpen, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
 
+import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
+/** Everything in the sidebar. */
 const NAV = [
   { href: "/portal", label: "Home", icon: Home },
   { href: "/portal/search", label: "Search", icon: Search },
   { href: "/portal/trucks", label: "My trucks", icon: Truck },
+  { href: "/portal/records", label: "Records", icon: Rows3 },
   { href: "/portal/alerts", label: "Alerts", icon: Bell },
   { href: "/portal/cases", label: "Cases", icon: FolderOpen },
+  { href: "/portal/plan", label: "My plan", icon: Wallet },
 ] as const;
+
+/**
+ * Five is the most a bottom bar can hold before the labels stop being legible
+ * on a small phone. Records earns its place over Cases: it is the view an
+ * officer opens repeatedly, where a case folder is set up once.
+ */
+const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/alerts"] as const;
+const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/portal") return pathname === "/portal";
@@ -50,6 +62,7 @@ export function PortalSidebar() {
             >
               <Icon size={16} className="shrink-0" />
               {label}
+              <NavSpinner />
             </Link>
           );
         })}
@@ -68,7 +81,7 @@ export function PortalBottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-panel/95 backdrop-blur lg:hidden"
     >
       <div className="mx-auto flex max-w-lg">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {TABS.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
           return (
             <Link
@@ -89,6 +102,7 @@ export function PortalBottomNav() {
                   active ? "bg-brand-500" : "bg-transparent",
                 )}
               />
+              <NavTabPending />
               <Icon size={20} strokeWidth={active ? 2.3 : 1.8} />
               {label}
             </Link>

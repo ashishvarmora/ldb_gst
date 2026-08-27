@@ -1,11 +1,12 @@
-import { CheckCircle2, Copy, PlayCircle, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, Database, PlayCircle, Trash2, XCircle } from "lucide-react";
 
-import { runTrackingNow, saveSettings } from "./actions";
-import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { purgeOldDataNow, runTrackingNow, saveSettings } from "./actions";
+import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, FormGrid, Input, Select } from "@/components/form";
 import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { env, integrationHealth } from "@/lib/env";
+import { fmtRelative } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Plan } from "@/lib/types";
 
@@ -165,6 +166,33 @@ export default async function SettingsPage() {
                     </div>
                   </FormGrid>
                 </div>
+
+                <div className="border-t border-divider pt-4">
+                  <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
+                    Data retention
+                  </p>
+                  <FormGrid cols={2}>
+                    <Field
+                      label="Default: keep history for (days)"
+                      name="data_retention_days"
+                      hint="The starting point for new plans. Each plan, and each officer, can override it."
+                    >
+                      <Input
+                        name="data_retention_days"
+                        type="number"
+                        min={1}
+                        max={3650}
+                        defaultValue={num(settings, "data_retention_days", 30)}
+                      />
+                    </Field>
+                    <Checkbox
+                      name="purge_enabled"
+                      label="Clear old records automatically"
+                      hint="Runs once a day at the end of a tracking sweep."
+                      defaultChecked={settings.purge_enabled !== false}
+                    />
+                  </FormGrid>
+                </div>
               </div>
 
               <FormActions>
@@ -271,6 +299,44 @@ export default async function SettingsPage() {
             </p>
           </Panel>
 
+          <Panel
+            title="Clear old records now"
+            description="Trims each officer down to their own retention window."
+          >
+            <div className="flex items-start gap-2.5">
+              <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
+              <p className="text-xs leading-relaxed text-muted">
+                Crossings, call logs and alerts older than the officer&apos;s retention are deleted.
+                Their Google Sheet keeps everything, so this only trims the app&apos;s copy.
+              </p>
+            </div>
+
+            <ActionForm action={purgeOldDataNow} closeOnSuccess={false}>
+              <div className="mt-3">
+                <Checkbox
+                  name="force"
+                  label="Include officers with no Google Sheet"
+                  hint="Off by default. For them the app is the only copy, so clearing it loses the history for good."
+                />
+              </div>
+              <FormActions>
+                <ConfirmSubmitButton
+                  message="Clear records older than each officer's retention window? This cannot be undone."
+                  size="md"
+                >
+                  <Trash2 size={14} />
+                  Clear old records
+                </ConfirmSubmitButton>
+              </FormActions>
+            </ActionForm>
+
+            <p className="mt-3 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
+              Last automatic run: {typeof settings.last_purge_at === "string"
+                ? fmtRelative(settings.last_purge_at)
+                : "never"}
+            </p>
+          </Panel>
+
           <Panel title="Current values" description="Exactly what the worker will read.">
             <dl>
               <DescRow label="LDB endpoint">
@@ -293,6 +359,14 @@ export default async function SettingsPage() {
               </DescRow>
               <DescRow label="Night window">
                 {nightWindow.from ?? "22:00"} – {nightWindow.to ?? "06:00"}
+              </DescRow>
+              <DescRow label="Default retention">
+                {num(settings, "data_retention_days", 30)} days
+              </DescRow>
+              <DescRow label="Auto-clear">
+                <Badge tone={settings.purge_enabled !== false ? "good" : "neutral"}>
+                  {settings.purge_enabled !== false ? "on" : "off"}
+                </Badge>
               </DescRow>
               <DescRow label="Active plans">{planList.length}</DescRow>
             </dl>

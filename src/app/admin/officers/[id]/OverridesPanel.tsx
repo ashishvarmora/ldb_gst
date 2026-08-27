@@ -4,6 +4,8 @@ import { saveOverrides } from "../actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, Input, TriState } from "@/components/form";
 import { Badge, Panel } from "@/components/ui";
+import { IntervalField } from "@/components/IntervalField";
+import { intervalLabel } from "@/lib/intervals";
 import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED, formatLimit } from "@/lib/limits";
 import type { LimitOverrides, OfficerOverview, Plan } from "@/lib/types";
 
@@ -50,7 +52,9 @@ export function OverridesPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-divider">
-              {NUMERIC_LIMITS.map((field) => {
+              {NUMERIC_LIMITS.filter(
+                (field) => field.key !== "min_polling_interval_minutes",
+              ).map((field) => {
                 const planValue = plan ? plan[field.key] : null;
                 const overrideValue = overrides ? overrides[field.key] : null;
                 const effective = officer[field.key];
@@ -80,6 +84,33 @@ export function OverridesPanel({
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Pulled out of the table: an interval reads badly as a bare number of
+            minutes, and the administrator should be able to say "2 hours". */}
+        <div className="border-t border-divider px-5 py-4">
+          <p className="text-sm text-ink">Fastest checking interval</p>
+          <p className="mt-0.5 mb-3 text-xs text-muted">
+            The floor for every truck this officer tracks. They may choose this or anything
+            slower, never faster.
+            {plan
+              ? ` The "${plan.name}" plan allows ${intervalLabel(plan.min_polling_interval_minutes)}.`
+              : ""}
+          </p>
+          <IntervalField
+            name="override_min_polling_interval_minutes"
+            defaultMinutes={officer.min_polling_interval_minutes}
+            floorMinutes={1}
+            showCost={false}
+            inherit={
+              plan
+                ? {
+                    label: `Inherit (${intervalLabel(plan.min_polling_interval_minutes)})`,
+                    startsInherited: overrides?.min_polling_interval_minutes == null,
+                  }
+                : undefined
+            }
+          />
         </div>
 
         <div className="space-y-3 border-t border-divider px-5 py-4">

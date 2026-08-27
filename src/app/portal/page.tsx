@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { AlertTriangle, Bell, Gauge, Plus, Search, Star, Truck } from "lucide-react";
 
 import { SearchBox } from "@/components/SearchBox";
+import { SkeletonPanel, SkeletonTruckCards } from "@/components/Skeleton";
 import { TruckCard } from "@/components/TruckCard";
 import {
   Badge,
@@ -17,43 +19,20 @@ import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { blockedReason, requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertLog, SearchLog, TrackedTruck } from "@/lib/types";
+import type { AlertLog, OfficerOverview, SearchLog, TrackedTruck } from "@/lib/types";
 
 export const metadata = { title: "Dashboard — Truck Watch" };
 
+/**
+ * The shell below renders from data the layout already has, so the greeting,
+ * the search box and the quota cards are on screen immediately. The three
+ * panels each fetch their own rows and stream in behind a skeleton — an officer
+ * can start typing a registration number without waiting for their truck list.
+ */
 export default async function PortalHome() {
   const { overview, profile } = await requirePortalSession();
-  const admin = getSupabaseAdmin();
-
-  const [{ data: trucks }, { data: alerts }, { data: searches }] = await Promise.all([
-    admin
-      .from("tracked_trucks")
-      .select("*")
-      .eq("user_id", overview.id)
-      .order("is_watchlist", { ascending: false })
-      .order("last_event_at", { ascending: false, nullsFirst: false })
-      .limit(6),
-    admin
-      .from("alert_logs")
-      .select("*")
-      .eq("user_id", overview.id)
-      .order("created_at", { ascending: false })
-      .limit(6),
-    admin
-      .from("search_logs")
-      .select("*")
-      .eq("user_id", overview.id)
-      .eq("source", "manual")
-      .order("created_at", { ascending: false })
-      .limit(6),
-  ]);
-
-  const truckList = (trucks ?? []) as TrackedTruck[];
-  const alertList = (alerts ?? []) as AlertLog[];
-  const searchList = (searches ?? []) as SearchLog[];
 
   const blocked = blockedReason(overview);
-  const slots = truckSlotsLeft(overview);
   const searchesLeft =
     overview.manual_search_limit_per_day === -1
       ? Number.POSITIVE_INFINITY
@@ -128,106 +107,19 @@ export default async function PortalHome() {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <Panel
-            title="My trucks"
-            description={
-              overview.active_trucks === 0
-                ? "Nothing under tracking yet."
-                : slots === Number.POSITIVE_INFINITY
-                  ? `${overview.active_trucks} under tracking.`
-                  : `${overview.active_trucks} under tracking · ${slots} slot${slots === 1 ? "" : "s"} free.`
-            }
-            actions={
-              <PanelAction href="/portal/trucks">View all</PanelAction>
-            }
-            bodyClassName={truckList.length === 0 ? "p-0" : "p-4"}
-          >
-            {truckList.length === 0 ? (
-              <EmptyState
-                title="No trucks under tracking"
-                description="Add a truck and the platform checks it in the background, logs every toll crossing and alerts you on Telegram."
-                action={
-                  <LinkButton href="/portal/trucks" variant="primary">
-                    <Plus size={14} />
-                    Add your first truck
-                  </LinkButton>
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {truckList.map((truck) => (
-                  <TruckCard key={truck.id} truck={truck} />
-                ))}
-              </div>
-            )}
-          </Panel>
+          <Suspense fallback={<TrucksPanelSkeleton />}>
+            <MyTrucksPanel overview={overview} />
+          </Suspense>
         </div>
 
         <div className="space-y-5">
-          <Panel
-            title="Recent alerts"
-            bodyClassName="p-0"
-            actions={
-              <PanelAction href="/portal/alerts">All alerts</PanelAction>
-            }
-          >
-            {alertList.length === 0 ? (
-              <EmptyState
-                title="No alerts yet"
-                description="Create a rule and you will be told the moment something matches."
-              />
-            ) : (
-              <ul className="divide-y divide-divider">
-                {alertList.map((alert) => (
-                  <li key={alert.id} className="px-4 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-ink">{alert.title}</p>
-                      {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
-                    </div>
-                    <p className="mt-0.5 text-xs text-faint">
-                      {alert.truck_number ? (
-                        <>
-                          <Mono>{alert.truck_number}</Mono> ·{" "}
-                        </>
-                      ) : null}
-                      {fmtRelative(alert.created_at)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
+          <Suspense fallback={<SkeletonPanel rows={4} />}>
+            <RecentAlertsPanel userId={overview.id} />
+          </Suspense>
 
-          <Panel title="Your recent searches" bodyClassName="p-0">
-            {searchList.length === 0 ? (
-              <EmptyState title="No searches yet" />
-            ) : (
-              <ul className="divide-y divide-divider">
-                {searchList.map((log) => (
-                  <li key={log.id}>
-                    <Link
-                      href={`/portal/search/${log.truck_number}`}
-                      className="flex items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-raised/60"
-                    >
-                      <span className="min-w-0">
-                        <Mono className="block text-ink">{log.truck_number}</Mono>
-                        <span className="block text-xs text-faint">
-                          {fmtDateTime(log.created_at)}
-                        </span>
-                      </span>
-                      {log.ok ? (
-                        <span className="shrink-0 text-xs text-muted">
-                          {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
-                        </span>
-                      ) : (
-                        <Badge tone="bad">failed</Badge>
-                      )}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
+          <Suspense fallback={<SkeletonPanel rows={4} />}>
+            <RecentSearchesPanel userId={overview.id} />
+          </Suspense>
 
           {overview.active_trucks > 0 ? (
             <Panel title="Tip">
@@ -241,5 +133,152 @@ export default async function PortalHome() {
         </div>
       </div>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* streamed panels                                                             */
+/* -------------------------------------------------------------------------- */
+
+function TrucksPanelSkeleton() {
+  return (
+    <Panel title="My trucks" bodyClassName="p-4">
+      <SkeletonTruckCards count={2} />
+    </Panel>
+  );
+}
+
+async function MyTrucksPanel({ overview }: { overview: OfficerOverview }) {
+  const { data } = await getSupabaseAdmin()
+    .from("tracked_trucks")
+    .select("*")
+    .eq("user_id", overview.id)
+    .order("is_watchlist", { ascending: false })
+    .order("last_event_at", { ascending: false, nullsFirst: false })
+    .limit(6);
+
+  const trucks = (data ?? []) as TrackedTruck[];
+  const slots = truckSlotsLeft(overview);
+
+  return (
+    <Panel
+      title="My trucks"
+      description={
+        overview.active_trucks === 0
+          ? "Nothing under tracking yet."
+          : slots === Number.POSITIVE_INFINITY
+            ? `${overview.active_trucks} under tracking.`
+            : `${overview.active_trucks} under tracking · ${slots} slot${slots === 1 ? "" : "s"} free.`
+      }
+      actions={<PanelAction href="/portal/trucks">View all</PanelAction>}
+      bodyClassName={trucks.length === 0 ? "p-0" : "p-4"}
+    >
+      {trucks.length === 0 ? (
+        <EmptyState
+          title="No trucks under tracking"
+          description="Add a truck and the platform checks it in the background, logs every toll crossing and alerts you on Telegram."
+          action={
+            <LinkButton href="/portal/trucks" variant="primary">
+              <Plus size={14} />
+              Add your first truck
+            </LinkButton>
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {trucks.map((truck) => (
+            <TruckCard key={truck.id} truck={truck} />
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+async function RecentAlertsPanel({ userId }: { userId: string }) {
+  const { data } = await getSupabaseAdmin()
+    .from("alert_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const alerts = (data ?? []) as AlertLog[];
+
+  return (
+    <Panel
+      title="Recent alerts"
+      bodyClassName="p-0"
+      actions={<PanelAction href="/portal/alerts">All alerts</PanelAction>}
+    >
+      {alerts.length === 0 ? (
+        <EmptyState
+          title="No alerts yet"
+          description="Create a rule and you will be told the moment something matches."
+        />
+      ) : (
+        <ul className="divide-y divide-divider">
+          {alerts.map((alert) => (
+            <li key={alert.id} className="px-4 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm text-ink">{alert.title}</p>
+                {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
+              </div>
+              <p className="mt-0.5 text-xs text-faint">
+                {alert.truck_number ? (
+                  <>
+                    <Mono>{alert.truck_number}</Mono> ·{" "}
+                  </>
+                ) : null}
+                {fmtRelative(alert.created_at)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+async function RecentSearchesPanel({ userId }: { userId: string }) {
+  const { data } = await getSupabaseAdmin()
+    .from("search_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("source", "manual")
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const searches = (data ?? []) as SearchLog[];
+
+  return (
+    <Panel title="Your recent searches" bodyClassName="p-0">
+      {searches.length === 0 ? (
+        <EmptyState title="No searches yet" />
+      ) : (
+        <ul className="divide-y divide-divider">
+          {searches.map((log) => (
+            <li key={log.id}>
+              <Link
+                href={`/portal/search/${log.truck_number}`}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-raised/60"
+              >
+                <span className="min-w-0">
+                  <Mono className="block text-ink">{log.truck_number}</Mono>
+                  <span className="block text-xs text-faint">{fmtDateTime(log.created_at)}</span>
+                </span>
+                {log.ok ? (
+                  <span className="shrink-0 text-xs text-muted">
+                    {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
+                  </span>
+                ) : (
+                  <Badge tone="bad">failed</Badge>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }

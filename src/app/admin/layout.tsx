@@ -11,7 +11,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const session = await requireSuperAdmin();
 
   return (
-    <div className="theme-dark flex min-h-screen">
+    <div className="theme-light flex min-h-screen">
       <AdminSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">

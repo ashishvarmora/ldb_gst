@@ -13,6 +13,7 @@ export type Plan = {
   max_alert_rules: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
+  data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
   alert_rules_enabled: boolean;
@@ -45,6 +46,7 @@ export type Profile = {
 /** One row of public.officer_overview - profile + plan + effective limits + usage. */
 export type OfficerOverview = Profile & {
   plan_name: string | null;
+  plan_description: string | null;
   price_per_month: number | null;
   truck_limit: number;
   manual_search_limit_per_day: number;
@@ -52,6 +54,7 @@ export type OfficerOverview = Profile & {
   max_alert_rules: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
+  data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
   alert_rules_enabled: boolean;
@@ -63,8 +66,10 @@ export type OfficerOverview = Profile & {
   manual_searches_month: number;
   tracking_queries_month: number;
   alerts_today: number;
+  total_events: number;
   telegram_connected: boolean;
   sheet_connected: boolean;
+  sheet_last_synced_at: string | null;
   last_event_at: string | null;
 };
 
@@ -76,6 +81,7 @@ export type LimitOverrides = {
   max_alert_rules: number | null;
   max_truck_groups: number | null;
   min_polling_interval_minutes: number | null;
+  data_retention_days: number | null;
   telegram_enabled: boolean | null;
   google_sheet_enabled: boolean | null;
   alert_rules_enabled: boolean | null;
@@ -231,6 +237,7 @@ export type EffectiveLimits = {
   max_alert_rules: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
+  data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
   alert_rules_enabled: boolean;

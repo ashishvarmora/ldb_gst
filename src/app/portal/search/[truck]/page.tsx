@@ -11,7 +11,8 @@ import { LatestPosition, Timeline } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
 import { Badge, EmptyState, LinkButton, Mono, Panel, StatCard } from "@/components/ui";
 import { normalizeTruck } from "@/lib/forms";
-import { INTERVAL_CHOICES, intervalLabel } from "@/lib/intervals";
+import { IntervalField } from "@/components/IntervalField";
+import { intervalLabel } from "@/lib/intervals";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -64,7 +65,6 @@ export default async function SearchResultPage({
   const caseList = (cases ?? []) as TruckGroup[];
   const latest = eventList[0] ?? null;
   const floor = Math.max(overview.min_polling_interval_minutes, settings.globalPollingFloor);
-  const intervals = INTERVAL_CHOICES.filter((minutes) => minutes >= floor);
   const slots = truckSlotsLeft(overview);
 
   const uniquePlazas = new Set(eventList.map((event) => event.loc_name).filter(Boolean)).size;
@@ -142,16 +142,12 @@ export default async function SearchResultPage({
                   </Field>
                   <Field
                     label="Check every"
-                    name="polling_interval_minutes"
-                    hint={`Your plan allows ${floor} min at the fastest. Slower intervals use less of your monthly pool.`}
+                    hint={`Your administrator allows ${intervalLabel(floor)} at the fastest.`}
                   >
-                    <Select name="polling_interval_minutes" defaultValue={String(Math.max(30, floor))}>
-                      {intervals.map((minutes) => (
-                        <option key={minutes} value={minutes}>
-                          {intervalLabel(minutes)}
-                        </option>
-                      ))}
-                    </Select>
+                    <IntervalField
+                      defaultMinutes={Math.max(30, floor)}
+                      floorMinutes={floor}
+                    />
                   </Field>
                   <Checkbox
                     name="is_watchlist"

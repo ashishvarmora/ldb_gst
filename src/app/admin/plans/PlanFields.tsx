@@ -1,4 +1,5 @@
 import { Checkbox, Field, FormGrid, Input, Textarea } from "@/components/form";
+import { IntervalField } from "@/components/IntervalField";
 import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED, estimateMonthlyQueries } from "@/lib/limits";
 import { fmtNumber } from "@/lib/format";
 import type { Plan } from "@/lib/types";
@@ -54,7 +55,9 @@ export function PlanFields({ plan }: { plan?: Plan }) {
           Limits
         </p>
         <FormGrid cols={3}>
-          {NUMERIC_LIMITS.map((field) => (
+          {NUMERIC_LIMITS.filter(
+            (field) => field.key !== "min_polling_interval_minutes",
+          ).map((field) => (
             <Field
               key={field.key}
               label={field.label}
@@ -70,6 +73,20 @@ export function PlanFields({ plan }: { plan?: Plan }) {
             </Field>
           ))}
         </FormGrid>
+
+        {/* An interval is not really a number - give it minutes or hours. */}
+        <Field
+          label="Fastest checking interval"
+          hint="The floor for officers on this plan. They may pick this or anything slower. Faster costs more of their monthly pool."
+          className="mt-4"
+        >
+          <IntervalField
+            name="min_polling_interval_minutes"
+            defaultMinutes={plan?.min_polling_interval_minutes ?? 30}
+            floorMinutes={1}
+            showCost={false}
+          />
+        </Field>
       </div>
 
       {shortfall ? (

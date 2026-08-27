@@ -30,7 +30,7 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 | **Usage** | Per-officer consumption, recent LDB calls with latency and failures, CSV export for billing |
 | **Alerts** | Every alert raised and whether Telegram actually delivered it |
 | **Audit log** | Field-level before/after for every admin change |
-| **Settings** | LDB endpoint, global pause switch, polling floor, alert-rule defaults, connection health, **run the worker now** |
+| **Settings** | LDB endpoint, global pause switch, polling floor, alert-rule defaults, data retention, connection health, **run the worker now**, **clear old records now** |
 
 ### Officer dashboard — `/portal`
 
@@ -42,8 +42,10 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 | **My trucks** | Status cards, filter by watchlist / moving / no activity / paused, add a truck, and a live estimate of what the current list costs per month |
 | **Truck detail** | Full route timeline, per-truck interval and watchlist settings, alerts for that truck, recent checks, remove (keeping history or not) |
 | **Alerts** | Create any of eight rule types with a form that adapts to the trigger; full alert history with delivery status |
+| **Records** | Every crossing across all their trucks in one filterable table — by truck, date range, direction, plaza — with busiest-plaza analytics and CSV export |
 | **Cases** | Case folders — paste a whole list of registration numbers, then read one combined timeline across the group |
-| **Settings** | Connect Telegram (with a test message), connect a Google Sheet (with a test), see their own plan and 30-day usage |
+| **My plan** | What the plan includes, when it started and ends, days remaining, every allowance with usage, and what their current truck list will cost this month |
+| **Settings** | Connect Telegram (with a test message), connect a Google Sheet (with a test), see their own 30-day usage |
 
 Sidebar on desktop, thumb-reachable tab bar on mobile — officers work from phones.
 
@@ -89,8 +91,11 @@ Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the view
 2. `supabase/migrations/0002_views_rls_seed.sql` — views, `consume_quota()`, RLS,
    three starter plans, default settings
 3. `supabase/migrations/0003_worker_rpcs.sql` — worker RPCs and extra indexes
+4. `supabase/migrations/0004_retention_and_records.sql` — data retention and the
+   records-view indexes
 
-All three are idempotent, so re-running them is safe.
+All four are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
+applies them in order over a direct connection.
 
 ### 2. Environment
 
@@ -188,6 +193,30 @@ officer credentials, no per-officer Apps Script.
 but needs a separate script, trigger and Google account per officer, and you cannot
 see or bill usage centrally. One worker writing into per-officer sheets scales to
 fifty officers; fifty Apps Script projects does not.
+
+---
+
+## Data retention
+
+The officer's Google Sheet is the permanent record. The database only needs
+enough history to answer "where has this truck been lately", so old rows are
+trimmed automatically.
+
+- **`data_retention_days`** is a limit like any other: a plan default, a
+  per-officer override, `-1` to keep everything. Default 30 days.
+- The purge runs **once a day**, at the end of a tracking sweep, and deletes
+  `truck_events`, `search_logs`, `alert_logs` and old `usage_counters` past the
+  window. Admin → Settings has a manual **Clear old records now** button.
+- **An officer with no working Google Sheet is skipped.** For them the database
+  is the only copy, and trimming it would lose the case history rather than a
+  cache. The admin can override that with an explicit checkbox.
+- The officer sees their own retention window, and a warning if they have no
+  sheet, on both **Records** and **My plan**.
+
+Sheet writes are also deduplicated by location: a crossing is only appended when
+the plaza differs from the one before it, so a truck sitting at a plaza does not
+fill the sheet with identical rows. A genuine return trip A → B → A still writes
+three rows.
 
 ---
 

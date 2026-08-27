@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { runTrackingSweep } from "@/lib/tracking";
+import { runRetentionPurge, runTrackingSweep } from "@/lib/tracking";
 import type { ActionResult } from "@/lib/types";
 
 /** Every knob on the settings page, with how to read it off the form. */
@@ -18,6 +18,8 @@ const SETTING_SPECS = [
   { key: "excessive_window_hours", kind: "int", min: 1, max: 48 },
   { key: "night_from", kind: "time" },
   { key: "night_to", kind: "time" },
+  { key: "data_retention_days", kind: "int", min: 1, max: 3650 },
+  { key: "purge_enabled", kind: "bool" },
 ] as const;
 
 export async function saveSettings(
@@ -152,4 +154,52 @@ export async function runTrackingNow(
   if (summary.sheetErrors.length > 0) parts.push(`${summary.sheetErrors.length} sheet error(s)`);
 
   return { ok: true, message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.` };
+}
+
+
+/**
+ * Clears history older than each officer's retention window, on demand.
+ *
+ * Officers without a working Google Sheet are skipped unless `force` is set:
+ * for them the database is the only copy, and purging would lose the case
+ * history rather than just trimming a cache.
+ */
+export async function purgeOldDataNow(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const force = fd.getAll("force").includes("true");
+
+  const summary = await runRetentionPurge({ force });
+
+  await writeAudit(actor, {
+    action: "data.purge",
+    entity: "settings",
+    meta: {
+      force,
+      officers: summary.purgedFor,
+      rowsDeleted: summary.rowsDeleted,
+      withoutBackup: summary.withoutBackup,
+    },
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/admin");
+
+  if (summary.rowsDeleted === 0 && summary.purgedFor === 0) {
+    const reason = summary.withoutBackup.length
+      ? ` ${summary.withoutBackup.length} officer(s) were skipped because they have no Google Sheet.`
+      : "";
+    return { ok: true, message: `Nothing to clear.${reason}` };
+  }
+
+  const parts = [
+    `${summary.rowsDeleted.toLocaleString("en-IN")} row(s) cleared`,
+    `across ${summary.purgedFor} officer(s)`,
+  ];
+  if (summary.withoutBackup.length > 0) {
+    parts.push(`${summary.withoutBackup.length} skipped with no sheet backup`);
+  }
+  return { ok: true, message: `${parts.join(", ")}.` };
 }

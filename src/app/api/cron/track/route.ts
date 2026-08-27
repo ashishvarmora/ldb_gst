@@ -60,6 +60,8 @@ async function handle(request: NextRequest) {
       alerts: summary.alerts,
       alertsDelivered: summary.alertsDelivered,
       sheetErrors: summary.sheetErrors,
+      // null when the daily retention purge was not due on this tick
+      purge: summary.purge,
       failures: failures.map((outcome) => ({
         truck: outcome.truckNumber,
         error: outcome.error,

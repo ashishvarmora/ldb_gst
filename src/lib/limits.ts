@@ -15,7 +15,8 @@ export type NumericLimitKey =
   | "tracking_queries_per_month"
   | "max_alert_rules"
   | "max_truck_groups"
-  | "min_polling_interval_minutes";
+  | "min_polling_interval_minutes"
+  | "data_retention_days";
 
 export type BooleanLimitKey =
   | "telegram_enabled"
@@ -85,6 +86,14 @@ export const NUMERIC_LIMITS: NumericLimitField[] = [
     hint: "Floor on how often a truck may be polled. Lower = more API load.",
     unit: "minutes",
     allowUnlimited: false,
+    min: 1,
+  },
+  {
+    key: "data_retention_days",
+    label: "Keep history for",
+    hint: "Days of crossings, calls and alerts kept in the database. The Google Sheet keeps everything, so this only trims the app's own copy.",
+    unit: "days",
+    allowUnlimited: true,
     min: 1,
   },
 ];

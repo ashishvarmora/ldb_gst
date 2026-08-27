@@ -56,6 +56,8 @@ export type SweepSummary = {
   deferred: number;
   sheetErrors: string[];
   outcomes: PollOutcome[];
+  /** Set when this sweep also ran the daily retention purge. */
+  purge?: { officers: number; rowsDeleted: number; withoutBackup: string[] } | null;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -74,6 +76,46 @@ export function deriveStatus(
   if (hours <= 1) return "moving";
   if (hours <= noActivityHours) return "idle";
   return "no_activity";
+}
+
+/**
+ * Plaza names arrive with inconsistent spacing and case ("Nadiad Toll Plaza",
+ * " nadiad toll  plaza "). Compare them on a normalised form so a formatting
+ * difference is not mistaken for the truck having moved.
+ */
+export function normaliseLocation(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const cleaned = name.trim().toLowerCase().replace(/\s+/g, " ");
+  return cleaned === "" ? null : cleaned;
+}
+
+/**
+ * Drops crossings that report the same plaza as the one before them.
+ *
+ * `events` must be oldest-first, and `previousLocation` is where the truck was
+ * last known to be, so a run that continues from the previous poll is collapsed
+ * too. A genuine return trip A -> B -> A survives, because the location changes
+ * at each step. Unnamed plazas are always kept: there is nothing to compare.
+ */
+export function collapseByLocation<T extends { loc_name: string | null }>(
+  events: T[],
+  previousLocation: string | null,
+): { kept: T[]; skipped: number } {
+  let previous = normaliseLocation(previousLocation);
+  const kept: T[] = [];
+  let skipped = 0;
+
+  for (const event of events) {
+    const location = normaliseLocation(event.loc_name);
+    if (location !== null && location === previous) {
+      skipped += 1;
+      continue;
+    }
+    previous = location;
+    kept.push(event);
+  }
+
+  return { kept, skipped };
 }
 
 /** A truck is due when it has never been polled, or the interval has elapsed. */
@@ -431,11 +473,24 @@ export async function pollTruck({
   });
 
   // 7. Queue sheet rows for the flush at the end of the sweep.
+  //
+  //    Only write a row when the truck is somewhere NEW. A plaza often reports
+  //    the same crossing under several sequence numbers, and a truck parked at
+  //    a plaza can register repeatedly - both fill the officer's sheet with
+  //    rows that say nothing. Comparing against the last location already
+  //    written (which is what the truck row still holds at this point) collapses
+  //    those runs, while a genuine return trip A -> B -> A still writes three
+  //    rows, because the location changed each time.
   if (inserted.length > 0 && context.limits?.google_sheet_enabled && context.sheet?.spreadsheet_id) {
     const bySeq = new Map(result.events.map((event) => [event.seqNo, event]));
     const loggedAt = fmtDateTime(now);
 
-    for (const row of [...inserted].reverse()) {
+    const { kept, skipped } = collapseByLocation(
+      [...inserted].reverse(),
+      truck.last_location,
+    );
+
+    for (const row of kept) {
       const full = bySeq.get(row.seq_no);
       context.sheetEvents.push([
         row.event_time ? fmtDateTime(row.event_time) : (full?.eventTimeRaw ?? ""),
@@ -448,6 +503,12 @@ export async function pollTruck({
         `'${row.seq_no}`,
         loggedAt,
       ]);
+    }
+
+    if (skipped > 0) {
+      console.info(
+        `sheet: ${truck.truck_number} skipped ${skipped} crossing(s) at an unchanged location`,
+      );
     }
   }
 
@@ -546,6 +607,7 @@ export async function runTrackingSweep(
     deferred: 0,
     sheetErrors: [] as string[],
     outcomes: [] as PollOutcome[],
+    purge: null as SweepSummary["purge"],
   };
 
   const finish = (partial: typeof base): SweepSummary => {
@@ -602,6 +664,21 @@ export async function runTrackingSweep(
 
   const sheetErrors = await flushSheets(admin, [...contexts.values()]);
 
+  // Housekeeping runs after the useful work, and never blocks it.
+  let purge: SweepSummary["purge"] = null;
+  try {
+    const result = await maybePurge();
+    if (result) {
+      purge = {
+        officers: result.purgedFor,
+        rowsDeleted: result.rowsDeleted,
+        withoutBackup: result.withoutBackup,
+      };
+    }
+  } catch (error) {
+    console.error("retention purge failed", error);
+  }
+
   return finish({
     ...base,
     candidates: all.length,
@@ -615,5 +692,141 @@ export async function runTrackingSweep(
     alertsDelivered: outcomes.reduce((sum, o) => sum + o.alertsDelivered, 0),
     sheetErrors,
     outcomes,
+    purge,
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* retention                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type PurgeOutcome = {
+  userId: string;
+  email: string | null;
+  purged: boolean;
+  reason?: string;
+  days?: number;
+  truckEvents?: number;
+  searchLogs?: number;
+  alertLogs?: number;
+  usageCounters?: number;
+};
+
+export type PurgeSummary = {
+  ranAt: string;
+  durationMs: number;
+  officers: number;
+  purgedFor: number;
+  skipped: number;
+  rowsDeleted: number;
+  /** Officers skipped because they have no sheet to fall back on. */
+  withoutBackup: string[];
+  outcomes: PurgeOutcome[];
+};
+
+/**
+ * Trims each officer's history down to their retention window.
+ *
+ * The Google Sheet is the permanent record, so the database only needs enough
+ * to answer "where has this truck been lately". An officer with no working
+ * sheet is skipped rather than purged - for them the database IS the record,
+ * and deleting it would lose the case history. Pass `force` to override that,
+ * which the admin UI asks about explicitly.
+ */
+export async function runRetentionPurge(
+  options: { force?: boolean; userId?: string } = {},
+): Promise<PurgeSummary> {
+  const startedAt = new Date();
+  const admin = getSupabaseAdmin();
+
+  let query = admin.from("profiles").select("id, email");
+  if (options.userId) query = query.eq("id", options.userId);
+
+  const { data: officers } = await query;
+  const outcomes: PurgeOutcome[] = [];
+
+  for (const officer of officers ?? []) {
+    const { data, error } = await admin.rpc("purge_officer_data", {
+      p_user: officer.id,
+      p_days: null,
+      p_force: options.force ?? false,
+    });
+
+    if (error) {
+      outcomes.push({
+        userId: officer.id,
+        email: officer.email,
+        purged: false,
+        reason: `error: ${error.message}`,
+      });
+      continue;
+    }
+
+    const result = (data ?? {}) as Record<string, unknown>;
+    outcomes.push({
+      userId: officer.id,
+      email: officer.email,
+      purged: Boolean(result.purged),
+      reason: result.reason as string | undefined,
+      days: result.days as number | undefined,
+      truckEvents: (result.truck_events as number) ?? 0,
+      searchLogs: (result.search_logs as number) ?? 0,
+      alertLogs: (result.alert_logs as number) ?? 0,
+      usageCounters: (result.usage_counters as number) ?? 0,
+    });
+  }
+
+  const finishedAt = new Date();
+  const purgedFor = outcomes.filter((o) => o.purged).length;
+
+  return {
+    ranAt: startedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    officers: outcomes.length,
+    purgedFor,
+    skipped: outcomes.length - purgedFor,
+    rowsDeleted: outcomes.reduce(
+      (sum, o) =>
+        sum + (o.truckEvents ?? 0) + (o.searchLogs ?? 0) + (o.alertLogs ?? 0) + (o.usageCounters ?? 0),
+      0,
+    ),
+    withoutBackup: outcomes
+      .filter((o) => o.reason === "no_sheet_backup")
+      .map((o) => o.email ?? o.userId),
+    outcomes,
+  };
+}
+
+/**
+ * Called at the end of a sweep. Purging is a daily job, not a per-tick one, so
+ * this only fires when the last run was more than 20 hours ago - leaving slack
+ * so a daily cron that drifts slightly still gets through.
+ */
+export async function maybePurge(): Promise<PurgeSummary | null> {
+  const admin = getSupabaseAdmin();
+
+  const { data: rows } = await admin
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["purge_enabled", "last_purge_at"]);
+
+  const map = new Map((rows ?? []).map((r) => [r.key, r.value as unknown]));
+  if (map.get("purge_enabled") === false) return null;
+
+  const last = map.get("last_purge_at");
+  if (typeof last === "string") {
+    const hours = (Date.now() - new Date(last).getTime()) / 3_600_000;
+    if (Number.isFinite(hours) && hours < 20) return null;
+  }
+
+  const summary = await runRetentionPurge();
+
+  await admin
+    .from("app_settings")
+    .upsert(
+      { key: "last_purge_at", value: new Date().toISOString() as never, updated_at: new Date().toISOString() },
+      { onConflict: "key" },
+    );
+
+  return summary;
 }

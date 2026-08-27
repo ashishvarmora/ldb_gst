@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 
+import { NavSpinner } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
 const NAV = [
@@ -55,6 +56,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           >
             <Icon size={16} className="shrink-0" />
             {label}
+            <NavSpinner />
           </Link>
         );
       })}

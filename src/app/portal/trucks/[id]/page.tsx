@@ -29,7 +29,8 @@ import { LatestPosition, Timeline } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
 import { Badge, DescRow, EmptyState, Mono, Panel, StatCard } from "@/components/ui";
 import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
-import { INTERVAL_CHOICES, intervalLabel, monthlyCallsAt } from "@/lib/intervals";
+import { IntervalField } from "@/components/IntervalField";
+import { intervalLabel, monthlyCallsAt } from "@/lib/intervals";
 import { requirePortalSession } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -94,7 +95,6 @@ export default async function TruckDetailPage({
   const latest = eventList[0] ?? null;
 
   const floor = Math.max(overview.min_polling_interval_minutes, settings.globalPollingFloor);
-  const intervals = INTERVAL_CHOICES.filter((minutes) => minutes >= floor);
   const status = truck.is_active ? truck.status : "unknown";
   const uniquePlazas = new Set(eventList.map((event) => event.loc_name).filter(Boolean)).size;
 
@@ -204,24 +204,12 @@ export default async function TruckDetailPage({
 
                 <Field
                   label="Check every"
-                  name="polling_interval_minutes"
-                  hint={`Fastest allowed on your plan: ${floor} min.`}
+                  hint={`Your administrator allows ${intervalLabel(floor)} at the fastest.`}
                 >
-                  <Select
-                    name="polling_interval_minutes"
-                    defaultValue={String(truck.polling_interval_minutes)}
-                  >
-                    {intervals.map((minutes) => (
-                      <option key={minutes} value={minutes}>
-                        {intervalLabel(minutes)} · ~{fmtNumber(monthlyCallsAt(minutes))} checks/month
-                      </option>
-                    ))}
-                    {intervals.includes(truck.polling_interval_minutes as never) ? null : (
-                      <option value={truck.polling_interval_minutes}>
-                        {intervalLabel(truck.polling_interval_minutes)} (current)
-                      </option>
-                    )}
-                  </Select>
+                  <IntervalField
+                    defaultMinutes={truck.polling_interval_minutes}
+                    floorMinutes={floor}
+                  />
                 </Field>
 
                 <Checkbox

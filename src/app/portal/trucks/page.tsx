@@ -8,7 +8,8 @@ import { Modal } from "@/components/Modal";
 import { TruckCard } from "@/components/TruckCard";
 import { EmptyState, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import { fmtNumber } from "@/lib/format";
-import { INTERVAL_CHOICES, intervalLabel, monthlyCallsAt } from "@/lib/intervals";
+import { IntervalField } from "@/components/IntervalField";
+import { intervalLabel, monthlyCallsAt } from "@/lib/intervals";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -61,7 +62,6 @@ export default async function TrucksPage({
   });
 
   const floor = Math.max(overview.min_polling_interval_minutes, settings.globalPollingFloor);
-  const intervals = INTERVAL_CHOICES.filter((minutes) => minutes >= floor);
   const slots = truckSlotsLeft(overview);
   const canAdd = slots > 0 && Boolean(overview.plan_id);
 
@@ -113,16 +113,12 @@ export default async function TrucksPage({
 
                 <Field
                   label="Check every"
-                  name="polling_interval_minutes"
-                  hint={`Fastest allowed on your plan: ${floor} min. A slower interval stretches your monthly pool much further.`}
+                  hint={`Your administrator allows ${intervalLabel(floor)} at the fastest. A slower interval stretches your monthly pool much further.`}
                 >
-                  <Select name="polling_interval_minutes" defaultValue={String(Math.max(30, floor))}>
-                    {intervals.map((minutes) => (
-                      <option key={minutes} value={minutes}>
-                        {intervalLabel(minutes)} · ~{fmtNumber(monthlyCallsAt(minutes))} checks/month
-                      </option>
-                    ))}
-                  </Select>
+                  <IntervalField
+                    defaultMinutes={Math.max(30, floor)}
+                    floorMinutes={floor}
+                  />
                 </Field>
 
                 <Checkbox

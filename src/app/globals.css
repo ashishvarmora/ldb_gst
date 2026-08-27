@@ -45,7 +45,9 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Dark - the admin console. Unchanged from the original palette.
+   Dark. Not used by any section right now - the whole app is light. Kept
+   because switching a section back is a one-word change: put .theme-dark on
+   its layout wrapper instead of .theme-light.
    --------------------------------------------------------------------------- */
 .theme-dark {
   --c-page: #070a12;
