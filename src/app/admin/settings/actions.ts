@@ -1,0 +1,155 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+
+import { assertSuperAdmin } from "@/lib/auth";
+import { diffFields, writeAudit } from "@/lib/audit";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { runTrackingSweep } from "@/lib/tracking";
+import type { ActionResult } from "@/lib/types";
+
+/** Every knob on the settings page, with how to read it off the form. */
+const SETTING_SPECS = [
+  { key: "ldb_api_url", kind: "url" },
+  { key: "tracking_enabled", kind: "bool" },
+  { key: "global_polling_floor", kind: "int", min: 1, max: 1440 },
+  { key: "no_activity_hours", kind: "int", min: 1, max: 168 },
+  { key: "excessive_tolls", kind: "int", min: 2, max: 50 },
+  { key: "excessive_window_hours", kind: "int", min: 1, max: 48 },
+  { key: "night_from", kind: "time" },
+  { key: "night_to", kind: "time" },
+] as const;
+
+export async function saveSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const values: Record<string, unknown> = {};
+
+  for (const spec of SETTING_SPECS) {
+    const raw = fd.get(spec.key);
+    const text = typeof raw === "string" ? raw.trim() : "";
+
+    if (spec.kind === "bool") {
+      values[spec.key] = fd.getAll(spec.key).includes("true");
+      continue;
+    }
+
+    if (spec.kind === "url") {
+      if (!/^https?:\/\/\S+$/.test(text)) {
+        return { ok: false, error: "LDB API URL must start with http:// or https://" };
+      }
+      values[spec.key] = text;
+      continue;
+    }
+
+    if (spec.kind === "time") {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(text)) {
+        return { ok: false, error: "Night window times must look like 22:00." };
+      }
+      values[spec.key] = text;
+      continue;
+    }
+
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
+      return {
+        ok: false,
+        error: `"${spec.key}" must be a whole number between ${spec.min} and ${spec.max}.`,
+      };
+    }
+    values[spec.key] = n;
+  }
+
+  // night_from / night_to are stored together as one object.
+  const nightWindow = { from: values.night_from, to: values.night_to };
+  delete values.night_from;
+  delete values.night_to;
+  values.night_window = nightWindow;
+
+  const defaultPlan = fd.get("default_plan_name");
+  values.default_plan_name = typeof defaultPlan === "string" ? defaultPlan : "";
+
+  const { data: existing } = await admin.from("app_settings").select("key, value");
+  const before = Object.fromEntries((existing ?? []).map((row) => [row.key, row.value]));
+
+  const rows = Object.entries(values).map(([key, value]) => ({
+    key,
+    value: value as never,
+    updated_at: new Date().toISOString(),
+    updated_by: actor.id,
+  }));
+
+  const { error } = await admin.from("app_settings").upsert(rows, { onConflict: "key" });
+  if (error) return { ok: false, error: error.message };
+
+  await writeAudit(actor, {
+    action: "settings.update",
+    entity: "settings",
+    meta: { changes: diffFields(before, values as Record<string, unknown>) },
+  });
+
+  revalidatePath("/admin/settings");
+  return { ok: true, message: "Settings saved." };
+}
+
+/**
+ * Runs a tracking sweep immediately, from the admin panel. Useful for checking
+ * the whole pipeline end to end without waiting for the cron tick.
+ */
+export async function runTrackingNow(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const rawBatch = fd.get("batch");
+  const batch = typeof rawBatch === "string" && Number.isInteger(Number(rawBatch))
+    ? Math.min(Math.max(Number(rawBatch), 1), 300)
+    : 20;
+
+  const summary = await runTrackingSweep({ batch });
+
+  await writeAudit(actor, {
+    action: "tracking.manual_run",
+    entity: "settings",
+    meta: {
+      polled: summary.polled,
+      failed: summary.failed,
+      newEvents: summary.newEvents,
+      alerts: summary.alerts,
+      deferred: summary.deferred,
+    },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/trucks");
+  revalidatePath("/admin/usage");
+  revalidatePath("/admin/settings");
+
+  if (!summary.trackingEnabled) {
+    return { ok: false, error: "Tracking is switched off in the settings above." };
+  }
+
+  if (summary.due === 0) {
+    return {
+      ok: true,
+      message: `Nothing was due. ${summary.candidates} active truck${summary.candidates === 1 ? "" : "s"} on the platform, all checked recently.`,
+    };
+  }
+
+  const parts = [
+    `${summary.polled} truck${summary.polled === 1 ? "" : "s"} checked`,
+    `${summary.newEvents} new crossing${summary.newEvents === 1 ? "" : "s"}`,
+    `${summary.alerts} alert${summary.alerts === 1 ? "" : "s"} (${summary.alertsDelivered} delivered)`,
+  ];
+  if (summary.failed > 0) parts.push(`${summary.failed} failed`);
+  if (summary.skipped > 0) parts.push(`${summary.skipped} skipped on quota`);
+  if (summary.deferred > 0) parts.push(`${summary.deferred} left for the next run`);
+  if (summary.sheetErrors.length > 0) parts.push(`${summary.sheetErrors.length} sheet error(s)`);
+
+  return { ok: true, message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.` };
+}

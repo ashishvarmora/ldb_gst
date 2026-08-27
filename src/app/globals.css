@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Palette. Slate-blue control-room dark, one amber accent for "attention".
+   --------------------------------------------------------------------------- */
+@theme {
+  --color-ink-950: #070a12;
+  --color-ink-900: #0b1020;
+  --color-ink-850: #0f1526;
+  --color-ink-800: #141b30;
+  --color-ink-700: #1d2540;
+  --color-ink-600: #2b355a;
+  --color-ink-500: #46527d;
+  --color-ink-400: #6b769e;
+  --color-ink-300: #9aa3c2;
+  --color-ink-200: #c6cbdf;
+  --color-ink-100: #e6e9f4;
+
+  --color-brand-500: #4f7dff;
+  --color-brand-400: #6f96ff;
+  --color-brand-600: #3a63e0;
+
+  --color-good-500: #2fbf71;
+  --color-warn-500: #f0a92b;
+  --color-bad-500: #f0524d;
+
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+* {
+  border-color: var(--color-ink-700);
+}
+
+html,
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(70rem 40rem at 15% -10%, rgba(79, 125, 255, 0.13), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, rgba(47, 191, 113, 0.07), transparent 55%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: var(--color-brand-600);
+  color: white;
+}
+
+/* Scrollbars that do not look like Windows 98 inside a dark panel. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-600);
+  background-clip: content-box;
+}
+
+/* ---------------------------------------------------------------------------
+   Form controls. Styled once here so 40 inputs across the admin panel do not
+   each carry a dozen utility classes.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .field {
+    @apply w-full rounded-lg border border-ink-700 bg-ink-900/80 px-3 py-2 text-sm text-ink-100
+      placeholder:text-ink-500 outline-none transition
+      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-medium tracking-wide text-ink-300 uppercase;
+  }
+
+  .field-hint {
+    @apply mt-1 text-xs leading-relaxed text-ink-400;
+  }
+
+  .panel {
+    @apply rounded-xl border border-ink-700/80 bg-ink-900/70 backdrop-blur-sm;
+  }
+
+  .th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-400 uppercase;
+  }
+
+  .td {
+    @apply px-4 py-3 align-middle text-sm text-ink-200;
+  }
+
+  .link {
+    @apply text-brand-400 underline decoration-brand-400/30 underline-offset-2
+      transition hover:decoration-brand-400;
+  }
+}
+
+/* Date inputs render a black-on-black icon in dark mode without this. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in {
+  animation: fade-in-up 0.18s ease-out;
+}

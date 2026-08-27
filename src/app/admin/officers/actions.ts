@@ -1,0 +1,566 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { z } from "zod";
+
+import { assertSuperAdmin } from "@/lib/auth";
+import { diffFields, writeAudit } from "@/lib/audit";
+import { NUMERIC_LIMITS, BOOLEAN_LIMITS, parseLimitInput } from "@/lib/limits";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { istMonthStart, istToday } from "@/lib/format";
+import type { ActionResult } from "@/lib/types";
+
+/* -------------------------------------------------------------------------- */
+/* form helpers                                                                */
+/* -------------------------------------------------------------------------- */
+
+function str(fd: FormData, name: string): string | null {
+  const raw = fd.get(name);
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Checkbox posts "false" (hidden) then "true" (checked); take the last one. */
+function bool(fd: FormData, name: string): boolean {
+  const all = fd.getAll(name);
+  return all.includes("true");
+}
+
+/** TriState select: inherit -> null, otherwise a real boolean. */
+function tri(fd: FormData, name: string): boolean | null {
+  const raw = fd.get(name);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
+function fail(error: string): ActionResult {
+  return { ok: false, error };
+}
+
+function firstZodError(error: z.ZodError): string {
+  return error.issues[0]?.message ?? "Please check the values and try again.";
+}
+
+/** 14 chars, unambiguous alphabet, safe to read out over the phone. */
+function generatePassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(14);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
+
+function spreadsheetIdFrom(url: string | null): string | null {
+  if (!url) return null;
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) return match[1];
+  // Allow pasting a bare id too.
+  return /^[a-zA-Z0-9-_]{25,}$/.test(url) ? url : null;
+}
+
+const profileSchema = z.object({
+  email: z.string().email("Enter a valid email address."),
+  full_name: z.string().min(2, "Enter the officer's name.").nullable(),
+  phone: z
+    .string()
+    .regex(/^[0-9+\-\s()]{6,20}$/, "Phone number looks wrong.")
+    .nullable(),
+});
+
+/* -------------------------------------------------------------------------- */
+/* create                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function createOfficer(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const email = str(fd, "email")?.toLowerCase() ?? "";
+  const parsed = profileSchema.safeParse({
+    email,
+    full_name: str(fd, "full_name"),
+    phone: str(fd, "phone"),
+  });
+  if (!parsed.success) return fail(firstZodError(parsed.error));
+
+  const suppliedPassword = str(fd, "password");
+  if (suppliedPassword && suppliedPassword.length < 8) {
+    return fail("Password must be at least 8 characters.");
+  }
+  const password = suppliedPassword ?? generatePassword();
+  const planId = str(fd, "plan_id");
+
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: parsed.data.full_name, role: "officer" },
+  });
+
+  if (createError || !created.user) {
+    const message = createError?.message ?? "Could not create the account.";
+    return fail(
+      /already been registered|already exists/i.test(message)
+        ? `An account already exists for ${email}.`
+        : message,
+    );
+  }
+
+  const userId = created.user.id;
+
+  // The on_auth_user_created trigger already inserted a bare row; fill it in.
+  const { error: profileError } = await admin
+    .from("profiles")
+    .upsert(
+      {
+        id: userId,
+        email,
+        full_name: parsed.data.full_name,
+        phone: parsed.data.phone,
+        designation: str(fd, "designation"),
+        office: str(fd, "office"),
+        district: str(fd, "district"),
+        state: str(fd, "state") ?? "Gujarat",
+        role: "officer",
+        status: "active",
+        plan_id: planId,
+        plan_assigned_at: planId ? new Date().toISOString() : null,
+        plan_expires_on: str(fd, "plan_expires_on"),
+        notes: str(fd, "notes"),
+        created_by: actor.id,
+      },
+      { onConflict: "id" },
+    );
+
+  if (profileError) {
+    // Do not leave an auth user with no profile behind.
+    await admin.auth.admin.deleteUser(userId);
+    return fail(`Account rolled back: ${profileError.message}`);
+  }
+
+  const chatId = str(fd, "telegram_chat_id");
+  if (chatId) {
+    await admin.from("telegram_configs").upsert({ user_id: userId, chat_id: chatId });
+  }
+
+  const sheetUrl = str(fd, "sheet_url");
+  if (sheetUrl) {
+    await admin.from("google_sheet_configs").upsert({
+      user_id: userId,
+      sheet_url: sheetUrl,
+      spreadsheet_id: spreadsheetIdFrom(sheetUrl),
+    });
+  }
+
+  await writeAudit(actor, {
+    action: "officer.create",
+    entity: "profile",
+    entityId: userId,
+    entityLabel: email,
+    meta: { plan_id: planId, generated_password: !suppliedPassword },
+  });
+
+  revalidatePath("/admin/officers");
+  revalidatePath("/admin");
+
+  return {
+    ok: true,
+    message: suppliedPassword
+      ? `${email} created. Share the password you set.`
+      : `${email} created. Temporary password: ${password} — copy it now, it is not stored in readable form.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* update details                                                              */
+/* -------------------------------------------------------------------------- */
+
+export async function updateOfficer(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  if (!userId) return fail("Missing officer id.");
+
+  const parsed = profileSchema
+    .omit({ email: true })
+    .safeParse({ full_name: str(fd, "full_name"), phone: str(fd, "phone") });
+  if (!parsed.success) return fail(firstZodError(parsed.error));
+
+  const { data: before } = await admin
+    .from("profiles")
+    .select("full_name, phone, designation, office, district, state, notes")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const patch = {
+    full_name: parsed.data.full_name,
+    phone: parsed.data.phone,
+    designation: str(fd, "designation"),
+    office: str(fd, "office"),
+    district: str(fd, "district"),
+    state: str(fd, "state"),
+    notes: str(fd, "notes"),
+  };
+
+  const { error } = await admin.from("profiles").update(patch).eq("id", userId);
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.update",
+    entity: "profile",
+    entityId: userId,
+    entityLabel: patch.full_name,
+    meta: { changes: diffFields(before, patch) },
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  revalidatePath("/admin/officers");
+  return { ok: true, message: "Details saved." };
+}
+
+/* -------------------------------------------------------------------------- */
+/* plan assignment                                                             */
+/* -------------------------------------------------------------------------- */
+
+export async function assignPlan(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  if (!userId) return fail("Missing officer id.");
+
+  const planId = str(fd, "plan_id");
+  const expiresOn = str(fd, "plan_expires_on");
+
+  if (expiresOn && Number.isNaN(Date.parse(expiresOn))) {
+    return fail("Expiry date is not valid.");
+  }
+
+  let planName = "no plan";
+  if (planId) {
+    const { data: plan } = await admin
+      .from("plans")
+      .select("name, is_active")
+      .eq("id", planId)
+      .maybeSingle();
+    if (!plan) return fail("That plan no longer exists.");
+    if (!plan.is_active) return fail(`Plan "${plan.name}" is archived. Reactivate it first.`);
+    planName = plan.name;
+  }
+
+  const { error } = await admin
+    .from("profiles")
+    .update({
+      plan_id: planId,
+      plan_assigned_at: planId ? new Date().toISOString() : null,
+      plan_expires_on: expiresOn,
+    })
+    .eq("id", userId);
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.assign_plan",
+    entity: "profile",
+    entityId: userId,
+    entityLabel: planName,
+    meta: { plan_id: planId, plan_expires_on: expiresOn },
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  revalidatePath("/admin/officers");
+  return { ok: true, message: `Plan set to ${planName}.` };
+}
+
+/* -------------------------------------------------------------------------- */
+/* per-officer limit overrides                                                 */
+/* -------------------------------------------------------------------------- */
+
+export async function saveOverrides(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  if (!userId) return fail("Missing officer id.");
+
+  const row: Record<string, number | boolean | string | null> = { user_id: userId };
+
+  for (const field of NUMERIC_LIMITS) {
+    const value = parseLimitInput(fd.get(`override_${field.key}`), {
+      allowUnlimited: field.allowUnlimited,
+      allowBlank: true,
+      min: field.min,
+    });
+    if (value === undefined) {
+      return fail(
+        `"${field.label}": enter a whole number of at least ${field.min}` +
+          (field.allowUnlimited ? `, or -1 for unlimited, or leave blank to inherit.` : `, or leave blank to inherit.`),
+      );
+    }
+    row[field.key] = value;
+  }
+
+  for (const field of BOOLEAN_LIMITS) {
+    row[field.key] = tri(fd, `override_${field.key}`);
+  }
+
+  row.reason = str(fd, "override_reason");
+  row.updated_at = new Date().toISOString();
+
+  const hasAnyOverride =
+    NUMERIC_LIMITS.some((f) => row[f.key] !== null) ||
+    BOOLEAN_LIMITS.some((f) => row[f.key] !== null);
+
+  const { data: before } = await admin
+    .from("user_limit_overrides")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!hasAnyOverride) {
+    if (before) {
+      const { error } = await admin.from("user_limit_overrides").delete().eq("user_id", userId);
+      if (error) return fail(error.message);
+    }
+    await writeAudit(actor, {
+      action: "officer.clear_overrides",
+      entity: "profile",
+      entityId: userId,
+      meta: {},
+    });
+    revalidatePath(`/admin/officers/${userId}`);
+    revalidatePath("/admin/officers");
+    return { ok: true, message: "Overrides cleared — the officer now follows the plan exactly." };
+  }
+
+  const { error } = await admin
+    .from("user_limit_overrides")
+    .upsert(row, { onConflict: "user_id" });
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.set_overrides",
+    entity: "profile",
+    entityId: userId,
+    meta: { changes: diffFields(before as Record<string, unknown> | null, row) },
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  revalidatePath("/admin/officers");
+  return { ok: true, message: "Overrides saved." };
+}
+
+/* -------------------------------------------------------------------------- */
+/* status, password, integrations, usage                                       */
+/* -------------------------------------------------------------------------- */
+
+export async function setOfficerStatus(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  const status = fd.get("status");
+  if (!userId) return fail("Missing officer id.");
+  if (status !== "active" && status !== "suspended") return fail("Unknown status.");
+  if (userId === actor.id) return fail("You cannot suspend your own account.");
+
+  const { error } = await admin.from("profiles").update({ status }).eq("id", userId);
+  if (error) return fail(error.message);
+
+  // A suspended officer must not keep polling in the background either.
+  if (status === "suspended") {
+    await admin.from("tracked_trucks").update({ is_active: false }).eq("user_id", userId);
+  }
+
+  await writeAudit(actor, {
+    action: status === "active" ? "officer.reactivate" : "officer.suspend",
+    entity: "profile",
+    entityId: userId,
+    meta: {},
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  revalidatePath("/admin/officers");
+  return {
+    ok: true,
+    message:
+      status === "active"
+        ? "Account reactivated. Tracking stays paused until the officer re-enables each truck."
+        : "Account suspended and background tracking paused.",
+  };
+}
+
+export async function resetOfficerPassword(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  if (!userId) return fail("Missing officer id.");
+
+  const supplied = str(fd, "new_password");
+  if (supplied && supplied.length < 8) return fail("Password must be at least 8 characters.");
+  const password = supplied ?? generatePassword();
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.reset_password",
+    entity: "profile",
+    entityId: userId,
+    meta: { generated: !supplied },
+  });
+
+  return {
+    ok: true,
+    message: supplied
+      ? "Password updated."
+      : `New password: ${password} — copy it now, it cannot be shown again.`,
+  };
+}
+
+export async function saveOfficerIntegrations(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  if (!userId) return fail("Missing officer id.");
+
+  const chatId = str(fd, "telegram_chat_id");
+  const botToken = str(fd, "telegram_bot_token");
+  const telegramEnabled = bool(fd, "telegram_is_enabled");
+
+  const { error: tgError } = await admin.from("telegram_configs").upsert(
+    {
+      user_id: userId,
+      chat_id: chatId,
+      bot_token: botToken,
+      is_enabled: telegramEnabled,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (tgError) return fail(tgError.message);
+
+  const sheetUrl = str(fd, "sheet_url");
+  const spreadsheetId = spreadsheetIdFrom(sheetUrl);
+  if (sheetUrl && !spreadsheetId) {
+    return fail("That does not look like a Google Sheets URL. Paste the full link from the browser.");
+  }
+
+  const { error: sheetError } = await admin.from("google_sheet_configs").upsert(
+    {
+      user_id: userId,
+      sheet_url: sheetUrl,
+      spreadsheet_id: spreadsheetId,
+      is_enabled: bool(fd, "sheet_is_enabled"),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (sheetError) return fail(sheetError.message);
+
+  await writeAudit(actor, {
+    action: "officer.update_integrations",
+    entity: "profile",
+    entityId: userId,
+    meta: { telegram: Boolean(chatId), sheet: Boolean(spreadsheetId) },
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  return { ok: true, message: "Integrations saved." };
+}
+
+export async function resetOfficerUsage(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  const scope = fd.get("scope");
+  if (!userId) return fail("Missing officer id.");
+  if (scope !== "today" && scope !== "month") return fail("Unknown scope.");
+
+  const query = admin.from("usage_counters").update({ manual_searches: 0, tracking_queries: 0 }).eq("user_id", userId);
+  const { error } =
+    scope === "today"
+      ? await query.eq("usage_date", istToday())
+      : await query.gte("usage_date", istMonthStart());
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.reset_usage",
+    entity: "profile",
+    entityId: userId,
+    meta: { scope },
+  });
+
+  revalidatePath(`/admin/officers/${userId}`);
+  revalidatePath("/admin/usage");
+  return { ok: true, message: scope === "today" ? "Today's counters reset." : "This month's counters reset." };
+}
+
+export async function deleteOfficer(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const userId = str(fd, "user_id");
+  const typed = str(fd, "confirm_email")?.toLowerCase();
+  if (!userId) return fail("Missing officer id.");
+  if (userId === actor.id) return fail("You cannot delete your own account.");
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!profile) return fail("That officer no longer exists.");
+
+  if (typed !== profile.email.toLowerCase()) {
+    return fail(`Type ${profile.email} exactly to confirm deletion.`);
+  }
+
+  // Deleting the auth user cascades to profiles and everything keyed off it.
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "officer.delete",
+    entity: "profile",
+    entityId: userId,
+    entityLabel: profile.email,
+    meta: {},
+  });
+
+  revalidatePath("/admin/officers");
+  revalidatePath("/admin");
+  redirect("/admin/officers");
+}
