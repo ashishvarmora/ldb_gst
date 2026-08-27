@@ -16,3 +16,6 @@ files (2).zip
 *-service-account*.json
 gj01ab1234-*.json
 service-account*.json
+
+# Generated paste-block for Vercel - contains real secrets
+vercel-env.txt
