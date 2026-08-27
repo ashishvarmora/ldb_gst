@@ -19,3 +19,8 @@ service-account*.json
 
 # Generated paste-block for Vercel - contains real secrets
 vercel-env.txt
+
+# Temporary per-variable files for the Vercel CLI
+.vercel-env-tmp/
+
+.env*
