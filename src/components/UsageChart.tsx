@@ -35,15 +35,15 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
-        <span className="flex items-center gap-1.5 text-ink-300">
+        <span className="flex items-center gap-1.5 text-muted">
           <span className="inline-block size-2 rounded-sm bg-brand-500" />
           Manual searches
-          <span className="font-medium tabular-nums text-ink-100">{fmtNumber(totalManual)}</span>
+          <span className="font-medium tabular-nums text-ink">{fmtNumber(totalManual)}</span>
         </span>
-        <span className="flex items-center gap-1.5 text-ink-300">
+        <span className="flex items-center gap-1.5 text-muted">
           <span className="inline-block size-2 rounded-sm bg-good-500" />
           Tracking queries
-          <span className="font-medium tabular-nums text-ink-100">{fmtNumber(totalTracking)}</span>
+          <span className="font-medium tabular-nums text-ink">{fmtNumber(totalTracking)}</span>
         </span>
       </div>
 
@@ -62,7 +62,7 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
               <div
                 className={cx(
                   "flex w-full flex-col overflow-hidden rounded-sm transition",
-                  total === 0 && "bg-ink-800",
+                  total === 0 && "bg-sunken",
                 )}
                 style={{ height: `${height}%` }}
               >
@@ -78,7 +78,7 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
         })}
       </div>
 
-      <div className="mt-2 flex justify-between text-[11px] text-ink-500">
+      <div className="mt-2 flex justify-between text-[11px] text-faint">
         <span>{series[0]?.date.slice(5)}</span>
         <span>{series[series.length - 1]?.date.slice(5)}</span>
       </div>

@@ -67,7 +67,7 @@ export function Modal({
       {open ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
           <div
-            className="fixed inset-0 bg-ink-950/80 backdrop-blur-sm"
+            className="fixed inset-0 bg-strong/25 backdrop-blur-sm"
             onClick={close}
             aria-hidden
           />
@@ -76,20 +76,20 @@ export function Modal({
             aria-modal="true"
             aria-label={title}
             className={cx(
-              "animate-in relative z-10 my-auto w-full rounded-2xl border border-ink-700 bg-ink-900 shadow-2xl shadow-black/60",
+              "animate-in relative z-10 my-auto w-full rounded-2xl border border-line bg-panel [box-shadow:var(--shadow-pop)]",
               maxWidth,
             )}
           >
-            <header className="flex items-start justify-between gap-4 border-b border-ink-700/70 px-5 py-4">
+            <header className="flex items-start justify-between gap-4 border-b border-line/70 px-5 py-4">
               <div>
-                <h2 className="text-base font-semibold text-white">{title}</h2>
-                {description ? <p className="mt-0.5 text-xs text-ink-400">{description}</p> : null}
+                <h2 className="text-base font-semibold text-strong">{title}</h2>
+                {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
               </div>
               <button
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-800 hover:text-ink-100"
+                className="rounded-lg p-1.5 text-muted transition hover:bg-sunken hover:text-ink"
               >
                 <X size={16} />
               </button>

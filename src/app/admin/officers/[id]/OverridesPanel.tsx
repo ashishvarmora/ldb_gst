@@ -41,7 +41,7 @@ export function OverridesPanel({
 
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
-            <thead className="border-b border-ink-700/70 bg-ink-850/60">
+            <thead className="border-b border-line/70 bg-raised/60">
               <tr>
                 <th className="th">Limit</th>
                 <th className="th text-right">Plan</th>
@@ -49,7 +49,7 @@ export function OverridesPanel({
                 <th className="th text-right">Effective</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-800">
+            <tbody className="divide-y divide-divider">
               {NUMERIC_LIMITS.map((field) => {
                 const planValue = plan ? plan[field.key] : null;
                 const overrideValue = overrides ? overrides[field.key] : null;
@@ -58,10 +58,10 @@ export function OverridesPanel({
                 return (
                   <tr key={field.key}>
                     <td className="td">
-                      <span className="block text-sm text-ink-100">{field.label}</span>
-                      <span className="block text-xs text-ink-500">{field.hint}</span>
+                      <span className="block text-sm text-ink">{field.label}</span>
+                      <span className="block text-xs text-faint">{field.hint}</span>
                     </td>
-                    <td className="td text-right text-sm tabular-nums text-ink-400">
+                    <td className="td text-right text-sm tabular-nums text-muted">
                       {plan ? formatLimit(planValue) : "--"}
                     </td>
                     <td className="td">
@@ -72,7 +72,7 @@ export function OverridesPanel({
                         className="py-1.5 text-sm"
                       />
                     </td>
-                    <td className="td text-right text-sm font-semibold tabular-nums text-ink-100">
+                    <td className="td text-right text-sm font-semibold tabular-nums text-ink">
                       {formatLimit(effective)}
                     </td>
                   </tr>
@@ -82,7 +82,7 @@ export function OverridesPanel({
           </table>
         </div>
 
-        <div className="space-y-3 border-t border-ink-800 px-5 py-4">
+        <div className="space-y-3 border-t border-divider px-5 py-4">
           {BOOLEAN_LIMITS.map((field) => (
             <TriState
               key={field.key}
@@ -108,7 +108,7 @@ export function OverridesPanel({
         </div>
 
         <FormActions className="mx-5 mb-4">
-          <span className="mr-auto flex items-center gap-1.5 text-xs text-ink-500">
+          <span className="mr-auto flex items-center gap-1.5 text-xs text-faint">
             <RotateCcw size={12} />
             Clear every box and save to go back to the plan exactly.
           </span>

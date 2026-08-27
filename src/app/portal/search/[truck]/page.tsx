@@ -74,7 +74,7 @@ export default async function SearchResultPage({
     <>
       <Link
         href="/portal/search"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-ink-400 transition hover:text-brand-400"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-brand-400"
       >
         <ArrowLeft size={13} />
         Search another truck
@@ -83,10 +83,10 @@ export default async function SearchResultPage({
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-ink-700 bg-ink-850 text-ink-400">
+            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-line bg-raised text-muted">
               <TruckIcon size={17} />
             </span>
-            <h1 className="font-mono text-2xl font-semibold tracking-wide text-white">
+            <h1 className="font-mono text-2xl font-semibold tracking-wide text-strong">
               {truckNumber}
             </h1>
             {tracked ? (
@@ -97,7 +97,7 @@ export default async function SearchResultPage({
               <Badge>not tracked</Badge>
             )}
           </div>
-          <p className="mt-1.5 text-sm text-ink-400">
+          <p className="mt-1.5 text-sm text-muted">
             {lastSearch
               ? `Last looked up ${fmtRelative(lastSearch.created_at)} · ${fmtDateTime(lastSearch.created_at)}`
               : "No lookup recorded for this truck yet."}
@@ -237,18 +237,18 @@ export default async function SearchResultPage({
                 <Panel title="Tracking">
                   <dl className="space-y-2 text-xs">
                     <div className="flex justify-between gap-3">
-                      <dt className="text-ink-400">Interval</dt>
-                      <dd className="text-ink-100">
+                      <dt className="text-muted">Interval</dt>
+                      <dd className="text-ink">
                         every {tracked.polling_interval_minutes} min
                       </dd>
                     </div>
                     <div className="flex justify-between gap-3">
-                      <dt className="text-ink-400">Last auto check</dt>
-                      <dd className="text-ink-100">{fmtRelative(tracked.last_polled_at)}</dd>
+                      <dt className="text-muted">Last auto check</dt>
+                      <dd className="text-ink">{fmtRelative(tracked.last_polled_at)}</dd>
                     </div>
                     <div className="flex justify-between gap-3">
-                      <dt className="text-ink-400">Watchlist</dt>
-                      <dd className="text-ink-100">{tracked.is_watchlist ? "Yes" : "No"}</dd>
+                      <dt className="text-muted">Watchlist</dt>
+                      <dd className="text-ink">{tracked.is_watchlist ? "Yes" : "No"}</dd>
                     </div>
                   </dl>
                   <div className="mt-3">
@@ -259,7 +259,7 @@ export default async function SearchResultPage({
                 </Panel>
               ) : (
                 <Panel title="Not being tracked">
-                  <p className="text-xs leading-relaxed text-ink-400">
+                  <p className="text-xs leading-relaxed text-muted">
                     This was a one-off lookup. Nothing is checked automatically and no monthly quota
                     is used. Add it to tracking to get background checks and alerts.
                   </p>

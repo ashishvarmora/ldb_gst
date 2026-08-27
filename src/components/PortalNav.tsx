@@ -23,14 +23,14 @@ export function PortalSidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="hidden w-56 shrink-0 border-r border-ink-800 px-3 py-4 lg:block">
+    <div className="hidden w-56 shrink-0 border-r border-divider px-3 py-4 lg:block">
       <Link href="/portal" className="flex items-center gap-2.5 px-1">
         <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
           <Truck size={16} />
         </span>
         <span className="leading-tight">
-          <span className="block text-sm font-semibold text-white">Truck Watch</span>
-          <span className="block text-[11px] text-ink-500">GST officer</span>
+          <span className="block text-sm font-semibold text-strong">Truck Watch</span>
+          <span className="block text-[11px] text-faint">GST officer</span>
         </span>
       </Link>
 
@@ -42,10 +42,10 @@ export function PortalSidebar() {
               key={href}
               href={href}
               className={cx(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
+                "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm transition",
                 active
-                  ? "bg-brand-500/12 font-medium text-brand-400"
-                  : "text-ink-300 hover:bg-ink-800/70 hover:text-ink-100",
+                  ? "bg-brand-500/10 font-semibold text-brand-500"
+                  : "text-muted hover:bg-sunken hover:text-ink",
               )}
             >
               <Icon size={16} className="shrink-0" />
@@ -63,7 +63,10 @@ export function PortalBottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-ink-800 bg-ink-950/95 backdrop-blur lg:hidden">
+    <nav
+      aria-label="Primary"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-panel/95 backdrop-blur lg:hidden"
+    >
       <div className="mx-auto flex max-w-lg">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
@@ -71,12 +74,22 @@ export function PortalBottomNav() {
             <Link
               key={href}
               href={href}
+              aria-current={active ? "page" : undefined}
               className={cx(
-                "flex flex-1 flex-col items-center gap-0.5 px-1 py-2.5 text-[10px] transition",
-                active ? "text-brand-400" : "text-ink-400 active:text-ink-200",
+                "relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium transition",
+                active ? "text-brand-500" : "text-muted active:text-ink",
               )}
             >
-              <Icon size={19} strokeWidth={active ? 2.4 : 1.8} />
+              {/* A bar on the edge the tab touches reads faster than colour
+                  alone, and still works for a colour-blind officer. */}
+              <span
+                aria-hidden
+                className={cx(
+                  "absolute inset-x-3 top-0 h-0.5 rounded-full transition",
+                  active ? "bg-brand-500" : "bg-transparent",
+                )}
+              />
+              <Icon size={20} strokeWidth={active ? 2.3 : 1.8} />
               {label}
             </Link>
           );

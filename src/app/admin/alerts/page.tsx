@@ -143,8 +143,8 @@ export default async function AlertsPage({
               {rows.map((alert) => (
                 <Tr key={alert.id}>
                   <td className="td whitespace-nowrap">
-                    <span className="block text-sm text-ink-200">{fmtRelative(alert.created_at)}</span>
-                    <span className="block text-xs text-ink-500">{fmtDateTime(alert.created_at)}</span>
+                    <span className="block text-sm text-ink">{fmtRelative(alert.created_at)}</span>
+                    <span className="block text-xs text-faint">{fmtDateTime(alert.created_at)}</span>
                   </td>
                   <td className="td text-sm">
                     <Link
@@ -155,13 +155,13 @@ export default async function AlertsPage({
                     </Link>
                   </td>
                   <td className="td">{alert.truck_number ? <Mono>{alert.truck_number}</Mono> : "--"}</td>
-                  <td className="td text-sm text-ink-300">
+                  <td className="td text-sm text-muted">
                     {alert.kind ? (KIND_LABEL[alert.kind] ?? alert.kind) : "--"}
                   </td>
                   <td className="td">
-                    <span className="block text-sm text-ink-100">{alert.title}</span>
+                    <span className="block text-sm text-ink">{alert.title}</span>
                     {alert.message ? (
-                      <span className="block max-w-md truncate text-xs text-ink-500">
+                      <span className="block max-w-md truncate text-xs text-faint">
                         {alert.message}
                       </span>
                     ) : null}

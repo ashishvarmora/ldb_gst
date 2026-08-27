@@ -141,13 +141,13 @@ export default async function TrucksPage({
 
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Panel bodyClassName="px-4 py-3">
-          <p className="mb-2 text-[11px] font-semibold tracking-wider text-ink-400 uppercase">
+          <p className="mb-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
             Tracking slots
           </p>
           <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
         </Panel>
         <Panel bodyClassName="px-4 py-3">
-          <p className="mb-2 text-[11px] font-semibold tracking-wider text-ink-400 uppercase">
+          <p className="mb-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
             Monthly checks used
           </p>
           <QuotaBar
@@ -156,10 +156,10 @@ export default async function TrucksPage({
           />
         </Panel>
         <Panel bodyClassName="px-4 py-3">
-          <p className="text-[11px] font-semibold tracking-wider text-ink-400 uppercase">
+          <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
             This list costs
           </p>
-          <p className="mt-1.5 text-sm text-ink-100">
+          <p className="mt-1.5 text-sm text-ink">
             ~{fmtNumber(projected)} checks / month
             {overview.tracking_queries_per_month !== -1 &&
             projected > overview.tracking_queries_per_month ? (
@@ -167,7 +167,7 @@ export default async function TrucksPage({
                 More than your monthly pool. Slow some trucks down or you will run out mid-month.
               </span>
             ) : (
-              <span className="mt-0.5 block text-xs text-ink-500">
+              <span className="mt-0.5 block text-xs text-faint">
                 At the intervals you have set right now.
               </span>
             )}
@@ -198,10 +198,10 @@ export default async function TrucksPage({
               key={option.key || "all"}
               href={option.key ? `/portal/trucks?filter=${option.key}` : "/portal/trucks"}
               className={cx(
-                "rounded-full border px-3 py-1.5 text-xs transition",
+                "inline-flex min-h-9 items-center rounded-full border px-3.5 text-xs font-medium transition",
                 active
-                  ? "border-brand-500/40 bg-brand-500/12 text-brand-400"
-                  : "border-ink-700 bg-ink-850 text-ink-300 hover:bg-ink-800",
+                  ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+                  : "border-line bg-panel text-muted hover:bg-sunken hover:text-ink",
               )}
             >
               {option.label}

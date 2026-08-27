@@ -92,7 +92,7 @@ export default async function OfficersPage({
         <div className="relative min-w-56 flex-1">
           <Search
             size={14}
-            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-500"
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint"
           />
           <Input
             name="q"
@@ -167,21 +167,21 @@ export default async function OfficersPage({
                       <Avatar text={initials(officer.full_name, officer.email)} />
                       <span className="min-w-0">
                         <span className="flex items-center gap-2">
-                          <span className="truncate font-medium text-ink-100 group-hover:text-brand-400">
+                          <span className="truncate font-medium text-ink group-hover:text-brand-400">
                             {officer.full_name ?? "Unnamed"}
                           </span>
                           {officer.status === "suspended" ? (
                             <Badge tone="bad">Suspended</Badge>
                           ) : null}
                         </span>
-                        <span className="block truncate text-xs text-ink-500">{officer.email}</span>
+                        <span className="block truncate text-xs text-faint">{officer.email}</span>
                       </span>
                     </Link>
                   </td>
 
                   <td className="td">
-                    <span className="block text-sm text-ink-200">{officer.office ?? "--"}</span>
-                    <span className="block text-xs text-ink-500">
+                    <span className="block text-sm text-ink">{officer.office ?? "--"}</span>
+                    <span className="block text-xs text-faint">
                       {[officer.district, officer.state].filter(Boolean).join(", ") || "--"}
                     </span>
                   </td>
@@ -196,7 +196,7 @@ export default async function OfficersPage({
                       <Badge tone="bad">no plan</Badge>
                     )}
                     {officer.plan_expires_on ? (
-                      <span className="mt-1 block text-xs text-ink-500">
+                      <span className="mt-1 block text-xs text-faint">
                         expires {officer.plan_expires_on}
                       </span>
                     ) : null}
@@ -229,7 +229,7 @@ export default async function OfficersPage({
                       >
                         <MessageCircle
                           size={14}
-                          className={officer.telegram_connected ? "text-good-500" : "text-ink-600"}
+                          className={officer.telegram_connected ? "text-good-500" : "text-faint"}
                         />
                       </span>
                       <span
@@ -237,13 +237,13 @@ export default async function OfficersPage({
                       >
                         <Sheet
                           size={14}
-                          className={officer.sheet_connected ? "text-good-500" : "text-ink-600"}
+                          className={officer.sheet_connected ? "text-good-500" : "text-faint"}
                         />
                       </span>
                     </span>
                   </td>
 
-                  <td className="td text-xs whitespace-nowrap text-ink-400">
+                  <td className="td text-xs whitespace-nowrap text-muted">
                     {fmtRelative(officer.last_event_at)}
                   </td>
                 </Tr>
@@ -254,7 +254,7 @@ export default async function OfficersPage({
       </Panel>
 
       {rows.length > 0 ? (
-        <p className="mt-3 text-xs text-ink-500">
+        <p className="mt-3 text-xs text-faint">
           {rows.length} officer{rows.length === 1 ? "" : "s"} shown. Click a row to manage the plan,
           limits and integrations.
         </p>

@@ -67,21 +67,21 @@ export default async function PortalSettingsPage() {
               </p>
             ) : (
               <>
-                <ol className="mb-4 space-y-2 text-xs leading-relaxed text-ink-400">
+                <ol className="mb-4 space-y-2 text-xs leading-relaxed text-muted">
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">1.</span>
                     <span>
                       Open Telegram, find the department bot your administrator gave you, and send{" "}
-                      <Mono className="text-ink-200">/start</Mono>. Telegram only lets a bot message
+                      <Mono className="text-ink">/start</Mono>. Telegram only lets a bot message
                       you after you have started it, so this step is required.
                     </span>
                   </li>
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">2.</span>
                     <span>
-                      Find your numeric chat id: search <Mono className="text-ink-200">@userinfobot</Mono>{" "}
-                      in Telegram and send it <Mono className="text-ink-200">/start</Mono>. It replies
-                      with your <strong className="text-ink-200">Id</strong> — a plain number.
+                      Find your numeric chat id: search <Mono className="text-ink">@userinfobot</Mono>{" "}
+                      in Telegram and send it <Mono className="text-ink">/start</Mono>. It replies
+                      with your <strong className="text-ink">Id</strong> — a plain number.
                       Your administrator can also read it for you.
                     </span>
                   </li>
@@ -117,7 +117,7 @@ export default async function PortalSettingsPage() {
                   </FormActions>
                 </ActionForm>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-ink-800 pt-4">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
                   <InlineActionForm action={testMyTelegram}>
                     <SubmitButton variant="secondary" size="sm" pendingLabel="Sending...">
                       <Send size={13} />
@@ -131,7 +131,7 @@ export default async function PortalSettingsPage() {
                         Last verified {fmtRelative(telegram.verified_at)}
                       </p>
                     ) : (
-                      <p className="text-ink-500">Not verified yet</p>
+                      <p className="text-faint">Not verified yet</p>
                     )}
                     {telegram?.last_error ? (
                       <p className="mt-0.5 max-w-xs text-bad-500">{telegram.last_error}</p>
@@ -140,7 +140,7 @@ export default async function PortalSettingsPage() {
                 </div>
 
                 {!env.telegramBotToken ? (
-                  <p className="mt-3 rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-xs text-ink-400">
+                  <p className="mt-3 rounded-lg border border-line bg-panel/60 px-3 py-2 text-xs text-muted">
                     The platform bot is not configured yet, so test messages will fail. Your
                     administrator needs to set it up.
                   </p>
@@ -171,7 +171,7 @@ export default async function PortalSettingsPage() {
               </p>
             ) : (
               <>
-                <ol className="mb-4 space-y-2 text-xs leading-relaxed text-ink-400">
+                <ol className="mb-4 space-y-2 text-xs leading-relaxed text-muted">
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">1.</span>
                     <span>Create a blank Google Sheet in your own Drive.</span>
@@ -179,11 +179,11 @@ export default async function PortalSettingsPage() {
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">2.</span>
                     <span>
-                      Share it as <strong className="text-ink-200">Editor</strong> with
+                      Share it as <strong className="text-ink">Editor</strong> with
                       {env.googleServiceAccountEmail ? (
                         <>
                           {" "}
-                          <Mono className="break-all text-ink-200">
+                          <Mono className="break-all text-ink">
                             {env.googleServiceAccountEmail}
                           </Mono>
                         </>
@@ -219,7 +219,7 @@ export default async function PortalSettingsPage() {
                   </FormActions>
                 </ActionForm>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-ink-800 pt-4">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
                   <InlineActionForm action={testMySheet}>
                     <SubmitButton variant="secondary" size="sm" pendingLabel="Checking...">
                       <Sheet size={13} />
@@ -231,7 +231,7 @@ export default async function PortalSettingsPage() {
                     {sheet?.last_synced_at ? (
                       <p className="text-good-500">Last synced {fmtRelative(sheet.last_synced_at)}</p>
                     ) : (
-                      <p className="text-ink-500">Never synced</p>
+                      <p className="text-faint">Never synced</p>
                     )}
                     {sheet?.last_error ? (
                       <p className="mt-0.5 max-w-xs text-bad-500">{sheet.last_error}</p>
@@ -239,11 +239,11 @@ export default async function PortalSettingsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2.5">
-                  <p className="text-[11px] font-semibold tracking-wider text-ink-400 uppercase">
+                <div className="mt-3 rounded-lg border border-line bg-panel/60 px-3 py-2.5">
+                  <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
                     Tabs created for you
                   </p>
-                  <p className="mt-1 text-xs text-ink-400">
+                  <p className="mt-1 text-xs text-muted">
                     Truck Events · Alerts · Manual Searches · Usage Summary
                   </p>
                 </div>
@@ -268,32 +268,32 @@ export default async function PortalSettingsPage() {
                 <div className="mb-3 flex items-center gap-2">
                   <Badge tone="brand">{overview.plan_name}</Badge>
                   {overview.plan_expires_on ? (
-                    <span className="text-xs text-ink-400">
+                    <span className="text-xs text-muted">
                       expires {overview.plan_expires_on}
                     </span>
                   ) : null}
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <p className="mb-1 text-xs text-ink-400">Tracked trucks</p>
+                    <p className="mb-1 text-xs text-muted">Tracked trucks</p>
                     <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
                   </div>
                   <div>
-                    <p className="mb-1 text-xs text-ink-400">Manual searches today</p>
+                    <p className="mb-1 text-xs text-muted">Manual searches today</p>
                     <QuotaBar
                       used={overview.manual_searches_today}
                       limit={overview.manual_search_limit_per_day}
                     />
                   </div>
                   <div>
-                    <p className="mb-1 text-xs text-ink-400">Background checks this month</p>
+                    <p className="mb-1 text-xs text-muted">Background checks this month</p>
                     <QuotaBar
                       used={overview.tracking_queries_month}
                       limit={overview.tracking_queries_per_month}
                     />
                   </div>
                 </div>
-                <dl className="mt-4 border-t border-ink-800 pt-3">
+                <dl className="mt-4 border-t border-divider pt-3">
                   <DescRow label="Fastest interval">
                     {overview.min_polling_interval_minutes} min
                   </DescRow>
@@ -306,7 +306,7 @@ export default async function PortalSettingsPage() {
                         allowed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-ink-400">
+                      <span className="inline-flex items-center gap-1 text-muted">
                         <XCircle size={12} />
                         blocked
                       </span>
@@ -319,14 +319,14 @@ export default async function PortalSettingsPage() {
                         allowed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-ink-400">
+                      <span className="inline-flex items-center gap-1 text-muted">
                         <XCircle size={12} />
                         blocked
                       </span>
                     )}
                   </DescRow>
                 </dl>
-                <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
+                <p className="mt-3 text-[11px] leading-relaxed text-faint">
                   Limits are set by your administrator. Ask them if you need more.
                 </p>
               </>
@@ -351,14 +351,14 @@ export default async function PortalSettingsPage() {
               </DescRow>
               <DescRow label="Account since">{fmtDateTime(profile.created_at)}</DescRow>
             </dl>
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
               These details are maintained by your administrator. To change your password or any of
               the above, contact them.
             </p>
           </Panel>
 
           <Panel title="How alerts reach you">
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-400">
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
               <MessageCircle size={13} className="mt-0.5 shrink-0 text-brand-400" />
               The platform checks each tracked truck on its own interval. When a crossing matches one
               of your rules, the alert is recorded here and pushed to Telegram straight away. If

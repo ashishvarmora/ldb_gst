@@ -24,7 +24,7 @@ export function SearchBox({
         <div className="relative flex-1">
           <Search
             size={16}
-            className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-ink-500"
+            className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-faint"
           />
           <Input
             name="truck_number"
@@ -44,7 +44,7 @@ export function SearchBox({
           Search truck
         </SubmitButton>
       </div>
-      {hint ? <p className="mt-2 text-xs text-ink-500">{hint}</p> : null}
+      {hint ? <p className="mt-2 text-xs text-faint">{hint}</p> : null}
     </ActionForm>
   );
 }

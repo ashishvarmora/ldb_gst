@@ -157,7 +157,7 @@ export default async function OfficerDetailPage({
     <>
       <Link
         href="/admin/officers"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-ink-400 transition hover:text-brand-400"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-brand-400"
       >
         <ArrowLeft size={13} />
         All officers
@@ -168,8 +168,8 @@ export default async function OfficerDetailPage({
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             <span>{overview.email}</span>
-            {overview.designation ? <span className="text-ink-500">· {overview.designation}</span> : null}
-            {overview.office ? <span className="text-ink-500">· {overview.office}</span> : null}
+            {overview.designation ? <span className="text-faint">· {overview.designation}</span> : null}
+            {overview.office ? <span className="text-faint">· {overview.office}</span> : null}
           </span>
         }
         actions={
@@ -237,7 +237,7 @@ export default async function OfficerDetailPage({
           <Sheet size={11} />
           {overview.sheet_connected ? "Sheet linked" : "No sheet"}
         </Badge>
-        <span className="text-xs text-ink-500">Added {fmtDateTime(overview.created_at)}</span>
+        <span className="text-xs text-faint">Added {fmtDateTime(overview.created_at)}</span>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -281,7 +281,7 @@ export default async function OfficerDetailPage({
 
           <Panel title="Usage, last 30 days" description="Manual searches and background tracking calls per day.">
             <UsageChart series={series} />
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-ink-800 pt-4">
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-divider pt-4">
               <InlineActionForm action={resetOfficerUsage} hidden={{ user_id: id, scope: "today" }}>
                 <ConfirmSubmitButton
                   variant="secondary"
@@ -298,7 +298,7 @@ export default async function OfficerDetailPage({
                   Reset this month
                 </ConfirmSubmitButton>
               </InlineActionForm>
-              <p className="ml-auto max-w-xs text-right text-xs text-ink-500">
+              <p className="ml-auto max-w-xs text-right text-xs text-faint">
                 Resetting counters grants quota back immediately. It does not delete the LDB call
                 history.
               </p>
@@ -326,17 +326,17 @@ export default async function OfficerDetailPage({
                     <Tr key={truck.id}>
                       <td className="td">
                         <span className="flex items-center gap-2">
-                          <Mono className="font-semibold text-ink-100">{truck.truck_number}</Mono>
+                          <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
                           {truck.is_watchlist ? <Badge tone="warn">watchlist</Badge> : null}
                           {truck.is_active ? null : <Badge>paused</Badge>}
                         </span>
                         {truck.label ? (
-                          <span className="block text-xs text-ink-500">{truck.label}</span>
+                          <span className="block text-xs text-faint">{truck.label}</span>
                         ) : null}
                       </td>
                       <td className="td text-sm tabular-nums">{truck.polling_interval_minutes} min</td>
                       <td className="td text-sm">{truck.last_location ?? "--"}</td>
-                      <td className="td text-xs whitespace-nowrap text-ink-400">
+                      <td className="td text-xs whitespace-nowrap text-muted">
                         {fmtRelative(truck.last_event_at)}
                       </td>
                       <td className="td">
@@ -356,12 +356,12 @@ export default async function OfficerDetailPage({
               {searchList.length === 0 ? (
                 <EmptyState title="No calls yet" />
               ) : (
-                <ul className="divide-y divide-ink-800">
+                <ul className="divide-y divide-divider">
                   {searchList.map((log) => (
                     <li key={log.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
                       <span className="min-w-0">
-                        <Mono className="text-ink-100">{log.truck_number}</Mono>
-                        <span className="block text-xs text-ink-500">
+                        <Mono className="text-ink">{log.truck_number}</Mono>
+                        <span className="block text-xs text-faint">
                           {fmtDateTime(log.created_at)}
                         </span>
                       </span>
@@ -383,16 +383,16 @@ export default async function OfficerDetailPage({
               {alertList.length === 0 ? (
                 <EmptyState title="No alerts yet" />
               ) : (
-                <ul className="divide-y divide-ink-800">
+                <ul className="divide-y divide-divider">
                   {alertList.map((log) => (
                     <li key={log.id} className="px-5 py-2.5">
                       <span className="flex items-center justify-between gap-3">
-                        <span className="truncate text-sm text-ink-100">{log.title}</span>
+                        <span className="truncate text-sm text-ink">{log.title}</span>
                         <Badge tone={log.delivered ? "good" : "warn"}>
                           {log.delivered ? "sent" : "not sent"}
                         </Badge>
                       </span>
-                      <span className="mt-0.5 block text-xs text-ink-500">
+                      <span className="mt-0.5 block text-xs text-faint">
                         {log.truck_number ? `${log.truck_number} · ` : ""}
                         {fmtDateTime(log.created_at)}
                       </span>
@@ -438,7 +438,7 @@ export default async function OfficerDetailPage({
             </ActionForm>
 
             {currentPlan ? (
-              <dl className="mt-4 border-t border-ink-800 pt-3">
+              <dl className="mt-4 border-t border-divider pt-3">
                 <DescRow label="Assigned">{fmtDateTime(overview.plan_assigned_at)}</DescRow>
                 <DescRow label="Charge">
                   {currentPlan.price_per_month > 0 ? `Rs ${currentPlan.price_per_month}/mo` : "None"}
@@ -519,7 +519,7 @@ export default async function OfficerDetailPage({
               </FormActions>
             </ActionForm>
 
-            <dl className="mt-4 border-t border-ink-800 pt-3">
+            <dl className="mt-4 border-t border-divider pt-3">
               <DescRow label="Sheet id">
                 {sheet?.spreadsheet_id ? <Mono>{sheet.spreadsheet_id.slice(0, 18)}…</Mono> : "--"}
               </DescRow>
@@ -548,7 +548,7 @@ export default async function OfficerDetailPage({
           </Panel>
 
           <Panel title="Danger zone" className="border-bad-500/30">
-            <p className="text-xs leading-relaxed text-ink-400">
+            <p className="text-xs leading-relaxed text-muted">
               Deleting removes the login, every tracked truck, all toll events, search history and
               alerts for this officer. There is no undo.
             </p>

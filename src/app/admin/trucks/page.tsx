@@ -89,7 +89,7 @@ export default async function TrucksPage({
         <div className="relative min-w-52 flex-1">
           <SearchIcon
             size={14}
-            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-500"
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint"
           />
           <Input name="q" defaultValue={q ?? ""} placeholder="Truck number" className="pl-9" />
         </div>
@@ -147,19 +147,19 @@ export default async function TrucksPage({
                 <Tr key={truck.id}>
                   <td className="td">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <Mono className="font-semibold text-ink-100">{truck.truck_number}</Mono>
+                      <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
                       {truck.is_watchlist ? <Badge tone="warn">watchlist</Badge> : null}
                       {truck.is_active ? null : <Badge>paused</Badge>}
                     </span>
                     {truck.label ? (
-                      <span className="block text-xs text-ink-500">{truck.label}</span>
+                      <span className="block text-xs text-faint">{truck.label}</span>
                     ) : null}
                   </td>
 
                   <td className="td">
                     <Link
                       href={`/admin/officers/${truck.user_id}`}
-                      className="text-sm text-ink-200 transition hover:text-brand-400"
+                      className="text-sm text-ink transition hover:text-brand-400"
                     >
                       {truck.profiles?.full_name ?? truck.profiles?.email ?? "--"}
                     </Link>
@@ -168,10 +168,10 @@ export default async function TrucksPage({
                   <td className="td">
                     {truck.last_location ? (
                       <span className="flex items-center gap-1.5 text-sm">
-                        <MapPin size={13} className="shrink-0 text-ink-500" />
+                        <MapPin size={13} className="shrink-0 text-faint" />
                         {truck.last_location}
                         {truck.last_direction ? (
-                          <span className="text-ink-500">({truck.last_direction})</span>
+                          <span className="text-faint">({truck.last_direction})</span>
                         ) : null}
                       </span>
                     ) : (
@@ -179,7 +179,7 @@ export default async function TrucksPage({
                     )}
                   </td>
 
-                  <td className="td text-xs whitespace-nowrap text-ink-400">
+                  <td className="td text-xs whitespace-nowrap text-muted">
                     {fmtDateTime(truck.last_event_at)}
                   </td>
 
@@ -196,7 +196,7 @@ export default async function TrucksPage({
                     ) : null}
                   </td>
 
-                  <td className="td text-xs whitespace-nowrap text-ink-400">
+                  <td className="td text-xs whitespace-nowrap text-muted">
                     {fmtRelative(truck.last_polled_at)}
                   </td>
                 </Tr>
@@ -207,7 +207,7 @@ export default async function TrucksPage({
       </Panel>
 
       {rows.length === 300 ? (
-        <p className="mt-3 text-xs text-ink-500">
+        <p className="mt-3 text-xs text-faint">
           Showing the 300 most recently active trucks. Narrow the filters to see more.
         </p>
       ) : null}

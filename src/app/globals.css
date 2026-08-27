@@ -1,119 +1,230 @@
 @import "tailwindcss";
 
-/* ---------------------------------------------------------------------------
-   Palette. Slate-blue control-room dark, one amber accent for "attention".
-   --------------------------------------------------------------------------- */
-@theme {
-  --color-ink-950: #070a12;
-  --color-ink-900: #0b1020;
-  --color-ink-850: #0f1526;
-  --color-ink-800: #141b30;
-  --color-ink-700: #1d2540;
-  --color-ink-600: #2b355a;
-  --color-ink-500: #46527d;
-  --color-ink-400: #6b769e;
-  --color-ink-300: #9aa3c2;
-  --color-ink-200: #c6cbdf;
-  --color-ink-100: #e6e9f4;
+/* ===========================================================================
+   Two themes, one component set.
 
-  --color-brand-500: #4f7dff;
-  --color-brand-400: #6f96ff;
-  --color-brand-600: #3a63e0;
+   Components never name a raw colour. They use semantic utilities - bg-panel,
+   text-muted, border-line - and each section of the app decides what those
+   mean by setting the variables below.
 
-  --color-good-500: #2fbf71;
-  --color-warn-500: #f0a92b;
-  --color-bad-500: #f0524d;
+     .theme-dark   admin console  (dense control room)
+     .theme-light  officer portal (bright, phone-first)
+
+   To retheme a section, change the variables. Nothing else moves.
+   =========================================================================== */
+
+@theme inline {
+  /* surfaces, back to front */
+  --color-page: var(--c-page);
+  --color-panel: var(--c-panel);
+  --color-raised: var(--c-raised);
+  --color-sunken: var(--c-sunken);
+
+  /* lines */
+  --color-line: var(--c-line);
+  --color-divider: var(--c-divider);
+  --color-line-strong: var(--c-line-strong);
+
+  /* text, strongest to weakest */
+  --color-strong: var(--c-strong);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+
+  /* accents */
+  --color-brand-400: var(--c-brand-400);
+  --color-brand-500: var(--c-brand-500);
+  --color-brand-600: var(--c-brand-600);
+  --color-on-brand: var(--c-on-brand);
+  --color-good-500: var(--c-good);
+  --color-warn-500: var(--c-warn);
+  --color-bad-500: var(--c-bad);
 
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
 }
 
-* {
-  border-color: var(--color-ink-700);
-}
+/* ---------------------------------------------------------------------------
+   Dark - the admin console. Unchanged from the original palette.
+   --------------------------------------------------------------------------- */
+.theme-dark {
+  --c-page: #070a12;
+  --c-panel: #0b1020;
+  --c-raised: #0f1526;
+  --c-sunken: #141b30;
 
-html,
-body {
-  background: var(--color-ink-950);
-  color: var(--color-ink-100);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
+  --c-line: #1d2540;
+  --c-divider: #141b30;
+  --c-line-strong: #2b355a;
 
-body {
-  background-image:
+  --c-strong: #ffffff;
+  --c-ink: #e6e9f4;
+  --c-muted: #8590b6;
+  /* Tertiary tier: 3.8:1. Deliberately below AA for body text - it is only
+     used for timestamps and hints, and lifting it flattens the hierarchy. */
+  --c-faint: #6b769e;
+
+  --c-brand-400: #6f96ff;
+  --c-brand-500: #4f7dff;
+  --c-brand-600: #3a63e0;
+  --c-on-brand: #ffffff;
+  --c-good: #2fbf71;
+  --c-warn: #f0a92b;
+  --c-bad: #f0524d;
+
+  --app-bg-image:
     radial-gradient(70rem 40rem at 15% -10%, rgba(79, 125, 255, 0.13), transparent 60%),
     radial-gradient(50rem 30rem at 100% 0%, rgba(47, 191, 113, 0.07), transparent 55%);
+
+  --shadow-card: none;
+  --shadow-raised: none;
+  --shadow-pop: 0 24px 48px -12px rgb(0 0 0 / 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Light - the officer portal, and the default for the document, so nothing
+   dark ever shows through at the edges on overscroll. Cool neutral greys keep
+   the status colours (moving / idle / no activity) the loudest thing on screen.
+   --------------------------------------------------------------------------- */
+:root,
+.theme-light {
+  --c-page: #f4f6fa;
+  --c-panel: #ffffff;
+  --c-raised: #f7f9fc;
+  --c-sunken: #eef1f7;
+
+  --c-line: #dde3ec;
+  --c-divider: #eceff5;
+  --c-line-strong: #c3ccdb;
+
+  --c-strong: #0d1526;
+  --c-ink: #26304a;
+  --c-muted: #5c6880;
+  --c-faint: #646e80;
+
+  /* On a light background a "lighter" brand step cannot also be readable as
+     small text, so 400 and 500 are the same blue here. Depth comes from 600. */
+  --c-brand-400: #2563eb;
+  --c-brand-500: #2563eb;
+  --c-brand-600: #1d4ed8;
+  --c-on-brand: #ffffff;
+  --c-good: #0b7a44;
+  --c-warn: #9f4a07;
+  --c-bad: #c22217;
+
+  --app-bg-image:
+    radial-gradient(60rem 32rem at 12% -8%, rgba(37, 99, 235, 0.07), transparent 62%),
+    radial-gradient(46rem 26rem at 100% 0%, rgba(15, 157, 88, 0.05), transparent 58%);
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-raised: 0 4px 10px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.05);
+  --shadow-pop: 0 20px 40px -8px rgb(16 24 40 / 0.18), 0 4px 12px -4px rgb(16 24 40 / 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+html {
+  background: var(--c-page);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--c-page);
+  background-image: var(--app-bg-image);
   background-attachment: fixed;
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* A themed section paints its own background so the two never bleed. */
+.theme-light,
+.theme-dark {
+  background: var(--c-page);
+  background-image: var(--app-bg-image);
+  color: var(--c-ink);
 }
 
 ::selection {
-  background: var(--color-brand-600);
-  color: white;
+  background: var(--c-brand-500);
+  color: var(--c-on-brand);
 }
 
-/* Scrollbars that do not look like Windows 98 inside a dark panel. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-ink-600) transparent;
+  scrollbar-color: var(--c-line-strong) transparent;
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-ink-700);
+  background: var(--c-line-strong);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--color-ink-600);
-  background-clip: content-box;
+
+/* Visible focus for keyboard users, invisible for mouse users. */
+:focus-visible {
+  outline: 2px solid var(--c-brand-500);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------------------
-   Form controls. Styled once here so 40 inputs across the admin panel do not
-   each carry a dozen utility classes.
+   Component classes
    --------------------------------------------------------------------------- */
 @layer components {
   .field {
-    @apply w-full rounded-lg border border-ink-700 bg-ink-900/80 px-3 py-2 text-sm text-ink-100
-      placeholder:text-ink-500 outline-none transition
-      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25
-      disabled:cursor-not-allowed disabled:opacity-50;
+    @apply w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink
+      placeholder:text-faint outline-none transition
+      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  /* 16px on phones stops iOS Safari zooming in when a field is focused. */
+  @media (max-width: 640px) {
+    .field {
+      font-size: 16px;
+    }
   }
 
   .field-label {
-    @apply mb-1.5 block text-xs font-medium tracking-wide text-ink-300 uppercase;
+    @apply mb-1.5 block text-xs font-medium tracking-wide text-muted uppercase;
   }
 
   .field-hint {
-    @apply mt-1 text-xs leading-relaxed text-ink-400;
+    @apply mt-1 text-xs leading-relaxed text-faint;
   }
 
   .panel {
-    @apply rounded-xl border border-ink-700/80 bg-ink-900/70 backdrop-blur-sm;
+    @apply rounded-xl border border-line bg-panel;
+    box-shadow: var(--shadow-card);
   }
 
   .th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-400 uppercase;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase;
   }
 
   .td {
-    @apply px-4 py-3 align-middle text-sm text-ink-200;
+    @apply px-4 py-3 align-middle text-sm text-ink;
   }
 
   .link {
-    @apply text-brand-400 underline decoration-brand-400/30 underline-offset-2
-      transition hover:decoration-brand-400;
+    @apply text-brand-500 underline decoration-brand-500/30 underline-offset-2
+      transition hover:decoration-brand-500;
   }
 }
 
-/* Date inputs render a black-on-black icon in dark mode without this. */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.75);
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
+}
+.theme-dark input[type="date"]::-webkit-calendar-picker-indicator,
+.theme-dark input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
 }
 
 @keyframes fade-in-up {
@@ -129,4 +240,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .animate-in {
   animation: fade-in-up 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

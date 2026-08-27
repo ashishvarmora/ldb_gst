@@ -50,7 +50,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
               "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
               active
                 ? "bg-brand-500/12 font-medium text-brand-400"
-                : "text-ink-300 hover:bg-ink-800/70 hover:text-ink-100",
+                : "text-muted hover:bg-sunken/70 hover:text-ink",
             )}
           >
             <Icon size={16} className="shrink-0" />
@@ -64,7 +64,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AdminSidebar() {
   return (
-    <div className="hidden w-60 shrink-0 border-r border-ink-800 px-3 py-4 lg:block">
+    <div className="hidden w-60 shrink-0 border-r border-divider px-3 py-4 lg:block">
       <Brand />
       <div className="mt-5">
         <NavLinks />
@@ -82,22 +82,22 @@ export function AdminMobileNav() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Open navigation"
-        className="rounded-lg border border-ink-700 bg-ink-850 p-2 text-ink-200 transition hover:bg-ink-800"
+        className="rounded-lg border border-line bg-raised p-2 text-ink transition hover:bg-sunken"
       >
         <Menu size={16} />
       </button>
 
       {open ? (
         <div className="fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="animate-in relative z-10 h-full w-64 border-r border-ink-700 bg-ink-900 px-3 py-4">
+          <div className="fixed inset-0 bg-strong/25 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="animate-in relative z-10 h-full w-64 border-r border-line bg-panel px-3 py-4">
             <div className="flex items-center justify-between">
               <Brand />
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close navigation"
-                className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-800 hover:text-ink-100"
+                className="rounded-lg p-1.5 text-muted hover:bg-sunken hover:text-ink"
               >
                 <X size={16} />
               </button>
@@ -119,8 +119,8 @@ function Brand() {
         <Truck size={16} />
       </span>
       <span className="leading-tight">
-        <span className="block text-sm font-semibold text-white">GST Truck Intel</span>
-        <span className="block text-[11px] text-ink-500">Admin console</span>
+        <span className="block text-sm font-semibold text-strong">GST Truck Intel</span>
+        <span className="block text-[11px] text-faint">Admin console</span>
       </span>
     </Link>
   );

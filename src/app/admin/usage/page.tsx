@@ -166,10 +166,10 @@ export default async function UsagePage() {
                     >
                       <Avatar size="sm" text={initials(officer.full_name, officer.email)} />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm text-ink-100 group-hover:text-brand-400">
+                        <span className="block truncate text-sm text-ink group-hover:text-brand-400">
                           {officer.full_name ?? officer.email}
                         </span>
-                        <span className="block truncate text-xs text-ink-500">
+                        <span className="block truncate text-xs text-faint">
                           {officer.office ?? "--"}
                         </span>
                       </span>
@@ -200,7 +200,7 @@ export default async function UsagePage() {
                   <td className="td text-sm tabular-nums">
                     {officer.active_trucks} / {formatLimit(officer.truck_limit)}
                   </td>
-                  <td className="td text-right text-sm tabular-nums text-ink-400">
+                  <td className="td text-right text-sm tabular-nums text-muted">
                     {formatLimit(officer.tracking_queries_per_month)}
                   </td>
                 </Tr>
@@ -230,7 +230,7 @@ export default async function UsagePage() {
             <Tbody>
               {calls.map((call) => (
                 <Tr key={call.id}>
-                  <td className="td text-xs whitespace-nowrap text-ink-400">
+                  <td className="td text-xs whitespace-nowrap text-muted">
                     {fmtDateTime(call.created_at)}
                   </td>
                   <td className="td text-sm">
@@ -249,7 +249,7 @@ export default async function UsagePage() {
                   </td>
                   <td className="td">
                     {call.ok ? (
-                      <span className="text-sm text-ink-200">
+                      <span className="text-sm text-ink">
                         {call.new_events} new / {call.events_found} found
                       </span>
                     ) : (
@@ -259,7 +259,7 @@ export default async function UsagePage() {
                       </Badge>
                     )}
                   </td>
-                  <td className="td text-right text-sm tabular-nums text-ink-400">
+                  <td className="td text-right text-sm tabular-nums text-muted">
                     {call.response_ms ? `${call.response_ms} ms` : "--"}
                   </td>
                 </Tr>

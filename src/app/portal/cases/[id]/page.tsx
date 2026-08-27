@@ -91,7 +91,7 @@ export default async function CaseDetailPage({
     <>
       <Link
         href="/portal/cases"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-ink-400 transition hover:text-brand-400"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-brand-400"
       >
         <ArrowLeft size={13} />
         All cases
@@ -100,12 +100,12 @@ export default async function CaseDetailPage({
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-ink-700 bg-ink-850 text-brand-400">
+            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-line bg-raised text-brand-400">
               <FolderOpen size={17} />
             </span>
-            <h1 className="text-2xl font-semibold tracking-tight text-white">{group.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-strong">{group.name}</h1>
           </div>
-          <p className="mt-1.5 max-w-2xl text-sm text-ink-400">
+          <p className="mt-1.5 max-w-2xl text-sm text-muted">
             {group.description ?? `Created ${fmtDate(group.created_at)}.`}
           </p>
         </div>
@@ -201,7 +201,7 @@ export default async function CaseDetailPage({
               description="Each truck, with its latest position."
               bodyClassName="p-0"
             >
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {numbers.map((number) => {
                   const truck = trackedByNumber.get(number);
                   const latest = eventsByTruck.get(number)?.[0] ?? null;
@@ -216,13 +216,13 @@ export default async function CaseDetailPage({
                           }
                           className="min-w-0 group"
                         >
-                          <Mono className="block font-semibold text-ink-100 group-hover:text-brand-400">
+                          <Mono className="block font-semibold text-ink group-hover:text-brand-400">
                             {number}
                           </Mono>
-                          <span className="mt-0.5 block truncate text-xs text-ink-400">
+                          <span className="mt-0.5 block truncate text-xs text-muted">
                             {latest?.loc_name ?? "No crossings on record"}
                           </span>
-                          <span className="block text-[11px] text-ink-500">
+                          <span className="block text-[11px] text-faint">
                             {latest ? fmtRelative(latest.event_time) : "—"}
                           </span>
                         </Link>
@@ -251,7 +251,7 @@ export default async function CaseDetailPage({
             </Panel>
 
             <Panel title="Tip">
-              <p className="text-xs leading-relaxed text-ink-400">
+              <p className="text-xs leading-relaxed text-muted">
                 A truck can sit in a case without being tracked — useful for vehicles you only need
                 to look up occasionally. Add it to tracking from its own page when you want
                 background checks and alerts.
@@ -282,10 +282,10 @@ export default async function CaseDetailPage({
                       return (
                         <span
                           key={number}
-                          className="rounded-full border border-ink-700 bg-ink-850 px-2.5 py-1 text-[11px] text-ink-300"
+                          className="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] text-muted"
                         >
                           <Mono>{number}</Mono>
-                          <span className="ml-1.5 text-ink-500">{count}</span>
+                          <span className="ml-1.5 text-faint">{count}</span>
                         </span>
                       );
                     })}

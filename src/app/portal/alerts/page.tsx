@@ -125,29 +125,29 @@ export default async function AlertsPage() {
               description="Without a rule, crossings are still logged — you just are not messaged about them. Watchlist trucks are the quickest way to start."
             />
           ) : (
-            <ul className="divide-y divide-ink-800">
+            <ul className="divide-y divide-divider">
               {ruleList.map((rule) => (
                 <li key={rule.id} className="px-4 py-3.5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-ink-100">{rule.name}</p>
+                        <p className="text-sm font-medium text-ink">{rule.name}</p>
                         <Badge tone={rule.is_active ? "good" : "neutral"}>
                           {rule.is_active ? "on" : "off"}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 text-xs text-ink-400">
+                      <p className="mt-0.5 text-xs text-muted">
                         {ALERT_KIND_LABEL[rule.kind]} · {describeRule(rule, settings)}
                       </p>
                       <div className="mt-1.5 flex items-center gap-2">
                         {rule.notify_telegram ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-ink-500">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-faint">
                             <MessageCircle size={10} />
                             Telegram
                           </span>
                         ) : null}
                         {rule.notify_sheet ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-ink-500">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-faint">
                             <Sheet size={10} />
                             Sheet
                           </span>
@@ -201,11 +201,11 @@ export default async function AlertsPage() {
               description="Alerts appear here the moment a tracked truck matches one of your rules."
             />
           ) : (
-            <ul className="divide-y divide-ink-800">
+            <ul className="divide-y divide-divider">
               {alertList.map((alert) => (
                 <li key={alert.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm text-ink-100">{alert.title}</p>
+                    <p className="text-sm text-ink">{alert.title}</p>
                     {alert.delivered ? (
                       <Badge tone="good">sent</Badge>
                     ) : (
@@ -213,9 +213,9 @@ export default async function AlertsPage() {
                     )}
                   </div>
                   {alert.message ? (
-                    <p className="mt-0.5 text-xs text-ink-400">{alert.message}</p>
+                    <p className="mt-0.5 text-xs text-muted">{alert.message}</p>
                   ) : null}
-                  <p className="mt-1 text-[11px] text-ink-500">
+                  <p className="mt-1 text-[11px] text-faint">
                     {alert.truck_number ? (
                       <>
                         <Mono>{alert.truck_number}</Mono> ·{" "}

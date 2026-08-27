@@ -95,9 +95,9 @@ export function AlertRuleForm({
             </Select>
           </Field>
         ) : (
-          <p className="rounded-lg border border-ink-700/70 bg-ink-900/50 px-3 py-2.5 text-sm text-ink-200">
+          <p className="rounded-lg border border-line/70 bg-panel/50 px-3 py-2.5 text-sm text-ink">
             {ALERT_KIND_LABEL[kind]}
-            <span className="mt-0.5 block text-xs text-ink-400">{ALERT_KIND_HINT[kind]}</span>
+            <span className="mt-0.5 block text-xs text-muted">{ALERT_KIND_HINT[kind]}</span>
           </p>
         )}
 

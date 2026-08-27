@@ -11,14 +11,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const session = await requireSuperAdmin();
 
   return (
-    <div className="flex min-h-screen">
+    <div className="theme-dark flex min-h-screen">
       <AdminSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-ink-800 bg-ink-950/85 px-4 py-3 backdrop-blur">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
             <AdminMobileNav />
-            <span className="hidden text-xs text-ink-500 sm:inline">
+            <span className="hidden text-xs text-faint sm:inline">
               Super admin console — you manage every officer account from here.
             </span>
           </div>
@@ -26,16 +26,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <div className="flex items-center gap-3">
             <Link
               href="/portal"
-              className="hidden items-center gap-1.5 rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-300 transition hover:bg-ink-800 hover:text-ink-100 sm:inline-flex"
+              className="hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted transition hover:bg-sunken hover:text-ink sm:inline-flex"
             >
               <LayoutDashboard size={13} />
               Officer view
             </Link>
             <div className="hidden text-right sm:block">
-              <p className="text-xs font-medium text-ink-100">
+              <p className="text-xs font-medium text-ink">
                 {session.profile.full_name ?? "Administrator"}
               </p>
-              <p className="text-[11px] text-ink-500">{session.email}</p>
+              <p className="text-[11px] text-faint">{session.email}</p>
             </div>
             <Avatar text={initials(session.profile.full_name, session.email)} />
             <SignOutButton />

@@ -50,7 +50,7 @@ export function PlanFields({ plan }: { plan?: Plan }) {
       </Field>
 
       <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-ink-400 uppercase">
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
           Limits
         </p>
         <FormGrid cols={3}>
@@ -81,7 +81,7 @@ export function PlanFields({ plan }: { plan?: Plan }) {
       ) : null}
 
       <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-ink-400 uppercase">
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
           Features
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

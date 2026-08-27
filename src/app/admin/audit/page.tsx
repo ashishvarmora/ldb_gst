@@ -101,7 +101,7 @@ export default async function AuditPage({
             description="Actions you take in this console show up here."
           />
         ) : (
-          <ul className="divide-y divide-ink-800">
+          <ul className="divide-y divide-divider">
             {rows.map((entry) => {
               const changes = (entry.meta?.changes ?? null) as Record<
                 string,
@@ -121,7 +121,7 @@ export default async function AuditPage({
                           <Mono>{entry.action}</Mono>
                         </Badge>
                         {entry.entity_label ? (
-                          <span className="text-sm text-ink-100">{entry.entity_label}</span>
+                          <span className="text-sm text-ink">{entry.entity_label}</span>
                         ) : null}
                         {entry.entity === "profile" && entry.entity_id ? (
                           <Link
@@ -132,7 +132,7 @@ export default async function AuditPage({
                           </Link>
                         ) : null}
                       </div>
-                      <p className="mt-1 text-xs text-ink-500">
+                      <p className="mt-1 text-xs text-faint">
                         {entry.actor_email ?? "unknown admin"} · {fmtDateTime(entry.created_at)} ·{" "}
                         {fmtRelative(entry.created_at)}
                       </p>
@@ -142,8 +142,8 @@ export default async function AuditPage({
                   {changes && Object.keys(changes).length > 0 ? (
                     <ul className="mt-2 space-y-0.5">
                       {Object.entries(changes).map(([field, change]) => (
-                        <li key={field} className="text-xs text-ink-400">
-                          <Mono className="text-ink-300">{field}</Mono>{" "}
+                        <li key={field} className="text-xs text-muted">
+                          <Mono className="text-muted">{field}</Mono>{" "}
                           <span className="text-bad-500/80">{JSON.stringify(change.from)}</span>
                           {" → "}
                           <span className="text-good-500">{JSON.stringify(change.to)}</span>
@@ -152,10 +152,10 @@ export default async function AuditPage({
                     </ul>
                   ) : hasDetail ? (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-ink-500 hover:text-ink-300">
+                      <summary className="cursor-pointer text-xs text-faint hover:text-muted">
                         details
                       </summary>
-                      <pre className="mt-1 overflow-x-auto rounded-lg border border-ink-800 bg-ink-950/60 p-2 text-[11px] text-ink-300">
+                      <pre className="mt-1 overflow-x-auto rounded-lg border border-divider bg-page/60 p-2 text-[11px] text-muted">
                         {JSON.stringify(entry.meta, null, 2)}
                       </pre>
                     </details>
@@ -168,7 +168,7 @@ export default async function AuditPage({
       </Panel>
 
       {rows.length === 200 ? (
-        <p className="mt-3 text-xs text-ink-500">Showing the 200 most recent entries.</p>
+        <p className="mt-3 text-xs text-faint">Showing the 200 most recent entries.</p>
       ) : null}
     </>
   );

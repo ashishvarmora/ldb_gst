@@ -159,7 +159,7 @@ export default async function AdminOverviewPage() {
             Could not read <code className="font-mono">officer_overview</code>:{" "}
             {officersError.message}
           </p>
-          <p className="mt-2 text-xs text-ink-400">
+          <p className="mt-2 text-xs text-muted">
             Run both files in <code className="font-mono">supabase/migrations</code> against your
             Supabase project, then reload.
           </p>
@@ -258,10 +258,10 @@ export default async function AdminOverviewPage() {
                             text={initials(officer.full_name, officer.email)}
                           />
                           <span className="min-w-0">
-                            <span className="block truncate text-sm text-ink-100 group-hover:text-brand-400">
+                            <span className="block truncate text-sm text-ink group-hover:text-brand-400">
                               {officer.full_name ?? officer.email}
                             </span>
-                            <span className="block truncate text-xs text-ink-500">
+                            <span className="block truncate text-xs text-faint">
                               {officer.office ?? officer.district ?? "--"}
                             </span>
                           </span>
@@ -310,22 +310,22 @@ export default async function AdminOverviewPage() {
             {attention.length === 0 ? (
               <EmptyState title="All clear" description="Every officer is inside their limits." />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {attention.slice(0, 12).map(({ officer, reason, tone }) => (
                   <li key={`${officer.id}-${reason}`}>
                     <Link
                       href={`/admin/officers/${officer.id}`}
-                      className="flex items-start gap-3 px-5 py-3 transition hover:bg-ink-850/60"
+                      className="flex items-start gap-3 px-5 py-3 transition hover:bg-raised/60"
                     >
                       <AlertTriangle
                         size={15}
                         className={tone === "bad" ? "mt-0.5 text-bad-500" : "mt-0.5 text-warn-500"}
                       />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm text-ink-100">
+                        <span className="block truncate text-sm text-ink">
                           {officer.full_name ?? officer.email}
                         </span>
-                        <span className="block text-xs text-ink-400">{reason}</span>
+                        <span className="block text-xs text-muted">{reason}</span>
                       </span>
                     </Link>
                   </li>
@@ -346,16 +346,16 @@ export default async function AdminOverviewPage() {
             {(audit ?? []).length === 0 ? (
               <EmptyState title="No activity yet" />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {((audit ?? []) as AuditLog[]).map((entry) => (
                   <li key={entry.id} className="px-5 py-2.5">
-                    <p className="text-sm text-ink-100">
+                    <p className="text-sm text-ink">
                       <span className="font-mono text-xs text-brand-400">{entry.action}</span>
                       {entry.entity_label ? (
-                        <span className="text-ink-300"> · {entry.entity_label}</span>
+                        <span className="text-muted"> · {entry.entity_label}</span>
                       ) : null}
                     </p>
-                    <p className="text-xs text-ink-500">
+                    <p className="text-xs text-faint">
                       {fmtRelative(entry.created_at)} · {fmtDateTime(entry.created_at)}
                     </p>
                   </li>

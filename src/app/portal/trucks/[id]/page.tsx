@@ -102,7 +102,7 @@ export default async function TruckDetailPage({
     <>
       <Link
         href="/portal/trucks"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-ink-400 transition hover:text-brand-400"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-brand-400"
       >
         <ArrowLeft size={13} />
         All my trucks
@@ -111,10 +111,10 @@ export default async function TruckDetailPage({
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-ink-700 bg-ink-850 text-ink-400">
+            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-line bg-raised text-muted">
               <TruckIcon size={17} />
             </span>
-            <h1 className="font-mono text-2xl font-semibold tracking-wide text-white">
+            <h1 className="font-mono text-2xl font-semibold tracking-wide text-strong">
               {truck.truck_number}
             </h1>
             <Badge tone={TRUCK_STATUS_TONE[status]}>{TRUCK_STATUS_LABEL[status]}</Badge>
@@ -126,7 +126,7 @@ export default async function TruckDetailPage({
             ) : null}
             {truck.is_active ? null : <Badge>paused</Badge>}
           </div>
-          <p className="mt-1.5 text-sm text-ink-400">
+          <p className="mt-1.5 text-sm text-muted">
             {truck.label ? `${truck.label} · ` : ""}
             {truck.is_active
               ? `Checked every ${truck.polling_interval_minutes} min · last check ${fmtRelative(truck.last_polled_at)}`
@@ -247,17 +247,17 @@ export default async function TruckDetailPage({
             {alertList.length === 0 ? (
               <EmptyState title="No alerts for this truck" />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {alertList.map((alert) => (
                   <li key={alert.id} className="px-4 py-2.5">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-ink-100">{alert.title}</p>
+                      <p className="text-sm text-ink">{alert.title}</p>
                       {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
                     </div>
                     {alert.message ? (
-                      <p className="mt-0.5 text-xs text-ink-400">{alert.message}</p>
+                      <p className="mt-0.5 text-xs text-muted">{alert.message}</p>
                     ) : null}
-                    <p className="mt-0.5 text-[11px] text-ink-500">
+                    <p className="mt-0.5 text-[11px] text-faint">
                       {fmtDateTime(alert.created_at)}
                     </p>
                   </li>
@@ -270,19 +270,19 @@ export default async function TruckDetailPage({
             {checkList.length === 0 ? (
               <EmptyState title="No checks yet" />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {checkList.map((check) => (
                   <li
                     key={check.id}
                     className="flex items-center justify-between gap-2 px-4 py-2"
                   >
-                    <span className="text-xs text-ink-400">{fmtDateTime(check.created_at)}</span>
+                    <span className="text-xs text-muted">{fmtDateTime(check.created_at)}</span>
                     <span className="flex items-center gap-2">
                       <Badge tone={check.source === "manual" ? "brand" : "neutral"}>
                         {check.source}
                       </Badge>
                       {check.ok ? (
-                        <span className="text-xs text-ink-300">
+                        <span className="text-xs text-muted">
                           {check.new_events > 0 ? `${check.new_events} new` : "no change"}
                         </span>
                       ) : (
@@ -296,7 +296,7 @@ export default async function TruckDetailPage({
           </Panel>
 
           <Panel title="Remove this truck" className="border-bad-500/25">
-            <p className="text-xs leading-relaxed text-ink-400">
+            <p className="text-xs leading-relaxed text-muted">
               Removing frees a tracking slot. You can keep the toll history for your records, or
               delete it along with the truck.
             </p>

@@ -21,8 +21,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">{title}</h1>
-        {subtitle ? <p className="mt-1 max-w-2xl text-sm text-ink-400">{subtitle}</p> : null}
+        <h1 className="text-2xl font-semibold tracking-tight text-strong">{title}</h1>
+        {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -47,10 +47,10 @@ export function Panel({
   return (
     <section className={cx("panel overflow-hidden", className)}>
       {title ? (
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-700/70 px-5 py-3.5">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-5 py-3.5">
           <div>
-            <h2 className="text-sm font-semibold text-ink-100">{title}</h2>
-            {description ? <p className="mt-0.5 text-xs text-ink-400">{description}</p> : null}
+            <h2 className="text-sm font-semibold text-ink">{title}</h2>
+            {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </header>
@@ -71,8 +71,8 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <p className="text-sm font-medium text-ink-200">{title}</p>
-      {description ? <p className="max-w-md text-sm text-ink-400">{description}</p> : null}
+      <p className="text-sm font-medium text-ink">{title}</p>
+      {description ? <p className="max-w-md text-sm text-muted">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );
@@ -83,7 +83,7 @@ export function EmptyState({
 /* -------------------------------------------------------------------------- */
 
 const BADGE_TONES = {
-  neutral: "border-ink-600 bg-ink-800 text-ink-300",
+  neutral: "border-line-strong bg-sunken text-muted",
   brand: "border-brand-500/40 bg-brand-500/12 text-brand-400",
   good: "border-good-500/40 bg-good-500/12 text-good-500",
   warn: "border-warn-500/40 bg-warn-500/12 text-warn-500",
@@ -116,7 +116,7 @@ export function Badge({
 
 export function StatusDot({ tone }: { tone: BadgeTone }) {
   const colour = {
-    neutral: "bg-ink-400",
+    neutral: "bg-faint",
     brand: "bg-brand-400",
     good: "bg-good-500",
     warn: "bg-warn-500",
@@ -131,16 +131,18 @@ export function StatusDot({ tone }: { tone: BadgeTone }) {
 
 const BUTTON_VARIANTS = {
   primary:
-    "bg-brand-500 text-white hover:bg-brand-400 focus-visible:ring-brand-500/40 border-transparent",
+    "bg-brand-500 text-on-brand hover:bg-brand-600 focus-visible:ring-brand-500/40 border-transparent",
   secondary:
-    "bg-ink-800 text-ink-100 hover:bg-ink-700 focus-visible:ring-ink-500/40 border-ink-700",
-  ghost: "bg-transparent text-ink-300 hover:bg-ink-800 hover:text-ink-100 border-transparent",
-  danger: "bg-bad-500/15 text-bad-500 hover:bg-bad-500/25 border-bad-500/40",
+    "bg-panel text-ink hover:bg-sunken focus-visible:ring-brand-500/30 border-line",
+  ghost: "bg-transparent text-muted hover:bg-sunken hover:text-ink border-transparent",
+  danger: "bg-bad-500/10 text-bad-500 hover:bg-bad-500/18 border-bad-500/35",
 } as const;
 
+/* Comfortable tap targets: 36px at sm, 40px at md, both above the 32px floor
+   that makes a control fiddly on a phone. */
 const BUTTON_SIZES = {
-  sm: "px-2.5 py-1.5 text-xs gap-1.5",
-  md: "px-3.5 py-2 text-sm gap-2",
+  sm: "min-h-9 px-3 py-1.5 text-xs gap-1.5",
+  md: "min-h-10 px-4 py-2 text-sm gap-2",
 } as const;
 
 export type ButtonVariant = keyof typeof BUTTON_VARIANTS;
@@ -194,18 +196,18 @@ export function TableWrap({ children }: { children: ReactNode }) {
 
 export function Thead({ children }: { children: ReactNode }) {
   return (
-    <thead className="border-b border-ink-700/70 bg-ink-850/60">
+    <thead className="border-b border-line/70 bg-raised/60">
       <tr>{children}</tr>
     </thead>
   );
 }
 
 export function Tbody({ children }: { children: ReactNode }) {
-  return <tbody className="divide-y divide-ink-800">{children}</tbody>;
+  return <tbody className="divide-y divide-divider">{children}</tbody>;
 }
 
 export function Tr({ children, className }: { children: ReactNode; className?: string }) {
-  return <tr className={cx("transition hover:bg-ink-850/50", className)}>{children}</tr>;
+  return <tr className={cx("transition hover:bg-raised/50", className)}>{children}</tr>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -226,7 +228,7 @@ export function StatCard({
   icon?: ReactNode;
 }) {
   const accent = {
-    neutral: "text-ink-200",
+    neutral: "text-ink",
     brand: "text-brand-400",
     good: "text-good-500",
     warn: "text-warn-500",
@@ -236,11 +238,11 @@ export function StatCard({
   return (
     <div className="panel px-4 py-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold tracking-wider text-ink-400 uppercase">{label}</p>
-        {icon ? <span className="text-ink-500">{icon}</span> : null}
+        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</p>
+        {icon ? <span className="text-faint">{icon}</span> : null}
       </div>
       <p className={cx("mt-2 text-2xl font-semibold tabular-nums", accent)}>{value}</p>
-      {sub ? <p className="mt-1 text-xs text-ink-400">{sub}</p> : null}
+      {sub ? <p className="mt-1 text-xs text-muted">{sub}</p> : null}
     </div>
   );
 }
@@ -268,13 +270,13 @@ export function QuotaBar({
   return (
     <div className="min-w-28">
       <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
-        {label ? <span className="text-ink-400">{label}</span> : null}
-        <span className="font-medium tabular-nums text-ink-200">
+        {label ? <span className="text-muted">{label}</span> : null}
+        <span className="font-medium tabular-nums text-ink">
           {used.toLocaleString("en-IN")}
-          <span className="text-ink-500"> / {unlimited ? "∞" : limit.toLocaleString("en-IN")}</span>
+          <span className="text-faint"> / {unlimited ? "∞" : limit.toLocaleString("en-IN")}</span>
         </span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
         <div
           className={cx("h-full rounded-full transition-all", barColour)}
           style={{ width: unlimited ? "100%" : `${Math.max(ratio * 100, used > 0 ? 3 : 0)}%` }}
@@ -301,15 +303,31 @@ export function Avatar({ text, size = "md" }: { text: string; size?: "sm" | "md"
   );
 }
 
+/**
+ * The small "View all" link in a panel header. As plain text it renders about
+ * 16px tall, which is far too small to hit on a phone; the padding brings it to
+ * a real tap target without making it look like a button.
+ */
+export function PanelAction({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="-mr-2 inline-flex min-h-9 items-center rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-brand-500/8 hover:text-brand-600"
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function Mono({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cx("font-mono text-[13px] tracking-tight", className)}>{children}</span>;
 }
 
 export function DescRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-ink-800 py-2 last:border-0">
-      <dt className="shrink-0 text-xs tracking-wide text-ink-400 uppercase">{label}</dt>
-      <dd className="text-right text-sm text-ink-100">{children}</dd>
+    <div className="flex items-baseline justify-between gap-4 border-b border-divider py-2 last:border-0">
+      <dt className="shrink-0 text-xs tracking-wide text-muted uppercase">{label}</dt>
+      <dd className="text-right text-sm text-ink">{children}</dd>
     </div>
   );
 }

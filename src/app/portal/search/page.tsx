@@ -68,16 +68,16 @@ export default async function SearchPage() {
                 description="Type a registration number above to make your first lookup."
               />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {history.map((log) => (
                   <li key={log.id}>
                     <Link
                       href={`/portal/search/${log.truck_number}`}
-                      className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-ink-850/60"
+                      className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-raised/60"
                     >
                       <span className="min-w-0">
-                        <Mono className="block font-semibold text-ink-100">{log.truck_number}</Mono>
-                        <span className="block text-xs text-ink-500">
+                        <Mono className="block font-semibold text-ink">{log.truck_number}</Mono>
+                        <span className="block text-xs text-faint">
                           {fmtDateTime(log.created_at)} · {fmtRelative(log.created_at)}
                         </span>
                       </span>
@@ -85,7 +85,7 @@ export default async function SearchPage() {
                       <span className="flex shrink-0 items-center gap-2">
                         {log.ok ? (
                           <>
-                            <span className="text-xs text-ink-400">
+                            <span className="text-xs text-muted">
                               {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
                             </span>
                             {log.new_events > 0 ? (
@@ -105,12 +105,12 @@ export default async function SearchPage() {
         </div>
 
         <Panel title="How searching works">
-          <ul className="space-y-3 text-xs leading-relaxed text-ink-400">
+          <ul className="space-y-3 text-xs leading-relaxed text-muted">
             <li className="flex gap-2">
               <Info size={13} className="mt-0.5 shrink-0 text-brand-400" />
               <span>
                 One search = one credit, counted against your{" "}
-                <strong className="text-ink-200">daily</strong> limit. Background tracking uses a
+                <strong className="text-ink">daily</strong> limit. Background tracking uses a
                 separate monthly pool, so searching never eats into it.
               </span>
             </li>
@@ -124,7 +124,7 @@ export default async function SearchPage() {
             <li className="flex gap-2">
               <Info size={13} className="mt-0.5 shrink-0 text-brand-400" />
               <span>
-                Searching does <strong className="text-ink-200">not</strong> start tracking. Add the
+                Searching does <strong className="text-ink">not</strong> start tracking. Add the
                 truck from the result page if you want it checked automatically.
               </span>
             </li>

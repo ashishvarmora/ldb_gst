@@ -108,8 +108,8 @@ export default async function SettingsPage() {
                   </Field>
                 </FormGrid>
 
-                <div className="border-t border-ink-800 pt-4">
-                  <p className="mb-3 text-xs font-semibold tracking-wider text-ink-400 uppercase">
+                <div className="border-t border-divider pt-4">
+                  <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
                     Alert rule defaults
                   </p>
                   <FormGrid cols={2}>
@@ -177,10 +177,10 @@ export default async function SettingsPage() {
             title="What officers need to give you"
             description="Nothing sensitive. You hold the credentials; the officer only supplies two things."
           >
-            <div className="space-y-4 text-sm leading-relaxed text-ink-300">
-              <div className="rounded-lg border border-ink-700/70 bg-ink-900/50 p-4">
-                <p className="font-medium text-ink-100">1. Telegram chat id</p>
-                <p className="mt-1 text-xs text-ink-400">
+            <div className="space-y-4 text-sm leading-relaxed text-muted">
+              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+                <p className="font-medium text-ink">1. Telegram chat id</p>
+                <p className="mt-1 text-xs text-muted">
                   You run one bot for the whole platform. The officer sends it{" "}
                   <Mono>/start</Mono> — Telegram only allows a bot to message someone who has
                   started it. Then read their numeric chat id with{" "}
@@ -190,17 +190,17 @@ export default async function SettingsPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-ink-700/70 bg-ink-900/50 p-4">
-                <p className="font-medium text-ink-100">2. Google Sheet link</p>
-                <p className="mt-1 text-xs text-ink-400">
+              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+                <p className="font-medium text-ink">2. Google Sheet link</p>
+                <p className="mt-1 text-xs text-muted">
                   The officer creates a blank sheet, shares it as <strong>Editor</strong> with your
                   service account below, and sends you the link. No Apps Script, no OAuth screen, no
                   credentials from them.
                 </p>
                 {health.googleSheets ? (
-                  <p className="mt-2 flex items-center gap-2 rounded-md border border-ink-700 bg-ink-950/60 px-2.5 py-1.5">
-                    <Copy size={12} className="shrink-0 text-ink-500" />
-                    <Mono className="text-xs break-all text-ink-200">
+                  <p className="mt-2 flex items-center gap-2 rounded-md border border-line bg-page/60 px-2.5 py-1.5">
+                    <Copy size={12} className="shrink-0 text-faint" />
+                    <Mono className="text-xs break-all text-ink">
                       {env.googleServiceAccountEmail}
                     </Mono>
                   </p>
@@ -265,7 +265,7 @@ export default async function SettingsPage() {
                 </SubmitButton>
               </FormActions>
             </ActionForm>
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
               The scheduled worker hits <Mono>/api/cron/track</Mono> every 5 minutes on Vercel. This
               button runs the same code path.
             </p>
@@ -312,8 +312,8 @@ function HealthRow({ ok, label, detail }: { ok: boolean; label: string; detail: 
         <XCircle size={15} className="mt-0.5 shrink-0 text-bad-500" />
       )}
       <span>
-        <span className="block text-sm text-ink-100">{label}</span>
-        <span className="block text-xs text-ink-500">{ok ? detail : `Not set — ${detail}`}</span>
+        <span className="block text-sm text-ink">{label}</span>
+        <span className="block text-xs text-faint">{ok ? detail : `Not set — ${detail}`}</span>
       </span>
     </li>
   );

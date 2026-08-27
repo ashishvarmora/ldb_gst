@@ -113,28 +113,28 @@ export default async function CasesPage() {
               <Link
                 key={group.id}
                 href={`/portal/cases/${group.id}`}
-                className="panel group block p-4 transition hover:border-brand-500/40 hover:bg-ink-850/70"
+                className="panel group block p-4 transition hover:border-brand-500/40 hover:bg-raised/70"
               >
                 <div className="flex items-start gap-2.5">
-                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-ink-700 bg-ink-850 text-brand-400">
+                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-brand-400">
                     <FolderOpen size={15} />
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink-100 group-hover:text-brand-400">
+                    <p className="truncate text-sm font-semibold text-ink group-hover:text-brand-400">
                       {group.name}
                     </p>
-                    <p className="text-xs text-ink-500">Created {fmtDate(group.created_at)}</p>
+                    <p className="text-xs text-faint">Created {fmtDate(group.created_at)}</p>
                   </div>
                 </div>
 
                 {group.description ? (
-                  <p className="mt-2.5 line-clamp-2 text-xs leading-relaxed text-ink-400">
+                  <p className="mt-2.5 line-clamp-2 text-xs leading-relaxed text-muted">
                     {group.description}
                   </p>
                 ) : null}
 
-                <div className="mt-3 border-t border-ink-800 pt-2.5">
-                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] text-ink-500">
+                <div className="mt-3 border-t border-divider pt-2.5">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] text-faint">
                     <Truck size={11} />
                     {trucks.length} truck{trucks.length === 1 ? "" : "s"}
                   </p>
@@ -142,13 +142,13 @@ export default async function CasesPage() {
                     {trucks.slice(0, 4).map((number) => (
                       <Mono
                         key={number}
-                        className="rounded border border-ink-700 bg-ink-850 px-1.5 py-0.5 text-[11px] text-ink-300"
+                        className="rounded border border-line bg-raised px-1.5 py-0.5 text-[11px] text-muted"
                       >
                         {number}
                       </Mono>
                     ))}
                     {trucks.length > 4 ? (
-                      <span className="px-1 py-0.5 text-[11px] text-ink-500">
+                      <span className="px-1 py-0.5 text-[11px] text-faint">
                         +{trucks.length - 4}
                       </span>
                     ) : null}

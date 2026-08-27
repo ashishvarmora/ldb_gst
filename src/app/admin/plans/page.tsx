@@ -86,24 +86,24 @@ export default async function PlansPage() {
 function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
   return (
     <section className="panel flex flex-col overflow-hidden">
-      <header className="flex items-start justify-between gap-3 border-b border-ink-700/70 px-5 py-4">
+      <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Package size={15} className="shrink-0 text-brand-400" />
-            <h2 className="truncate text-base font-semibold text-white">{plan.name}</h2>
+            <h2 className="truncate text-base font-semibold text-strong">{plan.name}</h2>
             {plan.is_active ? null : <Badge tone="warn">Archived</Badge>}
           </div>
           {plan.description ? (
-            <p className="mt-1 line-clamp-2 text-xs text-ink-400">{plan.description}</p>
+            <p className="mt-1 line-clamp-2 text-xs text-muted">{plan.description}</p>
           ) : null}
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm font-semibold text-ink-100">
+          <p className="text-sm font-semibold text-ink">
             {plan.price_per_month > 0 ? fmtRupees(plan.price_per_month) : "No charge"}
           </p>
           <Link
             href={`/admin/officers?plan=${plan.id}`}
-            className="mt-1 inline-flex items-center gap-1 text-xs text-ink-400 transition hover:text-brand-400"
+            className="mt-1 inline-flex items-center gap-1 text-xs text-muted transition hover:text-brand-400"
           >
             <Users size={12} />
             {officers} officer{officers === 1 ? "" : "s"}
@@ -111,14 +111,14 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
         </div>
       </header>
 
-      <dl className="flex-1 divide-y divide-ink-800 px-5 py-1">
+      <dl className="flex-1 divide-y divide-divider px-5 py-1">
         {NUMERIC_LIMITS.map((field) => (
           <div key={field.key} className="flex items-baseline justify-between gap-4 py-2">
-            <dt className="text-xs text-ink-400">{field.label}</dt>
-            <dd className="text-sm font-medium tabular-nums text-ink-100">
+            <dt className="text-xs text-muted">{field.label}</dt>
+            <dd className="text-sm font-medium tabular-nums text-ink">
               {formatLimit(plan[field.key])}
               {field.key === "min_polling_interval_minutes" ? (
-                <span className="text-ink-500"> min</span>
+                <span className="text-faint"> min</span>
               ) : null}
             </dd>
           </div>
@@ -134,7 +134,7 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
         ))}
       </div>
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-ink-700/70 bg-ink-850/40 px-5 py-3">
+      <footer className="flex flex-wrap items-center gap-2 border-t border-line/70 bg-raised/40 px-5 py-3">
         <Modal
           triggerLabel="Edit"
           triggerIcon={<Pencil size={13} />}

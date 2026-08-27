@@ -9,6 +9,7 @@ import {
   LinkButton,
   Mono,
   Panel,
+  PanelAction,
   QuotaBar,
   StatCard,
 } from "@/components/ui";
@@ -63,10 +64,10 @@ export default async function PortalHome() {
   return (
     <>
       <div className="mb-5">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
+        <h1 className="text-2xl font-semibold tracking-tight text-strong">
           {firstName ? `Good to see you, ${firstName}` : "Truck Watch"}
         </h1>
-        <p className="mt-1 text-sm text-ink-400">
+        <p className="mt-1 text-sm text-muted">
           Look up any truck, or open one you are already tracking.
         </p>
       </div>
@@ -137,9 +138,7 @@ export default async function PortalHome() {
                   : `${overview.active_trucks} under tracking · ${slots} slot${slots === 1 ? "" : "s"} free.`
             }
             actions={
-              <Link href="/portal/trucks" className="text-xs text-brand-400 hover:underline">
-                View all
-              </Link>
+              <PanelAction href="/portal/trucks">View all</PanelAction>
             }
             bodyClassName={truckList.length === 0 ? "p-0" : "p-4"}
           >
@@ -169,9 +168,7 @@ export default async function PortalHome() {
             title="Recent alerts"
             bodyClassName="p-0"
             actions={
-              <Link href="/portal/alerts" className="text-xs text-brand-400 hover:underline">
-                All alerts
-              </Link>
+              <PanelAction href="/portal/alerts">All alerts</PanelAction>
             }
           >
             {alertList.length === 0 ? (
@@ -180,14 +177,14 @@ export default async function PortalHome() {
                 description="Create a rule and you will be told the moment something matches."
               />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {alertList.map((alert) => (
                   <li key={alert.id} className="px-4 py-2.5">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-ink-100">{alert.title}</p>
+                      <p className="text-sm text-ink">{alert.title}</p>
                       {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
                     </div>
-                    <p className="mt-0.5 text-xs text-ink-500">
+                    <p className="mt-0.5 text-xs text-faint">
                       {alert.truck_number ? (
                         <>
                           <Mono>{alert.truck_number}</Mono> ·{" "}
@@ -205,21 +202,21 @@ export default async function PortalHome() {
             {searchList.length === 0 ? (
               <EmptyState title="No searches yet" />
             ) : (
-              <ul className="divide-y divide-ink-800">
+              <ul className="divide-y divide-divider">
                 {searchList.map((log) => (
                   <li key={log.id}>
                     <Link
                       href={`/portal/search/${log.truck_number}`}
-                      className="flex items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-ink-850/60"
+                      className="flex items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-raised/60"
                     >
                       <span className="min-w-0">
-                        <Mono className="block text-ink-100">{log.truck_number}</Mono>
-                        <span className="block text-xs text-ink-500">
+                        <Mono className="block text-ink">{log.truck_number}</Mono>
+                        <span className="block text-xs text-faint">
                           {fmtDateTime(log.created_at)}
                         </span>
                       </span>
                       {log.ok ? (
-                        <span className="shrink-0 text-xs text-ink-400">
+                        <span className="shrink-0 text-xs text-muted">
                           {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
                         </span>
                       ) : (
@@ -234,9 +231,9 @@ export default async function PortalHome() {
 
           {overview.active_trucks > 0 ? (
             <Panel title="Tip">
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-ink-400">
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
                 <Star size={13} className="mt-0.5 shrink-0 text-warn-500" />
-                Mark a truck as <strong className="text-ink-200">watchlist</strong> and you get an
+                Mark a truck as <strong className="text-ink">watchlist</strong> and you get an
                 alert on every single crossing, not just the ones matching a rule.
               </p>
             </Panel>

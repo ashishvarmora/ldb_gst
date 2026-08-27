@@ -27,7 +27,7 @@ function QuotaPill({
       ? "border-bad-500/40 bg-bad-500/12 text-bad-500"
       : ratio >= 0.8
         ? "border-warn-500/40 bg-warn-500/12 text-warn-500"
-        : "border-ink-700 bg-ink-850 text-ink-300";
+        : "border-line bg-raised text-muted";
 
   return (
     <span
@@ -51,17 +51,17 @@ export default async function PortalLayout({ children }: { children: React.React
   const { overview } = session;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="theme-light flex min-h-screen">
       <PortalSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-ink-800 bg-ink-950/85 px-4 py-3 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <Link href="/portal" className="flex items-center gap-2 lg:hidden">
+            <Link href="/portal" className="-ml-1 flex min-h-10 items-center gap-2 rounded-lg px-1 lg:hidden">
               <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
                 <Truck size={16} />
               </span>
-              <span className="text-sm font-semibold text-white">Truck Watch</span>
+              <span className="text-sm font-semibold text-strong">Truck Watch</span>
             </Link>
 
             <div className="hidden items-center gap-2 lg:flex">
@@ -92,7 +92,7 @@ export default async function PortalLayout({ children }: { children: React.React
               {session.profile.role === "super_admin" ? (
                 <Link
                   href="/admin"
-                  className="hidden items-center gap-1.5 rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-300 transition hover:bg-ink-800 hover:text-ink-100 sm:inline-flex"
+                  className="hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted transition hover:bg-sunken hover:text-ink sm:inline-flex"
                 >
                   <ShieldCheck size={13} />
                   Admin console
@@ -102,16 +102,16 @@ export default async function PortalLayout({ children }: { children: React.React
               <Link
                 href="/portal/settings"
                 aria-label="Settings"
-                className="rounded-lg border border-ink-700 p-2 text-ink-300 transition hover:bg-ink-800 hover:text-ink-100"
+                className="inline-flex size-10 items-center justify-center rounded-lg border border-line bg-panel text-muted transition hover:bg-sunken hover:text-ink"
               >
                 <Settings size={15} />
               </Link>
 
               <span className="hidden text-right sm:block">
-                <span className="block text-xs font-medium text-ink-100">
+                <span className="block text-xs font-medium text-ink">
                   {session.profile.full_name ?? "Officer"}
                 </span>
-                <span className="block text-[11px] text-ink-500">
+                <span className="block text-[11px] text-faint">
                   {session.profile.office ?? session.email}
                 </span>
               </span>
