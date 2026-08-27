@@ -247,4 +247,5 @@ Telegram and Google Sheets delivery were exercised only through their failure pa
 (no live bot token or service account in the test environment) — the errors are
 recorded and surfaced as designed, but a real send needs your credentials.
 #   L D B - G S T  
+ #   L D B - G S T  
  
