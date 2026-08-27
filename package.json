@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check-secrets": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -23,6 +24,7 @@
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
+    "pg": "^8.23.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.3"
   }

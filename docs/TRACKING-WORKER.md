@@ -6,26 +6,39 @@ entry point at [src/app/api/cron/track/route.ts](../src/app/api/cron/track/route
 
 ## Scheduling
 
-`vercel.json` already registers the cron:
+The worker is one HTTP endpoint. Whatever calls it on a schedule is the *tick*.
 
-```jsonc
-{ "crons": [{ "path": "/api/cron/track", "schedule": "*/5 * * * *" }] }
-```
+A truck is only polled when its own interval has elapsed, so a 5-minute tick does not
+mean a 30-minute truck gets hammered — the tick just decides when to look.
 
-Every 5 minutes is the *tick*. A truck is only polled when its own interval has
-elapsed, so a 30-minute truck is still polled every 30 minutes — the tick just
-decides when to look.
+**Vercel Hobby only allows one cron run per day** — a `*/5 * * * *` schedule is
+rejected at deploy time with "Hobby accounts are limited to daily cron jobs". So
+`vercel.json` ships with `0 1 * * *` (06:30 IST) as a once-a-day backstop, and the
+real 5-minute cadence comes from somewhere else.
 
-**Vercel Hobby only allows one cron run per day.** On Hobby, either upgrade to Pro
-or point an external scheduler at the same URL:
+**Option 1 — GitHub Actions (already set up).** `.github/workflows/track.yml` runs
+every 5 minutes and is free. Add two repository secrets under **Settings → Secrets and
+variables → Actions**: `APP_URL` (your Vercel URL, no trailing slash) and
+`CRON_SECRET`. Run it once from the Actions tab to confirm. Caveats: GitHub's
+scheduler is best-effort and can be several minutes late under load, and scheduled
+workflows are disabled automatically after 60 days without a commit.
+
+**Option 2 — cron-job.org (most reliable free option).** Sign up, create a job
+pointing at `https://your-app.vercel.app/api/cron/track`, set the interval to 5
+minutes, and add a request header `Authorization: Bearer <CRON_SECRET>`. It is more
+punctual than GitHub Actions and does not need repo activity.
+
+**Option 3 — upgrade to Vercel Pro**, then set `vercel.json` back to `*/5 * * * *`.
+
+Any scheduler works — Supabase `pg_cron` with `pg_net`, a VPS crontab, anything that
+can make an HTTP call. Point it at:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/cron/track
 ```
 
-Anything works — cron-job.org, GitHub Actions on a schedule, Supabase `pg_cron` with
-`pg_net`, a VPS crontab. A `?key=<CRON_SECRET>` query parameter is accepted too, for
-schedulers that cannot set headers.
+A `?key=<CRON_SECRET>` query parameter is accepted too, for schedulers that cannot set
+headers.
 
 Vercel Cron sends `Authorization: Bearer $CRON_SECRET` automatically once that
 variable exists, so no extra header configuration is needed there.

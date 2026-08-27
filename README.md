@@ -98,6 +98,10 @@ All three are idempotent, so re-running them is safe.
 cp .env.example .env.local
 ```
 
+**[docs/CREDENTIALS.md](docs/CREDENTIALS.md) walks through every value click by
+click** — where in each dashboard to find it, and the two places people usually slip
+up. Summary:
+
 | Variable | Where from | Required |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Project Settings → API | yes |
@@ -110,12 +114,15 @@ cp .env.example .env.local
 
 ### 3. Your own admin account
 
+Put `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `ADMIN_NAME` in `.env.local`, then:
+
 ```bash
-node scripts/bootstrap-admin.mjs you@example.com "YourStrongPassword" "Your Name"
+node scripts/bootstrap-admin.mjs
 ```
 
 Creates the account, confirms the email, sets `role = 'super_admin'`. Safe to re-run
-to reset your own password.
+to reset your own password. **Delete those three lines once you can sign in** — they
+are a local bootstrap convenience and are never read by the deployed app.
 
 ### 4. Run it
 
@@ -129,9 +136,23 @@ Sign in at <http://localhost:3000/login>. Admins land on `/admin`, officers on
 ### 5. Deploy
 
 Push to GitHub, import into Vercel, paste the same environment variables into
-**Settings → Environment Variables**. `vercel.json` already registers the 5-minute
-cron. On the Hobby plan, cron runs only once a day — see
-[docs/TRACKING-WORKER.md](docs/TRACKING-WORKER.md) for external schedulers.
+**Settings → Environment Variables** (all except `SUPABASE_DB_URL` and the three
+`ADMIN_*` lines — those are local-only).
+
+**Scheduling the worker.** Vercel's Hobby plan allows only one cron run per day, so
+`vercel.json` is set to a daily run as a backstop. For real 5-minute tracking, this
+repo ships `.github/workflows/track.yml`, which calls the same endpoint from GitHub
+Actions for free. Add two repository secrets under
+**Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `APP_URL` | `https://your-project.vercel.app` (no trailing slash) |
+| `CRON_SECRET` | the same value you put in Vercel |
+
+Then trigger it once from the **Actions** tab to confirm it works. See
+[docs/TRACKING-WORKER.md](docs/TRACKING-WORKER.md) for the trade-offs and other
+schedulers.
 
 ### 6. First officer
 
@@ -151,8 +172,11 @@ You hold every credential. The officer supplies two harmless strings.
 
 **Telegram — one platform bot.** Create it with
 [@BotFather](https://t.me/BotFather), put the token in `TELEGRAM_BOT_TOKEN`. The
-officer sends `/start` and gets back a numeric **chat id**. That is all you need.
-**A mobile number is never involved**, and officers never create bots.
+officer sends your bot `/start` (Telegram will not let a bot message someone who has
+not started it), then you read their numeric chat id with
+`node scripts/get-telegram-chat-id.mjs` — or they fetch it themselves from
+`@userinfobot`. That number is all you need. **A mobile number is never involved**,
+and officers never create bots.
 
 **Google Sheets — one service account.** Create a service account in Google Cloud,
 enable the Sheets API, put the client email and private key in the env vars. The
@@ -210,7 +234,9 @@ src/
     manual-search.ts        shared officer-initiated lookup
     audit.ts  format.ts  forms.ts  intervals.ts  settings.ts  env.ts  types.ts
 supabase/migrations/        0001 schema · 0002 views+RLS+seed · 0003 worker RPCs
-scripts/bootstrap-admin.mjs
+scripts/bootstrap-admin.mjs        create or reset your super-admin login
+scripts/get-telegram-chat-id.mjs  read an officer's chat id after they press Start
+docs/CREDENTIALS.md         where every .env value comes from, step by step
 docs/TRACKING-WORKER.md     how the worker runs, and how to debug it
 ```
 
@@ -246,6 +272,8 @@ npm run build
 Telegram and Google Sheets delivery were exercised only through their failure paths
 (no live bot token or service account in the test environment) — the errors are
 recorded and surfaced as designed, but a real send needs your credentials.
-#   L D B - G S T  
- #   L D B - G S T  
+#   L D B - G S T 
+ 
+ #   L D B - G S T 
+ 
  

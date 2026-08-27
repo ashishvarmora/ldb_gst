@@ -28,10 +28,36 @@ function loadEnvFile(path) {
 loadEnvFile(".env.local");
 loadEnvFile(".env");
 
-const [email, password, fullName] = process.argv.slice(2);
+/**
+ * Credentials come from .env.local, or from the command line if you prefer.
+ * .env.local is the better habit: a password typed as an argument ends up in
+ * your shell history and is visible to anyone who can run `ps` while it works.
+ */
+const [argEmail, argPassword, argName] = process.argv.slice(2);
+const email = argEmail ?? process.env.ADMIN_EMAIL;
+const password = argPassword ?? process.env.ADMIN_PASSWORD;
+const fullName = argName ?? process.env.ADMIN_NAME;
 
 if (!email || !password) {
-  console.error('Usage: node scripts/bootstrap-admin.mjs <email> <password> ["Full Name"]');
+  console.error(
+    "No admin credentials.\n\n" +
+      "Either put these in .env.local:\n" +
+      "  ADMIN_EMAIL=you@example.com\n" +
+      '  ADMIN_PASSWORD=YourStrongPassword\n' +
+      '  ADMIN_NAME=Your Name\n\n' +
+      "and run:  node scripts/bootstrap-admin.mjs\n\n" +
+      'Or pass them directly:  node scripts/bootstrap-admin.mjs <email> <password> ["Full Name"]',
+  );
+  process.exit(1);
+}
+
+if (password.length < 8) {
+  console.error("Password must be at least 8 characters.");
+  process.exit(1);
+}
+
+if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  console.error(`"${email}" does not look like an email address.`);
   process.exit(1);
 }
 

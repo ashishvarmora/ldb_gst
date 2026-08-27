@@ -10,3 +10,9 @@ next-env.d.ts
 .vercel
 .DS_Store
 files (2).zip
+
+# Google service-account keys - never commit these
+*.iam.gserviceaccount.com.json
+*-service-account*.json
+gj01ab1234-*.json
+service-account*.json
