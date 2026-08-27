@@ -168,6 +168,8 @@ export type TruckEvent = {
   lng: number | null;
   direction: string | null;
   event_name: string | null;
+  /** False when this crossing repeats the previous plaza for the same truck. */
+  is_location_change: boolean;
   fetched_at: string;
 };
 

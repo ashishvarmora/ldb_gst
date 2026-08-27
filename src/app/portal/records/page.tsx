@@ -41,6 +41,8 @@ type RecordSearch = {
   range?: string;
   direction?: string;
   page?: string;
+  /** "1" to include repeat readings at a plaza the truck never left. */
+  all?: string;
 };
 
 /**
@@ -63,6 +65,11 @@ export default async function RecordsPage({
   const page = Math.max(1, Number(params.page) || 1);
   const from = (page - 1) * PAGE_SIZE;
 
+  // By default this lists movements. A plaza reports the same crossing under
+  // several sequence numbers, and a parked truck registers over and over, so
+  // showing every raw reading buries the actual journey.
+  const showAll = params.all === "1";
+
   let query = admin
     .from("truck_events")
     .select("*", { count: "exact" })
@@ -73,6 +80,7 @@ export default async function RecordsPage({
   if (range !== "all") {
     query = query.gte("event_time", `${istDaysAgo(Number(range))}T00:00:00+05:30`);
   }
+  if (!showAll) query = query.eq("is_location_change", true);
   if (params.truck) query = query.eq("truck_number", params.truck);
   if (params.direction) query = query.eq("direction", params.direction);
   if (params.q) query = query.ilike("loc_name", `%${params.q}%`);
@@ -110,7 +118,7 @@ export default async function RecordsPage({
   const topPlazas = [...byPlaza.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
   const busiestDay = [...byDay.entries()].sort((a, b) => b[1] - a[1])[0];
 
-  const filtered = Boolean(params.truck || params.q || params.direction || params.range);
+  const filtered = Boolean(params.truck || params.q || params.direction || params.range || params.all);
   const exportQuery = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v && k !== "page") exportQuery.set(k, v);
 
@@ -118,7 +126,7 @@ export default async function RecordsPage({
     <>
       <PageHeader
         title="Records"
-        subtitle="Every toll crossing on record for your trucks. Filter it, read it, export it — the same data that goes into your Google Sheet."
+        subtitle="Every move your trucks have made. Filter it, read it, export it — the same rows that go into your Google Sheet."
         actions={
           <a href={`/portal/records/export?${exportQuery}`} className={buttonClass("secondary")}>
             <Download size={14} />
@@ -129,7 +137,7 @@ export default async function RecordsPage({
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="Crossings"
+          label={showAll ? "Readings" : "Movements"}
           value={fmtNumber(total)}
           sub={range === "all" ? "everything kept" : `in the last ${range} days`}
           tone="brand"
@@ -177,6 +185,25 @@ export default async function RecordsPage({
           className="min-w-48 flex-1"
         />
 
+        <label
+          className={cx(
+            "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 text-xs transition",
+            showAll
+              ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+              : "border-line bg-panel text-muted hover:bg-sunken",
+          )}
+          title="A plaza can report one crossing several times, and a parked truck registers repeatedly."
+        >
+          <input
+            type="checkbox"
+            name="all"
+            value="1"
+            defaultChecked={showAll}
+            className="size-3.5 accent-[color:var(--c-brand-500)]"
+          />
+          Show repeat readings
+        </label>
+
         <button type="submit" className={buttonClass("secondary")}>
           <Filter size={14} />
           Apply
@@ -195,7 +222,7 @@ export default async function RecordsPage({
               <EmptyState title="Could not load records" description={error.message} />
             ) : events.length === 0 ? (
               <EmptyState
-                title={filtered ? "Nothing matches those filters" : "No crossings on record"}
+                title={filtered ? "Nothing matches those filters" : "No movements on record"}
                 description={
                   filtered
                     ? "Try a wider date range, or clear the filters."

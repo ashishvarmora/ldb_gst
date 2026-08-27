@@ -89,35 +89,6 @@ export function normaliseLocation(name: string | null | undefined): string | nul
   return cleaned === "" ? null : cleaned;
 }
 
-/**
- * Drops crossings that report the same plaza as the one before them.
- *
- * `events` must be oldest-first, and `previousLocation` is where the truck was
- * last known to be, so a run that continues from the previous poll is collapsed
- * too. A genuine return trip A -> B -> A survives, because the location changes
- * at each step. Unnamed plazas are always kept: there is nothing to compare.
- */
-export function collapseByLocation<T extends { loc_name: string | null }>(
-  events: T[],
-  previousLocation: string | null,
-): { kept: T[]; skipped: number } {
-  let previous = normaliseLocation(previousLocation);
-  const kept: T[] = [];
-  let skipped = 0;
-
-  for (const event of events) {
-    const location = normaliseLocation(event.loc_name);
-    if (location !== null && location === previous) {
-      skipped += 1;
-      continue;
-    }
-    previous = location;
-    kept.push(event);
-  }
-
-  return { kept, skipped };
-}
-
 /** A truck is due when it has never been polled, or the interval has elapsed. */
 export function isDue(
   truck: Pick<TrackedTruck, "last_polled_at" | "polling_interval_minutes">,
@@ -402,27 +373,46 @@ export async function pollTruck({
   // 5. Insert only crossings we have never seen. ON CONFLICT DO NOTHING plus a
   //    returning clause means the database itself tells us what is new, so two
   //    overlapping sweeps cannot double-alert.
+  //
+  //    Every crossing is stored - seq_no is what stops a crossing being
+  //    re-processed, so dropping a row would make it look new next poll and
+  //    fire the alerts again. Instead each row is flagged with whether it
+  //    actually moved the truck; the sheet and the officer's views read that
+  //    flag, the worker keeps the full history.
   let inserted: EventLike[] = [];
   if (result.events.length > 0) {
+    // Oldest first, so each crossing can be compared with the one before it.
+    const chronological = [...result.events].sort((a, b) =>
+      (a.eventTime ?? "").localeCompare(b.eventTime ?? ""),
+    );
+    let previous = normaliseLocation(truck.last_location);
+
+    const payload = chronological.map((event) => {
+      const location = normaliseLocation(event.locName);
+      // An unnamed plaza cannot be compared, so it always counts as a move.
+      const moved = location === null || location !== previous;
+      if (location !== null) previous = location;
+
+      return {
+        user_id: truck.user_id,
+        tracked_truck_id: truck.id,
+        truck_number: truck.truck_number,
+        seq_no: event.seqNo,
+        event_time: event.eventTime,
+        event_time_raw: event.eventTimeRaw,
+        loc_name: event.locName,
+        lat: event.lat,
+        lng: event.lng,
+        direction: event.direction,
+        event_name: event.eventName,
+        is_location_change: moved,
+      };
+    });
+
     const { data: newRows, error: insertError } = await admin
       .from("truck_events")
-      .upsert(
-        result.events.map((event) => ({
-          user_id: truck.user_id,
-          tracked_truck_id: truck.id,
-          truck_number: truck.truck_number,
-          seq_no: event.seqNo,
-          event_time: event.eventTime,
-          event_time_raw: event.eventTimeRaw,
-          loc_name: event.locName,
-          lat: event.lat,
-          lng: event.lng,
-          direction: event.direction,
-          event_name: event.eventName,
-        })),
-        { onConflict: "user_id,seq_no", ignoreDuplicates: true },
-      )
-      .select("seq_no, event_time, loc_name, direction");
+      .upsert(payload, { onConflict: "user_id,seq_no", ignoreDuplicates: true })
+      .select("seq_no, event_time, loc_name, direction, is_location_change");
 
     if (insertError) {
       return { ...outcome, status: "failed", error: `Storing events failed: ${insertError.message}` };
@@ -474,21 +464,17 @@ export async function pollTruck({
 
   // 7. Queue sheet rows for the flush at the end of the sweep.
   //
-  //    Only write a row when the truck is somewhere NEW. A plaza often reports
-  //    the same crossing under several sequence numbers, and a truck parked at
-  //    a plaza can register repeatedly - both fill the officer's sheet with
-  //    rows that say nothing. Comparing against the last location already
-  //    written (which is what the truck row still holds at this point) collapses
-  //    those runs, while a genuine return trip A -> B -> A still writes three
-  //    rows, because the location changed each time.
+  //    Only crossings that moved the truck reach the sheet. The flag was
+  //    decided at insert time, so the sheet and the database agree on what
+  //    counts as a move. A real return trip A -> B -> A still writes three
+  //    rows, because the location changed at each step.
   if (inserted.length > 0 && context.limits?.google_sheet_enabled && context.sheet?.spreadsheet_id) {
     const bySeq = new Map(result.events.map((event) => [event.seqNo, event]));
     const loggedAt = fmtDateTime(now);
 
-    const { kept, skipped } = collapseByLocation(
-      [...inserted].reverse(),
-      truck.last_location,
-    );
+    const chronological = [...inserted].reverse();
+    const kept = chronological.filter((row) => row.is_location_change !== false);
+    const skipped = chronological.length - kept.length;
 
     for (const row of kept) {
       const full = bySeq.get(row.seq_no);

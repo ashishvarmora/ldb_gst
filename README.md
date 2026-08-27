@@ -93,8 +93,10 @@ Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the view
 3. `supabase/migrations/0003_worker_rpcs.sql` — worker RPCs and extra indexes
 4. `supabase/migrations/0004_retention_and_records.sql` — data retention and the
    records-view indexes
+5. `supabase/migrations/0005_location_change_flag.sql` — the movement flag, its
+   backfill, and the `truck_movements` view
 
-All four are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
+All five are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
 applies them in order over a direct connection.
 
 ### 2. Environment
@@ -213,10 +215,25 @@ trimmed automatically.
 - The officer sees their own retention window, and a warning if they have no
   sheet, on both **Records** and **My plan**.
 
-Sheet writes are also deduplicated by location: a crossing is only appended when
-the plaza differs from the one before it, so a truck sitting at a plaza does not
-fill the sheet with identical rows. A genuine return trip A → B → A still writes
-three rows.
+### Movements vs readings
+
+The portal reports the same crossing under several sequence numbers, and a truck
+parked at a plaza registers over and over. Those rows say nothing new.
+
+They are still **stored** — `seq_no` is what stops the worker re-processing a
+crossing, so dropping a row would make it look new on the next poll and fire the
+alerts twice. Instead each row carries `is_location_change`, set at insert time
+by comparing against the previous plaza for that truck.
+
+- The **sheet**, the **records view** and every **timeline** read the flag, so
+  they all agree on what counts as a move.
+- The `truck_movements` view is the canonical "where has this truck been".
+- Records has a **Show repeat readings** toggle when the raw data is wanted.
+- A real return trip A → B → A still shows three rows: the location changed each
+  time.
+
+Comparison is on a normalised name, so `"Nadiad Toll Plaza"` and
+`" nadiad toll  plaza "` are the same place.
 
 ---
 

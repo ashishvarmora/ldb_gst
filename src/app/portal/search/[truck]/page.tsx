@@ -41,6 +41,9 @@ export default async function SearchResultPage({
         .select("*")
         .eq("user_id", overview.id)
         .eq("truck_number", truckNumber)
+        // The route, not every reading: a plaza can report one crossing several
+        // times, which would show as the same stop repeated.
+        .eq("is_location_change", true)
         .order("event_time", { ascending: false, nullsFirst: false })
         .limit(120),
       admin
