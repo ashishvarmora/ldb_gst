@@ -93,10 +93,12 @@ Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the view
 3. `supabase/migrations/0003_worker_rpcs.sql` — worker RPCs and extra indexes
 4. `supabase/migrations/0004_retention_and_records.sql` — data retention and the
    records-view indexes
-5. `supabase/migrations/0005_location_change_flag.sql` — the movement flag, its
-   backfill, and the `truck_movements` view
+5. `supabase/migrations/0005_location_change_flag.sql` — the movement flag and
+   its backfill
+6. `supabase/migrations/0006_store_movements_only.sql` — drops the repeats and
+   the flag; the worker now filters before writing
 
-All five are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
+All six are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
 applies them in order over a direct connection.
 
 ### 2. Environment
@@ -215,25 +217,37 @@ trimmed automatically.
 - The officer sees their own retention window, and a warning if they have no
   sheet, on both **Records** and **My plan**.
 
-### Movements vs readings
+### What actually gets stored
 
-The portal reports the same crossing under several sequence numbers, and a truck
-parked at a plaza registers over and over. Those rows say nothing new.
+**One row per movement.** The worker polls LDB on each truck's interval, but a
+poll is not an event: the portal reports the same crossing under several
+sequence numbers, and a parked truck registers over and over. Those readings say
+nothing the previous row does not already say, so they are **never written** —
+not to the database, not to the sheet.
 
-They are still **stored** — `seq_no` is what stops the worker re-processing a
-crossing, so dropping a row would make it look new on the next poll and fire the
-alerts twice. Instead each row carries `is_location_change`, set at insert time
-by comparing against the previous plaza for that truck.
+The decision happens before the insert. The portal's list is walked
+oldest-first, each plaza compared with the one before it, seeded from the
+truck's **last saved location**. That seed is what makes it stable: the same
+reading is skipped on every poll, so it is never inserted and never alerted on,
+even when the portal's window slides and a response starts mid-run.
 
-- The **sheet**, the **records view** and every **timeline** read the flag, so
-  they all agree on what counts as a move.
-- The `truck_movements` view is the canonical "where has this truck been".
-- Records has a **Show repeat readings** toggle when the raw data is wanted.
-- A real return trip A → B → A still shows three rows: the location changed each
-  time.
+| What happens | What is stored |
+| --- | --- |
+| Truck moves to a new plaza | one row: time + new location |
+| Same plaza reported 3× in one response | one row |
+| The same response polled again 5 minutes later | nothing |
+| Truck parked at a plaza for an hour | nothing |
+| Return trip A → B → A | three rows — the location changed each time |
 
 Comparison is on a normalised name, so `"Nadiad Toll Plaza"` and
 `" nadiad toll  plaza "` are the same place.
+
+**Call logging follows the same idea.** A manual search is always logged — the
+officer spent a credit and needs to see it. A background check is logged only
+when it found a movement or failed; a quiet check is counted against the monthly
+quota (by `consume_quota()`, into `usage_counters`) but does not add a row.
+Fifty trucks on a ten-minute interval would otherwise write over 200,000 rows a
+month saying "nothing happened".
 
 ---
 
@@ -318,8 +332,3 @@ npm run build
 Telegram and Google Sheets delivery were exercised only through their failure paths
 (no live bot token or service account in the test environment) — the errors are
 recorded and surfaced as designed, but a real send needs your credentials.
-#   L D B - G S T 
- 
- #   L D B - G S T 
- 
- 

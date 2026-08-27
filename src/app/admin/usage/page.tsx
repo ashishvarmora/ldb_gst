@@ -122,7 +122,7 @@ export default async function UsagePage() {
           sub="What the upstream portal saw"
         />
         <StatCard
-          label="Failures in last 40 calls"
+          label="Failures in these calls"
           value={fmtNumber(failed)}
           tone={failed > 0 ? "warn" : "neutral"}
           sub={failed > 0 ? "Check the call log below" : "All recent calls succeeded"}
@@ -212,7 +212,7 @@ export default async function UsagePage() {
 
       <Panel
         title="Recent LDB calls"
-        description="The last 40 calls the platform made, newest first."
+        description="Newest first. Every manual search, plus the background checks that found a movement or failed - a quiet check that changed nothing is counted but not listed."
         bodyClassName="p-0"
       >
         {calls.length === 0 ? (

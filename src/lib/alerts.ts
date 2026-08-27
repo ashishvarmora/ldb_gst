@@ -12,8 +12,6 @@ export type EventLike = {
   event_time: string | null;
   loc_name: string | null;
   direction: string | null;
-  /** False when this crossing reports the same plaza as the one before it. */
-  is_location_change?: boolean;
 };
 
 export type AlertDraft = {

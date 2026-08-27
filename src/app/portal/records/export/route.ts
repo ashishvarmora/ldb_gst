@@ -39,8 +39,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (params.get("all") !== "1") query = query.eq("is_location_change", true);
-
   const truck = params.get("truck");
   const direction = params.get("direction");
   const q = params.get("q");

@@ -352,7 +352,11 @@ export default async function OfficerDetailPage({
           </Panel>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <Panel title="Last 10 LDB calls" bodyClassName="p-0">
+            <Panel
+              title="Last 10 LDB calls"
+              description="Manual searches, and background checks that found something or failed."
+              bodyClassName="p-0"
+            >
               {searchList.length === 0 ? (
                 <EmptyState title="No calls yet" />
               ) : (

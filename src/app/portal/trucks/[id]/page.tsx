@@ -70,9 +70,6 @@ export default async function TruckDetailPage({
       .select("*")
       .eq("user_id", overview.id)
       .eq("truck_number", truck.truck_number)
-      // The route, not every reading: a plaza can report one crossing several
-      // times, which would show as the same stop repeated.
-      .eq("is_location_change", true)
       .order("event_time", { ascending: false, nullsFirst: false })
       .limit(120),
     admin
@@ -257,7 +254,11 @@ export default async function TruckDetailPage({
             )}
           </Panel>
 
-          <Panel title="Recent checks" bodyClassName="p-0">
+          <Panel
+            title="Recent checks"
+            description="Checks that found a movement, or failed. Quiet checks are not listed."
+            bodyClassName="p-0"
+          >
             {checkList.length === 0 ? (
               <EmptyState title="No checks yet" />
             ) : (

@@ -59,12 +59,15 @@ per truck:
     refused, reason quota_exhausted   -> skip, try again next tick
     refused, plan_expired / suspended -> skip AND set is_active = false
   POST { vehiclenumber } to app_settings.ldb_api_url
-  upsert crossings on (user_id, seq_no) with ON CONFLICT DO NOTHING ... RETURNING
+  walk the response oldest-first, seeded from truck.last_location
+    -> drop every reading whose plaza equals the one before it
+    -> what is left is MOVEMENTS: a time and a new location
+  upsert the movements on (user_id, seq_no) with ON CONFLICT DO NOTHING ... RETURNING
     -> the database itself reports which rows are new
-  evaluate the officer's alert rules against the NEW crossings only
+  evaluate the officer's alert rules against the NEW rows only
   insert alert_logs, push Telegram, bump the alerts_sent counter
   update the truck: last_polled_at, last_event_at, last_location, status, errors
-  log the call in search_logs
+  log the call in search_logs IF it found a movement or failed
 
 after the loop: flush queued rows into each officer's Google Sheet
 ```
@@ -80,8 +83,15 @@ quiet one.
 
 - **`consume_quota()` is the only writer of `usage_counters`.** Never increment it
   from application code, or the admin numbers stop being trustworthy.
-- **Every LDB call is logged**, success or failure, in `search_logs`. That table is
-  the billing and audit record.
+- **Only movements are stored.** A reading that reports the plaza the truck is
+  already at is never written - not to `truck_events`, not to the sheet. The
+  comparison is seeded from `trucks.last_location`, so the same reading is judged
+  the same way on every poll, and a return trip A -> B -> A is three real rows.
+- **Billing lives in `usage_counters`, not in `search_logs`.** Every poll calls
+  `consume_quota()`, so the quota is exact. `search_logs` is the readable record:
+  every manual search, and the background checks that found a movement or failed.
+  A quiet check writes no row - fifty trucks on a ten-minute interval would
+  otherwise add over 200,000 rows a month saying "nothing happened".
 - **Duplicate crossings are impossible.** `seq_no` is unique per officer, and the
   worker relies on `RETURNING` to learn what was new — so two overlapping sweeps
   cannot double-alert.

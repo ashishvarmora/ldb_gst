@@ -374,65 +374,88 @@ export async function pollTruck({
   //    returning clause means the database itself tells us what is new, so two
   //    overlapping sweeps cannot double-alert.
   //
-  //    Every crossing is stored - seq_no is what stops a crossing being
-  //    re-processed, so dropping a row would make it look new next poll and
-  //    fire the alerts again. Instead each row is flagged with whether it
-  //    actually moved the truck; the sheet and the officer's views read that
-  //    flag, the worker keeps the full history.
+  //    Only movements are stored. A plaza re-reports the same crossing under
+  //    several sequence numbers, and a parked truck registers over and over;
+  //    those rows say nothing the previous row does not already say.
+  //
+  //    The decision is made here, before writing, by walking the portal's list
+  //    oldest-first and comparing each plaza with the one before it. The walk
+  //    is seeded from the truck's last SAVED location, so it reaches the same
+  //    answer on every poll: a repeat is skipped now and skipped again next
+  //    time, never inserted, never alerted on. Two overlapping sweeps compute
+  //    the same list and the unique index on (user_id, seq_no) lets only one
+  //    of them win.
   let inserted: EventLike[] = [];
+  let skippedRepeats = 0;
+
   if (result.events.length > 0) {
-    // Oldest first, so each crossing can be compared with the one before it.
     const chronological = [...result.events].sort((a, b) =>
       (a.eventTime ?? "").localeCompare(b.eventTime ?? ""),
     );
-    let previous = normaliseLocation(truck.last_location);
 
-    const payload = chronological.map((event) => {
+    let previous = normaliseLocation(truck.last_location);
+    const movements: typeof chronological = [];
+
+    for (const event of chronological) {
       const location = normaliseLocation(event.locName);
       // An unnamed plaza cannot be compared, so it always counts as a move.
-      const moved = location === null || location !== previous;
-      if (location !== null) previous = location;
-
-      return {
-        user_id: truck.user_id,
-        tracked_truck_id: truck.id,
-        truck_number: truck.truck_number,
-        seq_no: event.seqNo,
-        event_time: event.eventTime,
-        event_time_raw: event.eventTimeRaw,
-        loc_name: event.locName,
-        lat: event.lat,
-        lng: event.lng,
-        direction: event.direction,
-        event_name: event.eventName,
-        is_location_change: moved,
-      };
-    });
-
-    const { data: newRows, error: insertError } = await admin
-      .from("truck_events")
-      .upsert(payload, { onConflict: "user_id,seq_no", ignoreDuplicates: true })
-      .select("seq_no, event_time, loc_name, direction, is_location_change");
-
-    if (insertError) {
-      return { ...outcome, status: "failed", error: `Storing events failed: ${insertError.message}` };
+      if (location !== null && location === previous) {
+        skippedRepeats += 1;
+        continue;
+      }
+      previous = location ?? previous;
+      movements.push(event);
     }
-    inserted = (newRows ?? []) as EventLike[];
+
+    if (movements.length > 0) {
+      const { data: newRows, error: insertError } = await admin
+        .from("truck_events")
+        .upsert(
+          movements.map((event) => ({
+            user_id: truck.user_id,
+            tracked_truck_id: truck.id,
+            truck_number: truck.truck_number,
+            seq_no: event.seqNo,
+            event_time: event.eventTime,
+            event_time_raw: event.eventTimeRaw,
+            loc_name: event.locName,
+            lat: event.lat,
+            lng: event.lng,
+            direction: event.direction,
+            event_name: event.eventName,
+          })),
+          { onConflict: "user_id,seq_no", ignoreDuplicates: true },
+        )
+        .select("seq_no, event_time, loc_name, direction");
+
+      if (insertError) {
+        return { ...outcome, status: "failed", error: `Storing events failed: ${insertError.message}` };
+      }
+      inserted = (newRows ?? []) as EventLike[];
+    }
   }
 
   inserted.sort((a, b) => (b.event_time ?? "").localeCompare(a.event_time ?? ""));
 
-  await admin.from("search_logs").insert({
-    user_id: truck.user_id,
-    truck_number: truck.truck_number,
-    source: "tracking",
-    ok: true,
-    http_status: result.httpStatus,
-    response_ms: result.ms,
-    events_found: result.events.length,
-    new_events: inserted.length,
-    error: null,
-  });
+  // Log the call only when it carried news. A truck that has not moved produces
+  // a successful, empty poll every few minutes; at fifty trucks on a ten-minute
+  // interval that is over 200,000 rows a month saying "nothing happened".
+  //
+  // Quota is counted by consume_quota() into usage_counters, not by counting
+  // rows here, so billing is unaffected. Failures are always logged, below.
+  if (inserted.length > 0) {
+    await admin.from("search_logs").insert({
+      user_id: truck.user_id,
+      truck_number: truck.truck_number,
+      source: "tracking",
+      ok: true,
+      http_status: result.httpStatus,
+      response_ms: result.ms,
+      events_found: result.events.length,
+      new_events: inserted.length,
+      error: null,
+    });
+  }
 
   const recentEvents: EventLike[] = [
     ...inserted,
@@ -464,19 +487,15 @@ export async function pollTruck({
 
   // 7. Queue sheet rows for the flush at the end of the sweep.
   //
-  //    Only crossings that moved the truck reach the sheet. The flag was
-  //    decided at insert time, so the sheet and the database agree on what
-  //    counts as a move. A real return trip A -> B -> A still writes three
-  //    rows, because the location changed at each step.
+  //    The sheet mirrors exactly what was stored, so no second filter: the
+  //    repeats were already dropped before the insert. A real return trip
+  //    A -> B -> A still writes three rows, because the location changed at
+  //    each step.
   if (inserted.length > 0 && context.limits?.google_sheet_enabled && context.sheet?.spreadsheet_id) {
     const bySeq = new Map(result.events.map((event) => [event.seqNo, event]));
     const loggedAt = fmtDateTime(now);
 
-    const chronological = [...inserted].reverse();
-    const kept = chronological.filter((row) => row.is_location_change !== false);
-    const skipped = chronological.length - kept.length;
-
-    for (const row of kept) {
+    for (const row of [...inserted].reverse()) {
       const full = bySeq.get(row.seq_no);
       context.sheetEvents.push([
         row.event_time ? fmtDateTime(row.event_time) : (full?.eventTimeRaw ?? ""),
@@ -491,11 +510,12 @@ export async function pollTruck({
       ]);
     }
 
-    if (skipped > 0) {
-      console.info(
-        `sheet: ${truck.truck_number} skipped ${skipped} crossing(s) at an unchanged location`,
-      );
-    }
+  }
+
+  if (skippedRepeats > 0) {
+    console.info(
+      `${truck.truck_number}: ignored ${skippedRepeats} reading(s) reporting an unchanged location`,
+    );
   }
 
   // 8. Roll the truck forward.
