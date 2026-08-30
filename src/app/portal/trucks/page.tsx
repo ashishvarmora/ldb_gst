@@ -44,7 +44,7 @@ export default async function TrucksPage() {
     <>
       <PageHeader
         title="My trucks"
-        subtitle="Trucks the platform watches for you. Each one is checked only when one of its alerts is due, so a truck with no alerts costs nothing."
+        subtitle="A truck is checked only when one of its alerts is due, so a truck with no alerts costs nothing."
         actions={
           <Modal
             triggerLabel="Add truck"
@@ -80,9 +80,9 @@ export default async function TrucksPage() {
                   <Input name="label" placeholder="Textile case — supplier vehicle" />
                 </Field>
 
-                <p className="text-xs leading-relaxed text-muted">
-                  Once it is added, open the truck and add the alerts you want. Nothing is
-                  checked until then.
+                <p className="rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+                  Nothing is checked until you add an alert. Open the truck after adding it and
+                  pick the alert you want.
                 </p>
               </div>
               <FormActions>
@@ -97,7 +97,7 @@ export default async function TrucksPage() {
         <Panel bodyClassName="p-0">
           <EmptyState
             title="No trucks under tracking"
-            description="Add a truck, then add an alert to it. The platform checks the truck when the alert is due, logs every toll crossing and messages you on Telegram."
+            description="Add a truck, then add an alert to it. Every toll crossing is logged and you get a Telegram message when the alert fires."
           />
         </Panel>
       ) : (

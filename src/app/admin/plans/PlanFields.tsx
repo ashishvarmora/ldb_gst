@@ -1,5 +1,5 @@
-import { Checkbox, Field, FormGrid, Input, Textarea } from "@/components/form";
-import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED } from "@/lib/limits";
+import { Field, FormGrid, Input, Textarea } from "@/components/form";
+import { NUMERIC_LIMITS, UNLIMITED } from "@/lib/limits";
 import type { Plan } from "@/lib/types";
 
 /** -1 is stored, but "Unlimited" is what an admin wants to read and type. */
@@ -11,9 +11,11 @@ function limitValue(value: number): string {
  * Every field of a plan. Shared by the create and edit forms so the two can
  * never drift apart.
  *
- * A plan says what an account may REACH. What it may USE comes out of the
- * credit balance, at the rates on the credits page, so there are no per-day or
- * per-month allowances here - only the credits the plan hands over up front.
+ * A plan decides two things: how many trucks may be under automatic checking,
+ * and how many credits the account opens with. What it used to carry besides -
+ * feature switches, a retention window, alert intervals - is either paid for
+ * out of the credit balance or set once for the whole platform, so none of it
+ * belongs on a plan any more.
  */
 export function PlanFields({ plan }: { plan?: Plan }) {
   return (
@@ -47,7 +49,9 @@ export function PlanFields({ plan }: { plan?: Plan }) {
       </Field>
 
       <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Credits</p>
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
+          What the plan gives
+        </p>
         <FormGrid cols={2}>
           <Field
             label="Credits included"
@@ -62,12 +66,7 @@ export function PlanFields({ plan }: { plan?: Plan }) {
               defaultValue={plan?.included_credits ?? 0}
             />
           </Field>
-        </FormGrid>
-      </div>
 
-      <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Limits</p>
-        <FormGrid cols={3}>
           {NUMERIC_LIMITS.map((field) => (
             <Field
               key={field.key}
@@ -84,21 +83,6 @@ export function PlanFields({ plan }: { plan?: Plan }) {
             </Field>
           ))}
         </FormGrid>
-      </div>
-
-      <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Features</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {BOOLEAN_LIMITS.map((field) => (
-            <Checkbox
-              key={field.key}
-              name={field.key}
-              label={field.label}
-              hint={field.hint}
-              defaultChecked={plan ? plan[field.key] : true}
-            />
-          ))}
-        </div>
       </div>
 
       <Field

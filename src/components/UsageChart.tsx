@@ -1,14 +1,24 @@
 import { cx } from "@/components/ui";
 import { fmtNumber } from "@/lib/format";
-import type { UsageCounter } from "@/lib/types";
 
 export type UsageDay = { date: string; manual: number; tracking: number };
+
+/**
+ * One day of calls. The daily tally table this used to read is gone - the
+ * credit ledger already records every chargeable call with its timestamp - so
+ * callers fold the ledger into this shape and the row type lives here.
+ */
+export type UsageDayRow = {
+  usage_date: string;
+  manual_searches: number;
+  tracking_queries: number;
+};
 
 /**
  * Fill in the days with no usage row so the chart shows real gaps instead of
  * silently compressing quiet days together.
  */
-export function buildUsageSeries(rows: UsageCounter[], days: number): UsageDay[] {
+export function buildUsageSeries(rows: UsageDayRow[], days: number): UsageDay[] {
   const byDate = new Map(rows.map((row) => [row.usage_date, row]));
   const series: UsageDay[] = [];
 

@@ -61,9 +61,9 @@ async function handle(request: NextRequest) {
       newEvents: summary.newEvents,
       alerts: summary.alerts,
       alertsDelivered: summary.alertsDelivered,
-      sheetErrors: summary.sheetErrors,
-      // null when the daily retention purge was not due on this tick
-      purge: summary.purge,
+      errors: summary.errors,
+      // null unless the backup-and-purge came due on this tick
+      backup: summary.backup,
       failures: failures.map((outcome) => ({
         truck: outcome.truckNumber,
         error: outcome.error,
@@ -75,6 +75,8 @@ async function handle(request: NextRequest) {
       })),
     });
   } catch (error) {
+    // The caller here is a scheduler, not a person, so this one keeps the real
+    // message: it is the only place the failure is visible when a sweep dies.
     console.error("tracking sweep crashed", error);
     return NextResponse.json(
       { ok: false, error: (error as Error).message },

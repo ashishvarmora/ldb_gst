@@ -72,7 +72,7 @@ export function fmtRupees(value: number | null | undefined): string {
   return `Rs ${value.toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
 }
 
-/** Today's date in IST as YYYY-MM-DD, matching usage_counters.usage_date. */
+/** Today's date in IST as YYYY-MM-DD, the day boundary every daily figure is counted against. */
 export function istToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: IST });
 }

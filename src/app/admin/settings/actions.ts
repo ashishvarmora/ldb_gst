@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin, type SessionUser } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
+import { maybeBackupAndPurge } from "@/lib/backup";
+import { friendlyError } from "@/lib/errors";
+import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { runRetentionPurge, runTrackingSweep } from "@/lib/tracking";
+import { runTrackingSweep } from "@/lib/tracking";
 import type { ActionResult } from "@/lib/types";
 
 /**
@@ -17,22 +20,27 @@ type SettingSpec = { key: string; label: string } & (
   | { kind: "url" }
   | { kind: "bool" }
   | { kind: "key_id" }
+  | { kind: "sheet" }
+  | { kind: "retention" }
   | { kind: "int"; min: number; max: number }
-  | { kind: "money"; min: number; max: number }
 );
 
 const ENGINE_SPECS: SettingSpec[] = [
   { key: "ldb_api_url", label: "LDB API endpoint", kind: "url" },
   { key: "tracking_enabled", label: "Background tracking", kind: "bool" },
   { key: "no_activity_hours", label: "No-activity threshold", kind: "int", min: 1, max: 168 },
-  { key: "data_retention_days", label: "Default retention", kind: "int", min: 1, max: 3650 },
-  { key: "purge_enabled", label: "Automatic clearing", kind: "bool" },
+];
+
+const BACKUP_SPECS: SettingSpec[] = [
+  { key: "backup_sheet_id", label: "Backup sheet", kind: "sheet" },
+  { key: "backup_interval_days", label: "Backup every", kind: "int", min: 1, max: 365 },
+  { key: "data_retention_days", label: "Keep history for", kind: "retention" },
+  { key: "purge_enabled", label: "Automatic backup", kind: "bool" },
 ];
 
 const PAYMENT_SPECS: SettingSpec[] = [
   { key: "razorpay_enabled", label: "Razorpay", kind: "bool" },
   { key: "razorpay_key_id", label: "Razorpay key id", kind: "key_id" },
-  { key: "credit_price_inr", label: "Price per credit", kind: "money", min: 1, max: 100_000 },
 ];
 
 function readSpecs(
@@ -70,12 +78,37 @@ function readSpecs(
         values[spec.key] = text;
         break;
 
-      case "money": {
-        const amount = Math.round(Number(text) * 100) / 100;
-        if (!Number.isFinite(amount) || amount < spec.min || amount > spec.max) {
-          return { error: `${spec.label} must be between ${spec.min} and ${spec.max}.` };
+      case "sheet": {
+        // Blank is a real answer: it means no backup is wanted. Anything else
+        // is stored as the bare id, so a pasted browser address and a pasted id
+        // end up as the same setting.
+        if (text === "") {
+          values[spec.key] = "";
+          break;
         }
-        values[spec.key] = amount;
+        const id = spreadsheetIdFromUrl(text);
+        if (!id) {
+          return {
+            error:
+              "That is not a Google Sheet link. Paste the whole address from your browser, or just the id out of it.",
+          };
+        }
+        values[spec.key] = id;
+        break;
+      }
+
+      case "retention": {
+        const days = Number(text);
+        if (days === -1) {
+          values[spec.key] = -1;
+          break;
+        }
+        if (!Number.isInteger(days) || days < 1 || days > 3650) {
+          return {
+            error: `${spec.label} must be a whole number of days between 1 and 3650, or -1 to keep everything for ever.`,
+          };
+        }
+        values[spec.key] = days;
         break;
       }
 
@@ -141,8 +174,46 @@ export async function saveSettings(
 }
 
 /**
- * Razorpay. Only the public key id and the price are stored; the secret stays
- * in the environment, so nothing here is enough to take a payment on its own.
+ * Backup and retention. The message says what will now happen to old rows,
+ * because the difference between "copied then deleted" and "just deleted" is
+ * one empty box and is not recoverable afterwards.
+ */
+export async function saveBackupSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, BACKUP_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const result = await persist(actor, parsed.values, "settings.update_backup");
+  if (!result.ok) return result;
+
+  revalidatePath("/admin");
+
+  const days = Number(parsed.values.data_retention_days);
+  const every = Number(parsed.values.backup_interval_days);
+  const sheet = String(parsed.values.backup_sheet_id ?? "");
+
+  if (parsed.values.purge_enabled !== true) {
+    return { ok: true, message: "Saved. Nothing is deleted automatically while this is switched off." };
+  }
+  if (days === -1) {
+    return { ok: true, message: "Saved. Everything is kept for ever and nothing is deleted." };
+  }
+  return {
+    ok: true,
+    message: sheet
+      ? `Saved. Every ${every} day(s), crossings older than ${days} days are copied to the sheet and then deleted.`
+      : `Saved. No backup sheet is set, so every ${every} day(s) crossings older than ${days} days are deleted with no copy kept.`,
+  };
+}
+
+/**
+ * Razorpay. Only the public key id is stored; the secret stays in the
+ * environment, so nothing here is enough to take a payment on its own. What a
+ * rupee buys is set by the credit packs, not by a price in this form.
  */
 export async function savePaymentSettings(
   _prev: ActionResult | null,
@@ -170,13 +241,13 @@ export async function savePaymentSettings(
     ok: true,
     message: parsed.values.razorpay_enabled
       ? "Payment settings saved. Checkout still needs RAZORPAY_KEY_SECRET in the environment before an officer can pay."
-      : "Payment settings saved. Officers cannot buy credits until you switch this on.",
+      : "Payment settings saved. Officers cannot buy credits, so add credits by hand on their page.",
   };
 }
 
 /**
  * Runs a tracking sweep immediately, from the admin panel. Useful for checking
- * the whole pipeline end to end without waiting for the cron tick.
+ * the whole pipeline end to end without waiting for the scheduled call.
  */
 export async function runTrackingNow(
   _prev: ActionResult | null,
@@ -227,55 +298,68 @@ export async function runTrackingNow(
   if (summary.failed > 0) parts.push(`${summary.failed} failed`);
   if (summary.skipped > 0) parts.push(`${summary.skipped} skipped, out of credits`);
   if (summary.deferred > 0) parts.push(`${summary.deferred} left for the next run`);
-  if (summary.sheetErrors.length > 0) parts.push(`${summary.sheetErrors.length} sheet error(s)`);
+  if (summary.errors.length > 0) parts.push(`${summary.errors.length} error(s)`);
+  if (summary.backup?.ran) parts.push("backup ran");
 
   return { ok: true, message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.` };
 }
 
-
 /**
- * Clears history older than each officer's retention window, on demand.
+ * Backs up and clears old history on demand, ignoring both the interval and the
+ * automatic switch - the admin pressing this button is the decision.
  *
- * Officers without a working Google Sheet are skipped unless `force` is set:
- * for them the database is the only copy, and purging would lose the case
- * history rather than just trimming a cache.
+ * Nothing is deleted when a sheet is configured but could not be written, so a
+ * broken backup can never quietly turn into a deletion.
  */
-export async function purgeOldDataNow(
+export async function runBackupNow(
   _prev: ActionResult | null,
-  fd: FormData,
+  _fd: FormData,
 ): Promise<ActionResult> {
   const actor = await assertSuperAdmin();
-  const force = fd.getAll("force").includes("true");
 
-  const summary = await runRetentionPurge({ force });
+  const summary = await maybeBackupAndPurge(true);
+  const deleted =
+    summary.purged.truckEvents + summary.purged.searchLogs + summary.purged.alertLogs;
 
   await writeAudit(actor, {
-    action: "data.purge",
+    action: "data.backup",
     entity: "settings",
     meta: {
-      force,
-      officers: summary.purgedFor,
-      rowsDeleted: summary.rowsDeleted,
-      withoutBackup: summary.withoutBackup,
+      ran: summary.ran,
+      reason: summary.reason ?? null,
+      backedUp: summary.backedUp,
+      purged: summary.purged,
+      sheetError: summary.sheetError ?? null,
     },
   });
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin");
 
-  if (summary.rowsDeleted === 0 && summary.purgedFor === 0) {
-    const reason = summary.withoutBackup.length
-      ? ` ${summary.withoutBackup.length} officer(s) were skipped because they have no Google Sheet.`
-      : "";
-    return { ok: true, message: `Nothing to clear.${reason}` };
+  if (summary.sheetError) {
+    return {
+      ok: false,
+      error: `Nothing was deleted: the backup sheet could not be written. ${friendlyError(summary.sheetError)}`,
+    };
   }
 
-  const parts = [
-    `${summary.rowsDeleted.toLocaleString("en-IN")} row(s) cleared`,
-    `across ${summary.purgedFor} officer(s)`,
-  ];
-  if (summary.withoutBackup.length > 0) {
-    parts.push(`${summary.withoutBackup.length} skipped with no sheet backup`);
+  if (!summary.ran) {
+    return {
+      ok: true,
+      message:
+        summary.reason === "keep_forever"
+          ? "Nothing to do — history is set to be kept for ever."
+          : "Nothing to do right now.",
+    };
   }
-  return { ok: true, message: `${parts.join(", ")}.` };
+
+  const copied =
+    summary.backedUp > 0
+      ? `${summary.backedUp.toLocaleString("en-IN")} crossing(s) copied to the sheet`
+      : "nothing to copy";
+
+  return {
+    ok: true,
+    message: `${copied}, ${deleted.toLocaleString("en-IN")} row(s) deleted (${summary.purged.truckEvents} crossings, ${summary.purged.searchLogs} searches, ${summary.purged.alertLogs} alerts).`,
+  };
 }

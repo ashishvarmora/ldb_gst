@@ -56,11 +56,13 @@ export async function loadOverview(userId: string): Promise<OfficerOverview | nu
  * second answer that can disagree with it.
  */
 export function blockedReason(overview: OfficerOverview): string | null {
-  if (overview.plan_expires_on && new Date(overview.plan_expires_on) < new Date()) {
-    return `Your plan expired on ${overview.plan_expires_on}. Ask your administrator to renew it.`;
+  if (!overview.plan_active) {
+    return overview.plan_expires_on && new Date(overview.plan_expires_on) < new Date()
+      ? `Your plan ended on ${overview.plan_expires_on}. Ask your administrator to renew it.`
+      : "No plan is active on your account yet. Ask your administrator to set one up.";
   }
   if (overview.credits <= 0) {
-    return "You have no credits left. Buy more, or ask your administrator to top up your account.";
+    return "You have run out of credits. Top up on the My plan page, or ask your administrator.";
   }
   return null;
 }

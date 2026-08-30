@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { intervalWords, needsPlaza } from "@/lib/alerts";
+import { reportError } from "@/lib/errors";
 import { bool, done, fail, int, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { MAX_INTERVAL_MINUTES } from "@/lib/intervals";
 import { runManualLookup } from "@/lib/manual-search";
@@ -58,7 +59,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     ? await admin.from("tracked_trucks").update(payload).eq("id", existing.id)
     : await admin.from("tracked_trucks").insert(payload);
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("adding a truck", error, "Could not add that truck."));
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
@@ -98,7 +99,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
     .eq("id", truckId)
     .eq("user_id", session.id);
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("saving a truck", error, "Could not save those changes."));
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
@@ -126,12 +127,6 @@ export async function addTruckAlert(
   const templateId = str(fd, "template_id");
   if (!truckId) return fail("Missing truck id.");
   if (!templateId) return fail("Choose an alert first.");
-
-  const overview = await loadOverview(session.id);
-  if (!overview) return fail("Could not read your account. Sign in again.");
-  if (!overview.alerts_enabled) {
-    return fail("Alerts are not enabled on your plan. Ask your administrator.");
-  }
 
   const { data: truck } = await admin
     .from("tracked_trucks")
@@ -172,7 +167,7 @@ export async function addTruckAlert(
     plaza: needsPlaza(template.kind) ? plaza : null,
   });
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
@@ -204,7 +199,7 @@ export async function setTruckAlertEnabled(
     .select("tracked_truck_id")
     .maybeSingle();
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("switching an alert", error, "Could not change that alert."));
   if (!alert) return fail("That alert is not on your list.");
 
   revalidatePath("/portal");
@@ -232,7 +227,7 @@ export async function deleteTruckAlert(
     .select("tracked_truck_id")
     .maybeSingle();
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("removing an alert", error, "Could not remove that alert."));
   if (!alert) return fail("That alert is not on your list.");
 
   revalidatePath("/portal");
@@ -272,7 +267,9 @@ export async function setTruckPaused(
     .eq("id", truckId)
     .eq("user_id", session.id);
 
-  if (error) return fail(error.message);
+  if (error) {
+    return fail(reportError("pausing a truck", error, "Could not change tracking on that truck."));
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
@@ -331,7 +328,7 @@ export async function removeTruck(_prev: ActionResult | null, fd: FormData): Pro
     .eq("id", truckId)
     .eq("user_id", session.id);
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("removing a truck", error, "Could not remove that truck."));
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");

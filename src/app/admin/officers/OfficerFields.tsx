@@ -112,22 +112,13 @@ export function OfficerFields({
       ) : null}
 
       {mode === "create" ? (
-        <FormGrid cols={2}>
-          <Field
-            label="Telegram chat id"
-            name="telegram_chat_id"
-            hint="Optional now. Officer sends /start to your bot to get it."
-          >
-            <Input name="telegram_chat_id" placeholder="123456789" />
-          </Field>
-          <Field
-            label="Google Sheet URL"
-            name="sheet_url"
-            hint="Optional. Must be shared with your service account."
-          >
-            <Input name="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." />
-          </Field>
-        </FormGrid>
+        <Field
+          label="Telegram chat id"
+          name="telegram_chat_id"
+          hint="Optional now. The officer sends /start to your bot to get it, and can fill it in themselves later."
+        >
+          <Input name="telegram_chat_id" placeholder="123456789" />
+        </Field>
       ) : null}
 
       <Field label="Internal notes" name="notes" hint="Only you can see this.">

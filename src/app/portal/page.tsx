@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { AlertTriangle, Coins, Gauge, Search, Send } from "lucide-react";
+import { AlertTriangle, Send } from "lucide-react";
 
 import { SkeletonPanel } from "@/components/Skeleton";
 import {
@@ -12,7 +12,6 @@ import {
   PageHeader,
   Panel,
   PanelAction,
-  StatCard,
   cx,
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
@@ -28,9 +27,9 @@ export const metadata = { title: "Dashboard — Truck Watch" };
 const LOW_CREDITS = 10;
 
 /**
- * The four things an officer opens the app to check, in the order they matter:
- * how many credits are left, what the plan allows, what happened today, and
- * what today cost. Everything else has its own page in the nav.
+ * The three things an officer opens the app to check, in the order they
+ * matter: how many credits are left and what today used them on, what the plan
+ * allows, and what has been raised today. Everything else has its own page.
  */
 export default async function PortalHome() {
   const { overview, profile } = await requirePortalSession();
@@ -40,8 +39,7 @@ export default async function PortalHome() {
 
   // Telegram is the only way an alert reaches a phone, so an officer with
   // alerts running and no chat id is quietly getting nothing.
-  const telegramGap =
-    overview.active_alerts > 0 && overview.telegram_enabled && !overview.telegram_connected;
+  const telegramGap = overview.active_alerts > 0 && !overview.telegram_connected;
 
   const expiresOn = overview.plan_expires_on;
   const expired = expiresOn !== null && expiresOn < istToday();
@@ -99,19 +97,17 @@ export default async function PortalHome() {
           </LinkButton>
         </div>
 
-        <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-divider pt-4 sm:grid-cols-3">
+        {/* What today's spend went on, next to the spend itself - the two
+            counts add up to it, so they belong in the same block. */}
+        <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-divider pt-4 sm:grid-cols-4">
           <Figure label="Used today" value={formatCredits(overview.credits_spent_today)} />
           <Figure label="Used this month" value={formatCredits(overview.credits_spent_month)} />
-          {overview.included_credits ? (
-            <Figure
-              label="Included each month"
-              value={formatCredits(overview.included_credits)}
-            />
-          ) : null}
+          <Figure label="Searches today" value={fmtNumber(overview.manual_searches_today)} />
+          <Figure label="Checks today" value={fmtNumber(overview.tracking_queries_today)} />
         </dl>
       </Panel>
 
-      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* ----------------------------- 2. plan ------------------------- */}
         <Panel
           title="Your plan"
@@ -150,36 +146,6 @@ export default async function PortalHome() {
         <Suspense fallback={<SkeletonPanel rows={3} />}>
           <TodaysAlertsPanel userId={overview.id} alertsToday={overview.alerts_today} />
         </Suspense>
-      </div>
-
-      {/* ------------------------------- 4. today's usage ---------------- */}
-      <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted uppercase">
-        Today&apos;s usage
-      </h2>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard
-          label="Manual searches"
-          value={fmtNumber(overview.manual_searches_today)}
-          sub="Numbers you looked up yourself"
-          icon={<Search size={15} />}
-        />
-        <StatCard
-          label="Automatic checks"
-          value={fmtNumber(overview.tracking_queries_today)}
-          sub="Run in the background for your trucks"
-          icon={<Gauge size={15} />}
-        />
-        {/* Full width under the two counts on a phone: it is the number the
-            other two add up to, so it reads as the total. */}
-        <div className="col-span-2 sm:col-span-1">
-          <StatCard
-            label="Credits spent"
-            value={formatCredits(overview.credits_spent_today)}
-            sub={`${formatCredits(overview.credits)} left`}
-            tone={overview.credits <= 0 ? "bad" : "neutral"}
-            icon={<Coins size={15} />}
-          />
-        </div>
       </div>
     </>
   );

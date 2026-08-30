@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditRate, CreditVerdict } from "@/lib/types";
+import type { CreditPack, CreditRate, CreditVerdict } from "@/lib/types";
 
 /**
  * One balance pays for everything.
@@ -146,3 +146,36 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   purchase: "Purchased",
   plan_grant: "Included with plan",
 };
+
+/* -------------------------------------------------------------------------- */
+/* buying credits                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Rupees per credit for a pack, so two packs can be compared at a glance.
+ * Lower is better value, which is what the bonus tiers are for.
+ */
+export function rupeesPerCredit(pack: Pick<CreditPack, "price_inr" | "credits">): number {
+  if (!pack.credits) return 0;
+  return pack.price_inr / pack.credits;
+}
+
+/**
+ * How much better a pack is than the cheapest one, as a percentage. Used to
+ * label the bonus tiers rather than storing a "bonus" column that could drift
+ * out of step with the numbers it describes.
+ */
+export function bonusPercent(pack: CreditPack, baseline: CreditPack | undefined): number {
+  if (!baseline) return 0;
+  const base = rupeesPerCredit(baseline);
+  const mine = rupeesPerCredit(pack);
+  if (!base || !mine) return 0;
+  return Math.round((base / mine - 1) * 100);
+}
+
+export async function loadCreditPacks(admin: Admin, onlyActive = true): Promise<CreditPack[]> {
+  let query = admin.from("credit_packs").select("*").order("sort_order").order("price_inr");
+  if (onlyActive) query = query.eq("is_active", true);
+  const { data } = await query;
+  return (data ?? []) as CreditPack[];
+}

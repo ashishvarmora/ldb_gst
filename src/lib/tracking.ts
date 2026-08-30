@@ -7,15 +7,14 @@ import {
 } from "@/lib/alerts";
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
+import { maybeBackupAndPurge, type BackupSummary } from "@/lib/backup";
 import { loadSettings } from "@/lib/settings";
-import { syncToSheet } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
 import { fmtDateTime } from "@/lib/format";
 import type {
   AppSettings,
   EffectiveLimits,
-  GoogleSheetConfig,
   TelegramConfig,
   TrackedTruck,
   TruckAlertWithTemplate,
@@ -66,10 +65,11 @@ export type SweepSummary = {
   alertsDelivered: number;
   /** Set when the batch cap cut the sweep short, so it is never silent. */
   deferred: number;
-  sheetErrors: string[];
+  /** Anything that went wrong outside a single truck's own check. */
+  errors: string[];
   outcomes: PollOutcome[];
-  /** Set when this sweep also ran the daily retention purge. */
-  purge?: { officers: number; rowsDeleted: number; withoutBackup: string[] } | null;
+  /** Set when this sweep also ran the backup-and-purge. */
+  backup?: BackupSummary | null;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -118,32 +118,22 @@ export type OfficerContext = {
   userId: string;
   limits: EffectiveLimits | null;
   telegram: TelegramConfig | null;
-  sheet: GoogleSheetConfig | null;
-  /** Crossings queued for the officer's Google Sheet, flushed at the end. */
-  sheetEvents: (string | number | null)[][];
 };
 
 async function loadOfficerContext(admin: Admin, userId: string): Promise<OfficerContext> {
-  const [{ data: limits }, { data: telegram }, { data: sheet }] = await Promise.all([
+  const [{ data: limits }, { data: telegram }] = await Promise.all([
     admin
       .from("officer_effective_limits")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle<EffectiveLimits>(),
     admin.from("telegram_configs").select("*").eq("user_id", userId).maybeSingle<TelegramConfig>(),
-    admin
-      .from("google_sheet_configs")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle<GoogleSheetConfig>(),
   ]);
 
   return {
     userId,
     limits: limits ?? null,
     telegram: telegram ?? null,
-    sheet: sheet ?? null,
-    sheetEvents: [],
   };
 }
 
@@ -169,9 +159,7 @@ async function dispatchAlerts({
   if (drafts.length === 0) return { created: 0, delivered: 0 };
 
   const telegramAllowed =
-    (context.limits?.telegram_enabled ?? false) &&
-    (context.telegram?.is_enabled ?? false) &&
-    Boolean(context.telegram?.chat_id);
+    (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
 
   let delivered = 0;
 
@@ -195,9 +183,7 @@ async function dispatchAlerts({
       sent = result.ok;
       if (!result.ok) deliveryError = result.error;
     } else {
-      deliveryError = !context.limits?.telegram_enabled
-        ? "Telegram is disabled by the plan."
-        : "No Telegram chat id saved.";
+      deliveryError = "No Telegram chat id saved. Add it in Settings to receive alerts.";
     }
 
     if (sent) delivered += 1;
@@ -214,7 +200,6 @@ async function dispatchAlerts({
     if (error) console.error("alert_logs insert failed", error.message);
   }
 
-  await admin.rpc("bump_alerts_sent", { p_user: context.userId, p_count: drafts.length });
 
   return { created: drafts.length, delivered };
 }
@@ -255,14 +240,7 @@ export async function checkTruck({
     alertsDelivered: 0,
   };
 
-  // 1. A plan can withdraw alerts after an officer set some up. Checking the
-  //    truck anyway would charge a credit for a message that is never sent, so
-  //    stop before the balance is touched.
-  if (!context.limits?.alerts_enabled) {
-    return { ...outcome, reason: "alerts_not_enabled" };
-  }
-
-  // 2. Credits. spend_credits is the only writer of the balance, and it locks
+  // 1. Credits. spend_credits is the only writer of the balance, and it locks
   //    the row, so two overlapping sweeps cannot both spend the last one.
   const verdict = await spendCredits({
     admin,
@@ -429,34 +407,19 @@ export async function checkTruck({
     await admin.from("truck_alerts").update(stateUpdate).eq("id", alert.id);
   }
 
-  const alertResult = context.limits?.alerts_enabled
-    ? await dispatchAlerts({ admin, context, truckNumber: truck.truck_number, drafts })
-    : { created: 0, delivered: 0 };
+  const alertResult = await dispatchAlerts({
+    admin,
+    context,
+    truckNumber: truck.truck_number,
+    drafts,
+  });
 
-  // 6. Queue sheet rows for the flush at the end of the sweep. The sheet holds
-  //    the crossings and nothing else: it is the long-term copy of where a
-  //    truck has been, for after retention trims the database.
-  if (inserted.length > 0 && context.limits?.google_sheet_enabled && context.sheet?.spreadsheet_id) {
-    const bySeq = new Map(result.events.map((event) => [event.seqNo, event]));
-    const loggedAt = fmtDateTime(now);
-
-    for (const row of [...inserted].reverse()) {
-      const full = bySeq.get(row.seq_no);
-      context.sheetEvents.push([
-        row.event_time ? fmtDateTime(row.event_time) : (full?.eventTimeRaw ?? ""),
-        truck.truck_number,
-        row.loc_name ?? "",
-        full?.lat ?? "",
-        full?.lng ?? "",
-        row.direction ?? "",
-        full?.eventName ?? "",
-        `'${row.seq_no}`,
-        loggedAt,
-      ]);
-    }
-  }
-
-  // 7. Roll the truck forward.
+  // 6. Roll the truck forward.
+  //
+  //    Nothing is written to a sheet here any more. Crossings are copied out
+  //    in bulk before they are purged - see maybeBackupAndPurge - so a check
+  //    is one upstream call and one row update rather than a third-party
+  //    write on the hot path.
   await admin
     .from("tracked_trucks")
     .update({
@@ -496,35 +459,6 @@ async function recordPlazas(admin: Admin, names: (string | null)[]): Promise<voi
 }
 
 /* -------------------------------------------------------------------------- */
-/* sheet flush                                                                 */
-/* -------------------------------------------------------------------------- */
-
-async function flushSheets(admin: Admin, contexts: OfficerContext[]): Promise<string[]> {
-  const errors: string[] = [];
-
-  for (const context of contexts) {
-    const spreadsheetId = context.sheet?.spreadsheet_id;
-    if (!spreadsheetId) continue;
-    if (!context.limits?.google_sheet_enabled || !context.sheet?.is_enabled) continue;
-    if (context.sheetEvents.length === 0) continue;
-
-    const result = await syncToSheet(spreadsheetId, { events: context.sheetEvents });
-
-    await admin
-      .from("google_sheet_configs")
-      .update({
-        last_synced_at: result.ok ? new Date().toISOString() : context.sheet.last_synced_at,
-        last_error: result.ok ? null : result.error,
-      })
-      .eq("user_id", context.userId);
-
-    if (!result.ok) errors.push(`${context.userId}: ${result.error}`);
-  }
-
-  return errors;
-}
-
-/* -------------------------------------------------------------------------- */
 /* the sweep                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -548,9 +482,9 @@ export async function runTrackingSweep(
     alerts: 0,
     alertsDelivered: 0,
     deferred: 0,
-    sheetErrors: [] as string[],
+    errors: [] as string[],
     outcomes: [] as PollOutcome[],
-    purge: null as SweepSummary["purge"],
+    backup: null as BackupSummary | null,
   };
 
   const finish = (partial: typeof base): SweepSummary => {
@@ -577,7 +511,7 @@ export async function runTrackingSweep(
 
   const { data: candidates, error } = await query;
   if (error) {
-    return finish({ ...base, sheetErrors: [`Could not list trucks: ${error.message}`] });
+    return finish({ ...base, errors: [`Could not list trucks: ${error.message}`] });
   }
 
   const all = (candidates ?? []) as TrackedTruck[];
@@ -632,21 +566,18 @@ export async function runTrackingSweep(
     }),
   );
 
-  const sheetErrors = await flushSheets(admin, [...contexts.values()]);
+  const errors: string[] = [];
 
-  // Housekeeping runs after the useful work, and never blocks it.
-  let purge: SweepSummary["purge"] = null;
+  // Housekeeping runs after the useful work and never blocks it: a failed
+  // backup must not cost the sweep the checks it already paid for.
+  let backup: BackupSummary | null = null;
   try {
-    const result = await maybePurge();
-    if (result) {
-      purge = {
-        officers: result.purgedFor,
-        rowsDeleted: result.rowsDeleted,
-        withoutBackup: result.withoutBackup,
-      };
-    }
+    const result = await maybeBackupAndPurge();
+    if (result.ran) backup = result;
+    if (result.sheetError) errors.push(`Backup sheet: ${result.sheetError}`);
   } catch (error) {
-    console.error("retention purge failed", error);
+    console.error("backup and purge failed", error);
+    errors.push("The backup could not run. Nothing was deleted.");
   }
 
   return finish({
@@ -660,143 +591,9 @@ export async function runTrackingSweep(
     newEvents: outcomes.reduce((sum, o) => sum + o.newEvents, 0),
     alerts: outcomes.reduce((sum, o) => sum + o.alerts, 0),
     alertsDelivered: outcomes.reduce((sum, o) => sum + o.alertsDelivered, 0),
-    sheetErrors,
+    errors,
     outcomes,
-    purge,
+    backup,
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* retention                                                                   */
-/* -------------------------------------------------------------------------- */
-
-export type PurgeOutcome = {
-  userId: string;
-  email: string | null;
-  purged: boolean;
-  reason?: string;
-  days?: number;
-  truckEvents?: number;
-  searchLogs?: number;
-  alertLogs?: number;
-  usageCounters?: number;
-};
-
-export type PurgeSummary = {
-  ranAt: string;
-  durationMs: number;
-  officers: number;
-  purgedFor: number;
-  skipped: number;
-  rowsDeleted: number;
-  /** Officers skipped because they have no sheet to fall back on. */
-  withoutBackup: string[];
-  outcomes: PurgeOutcome[];
-};
-
-/**
- * Trims each officer's history down to their retention window.
- *
- * The Google Sheet is the permanent record, so the database only needs enough
- * to answer "where has this truck been lately". An officer with no working
- * sheet is skipped rather than purged - for them the database IS the record,
- * and deleting it would lose the case history. Pass `force` to override that,
- * which the admin UI asks about explicitly.
- */
-export async function runRetentionPurge(
-  options: { force?: boolean; userId?: string } = {},
-): Promise<PurgeSummary> {
-  const startedAt = new Date();
-  const admin = getSupabaseAdmin();
-
-  let query = admin.from("profiles").select("id, email");
-  if (options.userId) query = query.eq("id", options.userId);
-
-  const { data: officers } = await query;
-  const outcomes: PurgeOutcome[] = [];
-
-  for (const officer of officers ?? []) {
-    const { data, error } = await admin.rpc("purge_officer_data", {
-      p_user: officer.id,
-      p_days: null,
-      p_force: options.force ?? false,
-    });
-
-    if (error) {
-      outcomes.push({
-        userId: officer.id,
-        email: officer.email,
-        purged: false,
-        reason: `error: ${error.message}`,
-      });
-      continue;
-    }
-
-    const result = (data ?? {}) as Record<string, unknown>;
-    outcomes.push({
-      userId: officer.id,
-      email: officer.email,
-      purged: Boolean(result.purged),
-      reason: result.reason as string | undefined,
-      days: result.days as number | undefined,
-      truckEvents: (result.truck_events as number) ?? 0,
-      searchLogs: (result.search_logs as number) ?? 0,
-      alertLogs: (result.alert_logs as number) ?? 0,
-      usageCounters: (result.usage_counters as number) ?? 0,
-    });
-  }
-
-  const finishedAt = new Date();
-  const purgedFor = outcomes.filter((o) => o.purged).length;
-
-  return {
-    ranAt: startedAt.toISOString(),
-    durationMs: finishedAt.getTime() - startedAt.getTime(),
-    officers: outcomes.length,
-    purgedFor,
-    skipped: outcomes.length - purgedFor,
-    rowsDeleted: outcomes.reduce(
-      (sum, o) =>
-        sum + (o.truckEvents ?? 0) + (o.searchLogs ?? 0) + (o.alertLogs ?? 0) + (o.usageCounters ?? 0),
-      0,
-    ),
-    withoutBackup: outcomes
-      .filter((o) => o.reason === "no_sheet_backup")
-      .map((o) => o.email ?? o.userId),
-    outcomes,
-  };
-}
-
-/**
- * Called at the end of a sweep. Purging is a daily job, not a per-tick one, so
- * this only fires when the last run was more than 20 hours ago - leaving slack
- * so a daily cron that drifts slightly still gets through.
- */
-export async function maybePurge(): Promise<PurgeSummary | null> {
-  const admin = getSupabaseAdmin();
-
-  const { data: rows } = await admin
-    .from("app_settings")
-    .select("key, value")
-    .in("key", ["purge_enabled", "last_purge_at"]);
-
-  const map = new Map((rows ?? []).map((r) => [r.key, r.value as unknown]));
-  if (map.get("purge_enabled") === false) return null;
-
-  const last = map.get("last_purge_at");
-  if (typeof last === "string") {
-    const hours = (Date.now() - new Date(last).getTime()) / 3_600_000;
-    if (Number.isFinite(hours) && hours < 20) return null;
-  }
-
-  const summary = await runRetentionPurge();
-
-  await admin
-    .from("app_settings")
-    .upsert(
-      { key: "last_purge_at", value: new Date().toISOString() as never, updated_at: new Date().toISOString() },
-      { onConflict: "key" },
-    );
-
-  return summary;
-}

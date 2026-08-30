@@ -79,8 +79,8 @@ begin
   foreach t in array array[
     'plans', 'profiles', 'user_limit_overrides', 'tracked_trucks', 'truck_events',
     'search_logs', 'alert_logs', 'telegram_configs',
-    'google_sheet_configs', 'truck_groups', 'truck_group_members',
-    'usage_counters', 'audit_logs', 'app_settings'
+    'truck_groups', 'truck_group_members',
+    'audit_logs', 'app_settings'
   ] loop
     execute format('alter table public.%I enable row level security', t);
   end loop;
@@ -114,8 +114,7 @@ create policy overrides_write on public.user_limit_overrides for all to authenti
 do $blk$
 declare t text;
 begin
-  foreach t in array array['tracked_trucks', 'telegram_configs',
-                           'google_sheet_configs', 'truck_groups'] loop
+  foreach t in array array['tracked_trucks', 'telegram_configs', 'truck_groups'] loop
     execute format('drop policy if exists %1$s_owner on public.%1$s', t);
     execute format(
       'create policy %1$s_owner on public.%1$s for all to authenticated
@@ -128,7 +127,7 @@ end $blk$;
 do $blk$
 declare t text;
 begin
-  foreach t in array array['truck_events', 'search_logs', 'alert_logs', 'usage_counters'] loop
+  foreach t in array array['truck_events', 'search_logs', 'alert_logs'] loop
     execute format('drop policy if exists %1$s_owner_read on public.%1$s', t);
     execute format(
       'create policy %1$s_owner_read on public.%1$s for select to authenticated
@@ -155,21 +154,16 @@ create policy settings_admin on public.app_settings for all to authenticated
 -- ===========================================================================
 -- Seed: three starter plans + default global settings
 -- ===========================================================================
--- Usage is paid for in credits, not capped per plan, so a plan now says how
--- many trucks may be tracked and what the account may reach - not how many
--- searches a day it gets. included_credits is added by 0008 and topped up
--- there, which is why it is absent here.
+-- A plan decides how many trucks may be watched and how many credits the
+-- account opens with. Usage is paid for out of the balance, so there is
+-- nothing else to cap. included_credits is added and filled in by 0008, which
+-- is why it is absent here.
 insert into public.plans (
-  name, description, truck_limit, max_truck_groups,
-  telegram_enabled, google_sheet_enabled,
-  alerts_enabled, price_per_month, sort_order
+  name, description, truck_limit, price_per_month, sort_order
 ) values
-  ('Basic', 'Single-officer starter allocation.',
-   10, 3, true, true, true, 0, 10),
-  ('Professional', 'Full district workload.',
-   50, 15, true, true, true, 0, 20),
-  ('Unlimited', 'No caps. Use for headquarters or your own account.',
-   -1, -1, true, true, true, 0, 30)
+  ('Basic', 'Single-officer starter allocation.', 10, 0, 10),
+  ('Professional', 'Full district workload.', 50, 0, 20),
+  ('Unlimited', 'No caps. Use for headquarters or your own account.', -1, 0, 30)
 on conflict (name) do nothing;
 
 insert into public.app_settings (key, value) values

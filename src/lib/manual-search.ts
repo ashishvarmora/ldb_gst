@@ -1,20 +1,20 @@
+import { recordActivity } from "@/lib/audit";
 import { CREDIT_ACTIONS, creditRefusalMessage, spendCredits } from "@/lib/credits";
+import { reportError } from "@/lib/errors";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { fmtDateTime } from "@/lib/format";
 import { blockedReason, loadOverview } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
-import { syncToSheet } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { GoogleSheetConfig } from "@/lib/types";
 
 export type LookupResult =
   | { ok: true; found: number; newCount: number; responseMs: number }
   | { ok: false; error: string; creditSpent: boolean };
 
 /**
- * One officer-initiated LDB lookup: quota, upstream call, event storage, call
- * log, sheet mirror. Shared by the search box and the "check now" button on a
- * tracked truck, so both spend a credit in exactly the same way.
+ * One officer-initiated lookup: credit, upstream call, event storage, call
+ * log. Shared by the search box and the "check now" button on a tracked truck,
+ * so both spend a credit in exactly the same way.
  */
 export async function runManualLookup({
   userId,
@@ -71,7 +71,9 @@ export async function runManualLookup({
     return {
       ok: false,
       creditSpent: true,
-      error: `${result.error} The search credit was still used, because the request did reach the portal.`,
+      // The credit is spent either way, so say so: the officer is about to
+      // wonder why the balance moved for a search that showed nothing.
+      error: `${reportError("manual lookup", result.error)} The credit was still used, because the request did reach the portal.`,
     };
   }
 
@@ -98,7 +100,7 @@ export async function runManualLookup({
       .select("seq_no");
 
     if (insertError) {
-      return { ok: false, creditSpent: true, error: `Could not store the results: ${insertError.message}` };
+      return { ok: false, creditSpent: true, error: reportError("storing search results", insertError) };
     }
     newCount = inserted?.length ?? 0;
   }
@@ -140,40 +142,20 @@ export async function runManualLookup({
 
   await admin.rpc("touch_last_active", { p_user: userId });
 
-  // The sheet is the long-term copy of where trucks have been, for after
-  // retention trims the database. It holds crossings and nothing else, so a
-  // search that turned up nothing new writes nothing.
-  if (overview.google_sheet_enabled && newCount > 0) {
-    const { data: sheet } = await admin
-      .from("google_sheet_configs")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle<GoogleSheetConfig>();
-
-    if (sheet?.is_enabled && sheet.spreadsheet_id) {
-      const loggedAt = fmtDateTime(new Date());
-      const sync = await syncToSheet(sheet.spreadsheet_id, {
-        events: result.events.map((event) => [
-          event.eventTime ? fmtDateTime(event.eventTime) : (event.eventTimeRaw ?? ""),
-          truckNumber,
-          event.locName ?? "",
-          event.lat ?? "",
-          event.lng ?? "",
-          event.direction ?? "",
-          event.eventName ?? "",
-          `'${event.seqNo}`,
-          loggedAt,
-        ]),
-      });
-      await admin
-        .from("google_sheet_configs")
-        .update({
-          last_synced_at: sync.ok ? new Date().toISOString() : sheet.last_synced_at,
-          last_error: sync.ok ? null : sync.error,
-        })
-        .eq("user_id", userId);
-    }
-  }
+  // Every lookup an officer runs by hand is recorded, which is what makes
+  // "which numbers has this officer been asking about" answerable. Automatic
+  // checks are deliberately not recorded here: they are the machine following
+  // an alert the officer already set up, and one row per truck per interval
+  // would bury the searches that were actually a decision.
+  await recordActivity(
+    { id: userId, email: overview.email, role: overview.role },
+    {
+      action: "search.manual",
+      entity: "truck",
+      entityLabel: truckNumber,
+      meta: { found: result.events.length, newCrossings: newCount },
+    },
+  );
 
   return { ok: true, found: result.events.length, newCount, responseMs: result.ms };
 }

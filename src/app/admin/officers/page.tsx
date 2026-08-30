@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Filter, MessageCircle, Plus, Search, Sheet, UserPlus } from "lucide-react";
+import { Filter, MessageCircle, Phone, Plus, Search, UserPlus } from "lucide-react";
 
 import { OfficerFields } from "./OfficerFields";
 import { createOfficer } from "./actions";
@@ -154,7 +154,7 @@ export default async function OfficersPage({
               <th className="th">Trucks</th>
               <th className="th text-right">Credits left</th>
               <th className="th text-right">Spent this month</th>
-              <th className="th">Links</th>
+              <th className="th">Contact</th>
               <th className="th">Last event</th>
             </Thead>
             <Tbody>
@@ -226,25 +226,19 @@ export default async function OfficersPage({
                   </td>
 
                   <td className="td">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        title={
-                          officer.telegram_connected ? "Telegram connected" : "No Telegram chat id"
-                        }
-                      >
-                        <MessageCircle
-                          size={14}
-                          className={officer.telegram_connected ? "text-good-500" : "text-faint"}
-                        />
-                      </span>
-                      <span
-                        title={officer.sheet_connected ? "Sheet connected" : "No sheet connected"}
-                      >
-                        <Sheet
-                          size={14}
-                          className={officer.sheet_connected ? "text-good-500" : "text-faint"}
-                        />
-                      </span>
+                    <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-ink">
+                      <Phone size={13} className="shrink-0 text-faint" />
+                      {officer.phone ?? "--"}
+                    </span>
+                    <span
+                      className="mt-1 flex items-center gap-1.5 text-xs text-faint"
+                      title={officer.telegram_connected ? "Telegram connected" : "No Telegram chat id"}
+                    >
+                      <MessageCircle
+                        size={13}
+                        className={officer.telegram_connected ? "text-good-500" : "text-faint"}
+                      />
+                      {officer.telegram_connected ? "Telegram" : "no Telegram"}
                     </span>
                   </td>
 
@@ -260,8 +254,8 @@ export default async function OfficersPage({
 
       {rows.length > 0 ? (
         <p className="mt-3 text-xs text-faint">
-          {rows.length} officer{rows.length === 1 ? "" : "s"} shown. Click a row to manage the plan,
-          limits and integrations.
+          {rows.length} officer{rows.length === 1 ? "" : "s"} shown. Click a row for their contact
+          details, the trucks they track and their full credit history.
         </p>
       ) : null}
     </>

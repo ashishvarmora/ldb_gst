@@ -24,9 +24,11 @@ import {
   buttonClass,
   cx,
 } from "@/components/ui";
+import { reportError } from "@/lib/errors";
 import { fmtDate, fmtNumber, fmtRelative, fmtTime, istDaysAgo } from "@/lib/format";
 import { stateFromLocation } from "@/lib/geo";
 import { requirePortalSession } from "@/lib/officer";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckEvent } from "@/lib/types";
 
@@ -54,6 +56,9 @@ export default async function RecordsPage({
   searchParams: Promise<RecordsQuery>;
 }) {
   const { overview } = await requirePortalSession();
+  // Retention is one platform setting now, not a per-officer allowance, so it
+  // is read from settings rather than from the officer's own row.
+  const { dataRetentionDays: retentionDays } = await loadSettings(getSupabaseAdmin());
   const params = await searchParams;
   const admin = getSupabaseAdmin();
 
@@ -173,7 +178,10 @@ export default async function RecordsPage({
 
       <Panel bodyClassName="p-0">
         {error ? (
-          <EmptyState title="Could not load records" description={error.message} />
+          <EmptyState
+            title="Could not load records"
+            description={reportError("records query", error)}
+          />
         ) : view === "trucks" ? (
           <RecordsTruckList groups={groups} range={range} filtered={filtered} />
         ) : events.length === 0 ? (
@@ -296,34 +304,23 @@ export default async function RecordsPage({
 
         <Panel title="How long records are kept">
           <p className="text-sm leading-relaxed text-muted">
-            {overview.data_retention_days === -1 ? (
-              <>Your administrator keeps your history indefinitely.</>
+            {retentionDays === -1 ? (
+              <>Your administrator keeps this history indefinitely.</>
             ) : (
               <>
-                The app keeps{" "}
-                <strong className="text-ink">{overview.data_retention_days} days</strong> of
-                crossings. Anything older is cleared automatically.
+                Crossings older than{" "}
+                <strong className="text-ink">{retentionDays} days</strong> are cleared
+                automatically, so the app stays quick to search.
               </>
             )}
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            {overview.sheet_connected ? (
-              <>
-                Your Google Sheet keeps every crossing as a permanent location log, so nothing is
-                really lost — last synced {fmtRelative(overview.sheet_last_synced_at)}.
-              </>
-            ) : (
-              <span className="text-warn-500">
-                You have no Google Sheet connected, so nothing is being kept outside the app.
-                Connect one in Settings before old records are cleared.
-              </span>
-            )}
+            {/* Retention and the backup are both the administrator's settings
+                now, so the officer is told what happens rather than asked to
+                arrange it - there is nothing for them to configure here. */}
+            Your administrator keeps the long-term copy. Export anything you need for a case file
+            before it ages out.
           </p>
-          <div className="mt-3">
-            <LinkButton href="/portal/settings" size="sm" variant="secondary">
-              Open settings
-            </LinkButton>
-          </div>
         </Panel>
       </div>
     </>

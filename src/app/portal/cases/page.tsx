@@ -7,7 +7,6 @@ import { Field, FormActions, Input, Textarea } from "@/components/form";
 import { Modal } from "@/components/Modal";
 import { EmptyState, Mono, PageHeader, Panel } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
-import { formatLimit } from "@/lib/limits";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckGroup } from "@/lib/types";
@@ -40,63 +39,51 @@ export default async function CasesPage() {
     }
   }
 
-  const canCreate =
-    overview.max_truck_groups === -1 || caseList.length < overview.max_truck_groups;
-
   return (
     <>
       <PageHeader
         title="Case folders"
-        subtitle="Group the vehicles in one investigation so you can look at the whole set at once, instead of truck by truck."
+        subtitle="Group the vehicles in one investigation and read the whole set at once."
         actions={
-          canCreate ? (
-            <Modal
-              triggerLabel="New case"
-              triggerIcon={<Plus size={15} />}
-              title="Create a case folder"
-              description="You can paste a whole list of truck numbers at once."
-              width="md"
-            >
-              <ActionForm action={createCase} resetOnSuccess>
-                <div className="space-y-4">
-                  <Field label="Case name" name="name">
-                    <Input name="name" required placeholder="Fake billing — textile ring" />
-                  </Field>
-                  <Field label="Notes" name="description" hint="Optional. Only you can see this.">
-                    <Textarea
-                      name="description"
-                      rows={2}
-                      placeholder="Three suppliers, invoices dated Jul–Aug 2026."
-                    />
-                  </Field>
-                  <Field
-                    label="Truck numbers"
+          <Modal
+            triggerLabel="New case"
+            triggerIcon={<Plus size={15} />}
+            title="Create a case folder"
+            description="You can paste a whole list of truck numbers at once."
+            width="md"
+          >
+            <ActionForm action={createCase} resetOnSuccess>
+              <div className="space-y-4">
+                <Field label="Case name" name="name">
+                  <Input name="name" required placeholder="Fake billing — textile ring" />
+                </Field>
+                <Field label="Notes" name="description" hint="Optional. Only you can see this.">
+                  <Textarea
+                    name="description"
+                    rows={2}
+                    placeholder="Three suppliers, invoices dated Jul–Aug 2026."
+                  />
+                </Field>
+                <Field
+                  label="Truck numbers"
+                  name="truck_numbers"
+                  hint="Optional. Separate with commas, spaces or new lines — anything that is not a registration number is ignored."
+                >
+                  <Textarea
                     name="truck_numbers"
-                    hint="Optional. Separate with commas, spaces or new lines — anything that is not a registration number is ignored."
-                  >
-                    <Textarea
-                      name="truck_numbers"
-                      rows={3}
-                      placeholder="GJ02AT8546, GJ01XX1234, MH04AB9999"
-                      className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
-                    />
-                  </Field>
-                </div>
-                <FormActions>
-                  <SubmitButton pendingLabel="Creating...">Create case</SubmitButton>
-                </FormActions>
-              </ActionForm>
-            </Modal>
-          ) : null
+                    rows={3}
+                    placeholder="GJ02AT8546, GJ01XX1234, MH04AB9999"
+                    className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
+                  />
+                </Field>
+              </div>
+              <FormActions>
+                <SubmitButton pendingLabel="Creating...">Create case</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Modal>
         }
       />
-
-      {!canCreate ? (
-        <p className="mb-4 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
-          Your plan allows {formatLimit(overview.max_truck_groups)} case folder
-          {overview.max_truck_groups === 1 ? "" : "s"}. Delete one to create another.
-        </p>
-      ) : null}
 
       {caseList.length === 0 ? (
         <Panel bodyClassName="p-0">

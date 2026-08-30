@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 
+import { reportError } from "@/lib/errors";
 import { bool, done, fail, str } from "@/lib/forms";
-import { assertPortalUser, loadOverview } from "@/lib/officer";
-import { spreadsheetIdFromUrl, testSheetAccess } from "@/lib/sheets";
+import { assertPortalUser } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, TelegramConfig } from "@/lib/types";
@@ -15,12 +15,6 @@ export async function saveMyTelegram(
 ): Promise<ActionResult> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
-
-  const overview = await loadOverview(session.id);
-  if (!overview) return fail("Could not read your account. Sign in again.");
-  if (!overview.telegram_enabled) {
-    return fail("Telegram alerts are not enabled on your plan. Ask your administrator.");
-  }
 
   const chatId = str(fd, "chat_id");
   if (chatId && !/^-?\d{5,20}$/.test(chatId)) {
@@ -38,7 +32,9 @@ export async function saveMyTelegram(
     { onConflict: "user_id" },
   );
 
-  if (error) return fail(error.message);
+  if (error) {
+    return fail(reportError("saving telegram settings", error, "Could not save those settings."));
+  }
 
   revalidatePath("/portal/settings");
   return done(chatId ? "Saved. Send a test message to confirm it works." : "Chat id cleared.");
@@ -50,11 +46,6 @@ export async function testMyTelegram(
 ): Promise<ActionResult> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
-
-  const overview = await loadOverview(session.id);
-  if (!overview?.telegram_enabled) {
-    return fail("Telegram alerts are not enabled on your plan.");
-  }
 
   const { data: config } = await admin
     .from("telegram_configs")
@@ -83,78 +74,11 @@ export async function testMyTelegram(
 
   return result.ok
     ? done("Test message sent. Check Telegram.")
-    : fail(result.error);
-}
-
-export async function saveMySheet(
-  _prev: ActionResult | null,
-  fd: FormData,
-): Promise<ActionResult> {
-  const session = await assertPortalUser();
-  const admin = getSupabaseAdmin();
-
-  const overview = await loadOverview(session.id);
-  if (!overview) return fail("Could not read your account. Sign in again.");
-  if (!overview.google_sheet_enabled) {
-    return fail("Google Sheet sync is not enabled on your plan. Ask your administrator.");
-  }
-
-  const url = str(fd, "sheet_url");
-  const spreadsheetId = spreadsheetIdFromUrl(url);
-  if (url && !spreadsheetId) {
-    return fail("That does not look like a Google Sheets link. Copy the URL from your browser.");
-  }
-
-  const { error } = await admin.from("google_sheet_configs").upsert(
-    {
-      user_id: session.id,
-      sheet_url: url,
-      spreadsheet_id: spreadsheetId,
-      is_enabled: bool(fd, "is_enabled"),
-      last_error: null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-
-  if (error) return fail(error.message);
-
-  revalidatePath("/portal/settings");
-  return done(
-    spreadsheetId
-      ? "Saved. Use “Test connection” to check the sheet is shared with us."
-      : "Sheet disconnected.",
-  );
-}
-
-export async function testMySheet(
-  _prev: ActionResult | null,
-  _fd: FormData,
-): Promise<ActionResult> {
-  const session = await assertPortalUser();
-  const admin = getSupabaseAdmin();
-
-  const { data: config } = await admin
-    .from("google_sheet_configs")
-    .select("spreadsheet_id")
-    .eq("user_id", session.id)
-    .maybeSingle();
-
-  if (!config?.spreadsheet_id) return fail("Save your sheet link first.");
-
-  const result = await testSheetAccess(config.spreadsheet_id);
-
-  await admin
-    .from("google_sheet_configs")
-    .update({
-      last_synced_at: result.ok ? new Date().toISOString() : null,
-      last_error: result.ok ? null : result.error,
-    })
-    .eq("user_id", session.id);
-
-  revalidatePath("/portal/settings");
-
-  return result.ok
-    ? done("Connected. The tabs have been created in your sheet.")
-    : fail(result.error);
+    : fail(
+        reportError(
+          "telegram test message",
+          result.error,
+          "The test message did not go through. Check the chat id and that you have started the bot.",
+        ),
+      );
 }

@@ -32,15 +32,19 @@ export async function GET() {
   const header = [
     "Officer",
     "Email",
+    "Phone",
+    "Designation",
     "Office",
     "District",
     "State",
     "Status",
     "Plan",
+    "Plan live",
     "Monthly charge",
     "Plan expires",
     "Credits included with plan",
     "Credits left",
+    "Credits purchased",
     "Credits spent today",
     "Credits spent this month",
     "Tracked trucks",
@@ -48,7 +52,6 @@ export async function GET() {
     "Manual searches this month",
     "Automatic checks this month",
     "Telegram linked",
-    "Sheet linked",
   ];
 
   const lines = [header.join(",")];
@@ -58,15 +61,19 @@ export async function GET() {
       [
         row.full_name,
         row.email,
+        row.phone,
+        row.designation,
         row.office,
         row.district,
         row.state,
         row.status,
         row.plan_name ?? "none",
+        row.plan_active ? "yes" : "no",
         row.price_per_month ?? 0,
         row.plan_expires_on ?? "",
         row.included_credits ?? 0,
         row.credits ?? 0,
+        row.credits_purchased ?? 0,
         row.credits_spent_today ?? 0,
         row.credits_spent_month ?? 0,
         row.active_trucks,
@@ -74,7 +81,6 @@ export async function GET() {
         row.manual_searches_month,
         row.tracking_queries_month,
         row.telegram_connected ? "yes" : "no",
-        row.sheet_connected ? "yes" : "no",
       ]
         .map(csvCell)
         .join(","),

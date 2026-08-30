@@ -1,6 +1,15 @@
-import { CheckCircle2, Copy, Database, PlayCircle, Trash2, XCircle } from "lucide-react";
+import { headers } from "next/headers";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  DatabaseBackup,
+  PlayCircle,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 
-import { purgeOldDataNow, runTrackingNow, savePaymentSettings, saveSettings } from "./actions";
+import { runBackupNow, runTrackingNow, saveBackupSettings, savePaymentSettings, saveSettings } from "./actions";
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, FormGrid, Input, Select } from "@/components/form";
 import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
@@ -28,9 +37,10 @@ export default async function SettingsPage() {
   await requireSuperAdmin();
   const admin = getSupabaseAdmin();
 
-  const [{ data: rows }, { data: plans }] = await Promise.all([
+  const [{ data: rows }, { data: plans }, headerList] = await Promise.all([
     admin.from("app_settings").select("key, value"),
     admin.from("plans").select("*").eq("is_active", true).order("sort_order"),
+    headers(),
   ]);
 
   const settings: SettingsMap = Object.fromEntries(
@@ -43,15 +53,30 @@ export default async function SettingsPage() {
   const razorpayEnabled = settings.razorpay_enabled === true;
   const razorpayKeyId = text(settings, "razorpay_key_id", "");
 
+  const backupSheetId = text(settings, "backup_sheet_id", "");
+  const retentionDays = num(settings, "data_retention_days", 30);
+  const backupEvery = num(settings, "backup_interval_days", 7);
+  const purgeEnabled = settings.purge_enabled !== false;
+  const keepForEver = retentionDays === -1;
+  // The one combination that loses data on purpose, and the reason the panel
+  // below shouts rather than hints.
+  const deletingWithNoCopy = purgeEnabled && !keepForEver && !backupSheetId;
+
   // Read straight from the environment. Only this yes/no reaches the page - the
   // secret itself must never be rendered anywhere.
   const razorpaySecretSet = Boolean(process.env.RAZORPAY_KEY_SECRET);
+
+  // The address an outside scheduler has to call. Taken from the request so it
+  // is right in every environment instead of being a guess in the copy.
+  const host = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
+  const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const cronUrl = host ? `${proto}://${host}/api/cron/track` : "https://your-app/api/cron/track";
 
   return (
     <>
       <PageHeader
         title="Settings"
-        subtitle="Platform-wide defaults. Anything set on a plan or an individual officer wins over these."
+        subtitle="Platform-wide. There is nothing per officer here except the plan they are given."
       />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -98,61 +123,176 @@ export default async function SettingsPage() {
                       ))}
                     </Select>
                   </Field>
-                </FormGrid>
 
-                <div className="border-t border-divider pt-4">
-                  <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
-                    Truck status
-                  </p>
-                  <FormGrid cols={2}>
-                    <Field
-                      label="Treat as no activity after (hours)"
+                  <Field
+                    label="Treat as no activity after (hours)"
+                    name="no_activity_hours"
+                    hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
+                  >
+                    <Input
                       name="no_activity_hours"
-                      hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
-                    >
-                      <Input
-                        name="no_activity_hours"
-                        type="number"
-                        min={1}
-                        max={168}
-                        defaultValue={num(settings, "no_activity_hours", 6)}
-                      />
-                    </Field>
-                  </FormGrid>
-                </div>
-
-                <div className="border-t border-divider pt-4">
-                  <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
-                    Data retention
-                  </p>
-                  <FormGrid cols={2}>
-                    <Field
-                      label="Default: keep history for (days)"
-                      name="data_retention_days"
-                      hint="The starting point for new plans. Each plan, and each officer, can override it."
-                    >
-                      <Input
-                        name="data_retention_days"
-                        type="number"
-                        min={1}
-                        max={3650}
-                        defaultValue={num(settings, "data_retention_days", 30)}
-                      />
-                    </Field>
-                    <Checkbox
-                      name="purge_enabled"
-                      label="Clear old records automatically"
-                      hint="Runs once a day at the end of a tracking sweep."
-                      defaultChecked={settings.purge_enabled !== false}
+                      type="number"
+                      min={1}
+                      max={168}
+                      defaultValue={num(settings, "no_activity_hours", 6)}
                     />
-                  </FormGrid>
-                </div>
+                  </Field>
+                </FormGrid>
               </div>
 
               <FormActions>
                 <SubmitButton>Save settings</SubmitButton>
               </FormActions>
             </ActionForm>
+          </Panel>
+
+          <Panel
+            title="Backup and retention"
+            description="One sheet you own, written on a schedule, holding the crossings the database no longer keeps."
+          >
+            <ActionForm action={saveBackupSettings} closeOnSuccess={false}>
+              <div className="space-y-4">
+                <Field
+                  label="Backup sheet"
+                  name="backup_sheet_id"
+                  hint="Paste the whole Google Sheets address; only the id is stored. Leave empty if you do not want a backup."
+                >
+                  <Input
+                    name="backup_sheet_id"
+                    defaultValue={backupSheetId}
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    autoComplete="off"
+                  />
+                </Field>
+
+                <FormGrid cols={2}>
+                  <Field
+                    label="Back up every (days)"
+                    name="backup_interval_days"
+                    hint="Checked at the end of a tracking sweep, so it runs on the next sweep after it falls due."
+                  >
+                    <Input
+                      name="backup_interval_days"
+                      type="number"
+                      min={1}
+                      max={365}
+                      defaultValue={backupEvery}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Keep history for (days)"
+                    name="data_retention_days"
+                    hint="Anything older than this is removed from the database. -1 keeps everything for ever."
+                  >
+                    <Input
+                      name="data_retention_days"
+                      type="number"
+                      min={-1}
+                      max={3650}
+                      defaultValue={retentionDays}
+                    />
+                  </Field>
+                </FormGrid>
+
+                <Checkbox
+                  name="purge_enabled"
+                  label="Do this automatically"
+                  hint="Off means old rows stay in the database until you press Run backup now."
+                  defaultChecked={purgeEnabled}
+                />
+
+                <div
+                  className={
+                    deletingWithNoCopy
+                      ? "rounded-lg border border-bad-500/50 bg-bad-500/10 p-4"
+                      : "rounded-lg border border-line/70 bg-panel/50 p-4"
+                  }
+                >
+                  <p
+                    className={
+                      deletingWithNoCopy
+                        ? "flex items-center gap-2 text-sm font-medium text-bad-500"
+                        : "flex items-center gap-2 text-sm font-medium text-ink"
+                    }
+                  >
+                    {deletingWithNoCopy ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}
+                    {deletingWithNoCopy
+                      ? "Old crossings are being deleted with no copy kept"
+                      : "What actually happens"}
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                    Every {backupEvery} day{backupEvery === 1 ? "" : "s"}, crossings older than{" "}
+                    {keepForEver ? "the retention window" : `${retentionDays} days`} are copied to
+                    the sheet above and then deleted from the database. Search logs and alert logs
+                    older than the same window are deleted too — they are never copied.
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted">
+                    <span className={deletingWithNoCopy ? "text-bad-500" : "text-ink"}>
+                      If no sheet is set, nothing is backed up and the old rows are simply deleted.
+                    </span>{" "}
+                    There is no other copy and it cannot be undone. If the sheet is set but cannot be
+                    written, nothing is deleted at all — a broken backup never turns into a deletion.
+                  </p>
+                  {health.googleSheets ? (
+                    <p className="mt-2 text-xs leading-relaxed text-muted">
+                      Share the sheet as <strong>Editor</strong> with{" "}
+                      <Mono className="text-xs break-all text-ink">
+                        {env.googleServiceAccountEmail}
+                      </Mono>{" "}
+                      or the app cannot write to it.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-warn-500">
+                      No Google service account is configured, so no sheet can be written. Set
+                      GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY first.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <FormActions>
+                <SubmitButton>Save backup settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
+          <Panel
+            title="Scheduling the worker"
+            description="Nothing in this project schedules itself. An outside scheduler has to call the worker."
+          >
+            <div className="space-y-3 text-xs leading-relaxed text-muted">
+              <p>
+                Set up a job at <strong>cron-job.org</strong> (or any scheduler) that calls this
+                address every 5 minutes. There is no Vercel cron and no GitHub Action any more — if
+                nothing calls this, no truck is ever checked.
+              </p>
+
+              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+                <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">URL</p>
+                <Mono className="mt-1 block text-xs break-all text-ink">{cronUrl}</Mono>
+
+                <p className="mt-3 text-[11px] font-semibold tracking-wider text-muted uppercase">
+                  Request header
+                </p>
+                <Mono className="mt-1 block text-xs break-all text-ink">
+                  Authorization: Bearer &lt;CRON_SECRET&gt;
+                </Mono>
+
+                <p className="mt-3 text-xs text-muted">
+                  <Mono>CRON_SECRET</Mono> is the value in your environment.{" "}
+                  {health.cron
+                    ? "It is set here, so the worker will accept the call."
+                    : "It is not set here, so the worker refuses every call until it is."}{" "}
+                  A GET or a POST both work.
+                </p>
+              </div>
+
+              <p>
+                The scheduler needs no other setting. Add <Mono>?batch=50</Mono> to the address only
+                if a run is timing out and you want smaller bites.
+              </p>
+            </div>
           </Panel>
 
           <Panel
@@ -164,39 +304,22 @@ export default async function SettingsPage() {
                 <Checkbox
                   name="razorpay_enabled"
                   label="Officers may buy credits online"
-                  hint="Off means credits only ever arrive from you, on the officer's page."
-                  defaultChecked={settings.razorpay_enabled === true}
+                  hint="Off means there is no online payment at all — credits arrive only when you add them by hand on the officer's page."
+                  defaultChecked={razorpayEnabled}
                 />
 
-                <FormGrid cols={2}>
-                  <Field
-                    label="Razorpay key id"
+                <Field
+                  label="Razorpay key id"
+                  name="razorpay_key_id"
+                  hint="Starts with rzp_. This is the public half of the pair and is safe to store."
+                >
+                  <Input
                     name="razorpay_key_id"
-                    hint="Starts with rzp_. This is the public half of the pair and is safe to store."
-                  >
-                    <Input
-                      name="razorpay_key_id"
-                      autoComplete="off"
-                      defaultValue={text(settings, "razorpay_key_id", "")}
-                      placeholder="rzp_live_XXXXXXXXXXXX"
-                    />
-                  </Field>
-
-                  <Field
-                    label="Price per credit (Rs)"
-                    name="credit_price_inr"
-                    hint="What one credit costs an officer. Also used to value the balances on the credits page."
-                  >
-                    <Input
-                      name="credit_price_inr"
-                      type="number"
-                      min={1}
-                      max={100000}
-                      step="0.5"
-                      defaultValue={num(settings, "credit_price_inr", 10)}
-                    />
-                  </Field>
-                </FormGrid>
+                    autoComplete="off"
+                    defaultValue={razorpayKeyId}
+                    placeholder="rzp_live_XXXXXXXXXXXX"
+                  />
+                </Field>
 
                 <div className="rounded-lg border border-warn-500/40 bg-warn-500/10 p-4">
                   <p className="text-sm font-medium text-warn-500">
@@ -205,19 +328,18 @@ export default async function SettingsPage() {
                   <p className="mt-1 text-xs leading-relaxed text-muted">
                     It belongs in the environment as <Mono>RAZORPAY_KEY_SECRET</Mono>, alongside the
                     other server keys. Anything typed into a settings box is stored in the database
-                    and read back by this page — fine for the key id, never for the secret.
+                    and read back by this page — fine for the key id, never for the secret.{" "}
+                    {razorpaySecretSet
+                      ? "RAZORPAY_KEY_SECRET is set in this environment."
+                      : "RAZORPAY_KEY_SECRET is not set in this environment."}
                   </p>
                 </div>
 
                 <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
-                  <span className="text-ink">Switching this on does not take payments yet.</span>{" "}
-                  There is no checkout in the app: the key id and price are stored so that everything
-                  is ready, and nothing more happens until the secret is set and the checkout is
-                  built.{" "}
-                  {razorpaySecretSet
-                    ? "RAZORPAY_KEY_SECRET is set in this environment."
-                    : "RAZORPAY_KEY_SECRET is not set in this environment."}{" "}
-                  Until then, top officers up by hand from their own page.
+                  <span className="text-ink">What a payment buys is not set here.</span> The credit
+                  packs on the credits page are the price list: each one says what a rupee amount is
+                  worth in credits. This panel only decides whether officers may pay in the app at
+                  all.
                 </p>
               </div>
 
@@ -229,43 +351,17 @@ export default async function SettingsPage() {
 
           <Panel
             title="What officers need to give you"
-            description="Nothing sensitive. You hold the credentials; the officer only supplies two things."
+            description="Nothing sensitive. You hold the credentials; the officer supplies one thing."
           >
-            <div className="space-y-4 text-sm leading-relaxed text-muted">
-              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-                <p className="font-medium text-ink">1. Telegram chat id</p>
-                <p className="mt-1 text-xs text-muted">
-                  You run one bot for the whole platform. The officer sends it{" "}
-                  <Mono>/start</Mono> — Telegram only allows a bot to message someone who has
-                  started it. Then read their numeric chat id with{" "}
-                  <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them fetch it from{" "}
-                  <Mono>@userinfobot</Mono>. Paste it on the officer&apos;s page. Never ask for their
-                  phone number — Telegram alerts do not use it.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-                <p className="font-medium text-ink">2. Google Sheet link</p>
-                <p className="mt-1 text-xs text-muted">
-                  The officer creates a blank sheet, shares it as <strong>Editor</strong> with your
-                  service account below, and sends you the link. No Apps Script, no OAuth screen, no
-                  credentials from them.
-                </p>
-                {health.googleSheets ? (
-                  <p className="mt-2 flex items-center gap-2 rounded-md border border-line bg-page/60 px-2.5 py-1.5">
-                    <Copy size={12} className="shrink-0 text-faint" />
-                    <Mono className="text-xs break-all text-ink">
-                      {env.googleServiceAccountEmail}
-                    </Mono>
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs text-warn-500">
-                    No service account configured yet. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and
-                    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, then this shows the address to share sheets
-                    with.
-                  </p>
-                )}
-              </div>
+            <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+              <p className="text-sm font-medium text-ink">Telegram chat id</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                You run one bot for the whole platform. The officer sends it <Mono>/start</Mono> —
+                Telegram only allows a bot to message someone who has started it. Then read their
+                numeric chat id with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them
+                fetch it from <Mono>@userinfobot</Mono>. Paste it on the officer&apos;s page. Never
+                ask for their phone number — Telegram alerts do not use it.
+              </p>
             </div>
           </Panel>
         </div>
@@ -287,9 +383,13 @@ export default async function SettingsPage() {
               <HealthRow
                 ok={health.googleSheets}
                 label="Google service account"
-                detail="Sheet sync"
+                detail="Writes the backup sheet"
               />
-              <HealthRow ok={health.cron} label="Cron secret" detail="Protects the tracking worker" />
+              <HealthRow
+                ok={health.cron}
+                label="Cron secret"
+                detail="CRON_SECRET, what your scheduler sends"
+              />
               <HealthRow
                 ok={razorpaySecretSet}
                 label="Razorpay key secret"
@@ -300,7 +400,7 @@ export default async function SettingsPage() {
 
           <Panel
             title="Run the worker now"
-            description="Polls every truck that is due, right now, instead of waiting for the next cron tick."
+            description="Polls every truck that is due, right now, instead of waiting for the scheduled call."
           >
             <ActionForm action={runTrackingNow} closeOnSuccess={false}>
               <Field
@@ -325,45 +425,46 @@ export default async function SettingsPage() {
               </FormActions>
             </ActionForm>
             <p className="mt-3 text-[11px] leading-relaxed text-faint">
-              The scheduled worker hits <Mono>/api/cron/track</Mono> every 5 minutes on Vercel. This
-              button runs the same code path.
+              Exactly the code path <Mono>/api/cron/track</Mono> runs.
             </p>
           </Panel>
 
           <Panel
-            title="Clear old records now"
-            description="Trims each officer down to their own retention window."
+            title="Run backup now"
+            description="Copies old crossings to the sheet, then deletes them. Ignores the interval and the automatic switch."
           >
             <div className="flex items-start gap-2.5">
-              <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
+              <DatabaseBackup size={16} className="mt-0.5 shrink-0 text-brand-500" />
               <p className="text-xs leading-relaxed text-muted">
-                Crossings, call logs and alerts older than the officer&apos;s retention are deleted.
-                Their Google Sheet keeps everything, so this only trims the app&apos;s copy.
+                {keepForEver
+                  ? "History is set to be kept for ever, so this will do nothing."
+                  : backupSheetId
+                    ? `Crossings older than ${retentionDays} days are written to the sheet and then removed, along with search and alert logs of the same age.`
+                    : `No sheet is set, so crossings older than ${retentionDays} days are deleted with no copy kept.`}
               </p>
             </div>
 
-            <ActionForm action={purgeOldDataNow} closeOnSuccess={false}>
-              <div className="mt-3">
-                <Checkbox
-                  name="force"
-                  label="Include officers with no Google Sheet"
-                  hint="Off by default. For them the app is the only copy, so clearing it loses the history for good."
-                />
-              </div>
+            <ActionForm action={runBackupNow} closeOnSuccess={false}>
               <FormActions>
                 <ConfirmSubmitButton
-                  message="Clear records older than each officer's retention window? This cannot be undone."
+                  message={
+                    backupSheetId
+                      ? "Copy old records to the backup sheet and then delete them from the database?"
+                      : "No backup sheet is set. Old records will be deleted with no copy kept. Continue?"
+                  }
                   size="md"
                 >
-                  <Trash2 size={14} />
-                  Clear old records
+                  <DatabaseBackup size={14} />
+                  Back up and clear
                 </ConfirmSubmitButton>
               </FormActions>
             </ActionForm>
 
-            <p className="mt-3 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
-              Last automatic run: {typeof settings.last_purge_at === "string"
-                ? fmtRelative(settings.last_purge_at)
+            <p className="mt-3 flex items-center gap-1.5 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
+              <Clock size={12} className="shrink-0" />
+              Last run:{" "}
+              {typeof settings.last_backup_at === "string"
+                ? fmtRelative(settings.last_backup_at)
                 : "never"}
             </p>
           </Panel>
@@ -381,18 +482,21 @@ export default async function SettingsPage() {
                 </Badge>
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
-              <DescRow label="Default retention">
-                {num(settings, "data_retention_days", 30)} days
+              <DescRow label="Retention">
+                {keepForEver ? "kept for ever" : `${retentionDays} days`}
               </DescRow>
-              <DescRow label="Auto-clear">
-                <Badge tone={settings.purge_enabled !== false ? "good" : "neutral"}>
-                  {settings.purge_enabled !== false ? "on" : "off"}
-                </Badge>
+              <DescRow label="Backup every">{backupEvery} days</DescRow>
+              <DescRow label="Backup sheet">
+                {backupSheetId ? (
+                  <Mono className="text-xs break-all">{backupSheetId}</Mono>
+                ) : (
+                  <Badge tone={deletingWithNoCopy ? "bad" : "neutral"}>none — no copy kept</Badge>
+                )}
+              </DescRow>
+              <DescRow label="Automatic">
+                <Badge tone={purgeEnabled ? "good" : "neutral"}>{purgeEnabled ? "on" : "off"}</Badge>
               </DescRow>
               <DescRow label="Active plans">{planList.length}</DescRow>
-              <DescRow label="Price per credit">
-                Rs {num(settings, "credit_price_inr", 10)}
-              </DescRow>
               <DescRow label="Officer payments">
                 <Badge tone={razorpayEnabled ? (razorpaySecretSet ? "good" : "warn") : "neutral"}>
                   {razorpayEnabled ? (razorpaySecretSet ? "on" : "on, no secret") : "off"}

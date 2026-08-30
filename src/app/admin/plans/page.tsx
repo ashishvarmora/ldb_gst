@@ -21,7 +21,7 @@ import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
 import { fmtRupees } from "@/lib/format";
-import { BOOLEAN_LIMITS, NUMERIC_LIMITS, formatLimit } from "@/lib/limits";
+import { NUMERIC_LIMITS, formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Plan } from "@/lib/types";
 
@@ -47,7 +47,7 @@ export default async function PlansPage() {
     <>
       <PageHeader
         title="Plans"
-        subtitle="A plan says what an officer may reach, and how many credits they start with. Assign one to each officer, then override individual numbers on their page if you need to."
+        subtitle="A plan sets two things: how many trucks an officer may track automatically, and the credits their account opens with. Everything they do is paid for out of that balance."
         actions={
           <Modal
             triggerLabel="New plan"
@@ -112,7 +112,7 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
         </div>
       </header>
 
-      <dl className="flex-1 divide-y divide-divider px-5 py-1">
+      <dl className="flex-1 divide-y divide-divider px-5 pb-3 pt-1">
         <div className="flex items-baseline justify-between gap-4 py-2">
           <dt className="text-xs text-muted">Credits included</dt>
           <dd className="text-sm font-medium tabular-nums text-brand-400">
@@ -128,15 +128,6 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
           </div>
         ))}
       </dl>
-
-      <div className="flex flex-wrap gap-1.5 px-5 pb-4">
-        {BOOLEAN_LIMITS.map((field) => (
-          <Badge key={field.key} tone={plan[field.key] ? "good" : "neutral"}>
-            {plan[field.key] ? "" : "no "}
-            {field.label.toLowerCase()}
-          </Badge>
-        ))}
-      </div>
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-line/70 bg-raised/40 px-5 py-3">
         <Modal

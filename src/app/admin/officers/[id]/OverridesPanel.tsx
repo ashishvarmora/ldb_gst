@@ -3,9 +3,9 @@ import { RotateCcw } from "lucide-react";
 
 import { saveOverrides } from "../actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Field, FormActions, Input, TriState } from "@/components/form";
+import { Field, FormActions, Input } from "@/components/form";
 import { Badge, Panel } from "@/components/ui";
-import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED, formatLimit } from "@/lib/limits";
+import { NUMERIC_LIMITS, UNLIMITED, formatLimit } from "@/lib/limits";
 import type { LimitOverrides, OfficerOverview, Plan } from "@/lib/types";
 
 function inputValue(value: number | null): string {
@@ -84,17 +84,6 @@ export function OverridesPanel({
         </div>
 
         <div className="space-y-3 border-t border-divider px-5 py-4">
-          {BOOLEAN_LIMITS.map((field) => (
-            <TriState
-              key={field.key}
-              name={`override_${field.key}`}
-              label={field.label}
-              hint={`${field.hint} Currently ${officer[field.key] ? "allowed" : "blocked"}.`}
-              value={overrides ? overrides[field.key] : null}
-              inheritedLabel={plan ? (plan[field.key] ? "on" : "off") : "off"}
-            />
-          ))}
-
           <Field
             label="Why"
             name="override_reason"

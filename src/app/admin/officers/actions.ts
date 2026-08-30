@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
-import { NUMERIC_LIMITS, BOOLEAN_LIMITS, parseLimitInput } from "@/lib/limits";
+import { NUMERIC_LIMITS, parseLimitInput } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
@@ -27,14 +27,6 @@ function bool(fd: FormData, name: string): boolean {
   return all.includes("true");
 }
 
-/** TriState select: inherit -> null, otherwise a real boolean. */
-function tri(fd: FormData, name: string): boolean | null {
-  const raw = fd.get(name);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return null;
-}
-
 function fail(error: string): ActionResult {
   return { ok: false, error };
 }
@@ -49,14 +41,6 @@ function generatePassword(): string {
   const bytes = new Uint8Array(14);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
-}
-
-function spreadsheetIdFrom(url: string | null): string | null {
-  if (!url) return null;
-  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match) return match[1];
-  // Allow pasting a bare id too.
-  return /^[a-zA-Z0-9-_]{25,}$/.test(url) ? url : null;
 }
 
 const profileSchema = z.object({
@@ -151,15 +135,6 @@ export async function createOfficer(
   const chatId = str(fd, "telegram_chat_id");
   if (chatId) {
     await admin.from("telegram_configs").upsert({ user_id: userId, chat_id: chatId });
-  }
-
-  const sheetUrl = str(fd, "sheet_url");
-  if (sheetUrl) {
-    await admin.from("google_sheet_configs").upsert({
-      user_id: userId,
-      sheet_url: sheetUrl,
-      spreadsheet_id: spreadsheetIdFrom(sheetUrl),
-    });
   }
 
   await writeAudit(actor, {
@@ -302,7 +277,9 @@ export async function saveOverrides(
   const userId = str(fd, "user_id");
   if (!userId) return fail("Missing officer id.");
 
-  const row: Record<string, number | boolean | string | null> = { user_id: userId };
+  // Only numeric limits are left - every feature switch a plan used to carry is
+  // now either paid for out of the credit balance or set once for the platform.
+  const row: Record<string, number | string | null> = { user_id: userId };
 
   for (const field of NUMERIC_LIMITS) {
     const value = parseLimitInput(fd.get(`override_${field.key}`), {
@@ -319,16 +296,10 @@ export async function saveOverrides(
     row[field.key] = value;
   }
 
-  for (const field of BOOLEAN_LIMITS) {
-    row[field.key] = tri(fd, `override_${field.key}`);
-  }
-
   row.reason = str(fd, "override_reason");
   row.updated_at = new Date().toISOString();
 
-  const hasAnyOverride =
-    NUMERIC_LIMITS.some((f) => row[f.key] !== null) ||
-    BOOLEAN_LIMITS.some((f) => row[f.key] !== null);
+  const hasAnyOverride = NUMERIC_LIMITS.some((f) => row[f.key] !== null);
 
   const { data: before } = await admin
     .from("user_limit_overrides")
@@ -470,33 +441,15 @@ export async function saveOfficerIntegrations(
   );
   if (tgError) return fail(tgError.message);
 
-  const sheetUrl = str(fd, "sheet_url");
-  const spreadsheetId = spreadsheetIdFrom(sheetUrl);
-  if (sheetUrl && !spreadsheetId) {
-    return fail("That does not look like a Google Sheets URL. Paste the full link from the browser.");
-  }
-
-  const { error: sheetError } = await admin.from("google_sheet_configs").upsert(
-    {
-      user_id: userId,
-      sheet_url: sheetUrl,
-      spreadsheet_id: spreadsheetId,
-      is_enabled: bool(fd, "sheet_is_enabled"),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-  if (sheetError) return fail(sheetError.message);
-
   await writeAudit(actor, {
     action: "officer.update_integrations",
     entity: "profile",
     entityId: userId,
-    meta: { telegram: Boolean(chatId), sheet: Boolean(spreadsheetId) },
+    meta: { telegram: Boolean(chatId), enabled: telegramEnabled },
   });
 
   revalidatePath(`/admin/officers/${userId}`);
-  return { ok: true, message: "Integrations saved." };
+  return { ok: true, message: "Telegram settings saved." };
 }
 
 export async function deleteOfficer(

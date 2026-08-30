@@ -4,20 +4,19 @@ export type QuerySource = "manual" | "tracking";
 export type TruckStatus = "moving" | "idle" | "no_activity" | "unknown";
 
 /**
- * A plan says what an account may reach - trucks, case folders, integrations.
- * It no longer says how much it may use: that is paid for out of one credit
- * balance, at rates the admin sets in credit_rates.
+ * A plan decides two things: how many trucks may be watched at once, and how
+ * many credits the account opens with. Usage is paid for out of the credit
+ * balance, so there is nothing else for a plan to cap.
+ *
+ * An account must have a live plan before it may buy credits.
  */
 export type Plan = {
   id: string;
   name: string;
   description: string | null;
+  /** How many trucks may be under automatic checking at once. */
   truck_limit: number;
-  max_truck_groups: number;
-  data_retention_days: number;
-  telegram_enabled: boolean;
-  google_sheet_enabled: boolean;
-  alerts_enabled: boolean;
+  /** Credits handed over when the plan is assigned. */
   included_credits: number;
   price_per_month: number;
   is_active: boolean;
@@ -53,12 +52,9 @@ export type OfficerOverview = Profile & {
   price_per_month: number | null;
   included_credits: number | null;
   truck_limit: number;
-  max_truck_groups: number;
-  data_retention_days: number;
-  telegram_enabled: boolean;
-  google_sheet_enabled: boolean;
-  alerts_enabled: boolean;
   has_overrides: boolean;
+  /** Assigned, unexpired and not suspended - the gate on buying credits. */
+  plan_active: boolean;
   active_trucks: number;
   total_trucks: number;
   manual_searches_today: number;
@@ -67,24 +63,18 @@ export type OfficerOverview = Profile & {
   tracking_queries_month: number;
   credits_spent_today: number;
   credits_spent_month: number;
+  credits_purchased: number;
   alerts_today: number;
   alerts_unread: number;
   active_alerts: number;
   total_events: number;
   telegram_connected: boolean;
-  sheet_connected: boolean;
-  sheet_last_synced_at: string | null;
   last_event_at: string | null;
 };
 
 export type LimitOverrides = {
   user_id: string;
   truck_limit: number | null;
-  max_truck_groups: number | null;
-  data_retention_days: number | null;
-  telegram_enabled: boolean | null;
-  google_sheet_enabled: boolean | null;
-  alerts_enabled: boolean | null;
   reason: string | null;
   updated_at: string;
 };
@@ -93,11 +83,6 @@ export type LimitOverrides = {
 export type EffectiveLimits = {
   user_id: string;
   truck_limit: number;
-  max_truck_groups: number;
-  data_retention_days: number;
-  telegram_enabled: boolean;
-  google_sheet_enabled: boolean;
-  alerts_enabled: boolean;
   has_overrides: boolean;
 };
 
@@ -238,6 +223,8 @@ export type SearchLog = {
 };
 
 export type AuditLog = {
+  /** officer | super_admin - the audit page shows officer activity. */
+  actor_role: string | null;
   id: number;
   actor_id: string | null;
   actor_email: string | null;
@@ -247,14 +234,6 @@ export type AuditLog = {
   entity_label: string | null;
   meta: Record<string, unknown>;
   created_at: string;
-};
-
-export type UsageCounter = {
-  user_id: string;
-  usage_date: string;
-  manual_searches: number;
-  tracking_queries: number;
-  alerts_sent: number;
 };
 
 /** Server Action result shape used by every form in the app. */
@@ -300,23 +279,75 @@ export type TelegramConfig = {
   updated_at: string;
 };
 
-export type GoogleSheetConfig = {
-  user_id: string;
-  spreadsheet_id: string | null;
-  sheet_url: string | null;
-  is_enabled: boolean;
-  last_synced_at: string | null;
-  last_error: string | null;
-  updated_at: string;
-};
-
 /** Resolved global knobs from public.app_settings. */
 export type AppSettings = {
   ldbApiUrl: string;
   trackingEnabled: boolean;
   noActivityHours: number;
-  /** Rupees per credit, shown on the officer's buy-credits page. */
-  creditPriceInr: number;
+  /** Days of history kept in the database before a backup-and-purge. */
+  dataRetentionDays: number;
+  /** How often the backup-and-purge runs. */
+  backupIntervalDays: number;
+  /** Where the backup is written. Empty means no backup is wanted. */
+  backupSheetId: string;
   razorpayEnabled: boolean;
   razorpayKeyId: string;
+};
+
+/* -------------------------------------------------------------------------- */
+/* money                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a rupee amount buys. Written as explicit rows rather than a formula,
+ * because the ladder is not a smooth curve and an admin editing a number is
+ * clearer than an admin editing a multiplier.
+ */
+export type CreditPack = {
+  id: string;
+  name: string;
+  price_inr: number;
+  credits: number;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentStatus = "created" | "paid" | "failed";
+
+export type Payment = {
+  id: string;
+  user_id: string;
+  pack_id: string | null;
+  razorpay_order_id: string;
+  razorpay_payment_id: string | null;
+  amount_inr: number;
+  credits: number;
+  status: PaymentStatus;
+  failure_reason: string | null;
+  created_at: string;
+  paid_at: string | null;
+};
+
+/** One row of public.truck_directory - a truck with the officer watching it. */
+export type TruckDirectoryRow = {
+  tracked_truck_id: string;
+  truck_number: string;
+  label: string | null;
+  is_active: boolean;
+  status: TruckStatus;
+  last_location: string | null;
+  last_event_at: string | null;
+  last_polled_at: string | null;
+  created_at: string;
+  officer_id: string;
+  officer_name: string | null;
+  officer_email: string;
+  officer_phone: string | null;
+  office: string | null;
+  district: string | null;
+  state: string | null;
+  alert_count: number;
+  event_count: number;
 };

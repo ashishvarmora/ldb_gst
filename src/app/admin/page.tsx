@@ -4,11 +4,13 @@ import {
   Bell,
   Coins,
   Package,
+  Search,
   Truck,
   Users,
   Wallet,
 } from "lucide-react";
 
+import { loadDailyCalls } from "./usage/ledger";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
@@ -26,10 +28,10 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtNumber, fmtRelative, initials, istDaysAgo, istToday } from "@/lib/format";
+import { fmtDateTime, fmtNumber, fmtRelative, initials, istToday } from "@/lib/format";
 import { usageRatio } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AuditLog, OfficerOverview, UsageCounter } from "@/lib/types";
+import type { AuditLog, OfficerOverview } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
 
@@ -50,14 +52,14 @@ export default async function AdminOverviewPage() {
 
   const [
     { data: officers, error: officersError },
-    { data: usage },
+    dailyCalls,
     { count: planCount },
     { count: failedCalls },
     { data: audit },
     { count: alertsToday },
   ] = await Promise.all([
     admin.from("officer_overview").select("*").eq("role", "officer"),
-    admin.from("usage_counters").select("*").gte("usage_date", istDaysAgo(29)),
+    loadDailyCalls(admin, { days: 30 }),
     admin.from("plans").select("id", { count: "exact", head: true }).eq("is_active", true),
     admin
       .from("search_logs")
@@ -72,7 +74,6 @@ export default async function AdminOverviewPage() {
   ]);
 
   const rows = (officers ?? []) as OfficerOverview[];
-  const usageRows = (usage ?? []) as UsageCounter[];
 
   const active = rows.filter((o) => o.status === "active").length;
   const suspended = rows.length - active;
@@ -82,19 +83,13 @@ export default async function AdminOverviewPage() {
   const creditsOutstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
   const creditsToday = rows.reduce((sum, row) => sum + Number(row.credits_spent_today ?? 0), 0);
   const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
+  const callsMonth = rows.reduce(
+    (sum, row) =>
+      sum + Number(row.manual_searches_month ?? 0) + Number(row.tracking_queries_month ?? 0),
+    0,
+  );
 
-  // Aggregate every officer's daily counters into one platform-wide series.
-  const merged = new Map<string, UsageCounter>();
-  for (const row of usageRows) {
-    const existing = merged.get(row.usage_date);
-    if (existing) {
-      existing.manual_searches += row.manual_searches;
-      existing.tracking_queries += row.tracking_queries;
-    } else {
-      merged.set(row.usage_date, { ...row });
-    }
-  }
-  const series = buildUsageSeries([...merged.values()], 30);
+  const series = buildUsageSeries(dailyCalls, 30);
 
   const attention: Attention[] = [];
   for (const officer of rows) {
@@ -145,7 +140,15 @@ export default async function AdminOverviewPage() {
       <PageHeader
         title="Overview"
         subtitle="Everything running on the platform right now, across every officer."
-        actions={<LinkButton href="/admin/officers">Manage officers</LinkButton>}
+        actions={
+          <>
+            <LinkButton href="/admin/explore" variant="secondary">
+              <Search size={14} />
+              Search a truck or officer
+            </LinkButton>
+            <LinkButton href="/admin/officers">Manage officers</LinkButton>
+          </>
+        }
       />
 
       {officersError ? (
@@ -155,7 +158,7 @@ export default async function AdminOverviewPage() {
             {officersError.message}
           </p>
           <p className="mt-2 text-xs text-muted">
-            Run both files in <code className="font-mono">supabase/migrations</code> against your
+            Run every file in <code className="font-mono">supabase/migrations</code> against your
             Supabase project, then reload.
           </p>
         </Panel>
@@ -211,7 +214,7 @@ export default async function AdminOverviewPage() {
         <div className="space-y-5 xl:col-span-2">
           <Panel
             title="Platform usage, last 30 days"
-            description="Every LDB call the platform made, split by manual and automatic."
+            description={`Every charged LDB call, split by manual and automatic. ${fmtNumber(callsMonth)} so far this month.`}
           >
             <UsageChart series={series} />
           </Panel>

@@ -5,10 +5,11 @@ import {
   Bell,
   Coins,
   KeyRound,
+  MapPin,
   MessageCircle,
   PauseCircle,
   PlayCircle,
-  Sheet,
+  Search as SearchIcon,
   Trash2,
   Truck,
   Wallet,
@@ -25,6 +26,7 @@ import {
   updateOfficer,
 } from "../actions";
 import { GrantCreditsForm } from "../../credits/GrantCreditsForm";
+import { loadDailyCalls } from "../../usage/ledger";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -51,7 +53,7 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtRelative, initials } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, initials } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
@@ -62,9 +64,12 @@ import type {
   Plan,
   Profile,
   SearchLog,
-  TrackedTruck,
-  UsageCounter,
+  TelegramConfig,
+  TruckDirectoryRow,
 } from "@/lib/types";
+
+/** Below this the officer is worth chasing before they stop mid-case. */
+const LOW_CREDIT_BALANCE = 20;
 
 const TRUCK_STATUS_TONE = {
   moving: "good",
@@ -107,10 +112,6 @@ export default async function OfficerDetailPage({
 
   if (!overview) notFound();
 
-  const since = new Date(Date.now() - 29 * 86_400_000).toLocaleDateString("en-CA", {
-    timeZone: "Asia/Kolkata",
-  });
-
   const [
     { data: profile },
     { data: plans },
@@ -118,67 +119,61 @@ export default async function OfficerDetailPage({
     { data: trucks },
     { data: searches },
     { data: alerts },
-    { data: usage },
+    dailyCalls,
     { data: telegram },
-    { data: sheet },
     { data: ledger },
-    { data: truckAlerts },
     settings,
   ] = await Promise.all([
     admin.from("profiles").select("*").eq("id", id).maybeSingle<Profile>(),
     admin.from("plans").select("*").order("sort_order"),
     admin.from("user_limit_overrides").select("*").eq("user_id", id).maybeSingle<LimitOverrides>(),
+    // truck_directory already carries the alert and event counts, so the truck
+    // table below is one query rather than one per truck.
     admin
-      .from("tracked_trucks")
+      .from("truck_directory")
       .select("*")
-      .eq("user_id", id)
+      .eq("officer_id", id)
       .order("last_event_at", { ascending: false, nullsFirst: false })
-      .limit(50),
+      .limit(200),
     admin
       .from("search_logs")
       .select("*")
       .eq("user_id", id)
       .order("created_at", { ascending: false })
-      .limit(10),
+      .limit(12),
     admin
       .from("alert_logs")
       .select("*")
       .eq("user_id", id)
       .order("created_at", { ascending: false })
-      .limit(10),
-    admin.from("usage_counters").select("*").eq("user_id", id).gte("usage_date", since),
-    admin.from("telegram_configs").select("*").eq("user_id", id).maybeSingle(),
-    admin.from("google_sheet_configs").select("*").eq("user_id", id).maybeSingle(),
+      .limit(12),
+    loadDailyCalls(admin, { days: 30, userId: id }),
+    admin.from("telegram_configs").select("*").eq("user_id", id).maybeSingle<TelegramConfig>(),
     admin
       .from("credit_transactions")
       .select("*")
       .eq("user_id", id)
       .order("created_at", { ascending: false })
-      .limit(15),
-    admin.from("truck_alerts").select("tracked_truck_id, is_enabled").eq("user_id", id),
+      .limit(50),
     loadSettings(admin),
   ]);
 
   const planList = (plans ?? []) as Plan[];
   const currentPlan = planList.find((p) => p.id === overview.plan_id) ?? null;
-  const truckList = (trucks ?? []) as TrackedTruck[];
+  const truckList = (trucks ?? []) as TruckDirectoryRow[];
   const searchList = (searches ?? []) as SearchLog[];
   const alertList = (alerts ?? []) as AlertLog[];
   const movements = (ledger ?? []) as CreditTransaction[];
-  const series = buildUsageSeries((usage ?? []) as UsageCounter[], 30);
+  const series = buildUsageSeries(dailyCalls, 30);
   const suspended = overview.status === "suspended";
   const expired =
     overview.plan_expires_on !== null && new Date(overview.plan_expires_on) < new Date();
 
   const balance = Number(overview.credits ?? 0);
+  const balanceTone = balance <= 0 ? "bad" : balance < LOW_CREDIT_BALANCE ? "warn" : "good";
+  const trucksNeverChecked = truckList.filter((truck) => truck.alert_count === 0).length;
 
-  // A truck has no schedule of its own - it is checked when one of its alerts
-  // is due, so the alert count is what says whether anything happens at all.
-  const alertsPerTruck = new Map<string, number>();
-  for (const row of (truckAlerts ?? []) as { tracked_truck_id: string; is_enabled: boolean }[]) {
-    if (!row.is_enabled) continue;
-    alertsPerTruck.set(row.tracked_truck_id, (alertsPerTruck.get(row.tracked_truck_id) ?? 0) + 1);
-  }
+  const posting = [overview.office, overview.district, overview.state].filter(Boolean).join(" · ");
 
   return (
     <>
@@ -196,7 +191,7 @@ export default async function OfficerDetailPage({
           <span className="flex flex-wrap items-center gap-2">
             <span>{overview.email}</span>
             {overview.designation ? <span className="text-faint">· {overview.designation}</span> : null}
-            {overview.office ? <span className="text-faint">· {overview.office}</span> : null}
+            {posting ? <span className="text-faint">· {posting}</span> : null}
           </span>
         }
         actions={
@@ -250,7 +245,10 @@ export default async function OfficerDetailPage({
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <Badge tone={suspended ? "bad" : "good"}>{suspended ? "Suspended" : "Active"}</Badge>
         {overview.plan_name ? (
-          <Badge tone="brand">{overview.plan_name}</Badge>
+          <Badge tone={overview.plan_active ? "brand" : "warn"}>
+            {overview.plan_name}
+            {overview.plan_active ? "" : " — not live"}
+          </Badge>
         ) : (
           <Badge tone="bad">No plan</Badge>
         )}
@@ -260,11 +258,9 @@ export default async function OfficerDetailPage({
           <MessageCircle size={11} />
           {overview.telegram_connected ? "Telegram linked" : "No Telegram"}
         </Badge>
-        <Badge tone={overview.sheet_connected ? "good" : "neutral"}>
-          <Sheet size={11} />
-          {overview.sheet_connected ? "Sheet linked" : "No sheet"}
-        </Badge>
-        <span className="text-xs text-faint">Added {fmtDateTime(overview.created_at)}</span>
+        <span className="text-xs text-faint">
+          Added {fmtDate(overview.created_at)} · last seen {fmtRelative(overview.last_active_at)}
+        </span>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -274,9 +270,9 @@ export default async function OfficerDetailPage({
           sub={
             balance <= 0
               ? "Out of credits — every search is refused"
-              : `Worth about Rs ${(balance * settings.creditPriceInr).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+              : `${formatCredits(overview.credits_purchased)} bought in total`
           }
-          tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "brand"}
+          tone={balance <= 0 ? "bad" : balance < LOW_CREDIT_BALANCE ? "warn" : "brand"}
           icon={<Wallet size={15} />}
         />
         <StatCard
@@ -301,11 +297,135 @@ export default async function OfficerDetailPage({
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
+          <Panel
+            title="Contact and posting"
+            description="Everything you hold about this officer. Edit it in Officer details on the right."
+            bodyClassName="px-5 py-2"
+          >
+            <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+              <dl>
+                <DescRow label="Name">{overview.full_name ?? "--"}</DescRow>
+                <DescRow label="Email">
+                  <a href={`mailto:${overview.email}`} className="hover:text-brand-500">
+                    {overview.email}
+                  </a>
+                </DescRow>
+                <DescRow label="Phone">
+                  {overview.phone ? (
+                    <a href={`tel:${overview.phone}`} className="hover:text-brand-500">
+                      {overview.phone}
+                    </a>
+                  ) : (
+                    "--"
+                  )}
+                </DescRow>
+                <DescRow label="Designation">{overview.designation ?? "--"}</DescRow>
+              </dl>
+              <dl>
+                <DescRow label="Office">{overview.office ?? "--"}</DescRow>
+                <DescRow label="District">{overview.district ?? "--"}</DescRow>
+                <DescRow label="State">{overview.state ?? "--"}</DescRow>
+                <DescRow label="Account created">{fmtDate(overview.created_at)}</DescRow>
+              </dl>
+            </div>
+            {overview.notes ? (
+              <p className="mt-2 border-t border-divider pt-3 pb-2 text-sm whitespace-pre-line text-muted">
+                <span className="mb-1 block text-xs tracking-wide text-faint uppercase">
+                  Internal notes
+                </span>
+                {overview.notes}
+              </p>
+            ) : null}
+          </Panel>
+
           <OverridesPanel officer={overview} plan={currentPlan} overrides={overrides ?? null} />
 
           <Panel
+            title={`Trucks tracked (${truckList.length})`}
+            description="Every truck this officer has under tracking. Read-only here — they add and remove trucks from their own dashboard."
+            bodyClassName="p-0"
+          >
+            {truckList.length === 0 ? (
+              <EmptyState title="No trucks under tracking" />
+            ) : (
+              <TableWrap>
+                <Thead>
+                  <th className="th">Truck</th>
+                  <th className="th">Status</th>
+                  <th className="th">Last toll plaza</th>
+                  <th className="th">Last event</th>
+                  <th className="th">Last checked</th>
+                  <th className="th text-right">Alerts</th>
+                  <th className="th text-right">Events</th>
+                  <th className="th">Added</th>
+                </Thead>
+                <Tbody>
+                  {truckList.map((truck) => (
+                    <Tr key={truck.tracked_truck_id}>
+                      <td className="td">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <Link
+                            href={`/admin/explore?q=${truck.truck_number}`}
+                            className="transition hover:text-brand-500"
+                          >
+                            <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
+                          </Link>
+                          {truck.is_active ? null : <Badge>paused</Badge>}
+                        </span>
+                        {truck.label ? (
+                          <span className="block text-xs text-faint">{truck.label}</span>
+                        ) : null}
+                      </td>
+                      <td className="td">
+                        <Badge tone={TRUCK_STATUS_TONE[truck.status]}>
+                          {TRUCK_STATUS_LABEL[truck.status]}
+                        </Badge>
+                      </td>
+                      <td className="td">
+                        {truck.last_location ? (
+                          <span className="flex items-center gap-1.5 text-sm">
+                            <MapPin size={13} className="shrink-0 text-faint" />
+                            {truck.last_location}
+                          </span>
+                        ) : (
+                          "--"
+                        )}
+                      </td>
+                      <td className="td text-xs whitespace-nowrap text-muted">
+                        {fmtDateTime(truck.last_event_at)}
+                      </td>
+                      <td className="td text-xs whitespace-nowrap text-muted">
+                        {fmtRelative(truck.last_polled_at)}
+                      </td>
+                      <td className="td text-right">
+                        {truck.alert_count === 0 ? (
+                          <Badge tone="warn">never checked</Badge>
+                        ) : (
+                          <span className="text-sm tabular-nums text-ink">{truck.alert_count}</span>
+                        )}
+                      </td>
+                      <td className="td text-right text-sm tabular-nums text-muted">
+                        {fmtNumber(truck.event_count)}
+                      </td>
+                      <td className="td text-xs whitespace-nowrap text-muted">
+                        {fmtDate(truck.created_at)}
+                      </td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </TableWrap>
+            )}
+            {trucksNeverChecked > 0 ? (
+              <p className="border-t border-divider px-5 py-3 text-xs text-muted">
+                {trucksNeverChecked} truck{trucksNeverChecked === 1 ? " has" : "s have"} no alert
+                switched on, so {trucksNeverChecked === 1 ? "it is" : "they are"} never checked.
+              </p>
+            ) : null}
+          </Panel>
+
+          <Panel
             title="Usage, last 30 days"
-            description="Manual searches and background checks per day. Nothing here is a quota — it is what the credits below were spent on."
+            description="Manual searches and background checks per day, counted from the credit ledger."
           >
             <UsageChart series={series} />
           </Panel>
@@ -364,65 +484,16 @@ export default async function OfficerDetailPage({
                 </Tbody>
               </TableWrap>
             )}
-          </Panel>
-
-          <Panel
-            title={`Tracked trucks (${truckList.length})`}
-            description="Read-only here. The officer adds and removes trucks from their own dashboard."
-            bodyClassName="p-0"
-          >
-            {truckList.length === 0 ? (
-              <EmptyState title="No trucks under tracking" />
-            ) : (
-              <TableWrap>
-                <Thead>
-                  <th className="th">Truck</th>
-                  <th className="th">Alerts on</th>
-                  <th className="th">Last toll</th>
-                  <th className="th">Last seen</th>
-                  <th className="th">Status</th>
-                </Thead>
-                <Tbody>
-                  {truckList.map((truck) => {
-                    const alertCount = alertsPerTruck.get(truck.id) ?? 0;
-                    return (
-                    <Tr key={truck.id}>
-                      <td className="td">
-                        <span className="flex items-center gap-2">
-                          <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
-                          {truck.is_active ? null : <Badge>paused</Badge>}
-                        </span>
-                        {truck.label ? (
-                          <span className="block text-xs text-faint">{truck.label}</span>
-                        ) : null}
-                      </td>
-                      <td className="td">
-                        {alertCount === 0 ? (
-                          <Badge tone="warn">never checked</Badge>
-                        ) : (
-                          <span className="text-sm tabular-nums text-ink">{alertCount}</span>
-                        )}
-                      </td>
-                      <td className="td text-sm">{truck.last_location ?? "--"}</td>
-                      <td className="td text-xs whitespace-nowrap text-muted">
-                        {fmtRelative(truck.last_event_at)}
-                      </td>
-                      <td className="td">
-                        <Badge tone={TRUCK_STATUS_TONE[truck.status]}>
-                          {TRUCK_STATUS_LABEL[truck.status]}
-                        </Badge>
-                      </td>
-                    </Tr>
-                    );
-                  })}
-                </Tbody>
-              </TableWrap>
-            )}
+            {movements.length === 50 ? (
+              <p className="border-t border-divider px-5 py-3 text-xs text-faint">
+                Showing the 50 most recent movements.
+              </p>
+            ) : null}
           </Panel>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <Panel
-              title="Last 10 LDB calls"
+              title="Recent searches"
               description="Manual searches, and background checks that found something or failed."
               bodyClassName="p-0"
             >
@@ -433,7 +504,12 @@ export default async function OfficerDetailPage({
                   {searchList.map((log) => (
                     <li key={log.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
                       <span className="min-w-0">
-                        <Mono className="text-ink">{log.truck_number}</Mono>
+                        <Link
+                          href={`/admin/explore?q=${log.truck_number}`}
+                          className="transition hover:text-brand-500"
+                        >
+                          <Mono className="text-ink">{log.truck_number}</Mono>
+                        </Link>
                         <span className="block text-xs text-faint">
                           {fmtDateTime(log.created_at)}
                         </span>
@@ -453,7 +529,7 @@ export default async function OfficerDetailPage({
             </Panel>
 
             <Panel
-              title="Last 10 alerts"
+              title="Recent alerts"
               bodyClassName="p-0"
               actions={
                 <Link
@@ -492,30 +568,28 @@ export default async function OfficerDetailPage({
           <Panel
             title="Credits"
             description="One balance pays for every search and every background check."
-            actions={
-              <Badge tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "good"}>
-                {formatCredits(balance)} left
-              </Badge>
-            }
+            actions={<Badge tone={balanceTone}>{formatCredits(balance)} left</Badge>}
           >
             <p className="mb-4 flex items-baseline gap-2">
               <span className="text-3xl font-semibold tabular-nums text-strong">
                 {formatCredits(balance)}
               </span>
-              <span className="text-sm text-muted">
-                credits · about Rs{" "}
-                {(balance * settings.creditPriceInr).toLocaleString("en-IN", {
-                  maximumFractionDigits: 0,
-                })}
-              </span>
+              <span className="text-sm text-muted">credits</span>
             </p>
 
-            <GrantCreditsForm userId={id} pricePerCredit={settings.creditPriceInr} />
+            <GrantCreditsForm userId={id} />
 
             <dl className="mt-4 border-t border-divider pt-3">
               <DescRow label="Spent today">{formatCredits(overview.credits_spent_today)}</DescRow>
               <DescRow label="Spent this month">
                 {formatCredits(overview.credits_spent_month)}
+              </DescRow>
+              <DescRow label="Searches this month">
+                {fmtNumber(overview.manual_searches_month)} manual ·{" "}
+                {fmtNumber(overview.tracking_queries_month)} automatic
+              </DescRow>
+              <DescRow label="Bought so far">
+                {formatCredits(overview.credits_purchased)}
               </DescRow>
               <DescRow label="Plan includes">
                 {overview.included_credits === null
@@ -526,13 +600,21 @@ export default async function OfficerDetailPage({
 
             <p className="mt-3 text-[11px] leading-relaxed text-faint">
               {settings.razorpayEnabled
-                ? "Officers can also buy credits themselves once the Razorpay secret is set in the environment."
+                ? "Officers can also buy credits themselves, as long as their plan is live."
                 : "Officers cannot buy credits themselves yet — switch on payments in Settings when you have Razorpay keys."}{" "}
               Rates for each action are set under Credits.
             </p>
           </Panel>
 
-          <Panel title="Plan" description="Changing the plan takes effect on the next search.">
+          <Panel
+            title="Plan"
+            description="Changing the plan takes effect on the next search."
+            actions={
+              <Badge tone={overview.plan_active ? "good" : "bad"}>
+                {overview.plan_active ? "live" : "not live"}
+              </Badge>
+            }
+          >
             <ActionForm action={assignPlan} closeOnSuccess={false}>
               <input type="hidden" name="user_id" value={id} />
               <div className="space-y-4">
@@ -570,13 +652,16 @@ export default async function OfficerDetailPage({
                 <DescRow label="Charge">
                   {currentPlan.price_per_month > 0 ? `Rs ${currentPlan.price_per_month}/mo` : "None"}
                 </DescRow>
+                <DescRow label="Truck limit">
+                  {overview.truck_limit === -1 ? "Unlimited" : fmtNumber(overview.truck_limit)}
+                </DescRow>
               </dl>
             ) : null}
           </Panel>
 
           <Panel
-            title="Integrations"
-            description="You can fill these in for the officer, or let them do it from their dashboard."
+            title="Telegram"
+            description="Where this officer's alerts are delivered. You can fill it in for them, or let them do it from their dashboard."
           >
             <ActionForm action={saveOfficerIntegrations} closeOnSuccess={false}>
               <input type="hidden" name="user_id" value={id} />
@@ -609,55 +694,17 @@ export default async function OfficerDetailPage({
                   name="telegram_is_enabled"
                   label="Send Telegram alerts"
                   defaultChecked={telegram?.is_enabled ?? true}
-                  disabled={!overview.telegram_enabled}
-                  hint={
-                    overview.telegram_enabled
-                      ? undefined
-                      : "Blocked by the plan. Enable Telegram in the limits above first."
-                  }
-                />
-
-                <Field
-                  label="Google Sheet URL"
-                  name="sheet_url"
-                  hint="Share the sheet with your service account as Editor, then paste the link."
-                >
-                  <Input
-                    name="sheet_url"
-                    defaultValue={sheet?.sheet_url ?? ""}
-                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                  />
-                </Field>
-
-                <Checkbox
-                  name="sheet_is_enabled"
-                  label="Mirror events into the sheet"
-                  defaultChecked={sheet?.is_enabled ?? true}
-                  disabled={!overview.google_sheet_enabled}
-                  hint={
-                    overview.google_sheet_enabled
-                      ? undefined
-                      : "Blocked by the plan. Enable Google Sheet sync in the limits above first."
-                  }
                 />
               </div>
               <FormActions>
-                <SubmitButton>Save integrations</SubmitButton>
+                <SubmitButton>Save Telegram</SubmitButton>
               </FormActions>
             </ActionForm>
 
             <dl className="mt-4 border-t border-divider pt-3">
-              <DescRow label="Sheet id">
-                {sheet?.spreadsheet_id ? <Mono>{sheet.spreadsheet_id.slice(0, 18)}…</Mono> : "--"}
-              </DescRow>
-              <DescRow label="Last sync">{fmtRelative(sheet?.last_synced_at)}</DescRow>
-              {sheet?.last_error ? (
-                <DescRow label="Sheet error">
-                  <span className="text-bad-500">{sheet.last_error}</span>
-                </DescRow>
-              ) : null}
+              <DescRow label="Verified">{fmtRelative(telegram?.verified_at)}</DescRow>
               {telegram?.last_error ? (
-                <DescRow label="Telegram error">
+                <DescRow label="Last error">
                   <span className="text-bad-500">{telegram.last_error}</span>
                 </DescRow>
               ) : null}
@@ -672,6 +719,38 @@ export default async function OfficerDetailPage({
                 <SubmitButton>Save details</SubmitButton>
               </FormActions>
             </ActionForm>
+          </Panel>
+
+          <Panel title="Elsewhere in the console" bodyClassName="p-0">
+            <ul className="divide-y divide-divider text-sm">
+              <li>
+                <Link
+                  href={`/admin/trucks?officer=${id}`}
+                  className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
+                >
+                  <Truck size={14} className="text-faint" />
+                  This officer&apos;s trucks in the fleet view
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={`/admin/explore?q=${encodeURIComponent(overview.email)}`}
+                  className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
+                >
+                  <SearchIcon size={14} className="text-faint" />
+                  Cross-reference their trucks with other officers
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={`/admin/alerts/log?officer=${id}`}
+                  className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
+                >
+                  <Bell size={14} className="text-faint" />
+                  Every alert sent to this officer
+                </Link>
+              </li>
+            </ul>
           </Panel>
 
           <Panel title="Danger zone" className="border-bad-500/30">

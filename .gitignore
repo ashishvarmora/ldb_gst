@@ -24,3 +24,6 @@ vercel-env.txt
 .vercel-env-tmp/
 
 .env*
+
+# Word lock files
+~$*

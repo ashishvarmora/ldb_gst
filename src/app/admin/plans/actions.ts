@@ -4,28 +4,14 @@ import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
-import { BOOLEAN_LIMITS, NUMERIC_LIMITS, parseLimitInput } from "@/lib/limits";
+import { fail, str } from "@/lib/forms";
+import { NUMERIC_LIMITS, parseLimitInput } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
-function str(fd: FormData, name: string): string | null {
-  const raw = fd.get(name);
-  if (typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  return trimmed === "" ? null : trimmed;
-}
-
-function bool(fd: FormData, name: string): boolean {
-  return fd.getAll(name).includes("true");
-}
-
-function fail(error: string): ActionResult {
-  return { ok: false, error };
-}
-
 /** Read every limit field off the form. Blank is rejected: a plan is complete. */
-function readPlanLimits(fd: FormData): { values: Record<string, number | boolean> } | { error: string } {
-  const values: Record<string, number | boolean> = {};
+function readPlanLimits(fd: FormData): { values: Record<string, number> } | { error: string } {
+  const values: Record<string, number> = {};
 
   for (const field of NUMERIC_LIMITS) {
     const value = parseLimitInput(fd.get(field.key), {
@@ -41,10 +27,6 @@ function readPlanLimits(fd: FormData): { values: Record<string, number | boolean
       };
     }
     values[field.key] = value;
-  }
-
-  for (const field of BOOLEAN_LIMITS) {
-    values[field.key] = bool(fd, field.key);
   }
 
   return { values };

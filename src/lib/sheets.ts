@@ -5,9 +5,10 @@ import { env } from "@/lib/env";
 /**
  * Minimal Google Sheets client using one platform service account.
  *
- * Officers share their own sheet with the service-account email as Editor, so we
- * never handle an officer credential. Written against the REST API directly:
- * the googleapis package is ~10 MB for the three calls we actually make.
+ * There is one backup sheet, owned by the admin, shared with the service
+ * account as Editor - so no officer credential is ever handled. Written
+ * against the REST API directly: the googleapis package is ~10 MB for the
+ * three calls actually made here.
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -265,15 +266,6 @@ export async function syncToSheet(
   return append(auth.token, spreadsheetId, SHEET_TABS.events, payload.events);
 }
 
-/** Used by the "test connection" button on the officer settings page. */
-export async function testSheetAccess(spreadsheetId: string): Promise<SheetResult> {
-  const auth = await getAccessToken();
-  if (!auth.ok) return auth;
-  const tabs = await ensureTabs(auth.token, spreadsheetId, Object.values(SHEET_TABS));
-  return tabs;
-}
-
-/** Pull a spreadsheet id out of a pasted URL, or accept a bare id. */
 export function spreadsheetIdFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   const text = url.trim();

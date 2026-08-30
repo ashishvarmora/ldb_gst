@@ -7,31 +7,23 @@ entry point at [src/app/api/cron/track/route.ts](../src/app/api/cron/track/route
 ## Scheduling
 
 The worker is one HTTP endpoint. Whatever calls it on a schedule is the *tick*.
+Nothing in this repo schedules it.
 
-A truck is only polled when its own interval has elapsed, so a 5-minute tick does not
-mean a 30-minute truck gets hammered — the tick just decides when to look.
+A truck is checked only when one of its own alerts is due, so a 5-minute tick does
+not mean a 30-minute alert gets hammered — the tick just decides when to look. But
+**no alert can fire faster than the tick**, so this interval is the real floor on
+every alert in the app.
 
-**Vercel Hobby only allows one cron run per day** — a `*/5 * * * *` schedule is
-rejected at deploy time with "Hobby accounts are limited to daily cron jobs". So
-`vercel.json` ships with `0 1 * * *` (06:30 IST) as a once-a-day backstop, and the
-real 5-minute cadence comes from somewhere else.
+**This deployment uses [cron-job.org](https://cron-job.org).** Create a job:
 
-**Option 1 — GitHub Actions (already set up).** `.github/workflows/track.yml` runs
-every 5 minutes and is free. Add two repository secrets under **Settings → Secrets and
-variables → Actions**: `APP_URL` (your Vercel URL, no trailing slash) and
-`CRON_SECRET`. Run it once from the Actions tab to confirm. Caveats: GitHub's
-scheduler is best-effort and can be several minutes late under load, and scheduled
-workflows are disabled automatically after 60 days without a commit.
-
-**Option 2 — cron-job.org (most reliable free option).** Sign up, create a job
-pointing at `https://your-app.vercel.app/api/cron/track`, set the interval to 5
-minutes, and add a request header `Authorization: Bearer <CRON_SECRET>`. It is more
-punctual than GitHub Actions and does not need repo activity.
-
-**Option 3 — upgrade to Vercel Pro**, then set `vercel.json` back to `*/5 * * * *`.
+| Field | Value |
+| --- | --- |
+| URL | `https://<your-domain>/api/cron/track` |
+| Schedule | every 5 minutes |
+| Header | `Authorization: Bearer <CRON_SECRET>` |
 
 Any scheduler works — Supabase `pg_cron` with `pg_net`, a VPS crontab, anything that
-can make an HTTP call. Point it at:
+can make an HTTP call:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/cron/track
@@ -40,8 +32,27 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://your-app.vercel.app/api/cro
 A `?key=<CRON_SECRET>` query parameter is accepted too, for schedulers that cannot set
 headers.
 
-Vercel Cron sends `Authorization: Bearer $CRON_SECRET` automatically once that
-variable exists, so no extra header configuration is needed there.
+### Check the body, not the status code
+
+Whatever you use, assert that the response is JSON containing `"ok": true`.
+
+A wrong secret returns 403, which any scheduler will notice. But **Vercel's
+deployment protection returns HTTP 200 with an HTML login page**, so a scheduler
+that only checks the status code reports success for ever while nothing runs. If
+tracking looks dead but the scheduler looks green, that is the first thing to
+check.
+
+### Two schedulers that were removed
+
+`vercel.json` used to carry a daily cron and the repo shipped a GitHub Actions
+workflow. Both are gone:
+
+- **Vercel Hobby** allows one cron run per day. A `*/5 * * * *` schedule is
+  rejected at deploy time, and once a day is not tracking.
+- **GitHub Actions on a private repo** bills scheduled runs against the free
+  2,000 minutes a month. Every 5 minutes is about 8,600 billed minutes, so it
+  runs for roughly a week and then stops silently mid-month. (On a public repo
+  it is free, and the workflow was fine.)
 
 You can also run a sweep by hand from **Admin → Settings → Run the worker now**,
 which is the fastest way to confirm the whole chain after a deploy.

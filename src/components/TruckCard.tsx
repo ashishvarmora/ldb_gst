@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { BellOff, BellRing, ChevronRight, Clock, MapPin } from "lucide-react";
 
-import { directionLabel } from "@/components/Timeline";
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
 import { describeAlert } from "@/lib/alerts";
-import { fmtDateTime, fmtRelative } from "@/lib/format";
+import { fmtRelative } from "@/lib/format";
 import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
 
 export const TRUCK_STATUS_TONE: Record<TruckStatus, BadgeTone> = {
@@ -57,9 +56,21 @@ export function lastCheckedLabel(
   return "Waiting for the first check";
 }
 
+/** "Location changed · every 30 min" for the first alert, "+2 more" folded in. */
+function alertSummary(alerts: TruckAlertWithTemplate[]): string {
+  const enabled = alerts.filter((alert) => alert.is_enabled);
+  if (enabled.length === 0) {
+    if (alerts.length === 0) return "No alerts yet";
+    return `${alerts.length} alert${alerts.length === 1 ? "" : "s"}, all switched off`;
+  }
+  const first = describeAlert(enabled[0]);
+  return enabled.length === 1 ? first : `${first} + ${enabled.length - 1} more`;
+}
+
 /**
- * The card an officer scans down a list of: where it was, when, which way, and
- * which alerts are watching it.
+ * One card per truck, holding only what an officer scans a list for: the
+ * number, whether it is moving, where it was last seen, when it was last
+ * checked, and what is watching it. Anything else belongs on the truck's page.
  */
 export function TruckCard({
   truck,
@@ -115,25 +126,15 @@ export function TruckCard({
           <div className="flex items-start gap-2">
             <MapPin size={13} className="mt-px shrink-0 text-faint" />
             <dd className="min-w-0 text-ink">
-              {truck.last_location ?? (
-                <span className="text-muted">No crossing recorded yet</span>
-              )}
-              {directionLabel(truck.last_direction) ? (
-                <span className="text-muted"> · {directionLabel(truck.last_direction)}</span>
-              ) : null}
-            </dd>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Clock size={13} className="mt-px shrink-0 text-faint" />
-            <dd className="text-muted">
-              {truck.last_event_at ? (
+              {truck.last_location ? (
                 <>
-                  <span className="font-medium text-ink">{fmtRelative(truck.last_event_at)}</span>
-                  <span className="text-muted"> · {fmtDateTime(truck.last_event_at)}</span>
+                  <span className="block truncate">{truck.last_location}</span>
+                  {truck.last_event_at ? (
+                    <span className="text-muted">{fmtRelative(truck.last_event_at)}</span>
+                  ) : null}
                 </>
               ) : (
-                "No crossing seen yet"
+                <span className="text-muted">No crossing recorded yet</span>
               )}
             </dd>
           </div>
@@ -144,35 +145,14 @@ export function TruckCard({
             ) : (
               <BellOff size={13} className="mt-px shrink-0 text-faint" />
             )}
-            <dd className="min-w-0 text-muted">
-              {enabled.length === 0 ? (
-                alerts.length === 0 ? (
-                  "No alerts yet"
-                ) : (
-                  `${alerts.length} alert${alerts.length === 1 ? "" : "s"}, all switched off`
-                )
-              ) : (
-                <>
-                  <span className="block truncate text-ink">{describeAlert(enabled[0])}</span>
-                  {enabled.length > 1 ? (
-                    <span className="block">
-                      + {enabled.length - 1} more alert{enabled.length - 1 === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-                </>
-              )}
-            </dd>
+            <dd className="min-w-0 truncate text-muted">{alertSummary(alerts)}</dd>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <Clock size={13} className="mt-px shrink-0 text-faint" />
+            <dd className="min-w-0 text-muted">{lastCheckedLabel(truck, alerts)}</dd>
           </div>
         </dl>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-divider pt-2.5 text-[11px] text-muted">
-          <span>{lastCheckedLabel(truck, alerts)}</span>
-          {truck.consecutive_errors > 0 ? (
-            <span className="text-bad-500">
-              {truck.consecutive_errors} failed check{truck.consecutive_errors === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </div>
       </div>
     </Link>
   );

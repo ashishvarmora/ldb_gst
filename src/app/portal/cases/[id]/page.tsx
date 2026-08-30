@@ -9,11 +9,12 @@ import {
   InlineActionForm,
   SubmitButton,
 } from "@/components/ActionForm";
+import { Disclosure } from "@/components/Disclosure";
 import { Field, FormActions, Input, Textarea } from "@/components/form";
 import { Modal } from "@/components/Modal";
 import { Timeline } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
-import { Badge, EmptyState, LinkButton, Mono, Panel, StatCard } from "@/components/ui";
+import { Badge, EmptyState, Mono, Panel } from "@/components/ui";
 import { fmtDate, fmtRelative } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -175,16 +176,10 @@ export default async function CaseDetailPage({
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Trucks in case" value={numbers.length} />
-        <StatCard label="Under tracking" value={activeTracking} tone="brand" />
-        <StatCard label="Crossings on record" value={eventList.length} />
-        <StatCard
-          label="Newest crossing"
-          value={fmtRelative(eventList[0]?.event_time)}
-          sub={eventList[0]?.loc_name ?? undefined}
-        />
-      </div>
+      <p className="mb-4 text-xs text-muted">
+        {numbers.length} truck{numbers.length === 1 ? "" : "s"} · {activeTracking} under tracking ·{" "}
+        {eventList.length} crossing{eventList.length === 1 ? "" : "s"} on record
+      </p>
 
       {numbers.length === 0 ? (
         <Panel bodyClassName="p-0">
@@ -194,107 +189,74 @@ export default async function CaseDetailPage({
           />
         </Panel>
       ) : (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-          <div className="space-y-4">
-            <Panel
-              title={`Trucks (${numbers.length})`}
-              description="Each truck, with its latest position."
-              bodyClassName="p-0"
-            >
-              <ul className="divide-y divide-divider">
-                {numbers.map((number) => {
-                  const truck = trackedByNumber.get(number);
-                  const latest = eventsByTruck.get(number)?.[0] ?? null;
-                  const status = truck ? (truck.is_active ? truck.status : "unknown") : "unknown";
+        <div className="space-y-4">
+          <Panel
+            title={`Trucks (${numbers.length})`}
+            description="Each truck, with its latest position."
+            bodyClassName="p-0"
+          >
+            <ul className="divide-y divide-divider">
+              {numbers.map((number) => {
+                const truck = trackedByNumber.get(number);
+                const latest = eventsByTruck.get(number)?.[0] ?? null;
+                const status = truck ? (truck.is_active ? truck.status : "unknown") : "unknown";
 
-                  return (
-                    <li key={number} className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <Link
-                          href={
-                            truck ? `/portal/trucks/${truck.id}` : `/portal/search/${number}`
-                          }
-                          className="min-w-0 group"
+                return (
+                  <li key={number} className="flex items-start justify-between gap-2 px-4 py-3">
+                    <Link
+                      href={truck ? `/portal/trucks/${truck.id}` : `/portal/search/${number}`}
+                      className="group min-w-0"
+                    >
+                      <Mono className="block font-semibold text-ink group-hover:text-brand-500">
+                        {number}
+                      </Mono>
+                      <span className="mt-0.5 block truncate text-xs text-muted">
+                        {latest
+                          ? `${latest.loc_name ?? "Unnamed plaza"} · ${fmtRelative(latest.event_time)}`
+                          : "No crossings on record"}
+                      </span>
+                    </Link>
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Badge tone={TRUCK_STATUS_TONE[status]}>
+                        {truck ? TRUCK_STATUS_LABEL[status] : "not tracked"}
+                      </Badge>
+                      <InlineActionForm
+                        action={removeTruckFromCase}
+                        hidden={{ case_id: group.id, truck_number: number }}
+                      >
+                        <ConfirmSubmitButton
+                          message={`Remove ${number} from this case?`}
+                          variant="ghost"
                         >
-                          <Mono className="block font-semibold text-ink group-hover:text-brand-400">
-                            {number}
-                          </Mono>
-                          <span className="mt-0.5 block truncate text-xs text-muted">
-                            {latest?.loc_name ?? "No crossings on record"}
-                          </span>
-                          <span className="block text-[11px] text-faint">
-                            {latest ? fmtRelative(latest.event_time) : "—"}
-                          </span>
-                        </Link>
+                          <X size={12} />
+                          <span className="sr-only">Remove from case</span>
+                        </ConfirmSubmitButton>
+                      </InlineActionForm>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </Panel>
 
-                        <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          <Badge tone={TRUCK_STATUS_TONE[status]}>
-                            {truck ? TRUCK_STATUS_LABEL[status] : "not tracked"}
-                          </Badge>
-                          <InlineActionForm
-                            action={removeTruckFromCase}
-                            hidden={{ case_id: group.id, truck_number: number }}
-                          >
-                            <ConfirmSubmitButton
-                              message={`Remove ${number} from this case?`}
-                              variant="ghost"
-                            >
-                              <X size={12} />
-                            </ConfirmSubmitButton>
-                          </InlineActionForm>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Panel>
-
-            <Panel title="Tip">
-              <p className="text-xs leading-relaxed text-muted">
-                A truck can sit in a case without being tracked — useful for vehicles you only need
-                to look up occasionally. Add it to tracking from its own page when you want
-                background checks and alerts.
-              </p>
-              <div className="mt-3">
-                <LinkButton href="/portal/trucks" size="sm" variant="secondary">
-                  Manage tracking
-                </LinkButton>
-              </div>
-            </Panel>
-          </div>
-
-          <div className="xl:col-span-2">
-            <Panel
-              title="Combined movement"
-              description="Every crossing by every truck in this case, newest first."
-            >
-              {eventList.length === 0 ? (
-                <EmptyState
-                  title="No crossings on record"
-                  description="Search one of these trucks, or add it to tracking, and its movements will show up here."
-                />
-              ) : (
-                <>
-                  <div className="mb-4 flex flex-wrap gap-1.5">
-                    {numbers.map((number) => {
-                      const count = eventsByTruck.get(number)?.length ?? 0;
-                      return (
-                        <span
-                          key={number}
-                          className="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] text-muted"
-                        >
-                          <Mono>{number}</Mono>
-                          <span className="ml-1.5 text-faint">{count}</span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <CombinedTimeline events={eventList} />
-                </>
-              )}
-            </Panel>
-          </div>
+          <Disclosure
+            title="Combined movement"
+            hint={
+              eventList.length === 0
+                ? "No crossings on record"
+                : `${eventList.length} crossing${eventList.length === 1 ? "" : "s"} across every truck, newest first`
+            }
+          >
+            {eventList.length === 0 ? (
+              <EmptyState
+                title="No crossings on record"
+                description="Search one of these trucks, or add it to tracking, and its movements will show up here."
+              />
+            ) : (
+              <CombinedTimeline events={eventList} />
+            )}
+          </Disclosure>
         </div>
       )}
     </>

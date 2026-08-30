@@ -5,7 +5,25 @@ export default function CreditsLoading() {
     <>
       <SkeletonPageHeader />
       <SkeletonStatCards />
-      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+      {/* money -> credits: the pack ladder */}
+      <div className="mb-6 space-y-3">
+        <Skeleton className="h-3 w-40" />
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="panel px-4 py-4">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="mt-2 h-2.5 w-56" />
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Array.from({ length: 4 }, (_, f) => (
+                <Skeleton key={f} className="h-10 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* credits -> usage: the rate cards */}
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {Array.from({ length: 2 }, (_, i) => (
           <div key={i} className="panel overflow-hidden">
             <div className="border-b border-line/70 px-5 py-3.5">
@@ -20,6 +38,7 @@ export default function CreditsLoading() {
           </div>
         ))}
       </div>
+
       <SkeletonPanel rows={5} />
     </>
   );

@@ -83,9 +83,7 @@ create index if not exists credit_tx_user_time_idx
 -- 3. spend_credits - atomic "may this officer afford one more call?"
 --
 -- Replaces consume_quota. The balance is decremented inside the same statement
--- that reads it, so two tabs cannot both spend the last credit. usage_counters
--- is still maintained, but only as a daily tally for the dashboard - it no
--- longer gates anything.
+-- that reads it, so two tabs cannot both spend the last credit.
 -- ---------------------------------------------------------------------------
 create or replace function public.spend_credits(
   p_user   uuid,
@@ -103,7 +101,6 @@ declare
   v_rate    numeric(10, 2);
   v_cost    numeric(12, 2);
   v_balance numeric(12, 2);
-  v_today   date := public.ist_today();
 begin
   select status into v_status from public.profiles where id = p_user;
 
@@ -138,18 +135,8 @@ begin
   insert into public.credit_transactions (user_id, delta, balance_after, reason, truck_number)
   values (p_user, -v_cost, v_balance, p_action, p_truck);
 
-  insert into public.usage_counters (user_id, usage_date, manual_searches, tracking_queries)
-  values (
-    p_user, v_today,
-    case when p_action = 'manual_search' then p_count else 0 end,
-    case when p_action = 'auto_check'    then p_count else 0 end
-  )
-  on conflict (user_id, usage_date) do update set
-    manual_searches  = usage_counters.manual_searches
-                       + case when p_action = 'manual_search' then p_count else 0 end,
-    tracking_queries = usage_counters.tracking_queries
-                       + case when p_action = 'auto_check'    then p_count else 0 end;
-
+  -- The ledger above is the only record of a chargeable action. A second
+  -- daily tally would be the same fact stored twice, free to disagree with it.
   return jsonb_build_object('allowed', true, 'cost', v_cost, 'balance', v_balance);
 end $fn$;
 
@@ -244,6 +231,36 @@ create table if not exists public.alert_rule_templates (
 create index if not exists alert_rule_templates_active_idx
   on public.alert_rule_templates (is_active, sort_order);
 
+-- The seed below is "on conflict do nothing", which needs something to
+-- conflict ON. Without this the migration runner - which re-applies every file
+-- on every run - would add a fresh copy of all three rules each time.
+--
+-- Any duplicates a previous run already created are folded into the oldest row
+-- first, so the officers' alerts keep pointing at a template that still
+-- exists.
+do $blk$
+begin
+  update public.truck_alerts a
+  set template_id = keep.id
+  from public.alert_rule_templates dup
+  join lateral (
+    select t.id from public.alert_rule_templates t
+    where t.name = dup.name order by t.created_at, t.id limit 1
+  ) keep on true
+  where a.template_id = dup.id and dup.id <> keep.id;
+
+  delete from public.alert_rule_templates t
+  where exists (
+    select 1 from public.alert_rule_templates other
+    where other.name = t.name and (other.created_at, other.id) < (t.created_at, t.id)
+  );
+end $blk$;
+
+alter table public.alert_rule_templates
+  drop constraint if exists alert_rule_templates_name_key;
+alter table public.alert_rule_templates
+  add constraint alert_rule_templates_name_key unique (name);
+
 insert into public.alert_rule_templates
   (name, kind, description, min_interval_minutes, default_interval_minutes, sort_order)
 values
@@ -256,7 +273,7 @@ values
   ('Reached a toll plaza', 'plaza_crossing',
    'Watches one named toll plaza and messages the moment the truck is recorded there.',
    5, 30, 30)
-on conflict do nothing;
+on conflict (name) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- 6. The officer's alerts, one row per truck per rule
@@ -437,126 +454,11 @@ create trigger assign_default_plan_trg
   before insert on public.profiles
   for each row execute function public.assign_default_plan();
 
--- ---------------------------------------------------------------------------
--- 10. The two views, on the final column set
---
--- Defined only here now. 0002 and 0004 used to rebuild them on every run,
--- which meant three copies to keep in step every time a limit changed.
--- ---------------------------------------------------------------------------
-create view public.officer_effective_limits with (security_invoker = on) as
-select
-  p.id as user_id,
-  coalesce(o.truck_limit,         pl.truck_limit,         0) as truck_limit,
-  coalesce(o.max_truck_groups,    pl.max_truck_groups,    0) as max_truck_groups,
-  coalesce(o.data_retention_days, pl.data_retention_days, 30) as data_retention_days,
-  coalesce(o.telegram_enabled,    pl.telegram_enabled,    false) as telegram_enabled,
-  coalesce(o.google_sheet_enabled, pl.google_sheet_enabled, false) as google_sheet_enabled,
-  coalesce(o.alerts_enabled,      pl.alerts_enabled,      false) as alerts_enabled,
-  (o.user_id is not null) as has_overrides
-from public.profiles p
-left join public.plans pl on pl.id = p.plan_id
-left join public.user_limit_overrides o on o.user_id = p.id;
-
-create view public.officer_overview with (security_invoker = on) as
-select
-  p.id,
-  p.email,
-  p.full_name,
-  p.phone,
-  p.designation,
-  p.office,
-  p.district,
-  p.state,
-  p.role,
-  p.status,
-  p.plan_id,
-  p.plan_assigned_at,
-  p.plan_expires_on,
-  p.notes,
-  p.last_active_at,
-  p.created_at,
-  p.credits,
-  pl.name  as plan_name,
-  pl.description as plan_description,
-  pl.price_per_month,
-  pl.included_credits,
-  el.truck_limit,
-  el.max_truck_groups,
-  el.data_retention_days,
-  el.telegram_enabled,
-  el.google_sheet_enabled,
-  el.alerts_enabled,
-  el.has_overrides,
-  coalesce(tt.active_trucks, 0)     as active_trucks,
-  coalesce(tt.total_trucks, 0)      as total_trucks,
-  coalesce(ud.manual_searches, 0)   as manual_searches_today,
-  coalesce(ud.tracking_queries, 0)  as tracking_queries_today,
-  coalesce(um.manual_searches, 0)   as manual_searches_month,
-  coalesce(um.tracking_queries, 0)  as tracking_queries_month,
-  coalesce(cs.credits_spent_today, 0) as credits_spent_today,
-  coalesce(cs.credits_spent_month, 0) as credits_spent_month,
-  coalesce(ad.alerts_today, 0)      as alerts_today,
-  coalesce(ad.alerts_unread, 0)     as alerts_unread,
-  coalesce(al.active_alerts, 0)     as active_alerts,
-  coalesce(ev.total_events, 0)      as total_events,
-  coalesce(tg.chat_id is not null and tg.is_enabled, false)        as telegram_connected,
-  coalesce(gs.spreadsheet_id is not null and gs.is_enabled, false) as sheet_connected,
-  gs.last_synced_at as sheet_last_synced_at,
-  ev.last_event_at
-from public.profiles p
-left join public.plans pl on pl.id = p.plan_id
-left join public.officer_effective_limits el on el.user_id = p.id
-left join lateral (
-  select count(*) filter (where t.is_active) as active_trucks,
-         count(*)                            as total_trucks
-  from public.tracked_trucks t where t.user_id = p.id
-) tt on true
-left join lateral (
-  select u.manual_searches, u.tracking_queries
-  from public.usage_counters u
-  where u.user_id = p.id and u.usage_date = public.ist_today()
-) ud on true
-left join lateral (
-  select sum(u.manual_searches)::int as manual_searches,
-         sum(u.tracking_queries)::int as tracking_queries
-  from public.usage_counters u
-  where u.user_id = p.id
-    and u.usage_date >= date_trunc('month', public.ist_today())::date
-) um on true
-left join lateral (
-  select
-    sum(-c.delta) filter (
-      where c.delta < 0
-        and (c.created_at at time zone 'Asia/Kolkata')::date = public.ist_today()
-    ) as credits_spent_today,
-    sum(-c.delta) filter (
-      where c.delta < 0
-        and (c.created_at at time zone 'Asia/Kolkata')::date
-            >= date_trunc('month', public.ist_today())::date
-    ) as credits_spent_month
-  from public.credit_transactions c
-  where c.user_id = p.id
-) cs on true
-left join lateral (
-  select
-    count(*) filter (
-      where (a.created_at at time zone 'Asia/Kolkata')::date = public.ist_today()
-    ) as alerts_today,
-    count(*) filter (where a.read_at is null) as alerts_unread
-  from public.alert_logs a
-  where a.user_id = p.id
-) ad on true
-left join lateral (
-  select count(*) as active_alerts
-  from public.truck_alerts a
-  where a.user_id = p.id and a.is_enabled
-) al on true
-left join public.telegram_configs tg on tg.user_id = p.id
-left join public.google_sheet_configs gs on gs.user_id = p.id
-left join lateral (
-  select max(e.event_time) as last_event_at, count(*) as total_events
-  from public.truck_events e where e.user_id = p.id
-) ev on true;
+-- --------------------------------------------------------------------------
+-- officer_effective_limits / officer_overview are defined once, at the end
+-- of 0009, on the final column set. Keeping a copy here too would mean two
+-- definitions to change every time a limit moves.
+-- --------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
 -- 11. RLS for the new tables

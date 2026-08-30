@@ -11,6 +11,10 @@ const REASONS = ["admin_topup", "purchase", "admin_adjust"] as const;
 /**
  * Top up one officer. Also the way a mistake is taken back out - a negative
  * amount is allowed, and the balance is clamped at zero by the database.
+ *
+ * `pricePerCredit` is only for the hint: there is no single price any more, so
+ * the caller passes whatever rate it wants to quote - normally the entry credit
+ * pack's rupees per credit - or nothing at all.
  */
 export function GrantCreditsForm({
   userId,

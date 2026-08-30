@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { assertSuperAdmin } from "@/lib/auth";
 import { describeRate, formatCredits, grantCredits } from "@/lib/credits";
-import { fail, str } from "@/lib/forms";
+import { bool, fail, str } from "@/lib/forms";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ActionResult, CreditRate } from "@/lib/types";
+import type { ActionResult, CreditPack, CreditRate } from "@/lib/types";
 
 /** Reasons an admin may pick when moving a balance by hand. */
 const MANUAL_REASONS = new Set(["admin_topup", "admin_adjust", "purchase"]);
@@ -74,9 +74,185 @@ export async function saveCreditRate(
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* credit packs - the money half of the flow                                   */
+/* -------------------------------------------------------------------------- */
+
+type PackValues = {
+  name: string;
+  price_inr: number;
+  credits: number;
+  sort_order: number;
+  is_active: boolean;
+};
+
+/** Two decimal places, matching numeric(10, 2) and numeric(12, 2) in the table. */
+function positiveAmount(raw: string | null): number | null {
+  if (raw === null) return null;
+  const value = Math.round(Number(raw) * 100) / 100;
+  if (!Number.isFinite(value) || value <= 0 || value > 10_000_000) return null;
+  return value;
+}
+
 /**
- * Moves an officer's balance by hand. The only way credits come in until the
- * payment gateway is live, and the only way a mistake is taken back out.
+ * One rung of the ladder. Both numbers are required and both must be positive:
+ * a pack with no price or no credits is a pricing mistake that would reach the
+ * officer's buy page, not a state worth storing.
+ */
+function readPack(fd: FormData): { values: PackValues } | { error: string } {
+  const name = str(fd, "name");
+  if (!name) return { error: "Give the pack a name the officer will recognise." };
+
+  const price = positiveAmount(str(fd, "price_inr"));
+  if (price === null) return { error: "Price must be a positive amount in rupees." };
+
+  const credits = positiveAmount(str(fd, "credits"));
+  if (credits === null) return { error: "Credits must be a positive number." };
+
+  const sortRaw = str(fd, "sort_order");
+  const sortOrder = sortRaw === null ? 100 : Number(sortRaw);
+  if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 10_000) {
+    return { error: "Sort order must be a whole number between 0 and 10,000." };
+  }
+
+  return {
+    values: {
+      name,
+      price_inr: price,
+      credits,
+      sort_order: sortOrder,
+      is_active: bool(fd, "is_active"),
+    },
+  };
+}
+
+/** "Rs 500 = 1,100 credits", the sentence the admin just wrote. */
+function describePack(values: PackValues): string {
+  return `Rs ${values.price_inr.toLocaleString("en-IN")} = ${formatCredits(values.credits)} credits`;
+}
+
+export async function createCreditPack(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const parsed = readPack(fd);
+  if ("error" in parsed) return fail(parsed.error);
+
+  const { data, error } = await admin
+    .from("credit_packs")
+    .insert(parsed.values)
+    .select("id")
+    .single();
+
+  if (error) {
+    return fail(
+      /duplicate key/i.test(error.message)
+        ? `A pack called "${parsed.values.name}" already exists.`
+        : error.message,
+    );
+  }
+
+  await writeAudit(actor, {
+    action: "credit_pack.create",
+    entity: "credit_pack",
+    entityId: data.id,
+    entityLabel: parsed.values.name,
+    meta: { ...parsed.values },
+  });
+
+  revalidatePath("/admin/credits");
+  revalidatePath("/portal/plan");
+  return { ok: true, message: `Pack created. ${describePack(parsed.values)}.` };
+}
+
+export async function saveCreditPack(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const packId = str(fd, "pack_id");
+  if (!packId) return fail("Missing pack id.");
+
+  const parsed = readPack(fd);
+  if ("error" in parsed) return fail(parsed.error);
+
+  const { data: before } = await admin
+    .from("credit_packs")
+    .select("*")
+    .eq("id", packId)
+    .maybeSingle<CreditPack>();
+  if (!before) return fail("That pack no longer exists.");
+
+  const { error } = await admin.from("credit_packs").update(parsed.values).eq("id", packId);
+  if (error) {
+    return fail(
+      /duplicate key/i.test(error.message)
+        ? `A pack called "${parsed.values.name}" already exists.`
+        : error.message,
+    );
+  }
+
+  await writeAudit(actor, {
+    action: "credit_pack.update",
+    entity: "credit_pack",
+    entityId: packId,
+    entityLabel: parsed.values.name,
+    meta: { changes: diffFields(before as unknown as Record<string, unknown>, parsed.values) },
+  });
+
+  revalidatePath("/admin/credits");
+  revalidatePath("/portal/plan");
+  return {
+    ok: true,
+    message: `Saved. ${describePack(parsed.values)} — from the next purchase onwards.`,
+  };
+}
+
+/**
+ * Deleting a pack does not touch the payments made through it: payments.pack_id
+ * is set to null and the row keeps its own amount and credits, so the money
+ * record survives a pricing change.
+ */
+export async function deleteCreditPack(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const packId = str(fd, "pack_id");
+  if (!packId) return fail("Missing pack id.");
+
+  const { data: pack } = await admin
+    .from("credit_packs")
+    .select("name")
+    .eq("id", packId)
+    .maybeSingle<{ name: string }>();
+
+  const { error } = await admin.from("credit_packs").delete().eq("id", packId);
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "credit_pack.delete",
+    entity: "credit_pack",
+    entityId: packId,
+    entityLabel: pack?.name ?? null,
+    meta: {},
+  });
+
+  revalidatePath("/admin/credits");
+  revalidatePath("/portal/plan");
+  return { ok: true, message: `Pack "${pack?.name ?? "removed"}" deleted.` };
+}
+
+/**
+ * Moves an officer's balance by hand. The only way credits come in while
+ * online payment is switched off, and the only way a mistake is taken back out.
  *
  * grant_credits() writes the ledger row and clamps the balance at zero, so this
  * never has to read the balance first.

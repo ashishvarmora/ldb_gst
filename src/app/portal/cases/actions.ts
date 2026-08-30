@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { reportError } from "@/lib/errors";
 import { done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
-import { assertPortalUser, loadOverview } from "@/lib/officer";
+import { assertPortalUser } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
@@ -31,24 +32,6 @@ export async function createCase(_prev: ActionResult | null, fd: FormData): Prom
   const name = str(fd, "name");
   if (!name) return fail("Give the case a name.");
 
-  const overview = await loadOverview(session.id);
-  if (!overview) return fail("Could not read your account. Sign in again.");
-
-  if (overview.max_truck_groups !== -1) {
-    const { count } = await admin
-      .from("truck_groups")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", session.id);
-
-    if ((count ?? 0) >= overview.max_truck_groups) {
-      return fail(
-        overview.max_truck_groups === 0
-          ? "Your plan does not include case folders. Ask your administrator."
-          : `Your plan allows ${overview.max_truck_groups} case folder${overview.max_truck_groups === 1 ? "" : "s"}. Delete one first.`,
-      );
-    }
-  }
-
   const { data, error } = await admin
     .from("truck_groups")
     .insert({
@@ -59,7 +42,7 @@ export async function createCase(_prev: ActionResult | null, fd: FormData): Prom
     .select("id")
     .single();
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("creating a case", error, "Could not create that case."));
 
   // Optional seed list, e.g. pasted straight out of a notice.
   const seed = str(fd, "truck_numbers");
@@ -105,7 +88,7 @@ export async function updateCase(_prev: ActionResult | null, fd: FormData): Prom
     .eq("id", caseId)
     .eq("user_id", session.id);
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("saving a case", error, "Could not save that case."));
 
   revalidatePath("/portal/cases");
   revalidatePath(`/portal/cases/${caseId}`);
@@ -125,7 +108,7 @@ export async function deleteCase(_prev: ActionResult | null, fd: FormData): Prom
     .eq("id", caseId)
     .eq("user_id", session.id);
 
-  if (error) return fail(error.message);
+  if (error) return fail(reportError("deleting a case", error, "Could not delete that case."));
 
   revalidatePath("/portal/cases");
   redirect("/portal/cases");
@@ -158,7 +141,9 @@ export async function addTruckToCase(
       ignoreDuplicates: true,
     });
 
-  if (error) return fail(error.message);
+  if (error) {
+    return fail(reportError("adding a truck to a case", error, "Could not add that truck."));
+  }
 
   revalidatePath("/portal/cases");
   revalidatePath(`/portal/cases/${caseId}`);
@@ -185,7 +170,9 @@ export async function removeTruckFromCase(
     .eq("group_id", caseId)
     .eq("truck_number", truckNumber);
 
-  if (error) return fail(error.message);
+  if (error) {
+    return fail(reportError("removing a truck from a case", error, "Could not remove that truck."));
+  }
 
   revalidatePath(`/portal/cases/${caseId}`);
   return done(`${truckNumber} removed.`);

@@ -9,6 +9,7 @@ import {
   PageHeader,
   Panel,
   buttonClass,
+  type BadgeTone,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
@@ -17,75 +18,112 @@ import type { AuditLog } from "@/lib/types";
 
 export const metadata = { title: "Audit log — Admin" };
 
-const ACTION_TONE: Record<string, "good" | "warn" | "bad" | "brand" | "neutral"> = {
-  "officer.create": "good",
-  "officer.update": "neutral",
-  "officer.assign_plan": "brand",
-  "officer.set_overrides": "warn",
-  "officer.clear_overrides": "neutral",
-  "officer.suspend": "bad",
-  "officer.reactivate": "good",
-  "officer.reset_password": "warn",
-  "officer.update_integrations": "neutral",
-  "officer.delete": "bad",
-  "plan.create": "good",
-  "plan.update": "brand",
-  "plan.duplicate": "neutral",
-  "plan.archive": "warn",
-  "plan.reactivate": "good",
-  "plan.delete": "bad",
-  "credits.grant": "good",
-  "credit_rate.update": "warn",
-  "alert_rule.create": "good",
-  "alert_rule.update": "brand",
-  "alert_rule.reorder": "neutral",
-  "alert_rule.activate": "good",
-  "alert_rule.deactivate": "warn",
-  "alert_rule.delete": "bad",
-  "settings.update": "brand",
-  "settings.update_payment": "warn",
-  "tracking.manual_run": "neutral",
-  "data.purge": "bad",
+type RoleView = "officer" | "admin" | "all";
+
+const ROLE_LABEL: Record<RoleView, string> = {
+  officer: "Officer activity",
+  admin: "Admin activity",
+  all: "Everything",
 };
+
+function isRoleView(value: string | undefined): value is RoleView {
+  return value === "officer" || value === "admin" || value === "all";
+}
+
+/**
+ * Tone from the verb rather than a list of every action.
+ *
+ * A hardcoded map went stale the moment a new action was added, and a missing
+ * entry is invisible - the row just renders grey. The verb is the last segment
+ * of every action name we write, so read that instead.
+ */
+function toneFor(action: string): BadgeTone {
+  const verb = action.split(".").pop() ?? "";
+  if (/^(create|add|grant|reactivate|activate|login|purchase)$/.test(verb)) return "good";
+  if (/^(delete|remove|suspend|purge|fail)$/.test(verb)) return "bad";
+  if (/^(archive|deactivate|reset_password|set_overrides|update_payment|backup)$/.test(verb)) {
+    return "warn";
+  }
+  if (/^(update|assign_plan|save|edit|reorder)$/.test(verb)) return "brand";
+  return "neutral";
+}
 
 export default async function AuditPage({
   searchParams,
 }: {
-  searchParams: Promise<{ action?: string; q?: string }>;
+  searchParams: Promise<{ role?: string; action?: string; q?: string }>;
 }) {
   await requireSuperAdmin();
-  const { action, q } = await searchParams;
+  const { role, action, q } = await searchParams;
+  // Officers first: what an officer looked up is the record worth having. The
+  // admin's own changes are still here, one filter away, because they are the
+  // record of who altered a plan or a rate.
+  const view: RoleView = isRoleView(role) ? role : "officer";
   const admin = getSupabaseAdmin();
 
-  let query = admin
+  // Rows written before actor_role existed, and any left unstamped, are ours:
+  // only the admin console wrote to this table then.
+  const roleFilter = "actor_role.eq.super_admin,actor_role.is.null";
+
+  const base = admin
     .from("audit_logs")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
 
+  let query =
+    view === "officer"
+      ? base.eq("actor_role", "officer")
+      : view === "admin"
+        ? base.or(roleFilter)
+        : base;
   if (action) query = query.eq("action", action);
   if (q) query = query.or(`entity_label.ilike.%${q}%,actor_email.ilike.%${q}%`);
 
-  const { data, error } = await query;
+  // The action dropdown lists what this view actually contains, so an officer
+  // view never offers "plan.archive" and a new action needs no code change.
+  const seenBase = admin
+    .from("audit_logs")
+    .select("action")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  const vocabulary =
+    view === "officer"
+      ? seenBase.eq("actor_role", "officer")
+      : view === "admin"
+        ? seenBase.or(roleFilter)
+        : seenBase;
+
+  const [{ data, error }, { data: seen }] = await Promise.all([query, vocabulary]);
+
   const rows = (data ?? []) as AuditLog[];
+  const actions = [...new Set((seen ?? []).map((row) => row.action as string))].sort();
 
   return (
     <>
       <PageHeader
         title="Audit log"
-        subtitle="Every change made from this console: who did it, when, and exactly what changed."
+        subtitle="What officers did, when, and to what. Switch the view to see the changes you made from this console instead."
       />
 
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+        <Select name="role" defaultValue={view} className="w-48">
+          {(Object.keys(ROLE_LABEL) as RoleView[]).map((value) => (
+            <option key={value} value={value}>
+              {ROLE_LABEL[value]}
+            </option>
+          ))}
+        </Select>
         <Input
           name="q"
           defaultValue={q ?? ""}
-          placeholder="Officer, plan or admin email"
+          placeholder="Officer, truck, plan or email"
           className="min-w-52 flex-1"
         />
         <Select name="action" defaultValue={action ?? ""} className="w-64">
           <option value="">Any action</option>
-          {Object.keys(ACTION_TONE).map((value) => (
+          {actions.map((value) => (
             <option key={value} value={value}>
               {value}
             </option>
@@ -95,7 +133,7 @@ export default async function AuditPage({
           <Filter size={14} />
           Apply
         </button>
-        {action || q ? (
+        {action || q || view !== "officer" ? (
           <Link href="/admin/audit" className={buttonClass("ghost")}>
             Clear
           </Link>
@@ -107,8 +145,12 @@ export default async function AuditPage({
           <EmptyState title="Could not load the audit log" description={error.message} />
         ) : rows.length === 0 ? (
           <EmptyState
-            title="Nothing logged yet"
-            description="Actions you take in this console show up here."
+            title={view === "officer" ? "No officer activity yet" : "Nothing logged yet"}
+            description={
+              view === "officer"
+                ? "Searches, trucks and alerts an officer works on are recorded here as they use the portal."
+                : "Changes you make in this console show up here."
+            }
           />
         ) : (
           <ul className="divide-y divide-divider">
@@ -127,9 +169,14 @@ export default async function AuditPage({
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={ACTION_TONE[entry.action] ?? "neutral"}>
+                        <Badge tone={toneFor(entry.action)}>
                           <Mono>{entry.action}</Mono>
                         </Badge>
+                        {view === "all" ? (
+                          <Badge tone={entry.actor_role === "officer" ? "neutral" : "brand"}>
+                            {entry.actor_role === "officer" ? "officer" : "admin"}
+                          </Badge>
+                        ) : null}
                         {entry.entity_label ? (
                           <span className="text-sm text-ink">{entry.entity_label}</span>
                         ) : null}
@@ -143,7 +190,7 @@ export default async function AuditPage({
                         ) : null}
                       </div>
                       <p className="mt-1 text-xs text-faint">
-                        {entry.actor_email ?? "unknown admin"} · {fmtDateTime(entry.created_at)} ·{" "}
+                        {entry.actor_email ?? "unknown"} · {fmtDateTime(entry.created_at)} ·{" "}
                         {fmtRelative(entry.created_at)}
                       </p>
                     </div>

@@ -71,11 +71,37 @@ under a row lock, so two tabs cannot both spend the last credit, and every
 movement is written to `credit_transactions` — a wrong balance can always be
 reconstructed.
 
-A **plan** no longer says how much an account may use, only what it may reach:
-`truck_limit`, a case-folder cap, retention, and three feature switches
-(Telegram, Sheets, truck alerts). Plans are assigned automatically on sign-up
-and carry an opening allocation (`included_credits`); admins top up on
-top of it.
+A **plan** decides only two things: how many trucks may be watched at once, and
+how many credits the account opens with. Everything else it used to carry is
+either paid for out of the balance or set once for the platform. Plans are
+assigned automatically on sign-up.
+
+### Money in
+
+Credits are bought in **packs** the admin writes as rows, so the pricing ladder
+lives in the admin panel rather than in code:
+
+| Pack | Price | Credits |
+| --- | --- | --- |
+| Starter | ₹100 | 200 |
+| Standard | ₹500 | 1,100 |
+| Bulk | ₹5,000 | 12,500 |
+| Bulk+ | ₹10,000 | 25,000 |
+| Maximum | ₹20,000 | 50,000 |
+
+An officer may buy **only while their plan is active**; without one the packs
+are visible but not purchasable. Payment is Razorpay, behind an admin toggle —
+switch it off and credits arrive only from the admin, by hand.
+
+Nothing the browser says is trusted. An order is recorded before checkout
+opens, and credits are granted only by `credit_payment()`, which flips the row
+from `created` to `paid` in the same statement — so a replayed webhook, or a
+handshake that arrives twice, grants nothing the second time. The webhook is
+the authority rather than the browser, because an officer can close the tab
+before checkout returns.
+
+So the whole flow is three admin-set steps: **money → credits** (packs),
+**credits → usage** (rates), and **what a plan allows** (trucks).
 
 How a number is stored:
 
@@ -179,20 +205,28 @@ Push to GitHub, import into Vercel, paste the same environment variables into
 **Settings → Environment Variables** (all except `SUPABASE_DB_URL` and the three
 `ADMIN_*` lines — those are local-only).
 
-**Scheduling the worker.** Vercel's Hobby plan allows only one cron run per day, so
-`vercel.json` is set to a daily run as a backstop. For real 5-minute tracking, this
-repo ships `.github/workflows/track.yml`, which calls the same endpoint from GitHub
-Actions for free. Add two repository secrets under
-**Settings → Secrets and variables → Actions**:
+**Scheduling the worker.** Nothing in this repo schedules it. The worker is one
+authenticated URL, and it is called from [cron-job.org](https://cron-job.org):
 
-| Secret | Value |
+| Field | Value |
 | --- | --- |
-| `APP_URL` | `https://your-project.vercel.app` (no trailing slash) |
-| `CRON_SECRET` | the same value you put in Vercel |
+| URL | `https://<your-domain>/api/cron/track` |
+| Schedule | every 5 minutes |
+| Header | `Authorization: Bearer <CRON_SECRET>` |
 
-Then trigger it once from the **Actions** tab to confirm it works. See
-[docs/TRACKING-WORKER.md](docs/TRACKING-WORKER.md) for the trade-offs and other
-schedulers.
+An alert can never fire faster than this tick, so the interval here is the real
+floor on every alert in the app.
+
+Vercel's own cron and a GitHub Actions workflow both used to live here and have
+been removed. Vercel's Hobby plan allows one run a day, which is not tracking;
+and a 5-minute schedule on a **private** GitHub repo burns roughly 8,600 billed
+Actions minutes a month against a 2,000-minute allowance, so it stops silently
+part-way through the month. An external scheduler has neither problem.
+
+Whatever calls it, check that the response is JSON with `"ok": true`. A wrong
+secret returns 403, but Vercel's deployment protection returns a **200 with an
+HTML login page** — a scheduler that only checks the status code will report
+success while nothing runs at all.
 
 ### 6. First officer
 

@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Menu,
   Package,
+  Search,
   Settings,
   Truck,
   Users,
@@ -22,6 +23,7 @@ import { cx } from "@/components/ui";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
+  { href: "/admin/explore", label: "Explore", icon: Search },
   { href: "/admin/officers", label: "Officers", icon: Users },
   { href: "/admin/plans", label: "Plans", icon: Package },
   { href: "/admin/credits", label: "Credits", icon: Coins },

@@ -8,7 +8,9 @@ export const SETTINGS_FALLBACK: AppSettings = {
   ldbApiUrl: "https://ldb.co.in/api/ldbv2/truck/search",
   trackingEnabled: true,
   noActivityHours: 6,
-  creditPriceInr: 10,
+  dataRetentionDays: 30,
+  backupIntervalDays: 7,
+  backupSheetId: "",
   razorpayEnabled: false,
   razorpayKeyId: "",
 };
@@ -34,7 +36,9 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     ldbApiUrl: text("ldb_api_url", env.ldbApiUrl || SETTINGS_FALLBACK.ldbApiUrl),
     trackingEnabled: map.get("tracking_enabled") !== false,
     noActivityHours: number("no_activity_hours", SETTINGS_FALLBACK.noActivityHours),
-    creditPriceInr: number("credit_price_inr", SETTINGS_FALLBACK.creditPriceInr),
+    dataRetentionDays: number("data_retention_days", SETTINGS_FALLBACK.dataRetentionDays),
+    backupIntervalDays: number("backup_interval_days", SETTINGS_FALLBACK.backupIntervalDays),
+    backupSheetId: text("backup_sheet_id", ""),
     razorpayEnabled: map.get("razorpay_enabled") === true,
     razorpayKeyId: text("razorpay_key_id", ""),
   };

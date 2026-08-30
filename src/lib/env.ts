@@ -37,6 +37,20 @@ export const env = {
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";
   },
+  /**
+   * Razorpay. The key id is public and also reaches the browser through
+   * NEXT_PUBLIC_RAZORPAY_KEY_ID; the secret and the webhook secret never leave
+   * the server, and are the reason no payment can be forged by a client.
+   */
+  get razorpayKeyId() {
+    return process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? "";
+  },
+  get razorpayKeySecret() {
+    return process.env.RAZORPAY_KEY_SECRET ?? "";
+  },
+  get razorpayWebhookSecret() {
+    return process.env.RAZORPAY_WEBHOOK_SECRET ?? "";
+  },
 };
 
 /** Which integrations are wired up, for the Settings page health panel. */
@@ -51,5 +65,7 @@ export function integrationHealth() {
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
     ),
     cron: Boolean(process.env.CRON_SECRET),
+    razorpay: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    razorpayWebhook: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET),
   };
 }

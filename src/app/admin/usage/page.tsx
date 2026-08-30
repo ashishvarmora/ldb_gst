@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
 
+import { loadDailyCalls } from "./ledger";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
@@ -18,10 +19,10 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtNumber, initials, istDaysAgo, istMonthStart } from "@/lib/format";
+import { fmtDateTime, fmtNumber, initials, istMonthStart } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { OfficerOverview, SearchLog, UsageCounter } from "@/lib/types";
+import type { OfficerOverview, SearchLog } from "@/lib/types";
 
 export const metadata = { title: "Usage — Admin" };
 
@@ -31,9 +32,9 @@ export default async function UsagePage() {
   await requireSuperAdmin();
   const admin = getSupabaseAdmin();
 
-  const [{ data: officers }, { data: usage }, { data: recent }] = await Promise.all([
+  const [{ data: officers }, dailyCalls, { data: recent }] = await Promise.all([
     admin.from("officer_overview").select("*").eq("role", "officer"),
-    admin.from("usage_counters").select("*").gte("usage_date", istDaysAgo(29)),
+    loadDailyCalls(admin, { days: 30 }),
     admin
       .from("search_logs")
       .select("*, profiles(full_name, email)")
@@ -42,7 +43,6 @@ export default async function UsagePage() {
   ]);
 
   const rows = (officers ?? []) as OfficerOverview[];
-  const usageRows = (usage ?? []) as UsageCounter[];
   const calls = (recent ?? []) as Row[];
 
   const monthStart = istMonthStart();
@@ -51,29 +51,18 @@ export default async function UsagePage() {
   const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
   const outstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
 
-  const monthCalls = usageRows
-    .filter((row) => row.usage_date >= monthStart)
-    .reduce(
-      (acc, row) => {
-        acc.manual += row.manual_searches;
-        acc.auto += row.tracking_queries;
-        return acc;
-      },
-      { manual: 0, auto: 0 },
-    );
+  // Month-to-date call counts come from the same view the officer sees, so a
+  // per-officer row and the platform total can never disagree.
+  const monthCalls = rows.reduce(
+    (acc, row) => {
+      acc.manual += Number(row.manual_searches_month ?? 0);
+      acc.auto += Number(row.tracking_queries_month ?? 0);
+      return acc;
+    },
+    { manual: 0, auto: 0 },
+  );
 
-  // Every officer's daily counters, merged into one platform-wide series.
-  const merged = new Map<string, UsageCounter>();
-  for (const row of usageRows) {
-    const existing = merged.get(row.usage_date);
-    if (existing) {
-      existing.manual_searches += row.manual_searches;
-      existing.tracking_queries += row.tracking_queries;
-    } else {
-      merged.set(row.usage_date, { ...row });
-    }
-  }
-  const series = buildUsageSeries([...merged.values()], 30);
+  const series = buildUsageSeries(dailyCalls, 30);
 
   const ranked = [...rows].sort(
     (a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0),
@@ -123,7 +112,7 @@ export default async function UsagePage() {
       <Panel
         className="mb-5"
         title="LDB calls, last 30 days"
-        description="What the upstream portal saw, aggregated across every officer."
+        description="Counted from the credit ledger, so this is exactly what was charged, across every officer."
       >
         <UsageChart series={series} />
       </Panel>

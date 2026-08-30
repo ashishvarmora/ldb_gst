@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { ArrowDown, ExternalLink, MapPin } from "lucide-react";
+import { ChevronDown, ExternalLink, MapPin } from "lucide-react";
 
-import { Badge, EmptyState, Mono, cx } from "@/components/ui";
-import { fmtDate, fmtRelative, fmtTime } from "@/lib/format";
+import { Badge, EmptyState, cx } from "@/components/ui";
+import { fmtDate, fmtDateTime, fmtRelative, fmtTime } from "@/lib/format";
 import { stateFromLocation } from "@/lib/geo";
 import type { TruckEvent } from "@/lib/types";
 
@@ -31,9 +31,16 @@ function istDateKey(iso: string | null): string {
 
 /**
  * Toll crossings as a route, newest first, grouped by day. This is the view GST
- * officers actually read — a flat table of latitudes is not it.
+ * officers actually read - a flat table of latitudes is not it.
  */
-export function Timeline({ events }: { events: TruckEvent[] }) {
+export function Timeline({
+  events,
+  showRecorded = false,
+}: {
+  events: TruckEvent[];
+  /** Adds "recorded ..." to each entry - when the platform captured it. */
+  showRecorded?: boolean;
+}) {
   if (events.length === 0) {
     return (
       <EmptyState
@@ -122,8 +129,10 @@ export function Timeline({ events }: { events: TruckEvent[] }) {
                       ) : null}
                     </div>
 
-                    {event.event_name && event.event_name !== "TOLL PLAZA CROSSED" ? (
-                      <p className="mt-1 text-xs text-faint">{event.event_name}</p>
+                    {showRecorded ? (
+                      <p className="mt-0.5 text-[11px] text-faint">
+                        Recorded {fmtDateTime(event.fetched_at)}
+                      </p>
                     ) : null}
                   </div>
                 </li>
@@ -195,39 +204,74 @@ function SummaryCell({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-/** Compact "A → B → C" route strip for cards and case folders. */
-export function RouteStrip({ events, max = 4 }: { events: TruckEvent[]; max?: number }) {
-  if (events.length === 0) return <span className="text-xs text-faint">No crossings yet</span>;
+/**
+ * The whole stored history for one truck: the recent stretch open, everything
+ * older folded away behind one tap.
+ *
+ * An officer building a case needs every crossing, but they read the last few
+ * days first. Printing all of them straight out would bury that under weeks of
+ * scrolling on a phone, so the older ones stay one tap away instead.
+ */
+export function RouteHistory({
+  events,
+  total,
+  recent = 25,
+  showRecorded = true,
+}: {
+  events: TruckEvent[];
+  /** Crossings stored for this truck, which may exceed what was loaded. */
+  total?: number;
+  recent?: number;
+  showRecorded?: boolean;
+}) {
+  if (events.length === 0) return <Timeline events={events} />;
 
-  const shown = events.slice(0, max);
+  const head = events.slice(0, recent);
+  const rest = events.slice(recent);
+  const stored = total ?? events.length;
 
   return (
-    <div className="flex flex-col gap-1">
-      {shown.map((event, index) => (
-        <div key={event.id} className="flex items-center gap-2 text-xs">
-          {index > 0 ? (
-            <ArrowDown size={11} className="shrink-0 text-faint" />
-          ) : (
-            <MapPin size={11} className="shrink-0 text-brand-400" />
-          )}
-          <span className="truncate text-ink">{event.loc_name ?? "Unnamed plaza"}</span>
-          <span className="ml-auto shrink-0 tabular-nums text-faint">
-            {fmtTime(event.event_time)}
-          </span>
-        </div>
-      ))}
-      {events.length > max ? (
-        <span className="mt-0.5 text-[11px] text-faint">
-          + {events.length - max} earlier crossing{events.length - max === 1 ? "" : "s"}
-        </span>
+    <div className="space-y-4">
+      <Timeline events={head} showRecorded={showRecorded} />
+
+      {rest.length > 0 ? (
+        <details className="group rounded-lg border border-line bg-raised/50">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm text-brand-500 [&::-webkit-details-marker]:hidden">
+            Show {rest.length} earlier crossing{rest.length === 1 ? "" : "s"}
+            <ChevronDown size={15} aria-hidden className="transition group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-divider bg-panel px-3 py-4">
+            <Timeline events={rest} showRecorded={showRecorded} />
+          </div>
+        </details>
+      ) : null}
+
+      {stored > events.length ? (
+        <p className="text-xs leading-relaxed text-muted">
+          The {events.length} newest of {stored} crossings on record are shown here. The full set is
+          on the Records page.
+        </p>
       ) : null}
     </div>
   );
 }
 
-/** Header block shown above a timeline: where it is now, in one glance. */
+/**
+ * Where the truck is now, as the first thing on the page. This is the question
+ * an officer opens a truck to answer, so it is answered before anything else.
+ */
 export function LatestPosition({ event }: { event: TruckEvent | null }) {
-  if (!event) return null;
+  if (!event) {
+    return (
+      <div className="rounded-xl border border-line bg-raised p-4">
+        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last seen at</p>
+        <p className="mt-1 text-sm text-muted">
+          No toll crossing on record yet. One appears here after the truck passes a plaza.
+        </p>
+      </div>
+    );
+  }
+
   const state = stateFromLocation(event.loc_name);
 
   return (
@@ -255,9 +299,6 @@ export function LatestPosition({ event }: { event: TruckEvent | null }) {
           </>
         ) : null}
       </div>
-      <p className="mt-2 text-[11px] text-faint">
-        Crossing id <Mono>{event.seq_no}</Mono>
-      </p>
     </div>
   );
 }

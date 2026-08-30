@@ -361,7 +361,7 @@ declare t text;
 begin
   foreach t in array array[
     'plans', 'profiles', 'user_limit_overrides', 'tracked_trucks',
-    'telegram_configs', 'google_sheet_configs'
+    'telegram_configs'
   ] loop
     execute format('drop trigger if exists touch_%1$s on public.%1$s', t);
     execute format(
