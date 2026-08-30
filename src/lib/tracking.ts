@@ -1,4 +1,12 @@
-import { evaluateRules, type AlertDraft, type EventLike } from "@/lib/alerts";
+import {
+  alertDue,
+  anyAlertOn,
+  evaluateTruckAlerts,
+  normaliseLocation,
+  type AlertDraft,
+  type AlertStateUpdate,
+  type Position,
+} from "@/lib/alerts";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { loadSettings } from "@/lib/settings";
 import { syncToSheet } from "@/lib/sheets";
@@ -6,7 +14,6 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
 import { fmtDateTime } from "@/lib/format";
 import type {
-  AlertRule,
   AppSettings,
   EffectiveLimits,
   GoogleSheetConfig,
@@ -15,6 +22,14 @@ import type {
   TrackedTruck,
   TruckStatus,
 } from "@/lib/types";
+
+/** Crossing shape the worker passes around. */
+export type EventLike = {
+  seq_no: string;
+  event_time: string | null;
+  loc_name: string | null;
+  direction: string | null;
+};
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
 
@@ -30,7 +45,8 @@ export type PollOutcome = {
   truckId: string;
   truckNumber: string;
   userId: string;
-  status: "polled" | "skipped" | "failed";
+  /** "alerted" = visited for an alert only, no upstream call and no quota. */
+  status: "polled" | "alerted" | "skipped" | "failed";
   reason?: string;
   newEvents: number;
   alerts: number;
@@ -47,6 +63,7 @@ export type SweepSummary = {
   candidates: number;
   due: number;
   polled: number;
+  alerted: number;
   skipped: number;
   failed: number;
   newEvents: number;
@@ -78,15 +95,13 @@ export function deriveStatus(
   return "no_activity";
 }
 
-/**
- * Plaza names arrive with inconsistent spacing and case ("Nadiad Toll Plaza",
- * " nadiad toll  plaza "). Compare them on a normalised form so a formatting
- * difference is not mistaken for the truck having moved.
- */
-export function normaliseLocation(name: string | null | undefined): string | null {
-  if (!name) return null;
-  const cleaned = name.trim().toLowerCase().replace(/\s+/g, " ");
-  return cleaned === "" ? null : cleaned;
+/** The truck's latest known position, straight off the truck row. */
+function positionOf(truck: TrackedTruck): Position {
+  return {
+    locName: truck.last_location,
+    direction: truck.last_direction,
+    eventTime: truck.last_event_at,
+  };
 }
 
 /** A truck is due when it has never been polled, or the interval has elapsed. */
@@ -130,47 +145,33 @@ async function mapWithConcurrency<T, R>(
 export type OfficerContext = {
   userId: string;
   limits: EffectiveLimits | null;
-  rules: AlertRule[];
   telegram: TelegramConfig | null;
   sheet: GoogleSheetConfig | null;
-  /** Recent alerts, for cooldown checks. */
-  recentAlerts: { alert_rule_id: string | null; truck_number: string | null; created_at: string }[];
   /** Rows queued for the officer's Google Sheet, flushed at the end. */
   sheetEvents: (string | number | null)[][];
   sheetAlerts: (string | number | null)[][];
 };
 
 async function loadOfficerContext(admin: Admin, userId: string): Promise<OfficerContext> {
-  const sixHoursAgo = new Date(Date.now() - 6 * 3_600_000).toISOString();
-
-  const [{ data: limits }, { data: rules }, { data: telegram }, { data: sheet }, { data: alerts }] =
-    await Promise.all([
-      admin
-        .from("officer_effective_limits")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle<EffectiveLimits>(),
-      admin.from("alert_rules").select("*").eq("user_id", userId).eq("is_active", true),
-      admin.from("telegram_configs").select("*").eq("user_id", userId).maybeSingle<TelegramConfig>(),
-      admin
-        .from("google_sheet_configs")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle<GoogleSheetConfig>(),
-      admin
-        .from("alert_logs")
-        .select("alert_rule_id, truck_number, created_at")
-        .eq("user_id", userId)
-        .gte("created_at", sixHoursAgo),
-    ]);
+  const [{ data: limits }, { data: telegram }, { data: sheet }] = await Promise.all([
+    admin
+      .from("officer_effective_limits")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle<EffectiveLimits>(),
+    admin.from("telegram_configs").select("*").eq("user_id", userId).maybeSingle<TelegramConfig>(),
+    admin
+      .from("google_sheet_configs")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle<GoogleSheetConfig>(),
+  ]);
 
   return {
     userId,
     limits: limits ?? null,
-    rules: (rules ?? []) as AlertRule[],
     telegram: telegram ?? null,
     sheet: sheet ?? null,
-    recentAlerts: alerts ?? [],
     sheetEvents: [],
     sheetAlerts: [],
   };
@@ -180,18 +181,11 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
 /* alert delivery                                                              */
 /* -------------------------------------------------------------------------- */
 
-function isOnCooldown(context: OfficerContext, draft: AlertDraft, truckNumber: string): boolean {
-  if (draft.dedupeMinutes <= 0) return false;
-  const cutoff = Date.now() - draft.dedupeMinutes * 60_000;
-
-  return context.recentAlerts.some(
-    (alert) =>
-      alert.alert_rule_id === draft.ruleId &&
-      alert.truck_number === truckNumber &&
-      new Date(alert.created_at).getTime() >= cutoff,
-  );
-}
-
+/**
+ * There is no cooldown table any more. Each alert carries its own interval on
+ * the truck row, and the timestamp is only advanced once the alert has been
+ * evaluated, so an alert cannot repeat inside its own window by construction.
+ */
 async function dispatchAlerts({
   admin,
   context,
@@ -203,8 +197,7 @@ async function dispatchAlerts({
   truckNumber: string;
   drafts: AlertDraft[];
 }): Promise<{ created: number; delivered: number }> {
-  const fresh = drafts.filter((draft) => !isOnCooldown(context, draft, truckNumber));
-  if (fresh.length === 0) return { created: 0, delivered: 0 };
+  if (drafts.length === 0) return { created: 0, delivered: 0 };
 
   const telegramAllowed =
     (context.limits?.telegram_enabled ?? false) &&
@@ -213,26 +206,26 @@ async function dispatchAlerts({
 
   let delivered = 0;
 
-  for (const draft of fresh) {
+  for (const draft of drafts) {
     let deliveryError: string | null = null;
     let sent = false;
 
-    if (draft.notifyTelegram && telegramAllowed) {
+    if (telegramAllowed) {
       const result = await sendTelegramMessage({
         chatId: context.telegram!.chat_id!,
         botToken: context.telegram!.bot_token,
         text: formatAlertMessage({
           title: draft.title,
           truckNumber,
-          location: draft.event?.loc_name ?? null,
-          direction: draft.event?.direction ?? null,
-          eventTime: draft.event?.event_time ?? null,
+          location: draft.position.locName,
+          direction: draft.position.direction,
+          eventTime: draft.position.eventTime,
           extra: draft.message,
         }),
       });
       sent = result.ok;
       if (!result.ok) deliveryError = result.error;
-    } else if (draft.notifyTelegram) {
+    } else {
       deliveryError = !context.limits?.telegram_enabled
         ? "Telegram is disabled by the plan."
         : "No Telegram chat id saved.";
@@ -242,7 +235,6 @@ async function dispatchAlerts({
 
     const { error } = await admin.from("alert_logs").insert({
       user_id: context.userId,
-      alert_rule_id: draft.ruleId,
       truck_number: truckNumber,
       kind: draft.kind,
       title: draft.title,
@@ -252,14 +244,7 @@ async function dispatchAlerts({
     });
     if (error) console.error("alert_logs insert failed", error.message);
 
-    // Keep the in-memory cooldown list current for the rest of the sweep.
-    context.recentAlerts.push({
-      alert_rule_id: draft.ruleId,
-      truck_number: truckNumber,
-      created_at: new Date().toISOString(),
-    });
-
-    if (draft.notifySheet) {
+    if (context.limits?.google_sheet_enabled) {
       context.sheetAlerts.push([
         fmtDateTime(new Date()),
         truckNumber,
@@ -270,11 +255,60 @@ async function dispatchAlerts({
     }
   }
 
-  if (fresh.length > 0) {
-    await admin.rpc("bump_alerts_sent", { p_user: context.userId, p_count: fresh.length });
+  await admin.rpc("bump_alerts_sent", { p_user: context.userId, p_count: drafts.length });
+
+  return { created: drafts.length, delivered };
+}
+
+/**
+ * Evaluates both alerts for one truck and sends whatever they produced.
+ *
+ * The caller persists `stateUpdate`, which is what makes the next interval
+ * start from now. A truck that was polled folds it into the row update it was
+ * making anyway, so one visit is still one write.
+ *
+ * That bookkeeping is applied whether or not Telegram accepted the message. If
+ * a failed delivery left the clock alone, a bad chat id would produce an alert
+ * on every sweep for ever.
+ */
+async function runAlerts({
+  admin,
+  context,
+  truck,
+  position,
+  now,
+}: {
+  admin: Admin;
+  context: OfficerContext;
+  truck: TrackedTruck;
+  position: Position;
+  now: Date;
+}): Promise<{ created: number; delivered: number; stateUpdate: AlertStateUpdate }> {
+  if (!anyAlertOn(truck)) return { created: 0, delivered: 0, stateUpdate: {} };
+
+  const { drafts, stateUpdate } = evaluateTruckAlerts({
+    truckNumber: truck.truck_number,
+    truck,
+    position,
+    now,
+  });
+
+  // A plan can withdraw alerts after the officer switched them on. The truck
+  // then goes quiet, but the clock still has to move: leaving it unstamped
+  // would keep the truck permanently due and let it take a slot in every
+  // sweep, crowding out trucks that do have work to do.
+  if (!context.limits?.alerts_enabled) {
+    return { created: 0, delivered: 0, stateUpdate };
   }
 
-  return { created: fresh.length, delivered };
+  const result = await dispatchAlerts({
+    admin,
+    context,
+    truckNumber: truck.truck_number,
+    drafts,
+  });
+
+  return { ...result, stateUpdate };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -287,12 +321,20 @@ export async function pollTruck({
   context,
   settings,
   now,
+  fetchUpstream = true,
 }: {
   admin: Admin;
   truck: TrackedTruck;
   context: OfficerContext;
   settings: AppSettings;
   now: Date;
+  /**
+   * False when the sweep picked this truck up for an alert alone. The alert
+   * reports the position already on record, so there is nothing to fetch - and
+   * charging a tracking query for a message the officer asked to repeat on a
+   * timer would make a 15-minute heartbeat cost as much as 15-minute polling.
+   */
+  fetchUpstream?: boolean;
 }): Promise<PollOutcome> {
   const outcome: PollOutcome = {
     truckId: truck.id,
@@ -303,6 +345,27 @@ export async function pollTruck({
     alerts: 0,
     alertsDelivered: 0,
   };
+
+  if (!fetchUpstream) {
+    const alertResult = await runAlerts({
+      admin,
+      context,
+      truck,
+      position: positionOf(truck),
+      now,
+    });
+
+    if (Object.keys(alertResult.stateUpdate).length > 0) {
+      await admin.from("tracked_trucks").update(alertResult.stateUpdate).eq("id", truck.id);
+    }
+
+    return {
+      ...outcome,
+      status: "alerted",
+      alerts: alertResult.created,
+      alertsDelivered: alertResult.delivered,
+    };
+  }
 
   // 1. Quota. consume_quota is the only writer of usage_counters.
   const { data: quotaRaw, error: quotaError } = await admin.rpc("consume_quota", {
@@ -467,22 +530,17 @@ export async function pollTruck({
   const latestEventAt = recentEvents[0]?.event_time ?? truck.last_event_at ?? null;
   const latest = recentEvents[0] ?? null;
 
-  // 6. Alerts.
-  const drafts = evaluateRules({
-    truckNumber: truck.truck_number,
-    isWatchlist: truck.is_watchlist,
-    newEvents: inserted,
-    recentEvents,
-    rules: context.limits?.alert_rules_enabled ? context.rules : [],
-    settings,
-    now,
-  });
-
-  const alertResult = await dispatchAlerts({
+  // 6. Alerts, against the position this poll just established.
+  const alertResult = await runAlerts({
     admin,
     context,
-    truckNumber: truck.truck_number,
-    drafts,
+    truck,
+    position: {
+      locName: latest?.loc_name ?? truck.last_location,
+      direction: latest?.direction ?? truck.last_direction,
+      eventTime: latestEventAt,
+    },
+    now,
   });
 
   // 7. Queue sheet rows for the flush at the end of the sweep.
@@ -518,7 +576,8 @@ export async function pollTruck({
     );
   }
 
-  // 8. Roll the truck forward.
+  // 8. Roll the truck forward. The alert bookkeeping rides along, so a polled
+  //    truck is still one write.
   await admin
     .from("tracked_trucks")
     .update({
@@ -528,6 +587,7 @@ export async function pollTruck({
       last_direction: latest?.direction ?? truck.last_direction,
       status: deriveStatus(latestEventAt, now, settings.noActivityHours),
       consecutive_errors: 0,
+      ...alertResult.stateUpdate,
     })
     .eq("id", truck.id);
 
@@ -605,6 +665,7 @@ export async function runTrackingSweep(
     candidates: 0,
     due: 0,
     polled: 0,
+    alerted: 0,
     skipped: 0,
     failed: 0,
     newEvents: 0,
@@ -646,25 +707,37 @@ export async function runTrackingSweep(
     });
   }
 
+  // A truck earns a visit either because its polling interval elapsed, or
+  // because one of its alerts is due. The second case is what keeps "every 15
+  // minutes" honest on a truck that is only polled hourly - it costs no
+  // upstream call, because the alert reports the position already on record.
   const all = (candidates ?? []) as TrackedTruck[];
   const due = options.truckIds?.length
-    ? all
-    : all.filter((truck) => isDue(truck, startedAt, settings.globalPollingFloor));
+    ? all.map((truck) => ({ truck, fetchUpstream: true }))
+    : all
+        .map((truck) => ({
+          truck,
+          fetchUpstream: isDue(truck, startedAt, settings.globalPollingFloor),
+          alertOnly: alertDue(truck, startedAt),
+        }))
+        .filter((item) => item.fetchUpstream || item.alertOnly);
+
   const selected = due.slice(0, batch);
 
-  // Load each officer's rules and integrations once, not once per truck.
+  // Load each officer's limits and integrations once, not once per truck.
   const contexts = new Map<string, OfficerContext>();
-  for (const userId of new Set(selected.map((truck) => truck.user_id))) {
+  for (const userId of new Set(selected.map((item) => item.truck.user_id))) {
     contexts.set(userId, await loadOfficerContext(admin, userId));
   }
 
-  const outcomes = await mapWithConcurrency(selected, CONCURRENCY, (truck) =>
+  const outcomes = await mapWithConcurrency(selected, CONCURRENCY, ({ truck, fetchUpstream }) =>
     pollTruck({
       admin,
       truck,
       context: contexts.get(truck.user_id)!,
       settings,
       now: new Date(),
+      fetchUpstream,
     }),
   );
 
@@ -691,6 +764,7 @@ export async function runTrackingSweep(
     due: due.length,
     deferred: Math.max(due.length - selected.length, 0),
     polled: outcomes.filter((o) => o.status === "polled").length,
+    alerted: outcomes.filter((o) => o.status === "alerted").length,
     skipped: outcomes.filter((o) => o.status === "skipped").length,
     failed: outcomes.filter((o) => o.status === "failed").length,
     newEvents: outcomes.reduce((sum, o) => sum + o.newEvents, 0),

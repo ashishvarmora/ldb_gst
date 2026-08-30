@@ -125,8 +125,9 @@ export default async function PortalHome() {
             <Panel title="Tip">
               <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
                 <Star size={13} className="mt-0.5 shrink-0 text-warn-500" />
-                Mark a truck as <strong className="text-ink">watchlist</strong> and you get an
-                alert on every single crossing, not just the ones matching a rule.
+                Open a truck under <strong className="text-ink">My trucks</strong> to switch its
+                alerts on. Each truck has its own, so one can report every hour while another only
+                speaks up when it moves.
               </p>
             </Panel>
           ) : null}

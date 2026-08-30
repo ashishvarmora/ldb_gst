@@ -42,14 +42,17 @@ create table if not exists public.plans (
   truck_limit                   integer not null default 10   check (truck_limit >= -1),
   manual_search_limit_per_day   integer not null default 20   check (manual_search_limit_per_day >= -1),
   tracking_queries_per_month    integer not null default 2000 check (tracking_queries_per_month >= -1),
-  max_alert_rules               integer not null default 10   check (max_alert_rules >= -1),
   max_truck_groups              integer not null default 5    check (max_truck_groups >= -1),
 
   min_polling_interval_minutes  integer not null default 30   check (min_polling_interval_minutes >= 1),
+  -- Floor on how often a truck alert may repeat, the alert equivalent of
+  -- min_polling_interval_minutes. Officers choose their own interval per truck
+  -- but can never go below this.
+  min_alert_interval_minutes    integer not null default 15   check (min_alert_interval_minutes >= 1),
 
   telegram_enabled              boolean not null default true,
   google_sheet_enabled          boolean not null default true,
-  alert_rules_enabled           boolean not null default true,
+  alerts_enabled                boolean not null default true,
 
   price_per_month               numeric(10, 2) not null default 0,
   is_active                     boolean not null default true,
@@ -98,15 +101,58 @@ create table if not exists public.user_limit_overrides (
   truck_limit                   integer check (truck_limit >= -1),
   manual_search_limit_per_day   integer check (manual_search_limit_per_day >= -1),
   tracking_queries_per_month    integer check (tracking_queries_per_month >= -1),
-  max_alert_rules               integer check (max_alert_rules >= -1),
   max_truck_groups              integer check (max_truck_groups >= -1),
   min_polling_interval_minutes  integer check (min_polling_interval_minutes >= 1),
+  min_alert_interval_minutes    integer check (min_alert_interval_minutes >= 1),
   telegram_enabled              boolean,
   google_sheet_enabled          boolean,
-  alert_rules_enabled           boolean,
+  alerts_enabled                boolean,
   reason                        text,
   updated_at                    timestamptz not null default now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Bring a database created before the two-alert rework up to the column set
+-- above. `create table if not exists` leaves an existing table untouched, so
+-- the limit columns are reconciled here instead - and it has to happen in this
+-- file, because 0002 and 0004 build views on top of them.
+--
+-- Dropping the retired max_alert_rules is left to 0007; it still has to exist
+-- while 0002 re-runs against a database that has not reached 0007 yet.
+-- ---------------------------------------------------------------------------
+do $blk$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'plans'
+      and column_name = 'alert_rules_enabled'
+  ) then
+    alter table public.plans rename column alert_rules_enabled to alerts_enabled;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'user_limit_overrides'
+      and column_name = 'alert_rules_enabled'
+  ) then
+    alter table public.user_limit_overrides rename column alert_rules_enabled to alerts_enabled;
+  end if;
+end $blk$;
+
+alter table public.plans
+  add column if not exists min_alert_interval_minutes integer not null default 15;
+alter table public.plans
+  drop constraint if exists plans_min_alert_interval_minutes_check;
+alter table public.plans
+  add constraint plans_min_alert_interval_minutes_check check (min_alert_interval_minutes >= 1);
+
+alter table public.user_limit_overrides
+  add column if not exists min_alert_interval_minutes integer;
+alter table public.user_limit_overrides
+  drop constraint if exists user_limit_overrides_min_alert_interval_minutes_check;
+alter table public.user_limit_overrides
+  add constraint user_limit_overrides_min_alert_interval_minutes_check
+  check (min_alert_interval_minutes >= 1);
 
 -- ---------------------------------------------------------------------------
 -- tracked_trucks - trucks an officer put under background polling
@@ -126,6 +172,21 @@ create table if not exists public.tracked_trucks (
   last_direction            text,
   status                    public.truck_status not null default 'unknown',
   consecutive_errors        integer not null default 0,
+
+  -- Alert 1: every location_alert_minutes, report where the truck is now,
+  -- whether or not that is where it was last time.
+  location_alert_enabled    boolean not null default false,
+  location_alert_minutes    integer not null default 60
+                            check (location_alert_minutes between 1 and 10080),
+  location_alert_last_at    timestamptz,
+
+  -- Alert 2: every movement_alert_minutes, compare the current plaza with the
+  -- one reported by the last movement alert and speak up only if it changed.
+  movement_alert_enabled    boolean not null default false,
+  movement_alert_minutes    integer not null default 30
+                            check (movement_alert_minutes between 1 and 10080),
+  movement_alert_last_at    timestamptz,
+  movement_alert_last_location text,
 
   created_at                timestamptz not null default now(),
   updated_at                timestamptz not null default now(),
@@ -180,30 +241,17 @@ create index if not exists search_logs_user_time_idx on public.search_logs (user
 create index if not exists search_logs_source_idx    on public.search_logs (source, created_at desc);
 
 -- ---------------------------------------------------------------------------
--- alert_rules / alert_logs
+-- alert_logs
+--
+-- There is no alert_rules table. The platform has exactly two alerts, both
+-- built in, and an officer switches them on per truck - see the
+-- location_alert_* / movement_alert_* columns on tracked_trucks.
 -- ---------------------------------------------------------------------------
-create table if not exists public.alert_rules (
-  id              uuid primary key default gen_random_uuid(),
-  user_id         uuid not null references public.profiles (id) on delete cascade,
-  name            text not null,
-  -- approaching_city | state_entry | state_exit | no_movement |
-  -- excessive_movement | watchlist_move | night_travel | route_prediction
-  kind            text not null,
-  config          jsonb not null default '{}'::jsonb,
-  is_active       boolean not null default true,
-  notify_telegram boolean not null default true,
-  notify_sheet    boolean not null default true,
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now()
-);
-
-create index if not exists alert_rules_user_idx on public.alert_rules (user_id);
-
 create table if not exists public.alert_logs (
   id             bigserial primary key,
   user_id        uuid not null references public.profiles (id) on delete cascade,
-  alert_rule_id  uuid references public.alert_rules (id) on delete set null,
   truck_number   text,
+  -- location_update | location_change
   kind           text,
   title          text not null,
   message        text,
@@ -313,7 +361,7 @@ declare t text;
 begin
   foreach t in array array[
     'plans', 'profiles', 'user_limit_overrides', 'tracked_trucks',
-    'alert_rules', 'telegram_configs', 'google_sheet_configs'
+    'telegram_configs', 'google_sheet_configs'
   ] loop
     execute format('drop trigger if exists touch_%1$s on public.%1$s', t);
     execute format(

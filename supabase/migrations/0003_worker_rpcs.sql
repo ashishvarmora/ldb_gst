@@ -51,8 +51,8 @@ create index if not exists truck_events_user_truck_time_idx
 create index if not exists tracked_trucks_user_watchlist_idx
   on public.tracked_trucks (user_id, is_watchlist);
 
-create index if not exists alert_logs_rule_truck_time_idx
-  on public.alert_logs (alert_rule_id, truck_number, created_at desc);
+create index if not exists alert_logs_truck_time_idx
+  on public.alert_logs (user_id, truck_number, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- A truck may appear in several case folders, so members are looked up by

@@ -41,27 +41,22 @@ export default async function PlanPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ data: usage }, { data: trucks }, { count: ruleCount }, { count: caseCount }] =
-    await Promise.all([
-      admin
-        .from("usage_counters")
-        .select("*")
-        .eq("user_id", overview.id)
-        .gte("usage_date", istDaysAgo(29)),
-      admin
-        .from("tracked_trucks")
-        .select("*")
-        .eq("user_id", overview.id)
-        .eq("is_active", true),
-      admin
-        .from("alert_rules")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", overview.id),
-      admin
-        .from("truck_groups")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", overview.id),
-    ]);
+  const [{ data: usage }, { data: trucks }, { count: caseCount }] = await Promise.all([
+    admin
+      .from("usage_counters")
+      .select("*")
+      .eq("user_id", overview.id)
+      .gte("usage_date", istDaysAgo(29)),
+    admin
+      .from("tracked_trucks")
+      .select("*")
+      .eq("user_id", overview.id)
+      .eq("is_active", true),
+    admin
+      .from("truck_groups")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", overview.id),
+  ]);
 
   const series = buildUsageSeries((usage ?? []) as UsageCounter[], 30);
   const active = (trucks ?? []) as TrackedTruck[];
@@ -200,12 +195,14 @@ export default async function PlanPage() {
         />
         <AllowanceCard
           icon={<Bell size={15} />}
-          title="Alert rules"
-          period="total"
-          used={ruleCount ?? 0}
-          limit={overview.max_alert_rules}
-          hideBar
-          note="Rules apply to every truck you track."
+          title="Fastest alerting"
+          period="per truck"
+          custom={
+            overview.alerts_enabled
+              ? intervalLabel(overview.min_alert_interval_minutes)
+              : "Not included"
+          }
+          note="Alerts are switched on one truck at a time. You may pick this or anything slower."
         />
         <AllowanceCard
           icon={<FolderOpen size={15} />}
@@ -233,8 +230,8 @@ export default async function PlanPage() {
             <Feature on label="Background tracking with a route timeline for every truck" />
             <Feature on label="Records view with filtering and CSV export" />
             <Feature
-              on={overview.alert_rules_enabled}
-              label={`Alert rules — ${formatLimit(overview.max_alert_rules)} allowed`}
+              on={overview.alerts_enabled}
+              label={`Truck alerts — set per truck, at most one every ${intervalLabel(overview.min_alert_interval_minutes)}`}
             />
             <Feature
               on={overview.telegram_enabled}

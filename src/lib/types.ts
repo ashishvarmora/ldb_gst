@@ -10,13 +10,13 @@ export type Plan = {
   truck_limit: number;
   manual_search_limit_per_day: number;
   tracking_queries_per_month: number;
-  max_alert_rules: number;
+  min_alert_interval_minutes: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
   data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
-  alert_rules_enabled: boolean;
+  alerts_enabled: boolean;
   price_per_month: number;
   is_active: boolean;
   sort_order: number;
@@ -51,13 +51,13 @@ export type OfficerOverview = Profile & {
   truck_limit: number;
   manual_search_limit_per_day: number;
   tracking_queries_per_month: number;
-  max_alert_rules: number;
+  min_alert_interval_minutes: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
   data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
-  alert_rules_enabled: boolean;
+  alerts_enabled: boolean;
   has_overrides: boolean;
   active_trucks: number;
   total_trucks: number;
@@ -78,13 +78,13 @@ export type LimitOverrides = {
   truck_limit: number | null;
   manual_search_limit_per_day: number | null;
   tracking_queries_per_month: number | null;
-  max_alert_rules: number | null;
+  min_alert_interval_minutes: number | null;
   max_truck_groups: number | null;
   min_polling_interval_minutes: number | null;
   data_retention_days: number | null;
   telegram_enabled: boolean | null;
   google_sheet_enabled: boolean | null;
-  alert_rules_enabled: boolean | null;
+  alerts_enabled: boolean | null;
   reason: string | null;
   updated_at: string;
 };
@@ -103,6 +103,16 @@ export type TrackedTruck = {
   last_direction: string | null;
   status: TruckStatus;
   consecutive_errors: number;
+  /** Alert 1 - report the current plaza every N minutes, changed or not. */
+  location_alert_enabled: boolean;
+  location_alert_minutes: number;
+  location_alert_last_at: string | null;
+  /** Alert 2 - every N minutes, speak up only if the plaza changed. */
+  movement_alert_enabled: boolean;
+  movement_alert_minutes: number;
+  movement_alert_last_at: string | null;
+  /** Plaza the last movement alert reported; the change test compares to it. */
+  movement_alert_last_location: string | null;
   created_at: string;
 };
 
@@ -171,28 +181,12 @@ export type TruckEvent = {
   fetched_at: string;
 };
 
-export type AlertRuleKind =
-  | "approaching_city"
-  | "state_entry"
-  | "state_exit"
-  | "no_movement"
-  | "excessive_movement"
-  | "watchlist_move"
-  | "night_travel"
-  | "route_prediction";
-
-export type AlertRule = {
-  id: string;
-  user_id: string;
-  name: string;
-  kind: AlertRuleKind;
-  config: Record<string, unknown>;
-  is_active: boolean;
-  notify_telegram: boolean;
-  notify_sheet: boolean;
-  created_at: string;
-  updated_at: string;
-};
+/**
+ * The platform has exactly two alerts and they are built in. Nobody creates
+ * them - an officer switches them on per truck and picks the interval, within
+ * the floor the admin set on their plan.
+ */
+export type AlertKind = "location_update" | "location_change";
 
 export type TruckGroup = {
   id: string;
@@ -234,13 +228,13 @@ export type EffectiveLimits = {
   truck_limit: number;
   manual_search_limit_per_day: number;
   tracking_queries_per_month: number;
-  max_alert_rules: number;
+  min_alert_interval_minutes: number;
   max_truck_groups: number;
   min_polling_interval_minutes: number;
   data_retention_days: number;
   telegram_enabled: boolean;
   google_sheet_enabled: boolean;
-  alert_rules_enabled: boolean;
+  alerts_enabled: boolean;
   has_overrides: boolean;
 };
 
@@ -259,8 +253,4 @@ export type AppSettings = {
   trackingEnabled: boolean;
   globalPollingFloor: number;
   noActivityHours: number;
-  excessiveTolls: number;
-  excessiveWindowHours: number;
-  nightFrom: string;
-  nightTo: string;
 };

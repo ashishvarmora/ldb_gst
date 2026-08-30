@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { intervalWords } from "@/lib/alerts";
 import { bool, done, fail, int, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { runManualLookup } from "@/lib/manual-search";
 import { assertPortalUser, loadOverview, truckSlotsLeft } from "@/lib/officer";
@@ -132,6 +133,83 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
     requested !== null && interval > requested
       ? `Saved. Your plan's fastest interval is ${floor} min, so ${interval} min was used.`
       : "Saved.",
+  );
+}
+
+/** The two built-in alerts, switched on and timed for one truck at a time. */
+export async function updateTruckAlerts(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  const truckId = str(fd, "truck_id");
+  if (!truckId) return fail("Missing truck id.");
+
+  const { data: truck } = await admin
+    .from("tracked_trucks")
+    .select("*")
+    .eq("id", truckId)
+    .eq("user_id", session.id)
+    .maybeSingle<TrackedTruck>();
+
+  if (!truck) return fail("That truck is not on your list.");
+
+  const overview = await loadOverview(session.id);
+  if (!overview) return fail("Could not read your account. Sign in again.");
+  if (!overview.alerts_enabled) {
+    return fail("Alerts are not enabled on your plan. Ask your administrator.");
+  }
+
+  const floor = overview.min_alert_interval_minutes;
+  const locationRequested = int(fd, "location_alert_minutes", { min: 1, max: 10080 });
+  const movementRequested = int(fd, "movement_alert_minutes", { min: 1, max: 10080 });
+  const locationMinutes =
+    locationRequested === null ? truck.location_alert_minutes : Math.max(locationRequested, floor);
+  const movementMinutes =
+    movementRequested === null ? truck.movement_alert_minutes : Math.max(movementRequested, floor);
+
+  const locationOn = bool(fd, "location_alert_enabled");
+  const movementOn = bool(fd, "movement_alert_enabled");
+
+  // Switching the change alert on takes the truck's current plaza as the
+  // baseline, so it does not immediately fire an alert for a move the officer
+  // already knows about.
+  const seedBaseline = movementOn && !truck.movement_alert_enabled;
+
+  const { error } = await admin
+    .from("tracked_trucks")
+    .update({
+      location_alert_enabled: locationOn,
+      location_alert_minutes: locationMinutes,
+      movement_alert_enabled: movementOn,
+      movement_alert_minutes: movementMinutes,
+      ...(seedBaseline
+        ? { movement_alert_last_location: truck.last_location, movement_alert_last_at: null }
+        : {}),
+    })
+    .eq("id", truckId)
+    .eq("user_id", session.id);
+
+  if (error) return fail(error.message);
+
+  revalidatePath("/portal/trucks");
+  revalidatePath(`/portal/trucks/${truckId}`);
+
+  const on: string[] = [];
+  if (locationOn) on.push(`Location every ${intervalWords(locationMinutes)}`);
+  if (movementOn) on.push(`Changes every ${intervalWords(movementMinutes)}`);
+  const summary = on.length === 0 ? "Alerts saved. Both are off." : `Alerts saved. ${on.join(". ")}.`;
+
+  const raised =
+    (locationRequested !== null && locationMinutes > locationRequested) ||
+    (movementRequested !== null && movementMinutes > movementRequested);
+
+  return done(
+    raised
+      ? `${summary} Your plan's fastest alert interval is ${floor} min, so that was used.`
+      : summary,
   );
 }
 

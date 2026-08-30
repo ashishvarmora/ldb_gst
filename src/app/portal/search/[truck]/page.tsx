@@ -152,7 +152,7 @@ export default async function SearchResultPage({
                   <Checkbox
                     name="is_watchlist"
                     label="Watchlist truck"
-                    hint="Alert me on every crossing, not just rule matches."
+                    hint="Flags the truck as important. Alerts are set up on the truck's own page."
                   />
                 </div>
                 <FormActions>

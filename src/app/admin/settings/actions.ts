@@ -14,10 +14,6 @@ const SETTING_SPECS = [
   { key: "tracking_enabled", kind: "bool" },
   { key: "global_polling_floor", kind: "int", min: 1, max: 1440 },
   { key: "no_activity_hours", kind: "int", min: 1, max: 168 },
-  { key: "excessive_tolls", kind: "int", min: 2, max: 50 },
-  { key: "excessive_window_hours", kind: "int", min: 1, max: 48 },
-  { key: "night_from", kind: "time" },
-  { key: "night_to", kind: "time" },
   { key: "data_retention_days", kind: "int", min: 1, max: 3650 },
   { key: "purge_enabled", kind: "bool" },
 ] as const;
@@ -48,14 +44,6 @@ export async function saveSettings(
       continue;
     }
 
-    if (spec.kind === "time") {
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(text)) {
-        return { ok: false, error: "Night window times must look like 22:00." };
-      }
-      values[spec.key] = text;
-      continue;
-    }
-
     const n = Number(text);
     if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
       return {
@@ -65,12 +53,6 @@ export async function saveSettings(
     }
     values[spec.key] = n;
   }
-
-  // night_from / night_to are stored together as one object.
-  const nightWindow = { from: values.night_from, to: values.night_to };
-  delete values.night_from;
-  delete values.night_to;
-  values.night_window = nightWindow;
 
   const defaultPlan = fd.get("default_plan_name");
   values.default_plan_name = typeof defaultPlan === "string" ? defaultPlan : "";

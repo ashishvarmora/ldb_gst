@@ -42,12 +42,12 @@ select
   coalesce(o.truck_limit,                  pl.truck_limit,                  0) as truck_limit,
   coalesce(o.manual_search_limit_per_day,  pl.manual_search_limit_per_day,  0) as manual_search_limit_per_day,
   coalesce(o.tracking_queries_per_month,   pl.tracking_queries_per_month,   0) as tracking_queries_per_month,
-  coalesce(o.max_alert_rules,              pl.max_alert_rules,              0) as max_alert_rules,
+  coalesce(o.min_alert_interval_minutes,   pl.min_alert_interval_minutes,   15) as min_alert_interval_minutes,
   coalesce(o.max_truck_groups,             pl.max_truck_groups,             0) as max_truck_groups,
   coalesce(o.min_polling_interval_minutes, pl.min_polling_interval_minutes, 60) as min_polling_interval_minutes,
   coalesce(o.telegram_enabled,             pl.telegram_enabled,             false) as telegram_enabled,
   coalesce(o.google_sheet_enabled,          pl.google_sheet_enabled,        false) as google_sheet_enabled,
-  coalesce(o.alert_rules_enabled,           pl.alert_rules_enabled,         false) as alert_rules_enabled,
+  coalesce(o.alerts_enabled,                pl.alerts_enabled,              false) as alerts_enabled,
   (o.user_id is not null) as has_overrides
 from public.profiles p
 left join public.plans pl on pl.id = p.plan_id
@@ -79,12 +79,12 @@ select
   el.truck_limit,
   el.manual_search_limit_per_day,
   el.tracking_queries_per_month,
-  el.max_alert_rules,
+  el.min_alert_interval_minutes,
   el.max_truck_groups,
   el.min_polling_interval_minutes,
   el.telegram_enabled,
   el.google_sheet_enabled,
-  el.alert_rules_enabled,
+  el.alerts_enabled,
   el.has_overrides,
   coalesce(tt.active_trucks, 0)     as active_trucks,
   coalesce(tt.total_trucks, 0)      as total_trucks,
@@ -247,7 +247,7 @@ declare t text;
 begin
   foreach t in array array[
     'plans', 'profiles', 'user_limit_overrides', 'tracked_trucks', 'truck_events',
-    'search_logs', 'alert_rules', 'alert_logs', 'telegram_configs',
+    'search_logs', 'alert_logs', 'telegram_configs',
     'google_sheet_configs', 'truck_groups', 'truck_group_members',
     'usage_counters', 'audit_logs', 'app_settings'
   ] loop
@@ -283,7 +283,7 @@ create policy overrides_write on public.user_limit_overrides for all to authenti
 do $blk$
 declare t text;
 begin
-  foreach t in array array['tracked_trucks', 'alert_rules', 'telegram_configs',
+  foreach t in array array['tracked_trucks', 'telegram_configs',
                            'google_sheet_configs', 'truck_groups'] loop
     execute format('drop policy if exists %1$s_owner on public.%1$s', t);
     execute format(
@@ -326,16 +326,17 @@ create policy settings_admin on public.app_settings for all to authenticated
 -- ===========================================================================
 insert into public.plans (
   name, description, truck_limit, manual_search_limit_per_day,
-  tracking_queries_per_month, max_alert_rules, max_truck_groups,
-  min_polling_interval_minutes, telegram_enabled, google_sheet_enabled,
-  alert_rules_enabled, price_per_month, sort_order
+  tracking_queries_per_month, max_truck_groups,
+  min_polling_interval_minutes, min_alert_interval_minutes,
+  telegram_enabled, google_sheet_enabled,
+  alerts_enabled, price_per_month, sort_order
 ) values
   ('Basic', 'Single-officer starter allocation.',
-   10, 20, 2000, 5, 3, 30, true, true, true, 0, 10),
+   10, 20, 2000, 3, 30, 30, true, true, true, 0, 10),
   ('Professional', 'Full district workload.',
-   50, 100, 10000, 25, 15, 10, true, true, true, 0, 20),
+   50, 100, 10000, 15, 10, 15, true, true, true, 0, 20),
   ('Unlimited', 'No caps. Use for headquarters or your own account.',
-   -1, -1, -1, -1, -1, 5, true, true, true, 0, 30)
+   -1, -1, -1, -1, 5, 5, true, true, true, 0, 30)
 on conflict (name) do nothing;
 
 insert into public.app_settings (key, value) values
@@ -343,8 +344,5 @@ insert into public.app_settings (key, value) values
   ('default_plan_name',      '"Basic"'::jsonb),
   ('global_polling_floor',   '5'::jsonb),
   ('tracking_enabled',       'true'::jsonb),
-  ('no_activity_hours',      '6'::jsonb),
-  ('excessive_tolls',        '5'::jsonb),
-  ('excessive_window_hours', '2'::jsonb),
-  ('night_window',           '{"from": "22:00", "to": "06:00"}'::jsonb)
+  ('no_activity_hours',      '6'::jsonb)
 on conflict (key) do nothing;

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   PauseCircle,
   PlayCircle,
@@ -16,6 +17,7 @@ import {
   setTruckPaused,
   toggleWatchlist,
   updateTruck,
+  updateTruckAlerts,
 } from "../actions";
 import {
   ActionForm,
@@ -28,6 +30,7 @@ import { Modal } from "@/components/Modal";
 import { LatestPosition, Timeline } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
 import { Badge, DescRow, EmptyState, Mono, Panel, StatCard } from "@/components/ui";
+import { ALERT_KIND_HINT, ALERT_KIND_LABEL } from "@/lib/alerts";
 import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { IntervalField } from "@/components/IntervalField";
 import { intervalLabel, monthlyCallsAt } from "@/lib/intervals";
@@ -95,6 +98,7 @@ export default async function TruckDetailPage({
   const latest = eventList[0] ?? null;
 
   const floor = Math.max(overview.min_polling_interval_minutes, settings.globalPollingFloor);
+  const alertFloor = overview.min_alert_interval_minutes;
   const status = truck.is_active ? truck.status : "unknown";
   const uniquePlazas = new Set(eventList.map((event) => event.loc_name).filter(Boolean)).size;
 
@@ -215,7 +219,7 @@ export default async function TruckDetailPage({
                 <Checkbox
                   name="is_watchlist"
                   label="Watchlist truck"
-                  hint="Alert on every crossing."
+                  hint="Flags the truck as important. Does not send alerts."
                   defaultChecked={truck.is_watchlist}
                 />
                 <Checkbox
@@ -229,6 +233,73 @@ export default async function TruckDetailPage({
                 <SubmitButton>Save</SubmitButton>
               </FormActions>
             </ActionForm>
+          </Panel>
+
+          <Panel title="Alerts" description="Both are sent on Telegram, for this truck only.">
+            {overview.alerts_enabled ? (
+              <ActionForm action={updateTruckAlerts} closeOnSuccess={false}>
+                <input type="hidden" name="truck_id" value={truck.id} />
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <Checkbox
+                      name="location_alert_enabled"
+                      label={ALERT_KIND_LABEL.location_update}
+                      hint={ALERT_KIND_HINT.location_update}
+                      defaultChecked={truck.location_alert_enabled}
+                    />
+                    <Field
+                      label="Send every (minutes)"
+                      name="location_alert_minutes"
+                      hint={`Your administrator allows one alert every ${intervalLabel(alertFloor)} at the fastest.`}
+                    >
+                      <Input
+                        type="number"
+                        name="location_alert_minutes"
+                        min={1}
+                        max={10080}
+                        step={1}
+                        defaultValue={truck.location_alert_minutes}
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="space-y-3 border-t border-divider pt-4">
+                    <Checkbox
+                      name="movement_alert_enabled"
+                      label={ALERT_KIND_LABEL.location_change}
+                      hint={ALERT_KIND_HINT.location_change}
+                      defaultChecked={truck.movement_alert_enabled}
+                    />
+                    <Field label="Check every (minutes)" name="movement_alert_minutes">
+                      <Input
+                        type="number"
+                        name="movement_alert_minutes"
+                        min={1}
+                        max={10080}
+                        step={1}
+                        defaultValue={truck.movement_alert_minutes}
+                      />
+                    </Field>
+                  </div>
+
+                  <p className="text-xs leading-relaxed text-muted">
+                    A change only shows up once the truck has been checked, so checking for
+                    changes faster than every {intervalLabel(truck.polling_interval_minutes)} will
+                    not spot moves any sooner.
+                  </p>
+                </div>
+                <FormActions>
+                  <SubmitButton>Save alerts</SubmitButton>
+                </FormActions>
+              </ActionForm>
+            ) : (
+              <div className="flex items-start gap-2.5 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warn-500" />
+                <p className="text-xs leading-relaxed text-warn-500">
+                  Alerts are not enabled on your plan. Ask your administrator to switch them on.
+                </p>
+              </div>
+            )}
           </Panel>
 
           <Panel title="Recent alerts" bodyClassName="p-0">

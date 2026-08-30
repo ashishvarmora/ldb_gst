@@ -39,7 +39,6 @@ export default async function SettingsPage() {
   const planList = (plans ?? []) as Plan[];
   const health = integrationHealth();
 
-  const nightWindow = (settings.night_window ?? {}) as { from?: string; to?: string };
   const trackingEnabled = settings.tracking_enabled !== false;
 
   return (
@@ -111,13 +110,13 @@ export default async function SettingsPage() {
 
                 <div className="border-t border-divider pt-4">
                   <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
-                    Alert rule defaults
+                    Truck status
                   </p>
                   <FormGrid cols={2}>
                     <Field
-                      label="No-activity alert after (hours)"
+                      label="Treat as no activity after (hours)"
                       name="no_activity_hours"
-                      hint="Raise an alert when a tracked truck crosses no toll for this long."
+                      hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
                     >
                       <Input
                         name="no_activity_hours"
@@ -127,43 +126,6 @@ export default async function SettingsPage() {
                         defaultValue={num(settings, "no_activity_hours", 6)}
                       />
                     </Field>
-
-                    <Field
-                      label="Excessive movement: toll count"
-                      name="excessive_tolls"
-                      hint="This many plazas inside the window below triggers an alert."
-                    >
-                      <Input
-                        name="excessive_tolls"
-                        type="number"
-                        min={2}
-                        max={50}
-                        defaultValue={num(settings, "excessive_tolls", 5)}
-                      />
-                    </Field>
-
-                    <Field label="Excessive movement: window (hours)" name="excessive_window_hours">
-                      <Input
-                        name="excessive_window_hours"
-                        type="number"
-                        min={1}
-                        max={48}
-                        defaultValue={num(settings, "excessive_window_hours", 2)}
-                      />
-                    </Field>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Night travel from" name="night_from">
-                        <Input
-                          name="night_from"
-                          type="time"
-                          defaultValue={nightWindow.from ?? "22:00"}
-                        />
-                      </Field>
-                      <Field label="Night travel to" name="night_to">
-                        <Input name="night_to" type="time" defaultValue={nightWindow.to ?? "06:00"} />
-                      </Field>
-                    </div>
                   </FormGrid>
                 </div>
 
@@ -353,13 +315,6 @@ export default async function SettingsPage() {
                 {num(settings, "global_polling_floor", 5)} min
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
-              <DescRow label="Excessive">
-                {num(settings, "excessive_tolls", 5)} tolls /{" "}
-                {num(settings, "excessive_window_hours", 2)} h
-              </DescRow>
-              <DescRow label="Night window">
-                {nightWindow.from ?? "22:00"} – {nightWindow.to ?? "06:00"}
-              </DescRow>
               <DescRow label="Default retention">
                 {num(settings, "data_retention_days", 30)} days
               </DescRow>

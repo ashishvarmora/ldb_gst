@@ -53,6 +53,8 @@ async function handle(request: NextRequest) {
       candidates: summary.candidates,
       due: summary.due,
       polled: summary.polled,
+      // Visited for an alert only: no upstream call, no quota spent.
+      alerted: summary.alerted,
       skipped: summary.skipped,
       failed: summary.failed,
       deferred: summary.deferred,

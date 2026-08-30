@@ -13,15 +13,15 @@ export type NumericLimitKey =
   | "truck_limit"
   | "manual_search_limit_per_day"
   | "tracking_queries_per_month"
-  | "max_alert_rules"
   | "max_truck_groups"
   | "min_polling_interval_minutes"
+  | "min_alert_interval_minutes"
   | "data_retention_days";
 
 export type BooleanLimitKey =
   | "telegram_enabled"
   | "google_sheet_enabled"
-  | "alert_rules_enabled";
+  | "alerts_enabled";
 
 type NumericLimitField = {
   key: NumericLimitKey;
@@ -65,14 +65,6 @@ export const NUMERIC_LIMITS: NumericLimitField[] = [
     min: 0,
   },
   {
-    key: "max_alert_rules",
-    label: "Alert rules",
-    hint: "Number of alert rules the officer may create.",
-    unit: "rules",
-    allowUnlimited: true,
-    min: 0,
-  },
-  {
     key: "max_truck_groups",
     label: "Case folders",
     hint: "Saved truck groups for grouping an investigation.",
@@ -84,6 +76,14 @@ export const NUMERIC_LIMITS: NumericLimitField[] = [
     key: "min_polling_interval_minutes",
     label: "Fastest polling interval",
     hint: "Floor on how often a truck may be polled. Lower = more API load.",
+    unit: "minutes",
+    allowUnlimited: false,
+    min: 1,
+  },
+  {
+    key: "min_alert_interval_minutes",
+    label: "Fastest alert interval",
+    hint: "Floor on how often a truck alert may repeat. The officer picks the interval per truck but can never go below this.",
     unit: "minutes",
     allowUnlimited: false,
     min: 1,
@@ -110,9 +110,9 @@ export const BOOLEAN_LIMITS: BooleanLimitField[] = [
     hint: "Officer may connect a sheet and mirror events into it.",
   },
   {
-    key: "alert_rules_enabled",
-    label: "Alert rules",
-    hint: "Officer may configure alert rules at all.",
+    key: "alerts_enabled",
+    label: "Truck alerts",
+    hint: "Officer may switch the two truck alerts on. Off means their trucks are still tracked, just silently.",
   },
 ];
 

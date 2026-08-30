@@ -15,23 +15,22 @@ import {
   Tr,
   buttonClass,
 } from "@/components/ui";
+import { ALERT_KIND_LABEL } from "@/lib/alerts";
 import { requireSuperAdmin } from "@/lib/auth";
 import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertLog } from "@/lib/types";
+import type { AlertKind, AlertLog } from "@/lib/types";
 
 export const metadata = { title: "Alerts — Admin" };
 
-const KIND_LABEL: Record<string, string> = {
-  approaching_city: "Approaching city",
-  state_entry: "Entered state",
-  state_exit: "Left state",
-  no_movement: "No movement",
-  excessive_movement: "Excessive movement",
-  watchlist_move: "Watchlist truck moved",
-  night_travel: "Night travel",
-  route_prediction: "Route prediction",
-};
+/**
+ * alert_logs is a permanent record, so it still holds rows written under the
+ * old officer-created rules with kinds like "approaching_city" that no longer
+ * exist. Show the raw kind for those rather than an empty cell.
+ */
+function kindLabel(kind: string): string {
+  return ALERT_KIND_LABEL[kind as AlertKind] ?? kind;
+}
 
 type Row = AlertLog & { profiles: { full_name: string | null; email: string } | null };
 
@@ -96,8 +95,8 @@ export default async function AlertsPage({
         </Select>
 
         <Select name="kind" defaultValue={kind ?? ""} className="w-52">
-          <option value="">Any rule type</option>
-          {Object.entries(KIND_LABEL).map(([value, label]) => (
+          <option value="">Any alert type</option>
+          {Object.entries(ALERT_KIND_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
@@ -127,7 +126,7 @@ export default async function AlertsPage({
         ) : rows.length === 0 ? (
           <EmptyState
             title="No alerts yet"
-            description="Alerts appear once officers create rules and their trucks start crossing toll plazas."
+            description="Alerts appear once officers switch one on for a truck and it reports in."
           />
         ) : (
           <TableWrap>
@@ -135,7 +134,7 @@ export default async function AlertsPage({
               <th className="th">When</th>
               <th className="th">Officer</th>
               <th className="th">Truck</th>
-              <th className="th">Rule</th>
+              <th className="th">Type</th>
               <th className="th">Alert</th>
               <th className="th">Delivery</th>
             </Thead>
@@ -156,7 +155,7 @@ export default async function AlertsPage({
                   </td>
                   <td className="td">{alert.truck_number ? <Mono>{alert.truck_number}</Mono> : "--"}</td>
                   <td className="td text-sm text-muted">
-                    {alert.kind ? (KIND_LABEL[alert.kind] ?? alert.kind) : "--"}
+                    {alert.kind ? kindLabel(alert.kind) : "--"}
                   </td>
                   <td className="td">
                     <span className="block text-sm text-ink">{alert.title}</span>

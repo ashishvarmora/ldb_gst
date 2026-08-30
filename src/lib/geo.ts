@@ -70,7 +70,7 @@ const STATE_KEYWORDS: Record<StateName, string[]> = {
   ],
 };
 
-export const STATE_NAMES = Object.keys(STATE_KEYWORDS) as StateName[];
+const STATE_NAMES = Object.keys(STATE_KEYWORDS) as StateName[];
 
 /** Best guess at the state a toll plaza sits in, or null when unrecognised. */
 export function stateFromLocation(locName: string | null | undefined): StateName | null {
@@ -81,30 +81,6 @@ export function stateFromLocation(locName: string | null | undefined): StateName
     for (const keyword of STATE_KEYWORDS[state]) {
       if (text.includes(keyword)) return state;
     }
-  }
-  return null;
-}
-
-/**
- * Cities officers most often want an "approaching" alert for, with the toll
- * keywords that ring the city. Used to prefill the alert-rule form.
- */
-export const CITY_APPROACH_PRESETS: { city: string; tolls: string[] }[] = [
-  { city: "Ahmedabad", tolls: ["ahmedabad", "sanand", "bavla", "kheda", "nadiad", "viramgam", "kadi"] },
-  { city: "Surat", tolls: ["surat", "choryasi", "chorasi", "kamrej", "bhatia", "kim", "hazira"] },
-  { city: "Vadodara", tolls: ["vadodara", "anand", "halol", "bharuch", "padra"] },
-  { city: "Rajkot", tolls: ["rajkot", "morbi", "gondal", "jetpur", "chotila"] },
-  { city: "Gandhidham / Kandla", tolls: ["gandhidham", "kandla", "mundra", "bhuj", "anjar"] },
-  { city: "Mumbai", tolls: ["mumbai", "thane", "vashi", "panvel", "charoti", "talasari"] },
-];
-
-/** Human label for a matched keyword list, e.g. for an alert message. */
-export function matchedKeyword(locName: string | null, keywords: string[]): string | null {
-  if (!locName) return null;
-  const text = locName.toLowerCase();
-  for (const keyword of keywords) {
-    const needle = keyword.trim().toLowerCase();
-    if (needle && text.includes(needle)) return keyword;
   }
   return null;
 }

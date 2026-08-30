@@ -9,10 +9,6 @@ export const SETTINGS_FALLBACK: AppSettings = {
   trackingEnabled: true,
   globalPollingFloor: 5,
   noActivityHours: 6,
-  excessiveTolls: 5,
-  excessiveWindowHours: 2,
-  nightFrom: "22:00",
-  nightTo: "06:00",
 };
 
 /**
@@ -32,19 +28,10 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     return typeof value === "string" && value.trim() !== "" ? value : fallback;
   };
 
-  const night = map.get("night_window") as { from?: string; to?: string } | undefined;
-
   return {
     ldbApiUrl: text("ldb_api_url", env.ldbApiUrl || SETTINGS_FALLBACK.ldbApiUrl),
     trackingEnabled: map.get("tracking_enabled") !== false,
     globalPollingFloor: number("global_polling_floor", SETTINGS_FALLBACK.globalPollingFloor),
     noActivityHours: number("no_activity_hours", SETTINGS_FALLBACK.noActivityHours),
-    excessiveTolls: number("excessive_tolls", SETTINGS_FALLBACK.excessiveTolls),
-    excessiveWindowHours: number(
-      "excessive_window_hours",
-      SETTINGS_FALLBACK.excessiveWindowHours,
-    ),
-    nightFrom: night?.from ?? SETTINGS_FALLBACK.nightFrom,
-    nightTo: night?.to ?? SETTINGS_FALLBACK.nightTo,
   };
 }

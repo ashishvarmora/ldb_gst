@@ -297,8 +297,20 @@ export default async function PortalSettingsPage() {
                   <DescRow label="Fastest interval">
                     {overview.min_polling_interval_minutes} min
                   </DescRow>
-                  <DescRow label="Alert rules">{formatLimit(overview.max_alert_rules)}</DescRow>
                   <DescRow label="Case folders">{formatLimit(overview.max_truck_groups)}</DescRow>
+                  <DescRow label="Truck alerts">
+                    {overview.alerts_enabled ? (
+                      <span className="inline-flex items-center gap-1 text-good-500">
+                        <CheckCircle2 size={12} />
+                        every {overview.min_alert_interval_minutes} min at most
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-muted">
+                        <XCircle size={12} />
+                        blocked
+                      </span>
+                    )}
+                  </DescRow>
                   <DescRow label="Telegram">
                     {overview.telegram_enabled ? (
                       <span className="inline-flex items-center gap-1 text-good-500">

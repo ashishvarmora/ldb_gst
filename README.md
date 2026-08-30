@@ -30,7 +30,7 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 | **Usage** | Per-officer consumption, recent LDB calls with latency and failures, CSV export for billing |
 | **Alerts** | Every alert raised and whether Telegram actually delivered it |
 | **Audit log** | Field-level before/after for every admin change |
-| **Settings** | LDB endpoint, global pause switch, polling floor, alert-rule defaults, data retention, connection health, **run the worker now**, **clear old records now** |
+| **Settings** | LDB endpoint, global pause switch, polling floor, no-activity threshold, data retention, connection health, **run the worker now**, **clear old records now** |
 
 ### Officer dashboard — `/portal`
 
@@ -40,8 +40,8 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 | **Search** | Look up any registration number. Results are stored at a permanent URL, so reopening one costs nothing |
 | **Search result** | Route timeline grouped by day, map links, add to tracking, add to a case, check again |
 | **My trucks** | Status cards, filter by watchlist / moving / no activity / paused, add a truck, and a live estimate of what the current list costs per month |
-| **Truck detail** | Full route timeline, per-truck interval and watchlist settings, alerts for that truck, recent checks, remove (keeping history or not) |
-| **Alerts** | Create any of eight rule types with a form that adapts to the trigger; full alert history with delivery status |
+| **Truck detail** | Full route timeline, per-truck interval and watchlist settings, **the truck's two alerts and their intervals**, alerts raised for that truck, recent checks, remove (keeping history or not) |
+| **Alerts** | Read-only history of every alert sent and whether Telegram delivered it. Alerts themselves are switched on per truck, on the truck's own page |
 | **Records** | Every crossing across all their trucks in one filterable table — by truck, date range, direction, plaza — with busiest-plaza analytics and CSV export |
 | **Cases** | Case folders — paste a whole list of registration numbers, then read one combined timeline across the group |
 | **My plan** | What the plan includes, when it started and ends, days remaining, every allowance with usage, and what their current truck list will cost this month |
@@ -58,9 +58,9 @@ Every officer has two independent quotas, as specified:
 - **Manual searches — per day.** The officer typing a number into the dashboard.
 - **Tracking queries — per month.** Background polling of tracked trucks.
 
-Plus `truck_limit`, `min_polling_interval_minutes`, alert-rule and case-folder caps,
-and three feature switches (Telegram, Sheets, alert rules). Searching never eats into
-the tracking pool, and vice versa.
+Plus `truck_limit`, `min_polling_interval_minutes`, `min_alert_interval_minutes`,
+a case-folder cap, and three feature switches (Telegram, Sheets, truck alerts).
+Searching never eats into the tracking pool, and vice versa.
 
 How a number is stored:
 
@@ -286,7 +286,7 @@ src/
   lib/
     limits.ts               single source of truth for every limit
     tracking.ts             the sweep: quota -> poll -> store -> alert -> sheet
-    alerts.ts               pure rule evaluation (8 kinds)
+    alerts.ts               the two built-in alerts, evaluated per truck
     ldb.ts                  LDB client + response parser
     telegram.ts  sheets.ts  delivery
     geo.ts                  toll-plaza -> state keyword table
@@ -315,9 +315,11 @@ npm run build
 - All three migrations run clean on PostgreSQL 17 and 18.
 - `consume_quota()` behaviour: exhaustion, unlimited (`-1`), expired plans, suspended
   accounts, override inheritance, cascade deletes.
-- 62 logic assertions over the LDB parser, IST timestamp handling, all eight alert
-  rule types, night-window wrapping past midnight, status derivation, due-interval
-  maths with the global floor, and limit parsing.
+- 62 logic assertions over the LDB parser, IST timestamp handling, status
+  derivation, due-interval maths with the global floor, and limit parsing.
+  These predate the two-alert rework: the assertions covering the eight retired
+  rule kinds went with them, and the two alerts that replaced them have not been
+  put through the same suite.
 - 28 query shapes run against a real PostgREST instance, including the embedded
   `profiles!inner` join the worker relies on and the `ON CONFLICT DO NOTHING …
   RETURNING` upsert that tells the worker which crossings are new.
