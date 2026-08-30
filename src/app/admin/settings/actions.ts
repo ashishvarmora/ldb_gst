@@ -2,60 +2,104 @@
 
 import { revalidatePath } from "next/cache";
 
-import { assertSuperAdmin } from "@/lib/auth";
+import { assertSuperAdmin, type SessionUser } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { runRetentionPurge, runTrackingSweep } from "@/lib/tracking";
 import type { ActionResult } from "@/lib/types";
 
-/** Every knob on the settings page, with how to read it off the form. */
-const SETTING_SPECS = [
-  { key: "ldb_api_url", kind: "url" },
-  { key: "tracking_enabled", kind: "bool" },
-  { key: "global_polling_floor", kind: "int", min: 1, max: 1440 },
-  { key: "no_activity_hours", kind: "int", min: 1, max: 168 },
-  { key: "data_retention_days", kind: "int", min: 1, max: 3650 },
-  { key: "purge_enabled", kind: "bool" },
-] as const;
+/**
+ * Each form on the settings page saves its own keys. They have to stay separate
+ * lists: a spec whose field is not in the submitted form reads as blank, and
+ * saving one form would quietly wipe the other's values.
+ */
+type SettingSpec = { key: string; label: string } & (
+  | { kind: "url" }
+  | { kind: "bool" }
+  | { kind: "key_id" }
+  | { kind: "int"; min: number; max: number }
+  | { kind: "money"; min: number; max: number }
+);
 
-export async function saveSettings(
-  _prev: ActionResult | null,
+const ENGINE_SPECS: SettingSpec[] = [
+  { key: "ldb_api_url", label: "LDB API endpoint", kind: "url" },
+  { key: "tracking_enabled", label: "Background tracking", kind: "bool" },
+  { key: "no_activity_hours", label: "No-activity threshold", kind: "int", min: 1, max: 168 },
+  { key: "data_retention_days", label: "Default retention", kind: "int", min: 1, max: 3650 },
+  { key: "purge_enabled", label: "Automatic clearing", kind: "bool" },
+];
+
+const PAYMENT_SPECS: SettingSpec[] = [
+  { key: "razorpay_enabled", label: "Razorpay", kind: "bool" },
+  { key: "razorpay_key_id", label: "Razorpay key id", kind: "key_id" },
+  { key: "credit_price_inr", label: "Price per credit", kind: "money", min: 1, max: 100_000 },
+];
+
+function readSpecs(
   fd: FormData,
-): Promise<ActionResult> {
-  const actor = await assertSuperAdmin();
-  const admin = getSupabaseAdmin();
-
+  specs: SettingSpec[],
+): { values: Record<string, unknown> } | { error: string } {
   const values: Record<string, unknown> = {};
 
-  for (const spec of SETTING_SPECS) {
+  for (const spec of specs) {
     const raw = fd.get(spec.key);
     const text = typeof raw === "string" ? raw.trim() : "";
 
-    if (spec.kind === "bool") {
-      values[spec.key] = fd.getAll(spec.key).includes("true");
-      continue;
-    }
+    switch (spec.kind) {
+      case "bool":
+        values[spec.key] = fd.getAll(spec.key).includes("true");
+        break;
 
-    if (spec.kind === "url") {
-      if (!/^https?:\/\/\S+$/.test(text)) {
-        return { ok: false, error: "LDB API URL must start with http:// or https://" };
+      case "url":
+        if (!/^https?:\/\/\S+$/.test(text)) {
+          return { error: `${spec.label} must start with http:// or https://` };
+        }
+        values[spec.key] = text;
+        break;
+
+      case "key_id":
+        // A Razorpay key id always starts with rzp_. The secret does not, so
+        // this also catches the far worse mistake of pasting the secret here -
+        // it belongs in the environment, never in the database.
+        if (text !== "" && !/^rzp_[A-Za-z0-9_]{6,}$/.test(text)) {
+          return {
+            error:
+              "That is not a Razorpay key id. It starts with rzp_ and is safe to publish. Never paste the key secret here — it goes in RAZORPAY_KEY_SECRET.",
+          };
+        }
+        values[spec.key] = text;
+        break;
+
+      case "money": {
+        const amount = Math.round(Number(text) * 100) / 100;
+        if (!Number.isFinite(amount) || amount < spec.min || amount > spec.max) {
+          return { error: `${spec.label} must be between ${spec.min} and ${spec.max}.` };
+        }
+        values[spec.key] = amount;
+        break;
       }
-      values[spec.key] = text;
-      continue;
-    }
 
-    const n = Number(text);
-    if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
-      return {
-        ok: false,
-        error: `"${spec.key}" must be a whole number between ${spec.min} and ${spec.max}.`,
-      };
+      default: {
+        const n = Number(text);
+        if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
+          return {
+            error: `${spec.label} must be a whole number between ${spec.min} and ${spec.max}.`,
+          };
+        }
+        values[spec.key] = n;
+      }
     }
-    values[spec.key] = n;
   }
 
-  const defaultPlan = fd.get("default_plan_name");
-  values.default_plan_name = typeof defaultPlan === "string" ? defaultPlan : "";
+  return { values };
+}
+
+async function persist(
+  actor: SessionUser,
+  values: Record<string, unknown>,
+  auditAction: string,
+): Promise<ActionResult> {
+  const admin = getSupabaseAdmin();
 
   const { data: existing } = await admin.from("app_settings").select("key, value");
   const before = Object.fromEntries((existing ?? []).map((row) => [row.key, row.value]));
@@ -71,13 +115,63 @@ export async function saveSettings(
   if (error) return { ok: false, error: error.message };
 
   await writeAudit(actor, {
-    action: "settings.update",
+    action: auditAction,
     entity: "settings",
-    meta: { changes: diffFields(before, values as Record<string, unknown>) },
+    meta: { changes: diffFields(before, values) },
   });
 
   revalidatePath("/admin/settings");
-  return { ok: true, message: "Settings saved." };
+  return { ok: true };
+}
+
+export async function saveSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, ENGINE_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const defaultPlan = fd.get("default_plan_name");
+  parsed.values.default_plan_name = typeof defaultPlan === "string" ? defaultPlan : "";
+
+  const result = await persist(actor, parsed.values, "settings.update");
+  return result.ok ? { ok: true, message: "Settings saved." } : result;
+}
+
+/**
+ * Razorpay. Only the public key id and the price are stored; the secret stays
+ * in the environment, so nothing here is enough to take a payment on its own.
+ */
+export async function savePaymentSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, PAYMENT_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  if (parsed.values.razorpay_enabled === true && !parsed.values.razorpay_key_id) {
+    return {
+      ok: false,
+      error: "Add the Razorpay key id before switching payments on, or officers see a broken page.",
+    };
+  }
+
+  const result = await persist(actor, parsed.values, "settings.update_payment");
+  if (!result.ok) return result;
+
+  revalidatePath("/admin/credits");
+  revalidatePath("/portal/plan");
+
+  return {
+    ok: true,
+    message: parsed.values.razorpay_enabled
+      ? "Payment settings saved. Checkout still needs RAZORPAY_KEY_SECRET in the environment before an officer can pay."
+      : "Payment settings saved. Officers cannot buy credits until you switch this on.",
+  };
 }
 
 /**
@@ -101,7 +195,7 @@ export async function runTrackingNow(
     action: "tracking.manual_run",
     entity: "settings",
     meta: {
-      polled: summary.polled,
+      checked: summary.checked,
       failed: summary.failed,
       newEvents: summary.newEvents,
       alerts: summary.alerts,
@@ -126,12 +220,12 @@ export async function runTrackingNow(
   }
 
   const parts = [
-    `${summary.polled} truck${summary.polled === 1 ? "" : "s"} checked`,
+    `${summary.checked} truck${summary.checked === 1 ? "" : "s"} checked`,
     `${summary.newEvents} new crossing${summary.newEvents === 1 ? "" : "s"}`,
     `${summary.alerts} alert${summary.alerts === 1 ? "" : "s"} (${summary.alertsDelivered} delivered)`,
   ];
   if (summary.failed > 0) parts.push(`${summary.failed} failed`);
-  if (summary.skipped > 0) parts.push(`${summary.skipped} skipped on quota`);
+  if (summary.skipped > 0) parts.push(`${summary.skipped} skipped, out of credits`);
   if (summary.deferred > 0) parts.push(`${summary.deferred} left for the next run`);
   if (summary.sheetErrors.length > 0) parts.push(`${summary.sheetErrors.length} sheet error(s)`);
 

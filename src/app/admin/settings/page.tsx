@@ -1,6 +1,6 @@
 import { CheckCircle2, Copy, Database, PlayCircle, Trash2, XCircle } from "lucide-react";
 
-import { purgeOldDataNow, runTrackingNow, saveSettings } from "./actions";
+import { purgeOldDataNow, runTrackingNow, savePaymentSettings, saveSettings } from "./actions";
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, FormGrid, Input, Select } from "@/components/form";
 import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
@@ -40,6 +40,12 @@ export default async function SettingsPage() {
   const health = integrationHealth();
 
   const trackingEnabled = settings.tracking_enabled !== false;
+  const razorpayEnabled = settings.razorpay_enabled === true;
+  const razorpayKeyId = text(settings, "razorpay_key_id", "");
+
+  // Read straight from the environment. Only this yes/no reaches the page - the
+  // secret itself must never be rendered anywhere.
+  const razorpaySecretSet = Boolean(process.env.RAZORPAY_KEY_SECRET);
 
   return (
     <>
@@ -52,7 +58,7 @@ export default async function SettingsPage() {
         <div className="space-y-5 xl:col-span-2">
           <Panel
             title="Tracking engine"
-            description="Applies to the background worker that polls LDB for every tracked truck."
+            description="Applies to the background worker, which checks a truck whenever one of its alerts falls due."
           >
             <ActionForm action={saveSettings} closeOnSuccess={false}>
               <div className="space-y-4">
@@ -70,29 +76,15 @@ export default async function SettingsPage() {
                 <Checkbox
                   name="tracking_enabled"
                   label="Background tracking is running"
-                  hint="Turn off to pause every officer's polling at once, without touching their plans."
+                  hint="Turn off to pause every officer's background checking at once, without touching their plans or credits."
                   defaultChecked={trackingEnabled}
                 />
 
                 <FormGrid cols={2}>
                   <Field
-                    label="Hard polling floor (minutes)"
-                    name="global_polling_floor"
-                    hint="No plan may poll faster than this, whatever its own setting says."
-                  >
-                    <Input
-                      name="global_polling_floor"
-                      type="number"
-                      min={1}
-                      max={1440}
-                      defaultValue={num(settings, "global_polling_floor", 5)}
-                    />
-                  </Field>
-
-                  <Field
                     label="Default plan for new officers"
                     name="default_plan_name"
-                    hint="Pre-selected in the create-officer form."
+                    hint="Assigned automatically the moment an officer account is created, along with the credits that plan includes."
                   >
                     <Select
                       name="default_plan_name"
@@ -164,6 +156,78 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
+            title="Officer payments"
+            description="Razorpay, so officers can buy their own credits instead of settling with you offline."
+          >
+            <ActionForm action={savePaymentSettings} closeOnSuccess={false}>
+              <div className="space-y-4">
+                <Checkbox
+                  name="razorpay_enabled"
+                  label="Officers may buy credits online"
+                  hint="Off means credits only ever arrive from you, on the officer's page."
+                  defaultChecked={settings.razorpay_enabled === true}
+                />
+
+                <FormGrid cols={2}>
+                  <Field
+                    label="Razorpay key id"
+                    name="razorpay_key_id"
+                    hint="Starts with rzp_. This is the public half of the pair and is safe to store."
+                  >
+                    <Input
+                      name="razorpay_key_id"
+                      autoComplete="off"
+                      defaultValue={text(settings, "razorpay_key_id", "")}
+                      placeholder="rzp_live_XXXXXXXXXXXX"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Price per credit (Rs)"
+                    name="credit_price_inr"
+                    hint="What one credit costs an officer. Also used to value the balances on the credits page."
+                  >
+                    <Input
+                      name="credit_price_inr"
+                      type="number"
+                      min={1}
+                      max={100000}
+                      step="0.5"
+                      defaultValue={num(settings, "credit_price_inr", 10)}
+                    />
+                  </Field>
+                </FormGrid>
+
+                <div className="rounded-lg border border-warn-500/40 bg-warn-500/10 p-4">
+                  <p className="text-sm font-medium text-warn-500">
+                    The key secret never goes in this form
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    It belongs in the environment as <Mono>RAZORPAY_KEY_SECRET</Mono>, alongside the
+                    other server keys. Anything typed into a settings box is stored in the database
+                    and read back by this page — fine for the key id, never for the secret.
+                  </p>
+                </div>
+
+                <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
+                  <span className="text-ink">Switching this on does not take payments yet.</span>{" "}
+                  There is no checkout in the app: the key id and price are stored so that everything
+                  is ready, and nothing more happens until the secret is set and the checkout is
+                  built.{" "}
+                  {razorpaySecretSet
+                    ? "RAZORPAY_KEY_SECRET is set in this environment."
+                    : "RAZORPAY_KEY_SECRET is not set in this environment."}{" "}
+                  Until then, top officers up by hand from their own page.
+                </p>
+              </div>
+
+              <FormActions>
+                <SubmitButton>Save payment settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
+          <Panel
             title="What officers need to give you"
             description="Nothing sensitive. You hold the credentials; the officer only supplies two things."
           >
@@ -226,6 +290,11 @@ export default async function SettingsPage() {
                 detail="Sheet sync"
               />
               <HealthRow ok={health.cron} label="Cron secret" detail="Protects the tracking worker" />
+              <HealthRow
+                ok={razorpaySecretSet}
+                label="Razorpay key secret"
+                detail="RAZORPAY_KEY_SECRET, needed before any officer can pay"
+              />
             </ul>
           </Panel>
 
@@ -237,7 +306,7 @@ export default async function SettingsPage() {
               <Field
                 label="Trucks to check"
                 name="batch"
-                hint="Keep it small the first time so a portal problem does not burn everyone's quota."
+                hint="Keep it small the first time so a portal problem does not burn everyone's credits."
               >
                 <Input
                   name="batch"
@@ -311,9 +380,6 @@ export default async function SettingsPage() {
                   {trackingEnabled ? "running" : "paused"}
                 </Badge>
               </DescRow>
-              <DescRow label="Polling floor">
-                {num(settings, "global_polling_floor", 5)} min
-              </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
               <DescRow label="Default retention">
                 {num(settings, "data_retention_days", 30)} days
@@ -324,6 +390,19 @@ export default async function SettingsPage() {
                 </Badge>
               </DescRow>
               <DescRow label="Active plans">{planList.length}</DescRow>
+              <DescRow label="Price per credit">
+                Rs {num(settings, "credit_price_inr", 10)}
+              </DescRow>
+              <DescRow label="Officer payments">
+                <Badge tone={razorpayEnabled ? (razorpaySecretSet ? "good" : "warn") : "neutral"}>
+                  {razorpayEnabled ? (razorpaySecretSet ? "on" : "on, no secret") : "off"}
+                </Badge>
+              </DescRow>
+              {razorpayKeyId ? (
+                <DescRow label="Razorpay key">
+                  <Mono className="text-xs break-all">{razorpayKeyId}</Mono>
+                </DescRow>
+              ) : null}
             </dl>
           </Panel>
         </div>

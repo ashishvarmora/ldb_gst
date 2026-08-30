@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Bell,
   ClipboardList,
+  Coins,
   LayoutDashboard,
   Menu,
   Package,
@@ -23,9 +24,10 @@ const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/officers", label: "Officers", icon: Users },
   { href: "/admin/plans", label: "Plans", icon: Package },
+  { href: "/admin/credits", label: "Credits", icon: Coins },
   { href: "/admin/trucks", label: "Trucks", icon: Truck },
   { href: "/admin/usage", label: "Usage", icon: Gauge },
-  { href: "/admin/alerts", label: "Alerts", icon: Bell },
+  { href: "/admin/alerts", label: "Alert rules", icon: Bell },
   { href: "/admin/audit", label: "Audit log", icon: ClipboardList },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;

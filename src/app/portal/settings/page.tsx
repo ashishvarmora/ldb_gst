@@ -4,7 +4,8 @@ import { saveMySheet, saveMyTelegram, testMySheet, testMyTelegram } from "./acti
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, Input } from "@/components/form";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
-import { Badge, DescRow, Mono, PageHeader, Panel, QuotaBar } from "@/components/ui";
+import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel, QuotaBar } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import { env } from "@/lib/env";
 import { fmtDateTime, fmtRelative, istDaysAgo } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
@@ -40,7 +41,7 @@ export default async function PortalSettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        subtitle="Where your alerts go, and what your plan allows."
+        subtitle="Where your alerts are delivered, where your long-term copy of the crossings is kept, and what your plan allows."
       />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -48,7 +49,7 @@ export default async function PortalSettingsPage() {
           {/* ------------------------------------------------------------ */}
           <Panel
             title="Telegram alerts"
-            description="Alerts arrive as a chat message, usually within a minute of the crossing."
+            description="The only place an alert reaches you outside the app. Set this up once and every truck alert lands on your phone."
             actions={
               telegramConnected ? (
                 <Badge tone="good">
@@ -87,7 +88,10 @@ export default async function PortalSettingsPage() {
                   </li>
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">3.</span>
-                    <span>Paste that number below, save, then send a test message.</span>
+                    <span>
+                      Paste that number below, save, then send a test message. If it arrives, every
+                      alert will arrive the same way.
+                    </span>
                   </li>
                 </ol>
 
@@ -152,7 +156,7 @@ export default async function PortalSettingsPage() {
           {/* ------------------------------------------------------------ */}
           <Panel
             title="Google Sheet"
-            description="A copy of every crossing, alert and search, written into your own sheet."
+            description="A location log of every toll crossing, written into your own sheet and kept for after retention trims the app's copy."
             actions={
               sheetConnected ? (
                 <Badge tone="good">
@@ -195,7 +199,7 @@ export default async function PortalSettingsPage() {
                   </li>
                   <li className="flex gap-2">
                     <span className="font-mono text-brand-400">3.</span>
-                    <span>Paste the sheet link below. Tabs are created automatically.</span>
+                    <span>Paste the sheet link below. The tab is created automatically.</span>
                   </li>
                 </ol>
 
@@ -241,10 +245,13 @@ export default async function PortalSettingsPage() {
 
                 <div className="mt-3 rounded-lg border border-line bg-panel/60 px-3 py-2.5">
                   <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
-                    Tabs created for you
+                    What lands in the sheet
                   </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Truck Events · Alerts · Manual Searches · Usage Summary
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    One tab, <Mono className="text-ink">Truck Events</Mono>: time, truck, toll
+                    plaza, coordinates and direction for every crossing. Alerts and searches stay in
+                    the app, where you can filter them — mirroring those here only made the sheet
+                    harder to read as a location log.
                   </p>
                 </div>
               </>
@@ -278,31 +285,24 @@ export default async function PortalSettingsPage() {
                     <p className="mb-1 text-xs text-muted">Tracked trucks</p>
                     <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
                   </div>
-                  <div>
-                    <p className="mb-1 text-xs text-muted">Manual searches today</p>
-                    <QuotaBar
-                      used={overview.manual_searches_today}
-                      limit={overview.manual_search_limit_per_day}
-                    />
-                  </div>
-                  <div>
-                    <p className="mb-1 text-xs text-muted">Background checks this month</p>
-                    <QuotaBar
-                      used={overview.tracking_queries_month}
-                      limit={overview.tracking_queries_per_month}
-                    />
-                  </div>
                 </div>
                 <dl className="mt-4 border-t border-divider pt-3">
-                  <DescRow label="Fastest interval">
-                    {overview.min_polling_interval_minutes} min
+                  <DescRow label="Credits left">
+                    <span className="font-medium tabular-nums">
+                      {formatCredits(overview.credits)}
+                    </span>
+                  </DescRow>
+                  <DescRow label="Spent this month">
+                    <span className="tabular-nums">
+                      {formatCredits(overview.credits_spent_month)}
+                    </span>
                   </DescRow>
                   <DescRow label="Case folders">{formatLimit(overview.max_truck_groups)}</DescRow>
                   <DescRow label="Truck alerts">
                     {overview.alerts_enabled ? (
                       <span className="inline-flex items-center gap-1 text-good-500">
                         <CheckCircle2 size={12} />
-                        every {overview.min_alert_interval_minutes} min at most
+                        allowed
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-muted">
@@ -339,8 +339,13 @@ export default async function PortalSettingsPage() {
                   </DescRow>
                 </dl>
                 <p className="mt-3 text-[11px] leading-relaxed text-faint">
-                  Limits are set by your administrator. Ask them if you need more.
+                  Limits and credits are set by your administrator. Ask them if you need more.
                 </p>
+                <div className="mt-3">
+                  <LinkButton href="/portal/plan" size="sm" variant="secondary">
+                    See my plan and credits
+                  </LinkButton>
+                </div>
               </>
             ) : (
               <p className="text-sm text-bad-500">
@@ -372,10 +377,10 @@ export default async function PortalSettingsPage() {
           <Panel title="How alerts reach you">
             <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
               <MessageCircle size={13} className="mt-0.5 shrink-0 text-brand-400" />
-              The platform checks each tracked truck on its own interval. When a crossing matches one
-              of your rules, the alert is recorded here and pushed to Telegram straight away. If
-              Telegram is not connected, the alert is still recorded — you just have to open the app
-              to see it.
+              A truck is only checked when one of its alerts is due, and you set those up on the
+              truck&apos;s own page under Trucks. When an alert fires it is recorded in the app —
+              the bell in the header — and pushed to Telegram straight away. Without Telegram the
+              alert is still recorded, you just have to open the app to see it.
             </p>
           </Panel>
         </div>

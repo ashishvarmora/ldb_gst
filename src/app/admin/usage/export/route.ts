@@ -11,8 +11,8 @@ function csvCell(value: unknown): string {
 }
 
 /**
- * One row per officer for the current month. This is the sheet you would use to
- * work out what to invoice each office.
+ * One row per officer for the current month, credits and all. This is the sheet
+ * you would use to work out what to collect from each office.
  */
 export async function GET() {
   const session = await getSessionUser();
@@ -39,13 +39,14 @@ export async function GET() {
     "Plan",
     "Monthly charge",
     "Plan expires",
+    "Credits included with plan",
+    "Credits left",
+    "Credits spent today",
+    "Credits spent this month",
     "Tracked trucks",
     "Truck limit",
-    "Manual searches today",
-    "Manual search limit/day",
     "Manual searches this month",
-    "Tracking queries this month",
-    "Tracking query limit/month",
+    "Automatic checks this month",
     "Telegram linked",
     "Sheet linked",
   ];
@@ -64,13 +65,14 @@ export async function GET() {
         row.plan_name ?? "none",
         row.price_per_month ?? 0,
         row.plan_expires_on ?? "",
+        row.included_credits ?? 0,
+        row.credits ?? 0,
+        row.credits_spent_today ?? 0,
+        row.credits_spent_month ?? 0,
         row.active_trucks,
         row.truck_limit === -1 ? "unlimited" : row.truck_limit,
-        row.manual_searches_today,
-        row.manual_search_limit_per_day === -1 ? "unlimited" : row.manual_search_limit_per_day,
         row.manual_searches_month,
         row.tracking_queries_month,
-        row.tracking_queries_per_month === -1 ? "unlimited" : row.tracking_queries_per_month,
         row.telegram_connected ? "yes" : "no",
         row.sheet_connected ? "yes" : "no",
       ]

@@ -2,11 +2,11 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Bell,
-  Gauge,
+  Coins,
   Package,
-  Search,
   Truck,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
@@ -25,12 +25,20 @@ import {
   LinkButton,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { formatCredits } from "@/lib/credits";
 import { fmtDateTime, fmtNumber, fmtRelative, initials, istDaysAgo, istToday } from "@/lib/format";
 import { usageRatio } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AuditLog, OfficerOverview, UsageCounter } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
+
+/**
+ * Below this an officer is worth chasing before they stop mid-case. Roughly a
+ * day of ordinary work at the seeded rates, which is enough warning to collect
+ * a payment without the list crying wolf.
+ */
+const LOW_CREDIT_BALANCE = 20;
 
 type Attention = { officer: OfficerOverview; reason: string; tone: "bad" | "warn" };
 
@@ -71,13 +79,9 @@ export default async function AdminOverviewPage() {
   const trucks = rows.reduce((sum, o) => sum + o.active_trucks, 0);
 
   const today = istToday();
-  const searchesToday = usageRows
-    .filter((row) => row.usage_date === today)
-    .reduce((sum, row) => sum + row.manual_searches, 0);
-  const monthStart = `${today.slice(0, 7)}-01`;
-  const queriesThisMonth = usageRows
-    .filter((row) => row.usage_date >= monthStart)
-    .reduce((sum, row) => sum + row.tracking_queries, 0);
+  const creditsOutstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
+  const creditsToday = rows.reduce((sum, row) => sum + Number(row.credits_spent_today ?? 0), 0);
+  const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
 
   // Aggregate every officer's daily counters into one platform-wide series.
   const merged = new Map<string, UsageCounter>();
@@ -110,39 +114,30 @@ export default async function AdminOverviewPage() {
       });
       continue;
     }
-    const searchRatio = usageRatio(
-      officer.manual_searches_today,
-      officer.manual_search_limit_per_day,
-    );
-    const queryRatio = usageRatio(
-      officer.tracking_queries_month,
-      officer.tracking_queries_per_month,
-    );
-    const truckRatio = usageRatio(officer.active_trucks, officer.truck_limit);
-
-    if (queryRatio >= 1) {
-      attention.push({ officer, reason: "Monthly tracking quota exhausted", tone: "bad" });
-    } else if (searchRatio >= 1) {
-      attention.push({ officer, reason: "Daily search quota exhausted", tone: "bad" });
-    } else if (queryRatio >= 0.8) {
+    const credits = Number(officer.credits ?? 0);
+    if (credits <= 0) {
       attention.push({
         officer,
-        reason: `${Math.round(queryRatio * 100)}% of monthly tracking quota used`,
+        reason: "Out of credits — every search and background check is refused",
+        tone: "bad",
+      });
+      continue;
+    }
+    if (credits < LOW_CREDIT_BALANCE) {
+      attention.push({
+        officer,
+        reason: `${formatCredits(credits)} credits left — top them up before they run dry`,
         tone: "warn",
       });
-    } else if (truckRatio >= 1) {
+      continue;
+    }
+    if (usageRatio(officer.active_trucks, officer.truck_limit) >= 1) {
       attention.push({ officer, reason: "Truck limit reached", tone: "warn" });
-    } else if (searchRatio >= 0.8) {
-      attention.push({
-        officer,
-        reason: `${Math.round(searchRatio * 100)}% of today's searches used`,
-        tone: "warn",
-      });
     }
   }
 
   const busiest = [...rows]
-    .sort((a, b) => b.tracking_queries_month - a.tracking_queries_month)
+    .sort((a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0))
     .slice(0, 6);
 
   return (
@@ -187,16 +182,17 @@ export default async function AdminOverviewPage() {
           icon={<Truck size={15} />}
         />
         <StatCard
-          label="Searches today"
-          value={fmtNumber(searchesToday)}
-          sub="Manual lookups"
-          icon={<Search size={15} />}
+          label="Credits outstanding"
+          value={formatCredits(creditsOutstanding)}
+          sub="Held by officers right now"
+          tone="brand"
+          icon={<Wallet size={15} />}
         />
         <StatCard
-          label="Queries this month"
-          value={fmtNumber(queriesThisMonth)}
-          sub="Background tracking calls"
-          icon={<Gauge size={15} />}
+          label="Credits spent today"
+          value={formatCredits(creditsToday)}
+          sub={`${formatCredits(creditsMonth)} this month`}
+          icon={<Coins size={15} />}
         />
         <StatCard
           label="Alerts (24h)"
@@ -222,7 +218,7 @@ export default async function AdminOverviewPage() {
 
           <Panel
             title="Busiest officers this month"
-            description="Ranked by background tracking calls."
+            description="Ranked by credits spent."
             bodyClassName="p-0"
             actions={
               <Link href="/admin/usage" className="text-xs text-brand-400 hover:underline">
@@ -242,8 +238,8 @@ export default async function AdminOverviewPage() {
                   <th className="th">Officer</th>
                   <th className="th">Plan</th>
                   <th className="th">Trucks</th>
-                  <th className="th">Searches today</th>
-                  <th className="th">Queries this month</th>
+                  <th className="th text-right">Credits left</th>
+                  <th className="th text-right">Spent this month</th>
                 </Thead>
                 <Tbody>
                   {busiest.map((officer) => (
@@ -277,17 +273,21 @@ export default async function AdminOverviewPage() {
                       <td className="td">
                         <QuotaBar used={officer.active_trucks} limit={officer.truck_limit} />
                       </td>
-                      <td className="td">
-                        <QuotaBar
-                          used={officer.manual_searches_today}
-                          limit={officer.manual_search_limit_per_day}
-                        />
+                      <td className="td text-right">
+                        <Badge
+                          tone={
+                            Number(officer.credits ?? 0) <= 0
+                              ? "bad"
+                              : Number(officer.credits ?? 0) < LOW_CREDIT_BALANCE
+                                ? "warn"
+                                : "good"
+                          }
+                        >
+                          {formatCredits(officer.credits)}
+                        </Badge>
                       </td>
-                      <td className="td">
-                        <QuotaBar
-                          used={officer.tracking_queries_month}
-                          limit={officer.tracking_queries_per_month}
-                        />
+                      <td className="td text-right text-sm tabular-nums text-muted">
+                        {formatCredits(officer.credits_spent_month)}
                       </td>
                     </Tr>
                   ))}
@@ -302,13 +302,16 @@ export default async function AdminOverviewPage() {
             title="Needs attention"
             description={
               attention.length === 0
-                ? "Nothing is blocked or close to a limit."
+                ? "Nobody is blocked or close to running out."
                 : `${attention.length} item${attention.length === 1 ? "" : "s"} to look at.`
             }
             bodyClassName="p-0"
           >
             {attention.length === 0 ? (
-              <EmptyState title="All clear" description="Every officer is inside their limits." />
+              <EmptyState
+                title="All clear"
+                description="Every officer has a live plan and credits to spend."
+              />
             ) : (
               <ul className="divide-y divide-divider">
                 {attention.slice(0, 12).map(({ officer, reason, tone }) => (

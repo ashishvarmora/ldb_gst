@@ -1,190 +1,310 @@
-import Link from "next/link";
-import { Filter } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Bell,
+  BellOff,
+  Eye,
+  Pencil,
+  Plus,
+  ScrollText,
+  Trash2,
+} from "lucide-react";
 
-import { Select } from "@/components/form";
+import { RuleFields } from "./RuleFields";
+import {
+  createAlertRule,
+  deleteAlertRule,
+  moveAlertRule,
+  setAlertRuleActive,
+  updateAlertRule,
+} from "./actions";
+import {
+  ActionForm,
+  ConfirmSubmitButton,
+  InlineActionForm,
+  SubmitButton,
+} from "@/components/ActionForm";
+import { FormActions } from "@/components/form";
+import { Modal } from "@/components/Modal";
 import {
   Badge,
   EmptyState,
-  Mono,
+  LinkButton,
   PageHeader,
   Panel,
   StatCard,
-  TableWrap,
-  Tbody,
-  Thead,
-  Tr,
-  buttonClass,
+  cx,
 } from "@/components/ui";
-import { ALERT_KIND_LABEL } from "@/lib/alerts";
+import { ALERT_KIND_HINT, ALERT_KIND_LABEL } from "@/lib/alerts";
 import { requireSuperAdmin } from "@/lib/auth";
-import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
+import { fmtNumber } from "@/lib/format";
+import { intervalLabel } from "@/lib/intervals";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertKind, AlertLog } from "@/lib/types";
+import type { AlertRuleTemplate } from "@/lib/types";
 
-export const metadata = { title: "Alerts — Admin" };
+export const metadata = { title: "Alert rules — Admin" };
 
-/**
- * alert_logs is a permanent record, so it still holds rows written under the
- * old officer-created rules with kinds like "approaching_city" that no longer
- * exist. Show the raw kind for those rather than an empty cell.
- */
-function kindLabel(kind: string): string {
-  return ALERT_KIND_LABEL[kind as AlertKind] ?? kind;
-}
-
-type Row = AlertLog & { profiles: { full_name: string | null; email: string } | null };
-
-export default async function AlertsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ officer?: string; delivered?: string; kind?: string }>;
-}) {
+export default async function AlertRulesPage() {
   await requireSuperAdmin();
-  const { officer, delivered, kind } = await searchParams;
   const admin = getSupabaseAdmin();
-
-  let query = admin
-    .from("alert_logs")
-    .select("*, profiles(full_name, email)")
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  if (officer) query = query.eq("user_id", officer);
-  if (kind) query = query.eq("kind", kind);
-  if (delivered === "yes") query = query.eq("delivered", true);
-  if (delivered === "no") query = query.eq("delivered", false);
 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
-  const [{ data: alerts, error }, { data: officers }, { count: last24h }, { count: undelivered }] =
-    await Promise.all([
-      query,
-      admin.from("profiles").select("id, full_name, email").eq("role", "officer").order("full_name"),
-      admin.from("alert_logs").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
-      admin.from("alert_logs").select("id", { count: "exact", head: true }).eq("delivered", false),
-    ]);
+  const [{ data: rules, error }, { data: attached }, { count: sent24h }] = await Promise.all([
+    admin.from("alert_rule_templates").select("*").order("sort_order").order("name"),
+    admin.from("truck_alerts").select("template_id, is_enabled").limit(5000),
+    admin.from("alert_logs").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
+  ]);
 
-  const rows = (alerts ?? []) as Row[];
+  const list = (rules ?? []) as AlertRuleTemplate[];
+
+  // How many officer alerts sit on each rule. Deleting a rule takes them all
+  // with it, so the number belongs next to the delete button.
+  const usage = new Map<string, { total: number; enabled: number }>();
+  for (const row of (attached ?? []) as { template_id: string; is_enabled: boolean }[]) {
+    const entry = usage.get(row.template_id) ?? { total: 0, enabled: 0 };
+    entry.total += 1;
+    if (row.is_enabled) entry.enabled += 1;
+    usage.set(row.template_id, entry);
+  }
+
+  const attachedTotal = (attached ?? []).length;
+  const activeRules = list.filter((rule) => rule.is_active).length;
 
   return (
     <>
       <PageHeader
-        title="Alerts"
-        subtitle="Every alert the platform generated, and whether it actually reached the officer on Telegram."
+        title="Alert rules"
+        subtitle="The catalogue officers choose from. They attach a rule to a truck and set its interval — they never write a rule themselves."
+        actions={
+          <>
+            <LinkButton href="/admin/alerts/log" variant="secondary">
+              <ScrollText size={14} />
+              Delivery log
+            </LinkButton>
+            <Modal
+              triggerLabel="New rule"
+              triggerIcon={<Plus size={15} />}
+              title="Add an alert rule"
+              description="Officers see this in their truck's alert picker as soon as you save it."
+              width="xl"
+            >
+              <ActionForm action={createAlertRule}>
+                <RuleFields />
+                <FormActions>
+                  <SubmitButton pendingLabel="Adding...">Add rule</SubmitButton>
+                </FormActions>
+              </ActionForm>
+            </Modal>
+          </>
+        }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <StatCard label="Alerts in last 24h" value={fmtNumber(last24h ?? 0)} tone="brand" />
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="Never delivered"
-          value={fmtNumber(undelivered ?? 0)}
-          tone={(undelivered ?? 0) > 0 ? "warn" : "neutral"}
-          sub={(undelivered ?? 0) > 0 ? "Usually a missing Telegram chat id" : "All alerts delivered"}
+          label="Rules in catalogue"
+          value={fmtNumber(list.length)}
+          sub={`${activeRules} offered to officers`}
+          icon={<Bell size={15} />}
         />
-        <StatCard label="Shown below" value={fmtNumber(rows.length)} sub="Newest 200 matching" />
+        <StatCard
+          label="Officer alerts using them"
+          value={fmtNumber(attachedTotal)}
+          sub="Across every truck on the platform"
+          tone="brand"
+        />
+        <StatCard
+          label="Alerts sent (24h)"
+          value={fmtNumber(sent24h ?? 0)}
+          sub="What actually went out"
+        />
+        <StatCard
+          label="Kinds available"
+          value={Object.keys(ALERT_KIND_LABEL).length}
+          sub="What the worker knows how to evaluate"
+        />
       </div>
 
-      <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
-        <Select name="officer" defaultValue={officer ?? ""} className="w-56">
-          <option value="">All officers</option>
-          {(officers ?? []).map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.full_name ?? row.email}
-            </option>
-          ))}
-        </Select>
+      {error ? (
+        <Panel className="mb-5 border-bad-500/40">
+          <p className="text-sm text-bad-500">
+            Could not read <code className="font-mono">alert_rule_templates</code>: {error.message}
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            Run <code className="font-mono">0008_credits_and_alert_rules.sql</code> against your
+            Supabase project, then reload.
+          </p>
+        </Panel>
+      ) : null}
 
-        <Select name="kind" defaultValue={kind ?? ""} className="w-52">
-          <option value="">Any alert type</option>
-          {Object.entries(ALERT_KIND_LABEL).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-
-        <Select name="delivered" defaultValue={delivered ?? ""} className="w-44">
-          <option value="">Delivered or not</option>
-          <option value="yes">Delivered</option>
-          <option value="no">Not delivered</option>
-        </Select>
-
-        <button type="submit" className={buttonClass("secondary")}>
-          <Filter size={14} />
-          Apply
-        </button>
-        {officer || delivered || kind ? (
-          <Link href="/admin/alerts" className={buttonClass("ghost")}>
-            Clear
-          </Link>
-        ) : null}
-      </form>
-
-      <Panel bodyClassName="p-0">
-        {error ? (
-          <EmptyState title="Could not load alerts" description={error.message} />
-        ) : rows.length === 0 ? (
+      {list.length === 0 ? (
+        <Panel>
           <EmptyState
-            title="No alerts yet"
-            description="Alerts appear once officers switch one on for a truck and it reports in."
+            title="No rules yet"
+            description="Officers have nothing to attach until you add one. Start with a plain location update."
           />
-        ) : (
-          <TableWrap>
-            <Thead>
-              <th className="th">When</th>
-              <th className="th">Officer</th>
-              <th className="th">Truck</th>
-              <th className="th">Type</th>
-              <th className="th">Alert</th>
-              <th className="th">Delivery</th>
-            </Thead>
-            <Tbody>
-              {rows.map((alert) => (
-                <Tr key={alert.id}>
-                  <td className="td whitespace-nowrap">
-                    <span className="block text-sm text-ink">{fmtRelative(alert.created_at)}</span>
-                    <span className="block text-xs text-faint">{fmtDateTime(alert.created_at)}</span>
-                  </td>
-                  <td className="td text-sm">
-                    <Link
-                      href={`/admin/officers/${alert.user_id}`}
-                      className="transition hover:text-brand-400"
-                    >
-                      {alert.profiles?.full_name ?? alert.profiles?.email ?? "--"}
-                    </Link>
-                  </td>
-                  <td className="td">{alert.truck_number ? <Mono>{alert.truck_number}</Mono> : "--"}</td>
-                  <td className="td text-sm text-muted">
-                    {alert.kind ? kindLabel(alert.kind) : "--"}
-                  </td>
-                  <td className="td">
-                    <span className="block text-sm text-ink">{alert.title}</span>
-                    {alert.message ? (
-                      <span className="block max-w-md truncate text-xs text-faint">
-                        {alert.message}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="td">
-                    {alert.delivered ? (
-                      <Badge tone="good">delivered</Badge>
-                    ) : (
-                      <span>
-                        <Badge tone="warn">not delivered</Badge>
-                        {alert.delivery_error ? (
-                          <span className="mt-1 block max-w-52 text-xs text-bad-500">
-                            {alert.delivery_error}
-                          </span>
-                        ) : null}
-                      </span>
-                    )}
-                  </td>
-                </Tr>
-              ))}
-            </Tbody>
-          </TableWrap>
-        )}
+        </Panel>
+      ) : (
+        <div className="space-y-3">
+          {list.map((rule, index) => (
+            <RuleCard
+              key={rule.id}
+              rule={rule}
+              usage={usage.get(rule.id) ?? { total: 0, enabled: 0 }}
+              first={index === 0}
+              last={index === list.length - 1}
+            />
+          ))}
+        </div>
+      )}
+
+      <Panel
+        className="mt-5"
+        title="How the catalogue works"
+        description="Worth knowing before you add a fast rule."
+      >
+        <ul className="space-y-2.5 text-xs leading-relaxed text-muted">
+          <li>
+            <span className="text-ink">One rule, many trucks.</span> An officer attaches the same
+            rule to as many trucks as they like, and may attach it twice to one truck — two toll
+            plazas watched on the same lorry, for instance.
+          </li>
+          <li>
+            <span className="text-ink">A truck is only checked when an alert is due.</span> There is
+            no separate polling schedule, so the fastest repeat you allow here is what decides how
+            often the platform calls LDB — and how many credits the officer spends.
+          </li>
+          <li>
+            <span className="text-ink">Deactivating is almost always the right move.</span> It hides
+            the rule from the picker and leaves every alert already built on it running. Deleting
+            removes those alerts too.
+          </li>
+        </ul>
       </Panel>
     </>
+  );
+}
+
+function RuleCard({
+  rule,
+  usage,
+  first,
+  last,
+}: {
+  rule: AlertRuleTemplate;
+  usage: { total: number; enabled: number };
+  first: boolean;
+  last: boolean;
+}) {
+  const kindLabel = ALERT_KIND_LABEL[rule.kind] ?? rule.kind;
+
+  return (
+    <section className={cx("panel overflow-hidden", rule.is_active ? "" : "opacity-75")}>
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {rule.is_active ? (
+              <Bell size={15} className="shrink-0 text-brand-400" />
+            ) : (
+              <BellOff size={15} className="shrink-0 text-faint" />
+            )}
+            <h2 className="text-base font-semibold text-strong">{rule.name}</h2>
+            <Badge tone="brand">{kindLabel}</Badge>
+            {rule.is_active ? null : <Badge tone="warn">Not offered</Badge>}
+          </div>
+          <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted">
+            {rule.description ?? ALERT_KIND_HINT[rule.kind] ?? "No description."}
+          </p>
+        </div>
+
+        <dl className="flex shrink-0 flex-wrap gap-x-6 gap-y-1 text-right">
+          <div>
+            <dt className="text-[11px] tracking-wide text-muted uppercase">Fastest</dt>
+            <dd className="text-sm tabular-nums text-ink">
+              {intervalLabel(rule.min_interval_minutes)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] tracking-wide text-muted uppercase">Suggested</dt>
+            <dd className="text-sm tabular-nums text-ink">
+              {intervalLabel(rule.default_interval_minutes)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] tracking-wide text-muted uppercase">In use</dt>
+            <dd className="text-sm tabular-nums text-ink">
+              {usage.total === 0 ? (
+                <span className="text-faint">none</span>
+              ) : (
+                `${fmtNumber(usage.enabled)} on / ${fmtNumber(usage.total)}`
+              )}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <footer className="flex flex-wrap items-center gap-2 border-t border-line/70 bg-raised/40 px-5 py-3">
+        <Modal
+          triggerLabel="Edit"
+          triggerIcon={<Pencil size={13} />}
+          triggerVariant="secondary"
+          triggerSize="sm"
+          title={`Edit ${rule.name}`}
+          description={
+            usage.total > 0
+              ? `${usage.total} officer alert${usage.total === 1 ? "" : "s"} use this rule. Wording changes show up immediately; intervals they already chose are left alone.`
+              : "No officer is using this rule yet."
+          }
+          width="xl"
+        >
+          <ActionForm action={updateAlertRule}>
+            <input type="hidden" name="rule_id" value={rule.id} />
+            <RuleFields rule={rule} />
+            <FormActions>
+              <SubmitButton>Save rule</SubmitButton>
+            </FormActions>
+          </ActionForm>
+        </Modal>
+
+        <InlineActionForm action={moveAlertRule} hidden={{ rule_id: rule.id, direction: "up" }}>
+          <SubmitButton variant="ghost" size="sm" className={first ? "invisible" : undefined}>
+            <ArrowUp size={13} />
+            Up
+          </SubmitButton>
+        </InlineActionForm>
+
+        <InlineActionForm action={moveAlertRule} hidden={{ rule_id: rule.id, direction: "down" }}>
+          <SubmitButton variant="ghost" size="sm" className={last ? "invisible" : undefined}>
+            <ArrowDown size={13} />
+            Down
+          </SubmitButton>
+        </InlineActionForm>
+
+        <InlineActionForm
+          action={setAlertRuleActive}
+          hidden={{ rule_id: rule.id, is_active: rule.is_active ? "false" : "true" }}
+        >
+          <SubmitButton variant="ghost" size="sm">
+            {rule.is_active ? <BellOff size={13} /> : <Eye size={13} />}
+            {rule.is_active ? "Stop offering" : "Offer again"}
+          </SubmitButton>
+        </InlineActionForm>
+
+        <div className="ml-auto">
+          <InlineActionForm action={deleteAlertRule} hidden={{ rule_id: rule.id }}>
+            <ConfirmSubmitButton
+              message={
+                usage.total > 0
+                  ? `Delete "${rule.name}"? This also deletes ${usage.total} officer alert${usage.total === 1 ? "" : "s"} built on it, and those officers are not told. Stop offering the rule instead if you only want to retire it.`
+                  : `Delete "${rule.name}"? This cannot be undone.`
+              }
+            >
+              <Trash2 size={13} />
+              Delete
+            </ConfirmSubmitButton>
+          </InlineActionForm>
+        </div>
+      </footer>
+    </section>
   );
 }

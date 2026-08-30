@@ -17,11 +17,14 @@ const TIMEOUT_MS = 15_000;
 
 export type SheetResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * The sheet is the long-term copy of where trucks have been, kept for after
+ * retention trims the database. It holds crossings and nothing else - alerts,
+ * searches and usage all live in the app, where they can be filtered, and
+ * mirroring them here only made the sheet harder to read as a location log.
+ */
 export const SHEET_TABS = {
   events: "Truck Events",
-  alerts: "Alerts",
-  searches: "Manual Searches",
-  usage: "Usage Summary",
 } as const;
 
 const TAB_HEADERS: Record<string, string[]> = {
@@ -36,9 +39,6 @@ const TAB_HEADERS: Record<string, string[]> = {
     "SeqNo",
     "Logged At (IST)",
   ],
-  [SHEET_TABS.alerts]: ["Time (IST)", "Truck", "Alert Type", "Title", "Message"],
-  [SHEET_TABS.searches]: ["Time (IST)", "Truck", "Events Found", "Result"],
-  [SHEET_TABS.usage]: ["Date", "Manual Searches", "Tracking Queries"],
 };
 
 /* -------------------------------------------------------------------------- */
@@ -244,10 +244,6 @@ async function append(
 
 export type SheetPayload = {
   events?: (string | number | null)[][];
-  alerts?: (string | number | null)[][];
-  searches?: (string | number | null)[][];
-  /** Replaces the whole Usage Summary tab — idempotent, so no duplicate rows. */
-  usage?: (string | number | null)[][];
 };
 
 /**
@@ -261,44 +257,12 @@ export async function syncToSheet(
   const auth = await getAccessToken();
   if (!auth.ok) return auth;
 
-  const needed: string[] = [];
-  if (payload.events?.length) needed.push(SHEET_TABS.events);
-  if (payload.alerts?.length) needed.push(SHEET_TABS.alerts);
-  if (payload.searches?.length) needed.push(SHEET_TABS.searches);
-  if (payload.usage) needed.push(SHEET_TABS.usage);
-  if (needed.length === 0) return { ok: true };
+  if (!payload.events?.length) return { ok: true };
 
-  const tabs = await ensureTabs(auth.token, spreadsheetId, needed);
+  const tabs = await ensureTabs(auth.token, spreadsheetId, [SHEET_TABS.events]);
   if (!tabs.ok) return tabs;
 
-  if (payload.events?.length) {
-    const result = await append(auth.token, spreadsheetId, SHEET_TABS.events, payload.events);
-    if (!result.ok) return result;
-  }
-  if (payload.alerts?.length) {
-    const result = await append(auth.token, spreadsheetId, SHEET_TABS.alerts, payload.alerts);
-    if (!result.ok) return result;
-  }
-  if (payload.searches?.length) {
-    const result = await append(auth.token, spreadsheetId, SHEET_TABS.searches, payload.searches);
-    if (!result.ok) return result;
-  }
-  if (payload.usage) {
-    const range = `${SHEET_TABS.usage}!A1:C${payload.usage.length + 1}`;
-    const result = await call(
-      auth.token,
-      `/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          values: [TAB_HEADERS[SHEET_TABS.usage], ...payload.usage],
-        }),
-      },
-    );
-    if (!result.ok) return result;
-  }
-
-  return { ok: true };
+  return append(auth.token, spreadsheetId, SHEET_TABS.events, payload.events);
 }
 
 /** Used by the "test connection" button on the officer settings page. */

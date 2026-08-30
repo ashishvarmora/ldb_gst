@@ -43,13 +43,9 @@ grant execute on function public.touch_last_active(uuid) to service_role;
 -- ---------------------------------------------------------------------------
 -- Indexes the officer dashboard leans on.
 --   - truck_events by (user_id, truck_number, event_time) for the timeline
---   - tracked_trucks by (user_id, is_watchlist) for the watchlist filter
 -- ---------------------------------------------------------------------------
 create index if not exists truck_events_user_truck_time_idx
   on public.truck_events (user_id, truck_number, event_time desc);
-
-create index if not exists tracked_trucks_user_watchlist_idx
-  on public.tracked_trucks (user_id, is_watchlist);
 
 create index if not exists alert_logs_truck_time_idx
   on public.alert_logs (user_id, truck_number, created_at desc);

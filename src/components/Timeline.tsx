@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ArrowDown, ExternalLink, MapPin } from "lucide-react";
 
 import { Badge, EmptyState, Mono, cx } from "@/components/ui";
@@ -131,6 +132,65 @@ export function Timeline({ events }: { events: TruckEvent[] }) {
           </ol>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The handful of facts an officer reads straight after the route itself, so it
+ * sits directly under the timeline rather than in a sidebar.
+ *
+ * Only the state is inferred. A district cannot be read off a free-text plaza
+ * name honestly, and a guessed district on a GST record is worse than none.
+ */
+export function RouteSummary({ events }: { events: TruckEvent[] }) {
+  if (events.length === 0) return null;
+
+  const latest = events[0];
+  const oldest = events[events.length - 1];
+  const state = stateFromLocation(latest.loc_name);
+  const plazas = new Set(events.map((event) => event.loc_name).filter(Boolean)).size;
+
+  return (
+    <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+      <SummaryCell label="Last seen at">
+        <span className="block truncate text-sm font-medium text-strong">
+          {latest.loc_name ?? "Unnamed plaza"}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted">
+          {state ?? "State not recognised from the plaza name"}
+        </span>
+      </SummaryCell>
+
+      <SummaryCell label="Last crossing">
+        <span className="block text-sm font-medium text-strong">{fmtTime(latest.event_time)}</span>
+        <span className="mt-0.5 block text-xs text-muted">
+          {fmtDate(latest.event_time)} · {fmtRelative(latest.event_time)}
+        </span>
+      </SummaryCell>
+
+      <SummaryCell label="Crossings on record">
+        <span className="block text-sm font-medium tabular-nums text-strong">{events.length}</span>
+        <span className="mt-0.5 block text-xs text-muted">
+          across {plazas} plaza{plazas === 1 ? "" : "s"}
+        </span>
+      </SummaryCell>
+
+      <SummaryCell label="Oldest crossing">
+        <span className="block text-sm font-medium text-strong">{fmtDate(oldest.event_time)}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted">
+          {oldest.loc_name ?? "Unnamed plaza"}
+        </span>
+      </SummaryCell>
+    </dl>
+  );
+}
+
+function SummaryCell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 bg-panel px-4 py-3">
+      <dt className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</dt>
+      <dd className="mt-1 min-w-0">{children}</dd>
     </div>
   );
 }

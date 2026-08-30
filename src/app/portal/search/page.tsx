@@ -3,8 +3,8 @@ import { AlertTriangle, Info } from "lucide-react";
 
 import { SearchBox } from "@/components/SearchBox";
 import { Badge, EmptyState, Mono, PageHeader, Panel } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
-import { formatLimit } from "@/lib/limits";
 import { blockedReason, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog } from "@/lib/types";
@@ -25,10 +25,6 @@ export default async function SearchPage() {
 
   const history = (logs ?? []) as SearchLog[];
   const blocked = blockedReason(overview);
-  const unlimited = overview.manual_search_limit_per_day === -1;
-  const left = unlimited
-    ? Number.POSITIVE_INFINITY
-    : Math.max(overview.manual_search_limit_per_day - overview.manual_searches_today, 0);
 
   return (
     <>
@@ -47,11 +43,7 @@ export default async function SearchPage() {
       <Panel className="mb-5">
         <SearchBox
           autoFocus
-          hint={
-            unlimited
-              ? "Unlimited manual searches on your plan."
-              : `${left} of ${formatLimit(overview.manual_search_limit_per_day)} searches left today. Resets at midnight IST.`
-          }
+          hint={`${formatCredits(overview.credits)} credits left. Spaces and dashes are ignored.`}
         />
       </Panel>
 
@@ -109,9 +101,9 @@ export default async function SearchPage() {
             <li className="flex gap-2">
               <Info size={13} className="mt-0.5 shrink-0 text-brand-400" />
               <span>
-                One search = one credit, counted against your{" "}
-                <strong className="text-ink">daily</strong> limit. Background tracking uses a
-                separate monthly pool, so searching never eats into it.
+                Every search is paid for out of your one{" "}
+                <strong className="text-ink">credit balance</strong> — the same balance background
+                checking draws on. See what each action costs on the plan page.
               </span>
             </li>
             <li className="flex gap-2">
@@ -125,7 +117,8 @@ export default async function SearchPage() {
               <Info size={13} className="mt-0.5 shrink-0 text-brand-400" />
               <span>
                 Searching does <strong className="text-ink">not</strong> start tracking. Add the
-                truck from the result page if you want it checked automatically.
+                truck from the result page, then give it an alert, if you want it checked
+                automatically.
               </span>
             </li>
             <li className="flex gap-2">

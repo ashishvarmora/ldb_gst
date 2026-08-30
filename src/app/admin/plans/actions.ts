@@ -50,6 +50,19 @@ function readPlanLimits(fd: FormData): { values: Record<string, number | boolean
   return { values };
 }
 
+/**
+ * Credits the plan hands over when it is assigned. Deliberately not in
+ * NUMERIC_LIMITS: it is a one-off grant, not a ceiling, and "unlimited" would
+ * be meaningless.
+ */
+function readIncludedCredits(fd: FormData): number | null {
+  const raw = str(fd, "included_credits");
+  if (raw === null) return 0;
+  const value = Math.round(Number(raw) * 100) / 100;
+  if (!Number.isFinite(value) || value < 0 || value > 1_000_000) return null;
+  return value;
+}
+
 export async function createPlan(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const actor = await assertSuperAdmin();
   const admin = getSupabaseAdmin();
@@ -63,12 +76,16 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
   const price = Number(str(fd, "price_per_month") ?? "0");
   if (!Number.isFinite(price) || price < 0) return fail("Price must be zero or more.");
 
+  const includedCredits = readIncludedCredits(fd);
+  if (includedCredits === null) return fail("Credits included must be zero or more.");
+
   const { data, error } = await admin
     .from("plans")
     .insert({
       name,
       description: str(fd, "description"),
       ...limits.values,
+      included_credits: includedCredits,
       price_per_month: price,
       is_active: true,
       sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
@@ -89,7 +106,7 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
     entity: "plan",
     entityId: data.id,
     entityLabel: name,
-    meta: limits.values,
+    meta: { ...limits.values, included_credits: includedCredits },
   });
 
   revalidatePath("/admin/plans");
@@ -111,12 +128,16 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
   const price = Number(str(fd, "price_per_month") ?? "0");
   if (!Number.isFinite(price) || price < 0) return fail("Price must be zero or more.");
 
+  const includedCredits = readIncludedCredits(fd);
+  if (includedCredits === null) return fail("Credits included must be zero or more.");
+
   const { data: before } = await admin.from("plans").select("*").eq("id", planId).maybeSingle();
 
   const patch = {
     name,
     description: str(fd, "description"),
     ...limits.values,
+    included_credits: includedCredits,
     price_per_month: price,
     sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
   };

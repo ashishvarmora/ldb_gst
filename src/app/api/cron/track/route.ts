@@ -51,10 +51,10 @@ async function handle(request: NextRequest) {
       trackingEnabled: summary.trackingEnabled,
       durationMs: summary.durationMs,
       candidates: summary.candidates,
+      // A truck is due because one of its alerts came due. Nothing else asks
+      // for a check, so a truck with no alerts never appears here.
       due: summary.due,
-      polled: summary.polled,
-      // Visited for an alert only: no upstream call, no quota spent.
-      alerted: summary.alerted,
+      checked: summary.checked,
       skipped: summary.skipped,
       failed: summary.failed,
       deferred: summary.deferred,

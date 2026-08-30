@@ -57,12 +57,20 @@ export default async function TrucksPage({
   if (status && status in STATUS_LABEL) query = query.eq("status", status);
   if (q) query = query.ilike("truck_number", `%${q.toUpperCase().replace(/[^A-Z0-9]/g, "")}%`);
 
-  const [{ data: trucks, error }, { data: officers }] = await Promise.all([
+  const [{ data: trucks, error }, { data: officers }, { data: truckAlerts }] = await Promise.all([
     query,
     admin.from("profiles").select("id, full_name, email").eq("role", "officer").order("full_name"),
+    admin.from("truck_alerts").select("tracked_truck_id").eq("is_enabled", true).limit(5000),
   ]);
 
   const rows = (trucks ?? []) as Row[];
+
+  // A truck has no interval of its own any more: it is checked when one of its
+  // alerts comes due, so a truck with no alert is never checked at all.
+  const alertsPerTruck = new Map<string, number>();
+  for (const row of (truckAlerts ?? []) as { tracked_truck_id: string }[]) {
+    alertsPerTruck.set(row.tracked_truck_id, (alertsPerTruck.get(row.tracked_truck_id) ?? 0) + 1);
+  }
   const counts = rows.reduce<Record<TruckStatus, number>>(
     (acc, row) => {
       acc[row.status] += 1;
@@ -75,7 +83,7 @@ export default async function TrucksPage({
     <>
       <PageHeader
         title="Trucks"
-        subtitle="Every truck under background tracking, across all officers. Read-only — officers manage their own lists."
+        subtitle="Every truck under background tracking, across all officers. A truck is checked only when one of its alerts falls due. Read-only — officers manage their own lists."
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -138,9 +146,9 @@ export default async function TrucksPage({
               <th className="th">Officer</th>
               <th className="th">Last toll plaza</th>
               <th className="th">Last event</th>
-              <th className="th">Interval</th>
+              <th className="th">Alerts on</th>
               <th className="th">Status</th>
-              <th className="th">Last poll</th>
+              <th className="th">Last check</th>
             </Thead>
             <Tbody>
               {rows.map((truck) => (
@@ -148,7 +156,6 @@ export default async function TrucksPage({
                   <td className="td">
                     <span className="flex flex-wrap items-center gap-1.5">
                       <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
-                      {truck.is_watchlist ? <Badge tone="warn">watchlist</Badge> : null}
                       {truck.is_active ? null : <Badge>paused</Badge>}
                     </span>
                     {truck.label ? (
@@ -183,15 +190,21 @@ export default async function TrucksPage({
                     {fmtDateTime(truck.last_event_at)}
                   </td>
 
-                  <td className="td text-sm tabular-nums whitespace-nowrap">
-                    {truck.polling_interval_minutes} min
+                  <td className="td whitespace-nowrap">
+                    {(alertsPerTruck.get(truck.id) ?? 0) === 0 ? (
+                      <Badge tone="warn">never checked</Badge>
+                    ) : (
+                      <span className="text-sm tabular-nums text-ink">
+                        {alertsPerTruck.get(truck.id)}
+                      </span>
+                    )}
                   </td>
 
                   <td className="td">
                     <Badge tone={STATUS_TONE[truck.status]}>{STATUS_LABEL[truck.status]}</Badge>
                     {truck.consecutive_errors > 0 ? (
                       <span className="mt-1 block text-xs text-bad-500">
-                        {truck.consecutive_errors} failed polls
+                        {truck.consecutive_errors} failed checks
                       </span>
                     ) : null}
                   </td>

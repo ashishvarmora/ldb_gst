@@ -3,19 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { intervalWords } from "@/lib/alerts";
+import { intervalWords, needsPlaza } from "@/lib/alerts";
 import { bool, done, fail, int, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
+import { MAX_INTERVAL_MINUTES } from "@/lib/intervals";
 import { runManualLookup } from "@/lib/manual-search";
 import { assertPortalUser, loadOverview, truckSlotsLeft } from "@/lib/officer";
-import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ActionResult, TrackedTruck } from "@/lib/types";
-
-async function resolveFloor(userId: string): Promise<number> {
-  const admin = getSupabaseAdmin();
-  const [overview, settings] = await Promise.all([loadOverview(userId), loadSettings(admin)]);
-  return Math.max(overview?.min_polling_interval_minutes ?? 60, settings.globalPollingFloor);
-}
+import type { ActionResult, AlertRuleTemplate, TrackedTruck } from "@/lib/types";
 
 export async function addTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const session = await assertPortalUser();
@@ -52,16 +46,10 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     );
   }
 
-  const floor = await resolveFloor(session.id);
-  const requested = int(fd, "polling_interval_minutes", { min: 1, max: 1440 }) ?? floor;
-  const interval = Math.max(requested, floor);
-
   const payload = {
     user_id: session.id,
     truck_number: truckNumber,
     label: str(fd, "label"),
-    polling_interval_minutes: interval,
-    is_watchlist: bool(fd, "is_watchlist"),
     is_active: true,
   };
 
@@ -75,11 +63,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
 
-  return done(
-    interval > requested
-      ? `${truckNumber} added. Your plan's fastest interval is ${floor} min, so it will be checked every ${interval} min.`
-      : `${truckNumber} added. First check happens on the next tracking run.`,
-  );
+  return done(`${truckNumber} added. Open it and add an alert to start checking it.`);
 }
 
 export async function updateTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -91,16 +75,12 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
 
   const { data: truck } = await admin
     .from("tracked_trucks")
-    .select("*")
+    .select("is_active")
     .eq("id", truckId)
     .eq("user_id", session.id)
-    .maybeSingle<TrackedTruck>();
+    .maybeSingle<Pick<TrackedTruck, "is_active">>();
 
   if (!truck) return fail("That truck is not on your list.");
-
-  const floor = await resolveFloor(session.id);
-  const requested = int(fd, "polling_interval_minutes", { min: 1, max: 1440 });
-  const interval = requested === null ? truck.polling_interval_minutes : Math.max(requested, floor);
 
   const activating = bool(fd, "is_active");
   if (activating && !truck.is_active) {
@@ -114,12 +94,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
 
   const { error } = await admin
     .from("tracked_trucks")
-    .update({
-      label: str(fd, "label"),
-      polling_interval_minutes: interval,
-      is_watchlist: bool(fd, "is_watchlist"),
-      is_active: activating,
-    })
+    .update({ label: str(fd, "label"), is_active: activating })
     .eq("id", truckId)
     .eq("user_id", session.id);
 
@@ -129,15 +104,18 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
-  return done(
-    requested !== null && interval > requested
-      ? `Saved. Your plan's fastest interval is ${floor} min, so ${interval} min was used.`
-      : "Saved.",
-  );
+  return done("Saved.");
 }
 
-/** The two built-in alerts, switched on and timed for one truck at a time. */
-export async function updateTruckAlerts(
+/* -------------------------------------------------------------------------- */
+/* alerts on one truck                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Attaches one of the admin's alert rules to a truck. Several rows may use the
+ * same rule, so an officer can watch two plazas on the same vehicle.
+ */
+export async function addTruckAlert(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -145,16 +123,9 @@ export async function updateTruckAlerts(
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
+  const templateId = str(fd, "template_id");
   if (!truckId) return fail("Missing truck id.");
-
-  const { data: truck } = await admin
-    .from("tracked_trucks")
-    .select("*")
-    .eq("id", truckId)
-    .eq("user_id", session.id)
-    .maybeSingle<TrackedTruck>();
-
-  if (!truck) return fail("That truck is not on your list.");
+  if (!templateId) return fail("Choose an alert first.");
 
   const overview = await loadOverview(session.id);
   if (!overview) return fail("Could not read your account. Sign in again.");
@@ -162,56 +133,118 @@ export async function updateTruckAlerts(
     return fail("Alerts are not enabled on your plan. Ask your administrator.");
   }
 
-  const floor = overview.min_alert_interval_minutes;
-  const locationRequested = int(fd, "location_alert_minutes", { min: 1, max: 10080 });
-  const movementRequested = int(fd, "movement_alert_minutes", { min: 1, max: 10080 });
-  const locationMinutes =
-    locationRequested === null ? truck.location_alert_minutes : Math.max(locationRequested, floor);
-  const movementMinutes =
-    movementRequested === null ? truck.movement_alert_minutes : Math.max(movementRequested, floor);
-
-  const locationOn = bool(fd, "location_alert_enabled");
-  const movementOn = bool(fd, "movement_alert_enabled");
-
-  // Switching the change alert on takes the truck's current plaza as the
-  // baseline, so it does not immediately fire an alert for a move the officer
-  // already knows about.
-  const seedBaseline = movementOn && !truck.movement_alert_enabled;
-
-  const { error } = await admin
+  const { data: truck } = await admin
     .from("tracked_trucks")
-    .update({
-      location_alert_enabled: locationOn,
-      location_alert_minutes: locationMinutes,
-      movement_alert_enabled: movementOn,
-      movement_alert_minutes: movementMinutes,
-      ...(seedBaseline
-        ? { movement_alert_last_location: truck.last_location, movement_alert_last_at: null }
-        : {}),
-    })
+    .select("id")
     .eq("id", truckId)
-    .eq("user_id", session.id);
+    .eq("user_id", session.id)
+    .maybeSingle();
+
+  if (!truck) return fail("That truck is not on your list.");
+
+  const { data: template } = await admin
+    .from("alert_rule_templates")
+    .select("*")
+    .eq("id", templateId)
+    .maybeSingle<AlertRuleTemplate>();
+
+  if (!template || !template.is_active) {
+    return fail("That alert is no longer available. Pick another one.");
+  }
+
+  const requested = int(fd, "interval_minutes", { min: 1, max: MAX_INTERVAL_MINUTES });
+  const minutes = Math.max(
+    requested ?? template.default_interval_minutes,
+    template.min_interval_minutes,
+  );
+
+  const plaza = str(fd, "plaza");
+  if (needsPlaza(template.kind) && !plaza) {
+    return fail(`"${template.name}" watches one toll plaza. Choose which plaza to watch.`);
+  }
+
+  const { error } = await admin.from("truck_alerts").insert({
+    user_id: session.id,
+    tracked_truck_id: truckId,
+    template_id: template.id,
+    is_enabled: true,
+    interval_minutes: minutes,
+    plaza: needsPlaza(template.kind) ? plaza : null,
+  });
 
   if (error) return fail(error.message);
 
+  revalidatePath("/portal");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
-  const on: string[] = [];
-  if (locationOn) on.push(`Location every ${intervalWords(locationMinutes)}`);
-  if (movementOn) on.push(`Changes every ${intervalWords(movementMinutes)}`);
-  const summary = on.length === 0 ? "Alerts saved. Both are off." : `Alerts saved. ${on.join(". ")}.`;
-
-  const raised =
-    (locationRequested !== null && locationMinutes > locationRequested) ||
-    (movementRequested !== null && movementMinutes > movementRequested);
-
   return done(
-    raised
-      ? `${summary} Your plan's fastest alert interval is ${floor} min, so that was used.`
-      : summary,
+    requested !== null && minutes > requested
+      ? `${template.name} added. This alert may run every ${intervalWords(template.min_interval_minutes)} at the fastest, so that was used.`
+      : `${template.name} added, every ${intervalWords(minutes)}.`,
   );
 }
+
+export async function setTruckAlertEnabled(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  const alertId = str(fd, "alert_id");
+  const enabled = fd.get("is_enabled") === "true";
+  if (!alertId) return fail("Missing alert id.");
+
+  const { data: alert, error } = await admin
+    .from("truck_alerts")
+    .update({ is_enabled: enabled })
+    .eq("id", alertId)
+    .eq("user_id", session.id)
+    .select("tracked_truck_id")
+    .maybeSingle();
+
+  if (error) return fail(error.message);
+  if (!alert) return fail("That alert is not on your list.");
+
+  revalidatePath("/portal");
+  revalidatePath("/portal/trucks");
+  revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
+
+  return done(enabled ? "Alert switched on." : "Alert switched off.");
+}
+
+export async function deleteTruckAlert(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  const alertId = str(fd, "alert_id");
+  if (!alertId) return fail("Missing alert id.");
+
+  const { data: alert, error } = await admin
+    .from("truck_alerts")
+    .delete()
+    .eq("id", alertId)
+    .eq("user_id", session.id)
+    .select("tracked_truck_id")
+    .maybeSingle();
+
+  if (error) return fail(error.message);
+  if (!alert) return fail("That alert is not on your list.");
+
+  revalidatePath("/portal");
+  revalidatePath("/portal/trucks");
+  revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
+
+  return done("Alert removed.");
+}
+
+/* -------------------------------------------------------------------------- */
+/* the truck itself                                                            */
+/* -------------------------------------------------------------------------- */
 
 export async function setTruckPaused(
   _prev: ActionResult | null,
@@ -244,31 +277,7 @@ export async function setTruckPaused(
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
-  return done(active ? "Tracking resumed." : "Tracking paused. No quota is used while paused.");
-}
-
-export async function toggleWatchlist(
-  _prev: ActionResult | null,
-  fd: FormData,
-): Promise<ActionResult> {
-  const session = await assertPortalUser();
-  const admin = getSupabaseAdmin();
-
-  const truckId = str(fd, "truck_id");
-  const watchlist = fd.get("is_watchlist") === "true";
-  if (!truckId) return fail("Missing truck id.");
-
-  const { error } = await admin
-    .from("tracked_trucks")
-    .update({ is_watchlist: watchlist })
-    .eq("id", truckId)
-    .eq("user_id", session.id);
-
-  if (error) return fail(error.message);
-
-  revalidatePath("/portal/trucks");
-  revalidatePath(`/portal/trucks/${truckId}`);
-  return done(watchlist ? "Added to watchlist." : "Removed from watchlist.");
+  return done(active ? "Tracking resumed." : "Tracking paused. No credits are spent while paused.");
 }
 
 /** Officer-initiated re-check. Spends a manual credit, same as a search. */
@@ -305,22 +314,16 @@ export async function checkTruckNow(
   );
 }
 
+/**
+ * Removes the truck and its alerts, and keeps the toll crossings. The history
+ * is the case record; the truck row is only the instruction to keep checking.
+ */
 export async function removeTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
-  const keepHistory = bool(fd, "keep_history");
   if (!truckId) return fail("Missing truck id.");
-
-  const { data: truck } = await admin
-    .from("tracked_trucks")
-    .select("truck_number")
-    .eq("id", truckId)
-    .eq("user_id", session.id)
-    .maybeSingle();
-
-  if (!truck) return fail("That truck is not on your list.");
 
   const { error } = await admin
     .from("tracked_trucks")
@@ -329,14 +332,6 @@ export async function removeTruck(_prev: ActionResult | null, fd: FormData): Pro
     .eq("user_id", session.id);
 
   if (error) return fail(error.message);
-
-  if (!keepHistory) {
-    await admin
-      .from("truck_events")
-      .delete()
-      .eq("user_id", session.id)
-      .eq("truck_number", truck.truck_number);
-  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");

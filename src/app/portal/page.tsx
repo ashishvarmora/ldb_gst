@@ -1,136 +1,184 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { AlertTriangle, Bell, Gauge, Plus, Search, Star, Truck } from "lucide-react";
+import { AlertTriangle, Coins, Gauge, Search, Send } from "lucide-react";
 
-import { SearchBox } from "@/components/SearchBox";
-import { SkeletonPanel, SkeletonTruckCards } from "@/components/Skeleton";
-import { TruckCard } from "@/components/TruckCard";
+import { SkeletonPanel } from "@/components/Skeleton";
 import {
   Badge,
+  DescRow,
   EmptyState,
   LinkButton,
   Mono,
+  PageHeader,
   Panel,
   PanelAction,
-  QuotaBar,
   StatCard,
+  cx,
 } from "@/components/ui";
-import { fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
+import { formatCredits } from "@/lib/credits";
+import { fmtDate, fmtNumber, fmtRelative, fmtRupees, istToday } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
-import { blockedReason, requirePortalSession, truckSlotsLeft } from "@/lib/officer";
+import { blockedReason, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertLog, OfficerOverview, SearchLog, TrackedTruck } from "@/lib/types";
+import type { AlertLog } from "@/lib/types";
 
 export const metadata = { title: "Dashboard — Truck Watch" };
 
+/** Roughly a day of ordinary work - worth a warning colour before it hits zero. */
+const LOW_CREDITS = 10;
+
 /**
- * The shell below renders from data the layout already has, so the greeting,
- * the search box and the quota cards are on screen immediately. The three
- * panels each fetch their own rows and stream in behind a skeleton — an officer
- * can start typing a registration number without waiting for their truck list.
+ * The four things an officer opens the app to check, in the order they matter:
+ * how many credits are left, what the plan allows, what happened today, and
+ * what today cost. Everything else has its own page in the nav.
  */
 export default async function PortalHome() {
   const { overview, profile } = await requirePortalSession();
 
-  const blocked = blockedReason(overview);
-  const searchesLeft =
-    overview.manual_search_limit_per_day === -1
-      ? Number.POSITIVE_INFINITY
-      : Math.max(overview.manual_search_limit_per_day - overview.manual_searches_today, 0);
-
   const firstName = (profile.full_name ?? "").split(" ")[0];
+  const blocked = blockedReason(overview);
+
+  // Telegram is the only way an alert reaches a phone, so an officer with
+  // alerts running and no chat id is quietly getting nothing.
+  const telegramGap =
+    overview.active_alerts > 0 && overview.telegram_enabled && !overview.telegram_connected;
+
+  const expiresOn = overview.plan_expires_on;
+  const expired = expiresOn !== null && expiresOn < istToday();
+  const daysLeft = expiresOn
+    ? Math.ceil((new Date(`${expiresOn}T23:59:59+05:30`).getTime() - Date.now()) / 86_400_000)
+    : null;
+
+  const balanceTone =
+    overview.credits <= 0 ? "text-bad-500" : overview.credits < LOW_CREDITS ? "text-warn-500" : "text-strong";
 
   return (
     <>
-      <div className="mb-5">
-        <h1 className="text-2xl font-semibold tracking-tight text-strong">
-          {firstName ? `Good to see you, ${firstName}` : "Truck Watch"}
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Look up any truck, or open one you are already tracking.
-        </p>
-      </div>
+      <PageHeader
+        title={firstName ? `Good to see you, ${firstName}` : "Dashboard"}
+        subtitle="Your credits, your plan, and what happened today."
+      />
 
       {blocked ? (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warn-500" />
-          <p className="text-sm text-warn-500">{blocked}</p>
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-bad-500/40 bg-bad-500/10 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-bad-500" />
+          <p className="text-sm text-bad-500">{blocked}</p>
         </div>
       ) : null}
 
+      {telegramGap ? (
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
+          <Send size={16} className="mt-0.5 shrink-0 text-warn-500" />
+          <p className="text-sm text-warn-500">
+            Your trucks have alerts running, but Telegram is not connected — nothing is reaching
+            your phone. Add your chat id in{" "}
+            <Link href="/portal/settings" className="font-medium underline">
+              Settings
+            </Link>
+            .
+          </p>
+        </div>
+      ) : null}
+
+      {/* ------------------------------- 1. credits ---------------------- */}
       <Panel className="mb-5">
-        <SearchBox
-          autoFocus={false}
-          hint={
-            overview.manual_search_limit_per_day === -1
-              ? "Unlimited manual searches on your plan."
-              : `${searchesLeft} of ${overview.manual_search_limit_per_day} searches left today. Resets at midnight IST.`
-          }
-        />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+              Credits left
+            </p>
+            <p className={cx("mt-1 text-4xl font-semibold tabular-nums sm:text-5xl", balanceTone)}>
+              {formatCredits(overview.credits)}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">
+              One balance pays for every search and every automatic check.
+            </p>
+          </div>
+          <LinkButton href="/portal/plan" size="sm" variant="secondary">
+            Plan and credits
+          </LinkButton>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-divider pt-4 sm:grid-cols-3">
+          <Figure label="Used today" value={formatCredits(overview.credits_spent_today)} />
+          <Figure label="Used this month" value={formatCredits(overview.credits_spent_month)} />
+          {overview.included_credits ? (
+            <Figure
+              label="Included each month"
+              value={formatCredits(overview.included_credits)}
+            />
+          ) : null}
+        </dl>
       </Panel>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* ----------------------------- 2. plan ------------------------- */}
+        <Panel
+          title="Your plan"
+          actions={<PanelAction href="/portal/plan">Details</PanelAction>}
+          bodyClassName="px-5 py-1.5"
+        >
+          <dl>
+            <DescRow label="Plan">
+              {overview.plan_name ?? <span className="text-bad-500">Not assigned</span>}
+            </DescRow>
+            {overview.price_per_month ? (
+              <DescRow label="Price">{fmtRupees(overview.price_per_month)} a month</DescRow>
+            ) : null}
+            <DescRow label="Ends">
+              {expiresOn === null ? (
+                <span className="text-good-500">No end date</span>
+              ) : expired ? (
+                <span className="text-bad-500">Expired {fmtDate(expiresOn)}</span>
+              ) : (
+                <>
+                  {fmtDate(expiresOn)}
+                  <span className={cx("ml-1", daysLeft !== null && daysLeft <= 14 && "text-warn-500")}>
+                    ({daysLeft} day{daysLeft === 1 ? "" : "s"} left)
+                  </span>
+                </>
+              )}
+            </DescRow>
+            <DescRow label="Trucks">
+              {fmtNumber(overview.active_trucks)} of {formatLimit(overview.truck_limit)} under
+              tracking
+            </DescRow>
+          </dl>
+        </Panel>
+
+        {/* ----------------------------- 3. today's alerts --------------- */}
+        <Suspense fallback={<SkeletonPanel rows={3} />}>
+          <TodaysAlertsPanel userId={overview.id} alertsToday={overview.alerts_today} />
+        </Suspense>
+      </div>
+
+      {/* ------------------------------- 4. today's usage ---------------- */}
+      <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted uppercase">
+        Today&apos;s usage
+      </h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard
-          label="Tracked trucks"
-          value={overview.active_trucks}
-          sub={<QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />}
-          icon={<Truck size={15} />}
-        />
-        <StatCard
-          label="Searches left today"
-          value={searchesLeft === Number.POSITIVE_INFINITY ? "∞" : searchesLeft}
-          sub={`${overview.manual_searches_today} used of ${formatLimit(
-            overview.manual_search_limit_per_day,
-          )}`}
-          tone={searchesLeft === 0 ? "bad" : "neutral"}
+          label="Manual searches"
+          value={fmtNumber(overview.manual_searches_today)}
+          sub="Numbers you looked up yourself"
           icon={<Search size={15} />}
         />
         <StatCard
-          label="Auto checks this month"
-          value={fmtNumber(overview.tracking_queries_month)}
-          sub={
-            <QuotaBar
-              used={overview.tracking_queries_month}
-              limit={overview.tracking_queries_per_month}
-            />
-          }
+          label="Automatic checks"
+          value={fmtNumber(overview.tracking_queries_today)}
+          sub="Run in the background for your trucks"
           icon={<Gauge size={15} />}
         />
-        <StatCard
-          label="Alerts today"
-          value={overview.alerts_today}
-          sub={`Last crossing ${fmtRelative(overview.last_event_at)}`}
-          tone={overview.alerts_today > 0 ? "warn" : "neutral"}
-          icon={<Bell size={15} />}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <Suspense fallback={<TrucksPanelSkeleton />}>
-            <MyTrucksPanel overview={overview} />
-          </Suspense>
-        </div>
-
-        <div className="space-y-5">
-          <Suspense fallback={<SkeletonPanel rows={4} />}>
-            <RecentAlertsPanel userId={overview.id} />
-          </Suspense>
-
-          <Suspense fallback={<SkeletonPanel rows={4} />}>
-            <RecentSearchesPanel userId={overview.id} />
-          </Suspense>
-
-          {overview.active_trucks > 0 ? (
-            <Panel title="Tip">
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
-                <Star size={13} className="mt-0.5 shrink-0 text-warn-500" />
-                Open a truck under <strong className="text-ink">My trucks</strong> to switch its
-                alerts on. Each truck has its own, so one can report every hour while another only
-                speaks up when it moves.
-              </p>
-            </Panel>
-          ) : null}
+        {/* Full width under the two counts on a phone: it is the number the
+            other two add up to, so it reads as the total. */}
+        <div className="col-span-2 sm:col-span-1">
+          <StatCard
+            label="Credits spent"
+            value={formatCredits(overview.credits_spent_today)}
+            sub={`${formatCredits(overview.credits)} left`}
+            tone={overview.credits <= 0 ? "bad" : "neutral"}
+            icon={<Coins size={15} />}
+          />
         </div>
       </div>
     </>
@@ -138,91 +186,53 @@ export default async function PortalHome() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* streamed panels                                                             */
-/* -------------------------------------------------------------------------- */
 
-function TrucksPanelSkeleton() {
+function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <Panel title="My trucks" bodyClassName="p-4">
-      <SkeletonTruckCards count={2} />
-    </Panel>
+    <div>
+      <dt className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</dt>
+      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{value}</dd>
+    </div>
   );
 }
 
-async function MyTrucksPanel({ overview }: { overview: OfficerOverview }) {
-  const { data } = await getSupabaseAdmin()
-    .from("tracked_trucks")
-    .select("*")
-    .eq("user_id", overview.id)
-    .order("is_watchlist", { ascending: false })
-    .order("last_event_at", { ascending: false, nullsFirst: false })
-    .limit(6);
-
-  const trucks = (data ?? []) as TrackedTruck[];
-  const slots = truckSlotsLeft(overview);
-
-  return (
-    <Panel
-      title="My trucks"
-      description={
-        overview.active_trucks === 0
-          ? "Nothing under tracking yet."
-          : slots === Number.POSITIVE_INFINITY
-            ? `${overview.active_trucks} under tracking.`
-            : `${overview.active_trucks} under tracking · ${slots} slot${slots === 1 ? "" : "s"} free.`
-      }
-      actions={<PanelAction href="/portal/trucks">View all</PanelAction>}
-      bodyClassName={trucks.length === 0 ? "p-0" : "p-4"}
-    >
-      {trucks.length === 0 ? (
-        <EmptyState
-          title="No trucks under tracking"
-          description="Add a truck and the platform checks it in the background, logs every toll crossing and alerts you on Telegram."
-          action={
-            <LinkButton href="/portal/trucks" variant="primary">
-              <Plus size={14} />
-              Add your first truck
-            </LinkButton>
-          }
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {trucks.map((truck) => (
-            <TruckCard key={truck.id} truck={truck} />
-          ))}
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-async function RecentAlertsPanel({ userId }: { userId: string }) {
+async function TodaysAlertsPanel({
+  userId,
+  alertsToday,
+}: {
+  userId: string;
+  alertsToday: number;
+}) {
   const { data } = await getSupabaseAdmin()
     .from("alert_logs")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(6);
+    .limit(5);
 
   const alerts = (data ?? []) as AlertLog[];
 
   return (
     <Panel
-      title="Recent alerts"
+      title="Today's alerts"
+      description={
+        alertsToday === 0
+          ? "Nothing so far today. The bell in the top corner keeps the rest."
+          : `${fmtNumber(alertsToday)} so far today. The bell in the top corner keeps the rest.`
+      }
       bodyClassName="p-0"
-      actions={<PanelAction href="/portal/alerts">All alerts</PanelAction>}
     >
       {alerts.length === 0 ? (
         <EmptyState
           title="No alerts yet"
-          description="Create a rule and you will be told the moment something matches."
+          description="Switch an alert on for a truck and anything it reports shows up here."
         />
       ) : (
         <ul className="divide-y divide-divider">
           {alerts.map((alert) => (
-            <li key={alert.id} className="px-4 py-2.5">
+            <li key={alert.id} className="px-5 py-2.5">
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm text-ink">{alert.title}</p>
+                <p className="min-w-0 text-sm text-ink">{alert.title}</p>
                 {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
               </div>
               <p className="mt-0.5 text-xs text-faint">
@@ -233,49 +243,6 @@ async function RecentAlertsPanel({ userId }: { userId: string }) {
                 ) : null}
                 {fmtRelative(alert.created_at)}
               </p>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
-}
-
-async function RecentSearchesPanel({ userId }: { userId: string }) {
-  const { data } = await getSupabaseAdmin()
-    .from("search_logs")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("source", "manual")
-    .order("created_at", { ascending: false })
-    .limit(6);
-
-  const searches = (data ?? []) as SearchLog[];
-
-  return (
-    <Panel title="Your recent searches" bodyClassName="p-0">
-      {searches.length === 0 ? (
-        <EmptyState title="No searches yet" />
-      ) : (
-        <ul className="divide-y divide-divider">
-          {searches.map((log) => (
-            <li key={log.id}>
-              <Link
-                href={`/portal/search/${log.truck_number}`}
-                className="flex items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-raised/60"
-              >
-                <span className="min-w-0">
-                  <Mono className="block text-ink">{log.truck_number}</Mono>
-                  <span className="block text-xs text-faint">{fmtDateTime(log.created_at)}</span>
-                </span>
-                {log.ok ? (
-                  <span className="shrink-0 text-xs text-muted">
-                    {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
-                  </span>
-                ) : (
-                  <Badge tone="bad">failed</Badge>
-                )}
-              </Link>
             </li>
           ))}
         </ul>

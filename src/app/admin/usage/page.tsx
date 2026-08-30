@@ -9,7 +9,6 @@ import {
   Mono,
   PageHeader,
   Panel,
-  QuotaBar,
   StatCard,
   TableWrap,
   Tbody,
@@ -18,7 +17,8 @@ import {
   buttonClass,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
-import { fmtDateTime, fmtNumber, initials, istDaysAgo, istMonthStart, istToday } from "@/lib/format";
+import { formatCredits } from "@/lib/credits";
+import { fmtDateTime, fmtNumber, initials, istDaysAgo, istMonthStart } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview, SearchLog, UsageCounter } from "@/lib/types";
@@ -45,31 +45,24 @@ export default async function UsagePage() {
   const usageRows = (usage ?? []) as UsageCounter[];
   const calls = (recent ?? []) as Row[];
 
-  const today = istToday();
   const monthStart = istMonthStart();
 
-  const monthTotals = usageRows
+  const creditsToday = rows.reduce((sum, row) => sum + Number(row.credits_spent_today ?? 0), 0);
+  const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
+  const outstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
+
+  const monthCalls = usageRows
     .filter((row) => row.usage_date >= monthStart)
     .reduce(
       (acc, row) => {
         acc.manual += row.manual_searches;
-        acc.tracking += row.tracking_queries;
+        acc.auto += row.tracking_queries;
         return acc;
       },
-      { manual: 0, tracking: 0 },
+      { manual: 0, auto: 0 },
     );
 
-  const todayTotals = usageRows
-    .filter((row) => row.usage_date === today)
-    .reduce(
-      (acc, row) => {
-        acc.manual += row.manual_searches;
-        acc.tracking += row.tracking_queries;
-        return acc;
-      },
-      { manual: 0, tracking: 0 },
-    );
-
+  // Every officer's daily counters, merged into one platform-wide series.
   const merged = new Map<string, UsageCounter>();
   for (const row of usageRows) {
     const existing = merged.get(row.usage_date);
@@ -83,9 +76,7 @@ export default async function UsagePage() {
   const series = buildUsageSeries([...merged.values()], 30);
 
   const ranked = [...rows].sort(
-    (a, b) =>
-      b.tracking_queries_month + b.manual_searches_month -
-      (a.tracking_queries_month + a.manual_searches_month),
+    (a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0),
   );
 
   const failed = calls.filter((call) => !call.ok).length;
@@ -94,7 +85,7 @@ export default async function UsagePage() {
     <>
       <PageHeader
         title="Usage"
-        subtitle={`Consumption for ${monthStart.slice(0, 7)}. Manual searches reset every IST midnight; tracking queries reset on the 1st.`}
+        subtitle={`Credits consumed in ${monthStart.slice(0, 7)}. There are no per-day or per-month allowances any more — an officer works until their balance runs out.`}
         actions={
           <a href="/admin/usage/export" className={buttonClass("secondary")}>
             <Download size={14} />
@@ -105,21 +96,21 @@ export default async function UsagePage() {
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="Manual searches this month"
-          value={fmtNumber(monthTotals.manual)}
-          sub={`${fmtNumber(todayTotals.manual)} today`}
+          label="Credits spent this month"
+          value={formatCredits(creditsMonth)}
+          sub={`${formatCredits(creditsToday)} today`}
           tone="brand"
         />
         <StatCard
-          label="Tracking queries this month"
-          value={fmtNumber(monthTotals.tracking)}
-          sub={`${fmtNumber(todayTotals.tracking)} today`}
+          label="Credits outstanding"
+          value={formatCredits(outstanding)}
+          sub="Still held by officers"
           tone="good"
         />
         <StatCard
-          label="Total LDB calls this month"
-          value={fmtNumber(monthTotals.manual + monthTotals.tracking)}
-          sub="What the upstream portal saw"
+          label="LDB calls this month"
+          value={fmtNumber(monthCalls.manual + monthCalls.auto)}
+          sub={`${fmtNumber(monthCalls.manual)} manual · ${fmtNumber(monthCalls.auto)} automatic`}
         />
         <StatCard
           label="Failures in these calls"
@@ -131,8 +122,8 @@ export default async function UsagePage() {
 
       <Panel
         className="mb-5"
-        title="Platform usage, last 30 days"
-        description="Aggregated across every officer."
+        title="LDB calls, last 30 days"
+        description="What the upstream portal saw, aggregated across every officer."
       >
         <UsageChart series={series} />
       </Panel>
@@ -140,7 +131,7 @@ export default async function UsagePage() {
       <Panel
         className="mb-5"
         title="Per-officer consumption"
-        description="Sorted by total calls this month."
+        description="Sorted by credits spent this month. Top an officer up from their own page."
         bodyClassName="p-0"
       >
         {ranked.length === 0 ? (
@@ -150,61 +141,64 @@ export default async function UsagePage() {
             <Thead>
               <th className="th">Officer</th>
               <th className="th">Plan</th>
-              <th className="th">Searches today</th>
-              <th className="th">Searches this month</th>
-              <th className="th">Queries this month</th>
-              <th className="th">Trucks</th>
-              <th className="th text-right">Monthly cap</th>
+              <th className="th text-right">Credits left</th>
+              <th className="th text-right">Spent today</th>
+              <th className="th text-right">Spent this month</th>
+              <th className="th text-right">Searches</th>
+              <th className="th text-right">Auto checks</th>
+              <th className="th text-right">Trucks</th>
             </Thead>
             <Tbody>
-              {ranked.map((officer) => (
-                <Tr key={officer.id}>
-                  <td className="td">
-                    <Link
-                      href={`/admin/officers/${officer.id}`}
-                      className="group flex items-center gap-2.5"
-                    >
-                      <Avatar size="sm" text={initials(officer.full_name, officer.email)} />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                          {officer.full_name ?? officer.email}
+              {ranked.map((officer) => {
+                const balance = Number(officer.credits ?? 0);
+                return (
+                  <Tr key={officer.id}>
+                    <td className="td">
+                      <Link
+                        href={`/admin/officers/${officer.id}`}
+                        className="group flex items-center gap-2.5"
+                      >
+                        <Avatar size="sm" text={initials(officer.full_name, officer.email)} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-ink group-hover:text-brand-400">
+                            {officer.full_name ?? officer.email}
+                          </span>
+                          <span className="block truncate text-xs text-faint">
+                            {officer.office ?? "--"}
+                          </span>
                         </span>
-                        <span className="block truncate text-xs text-faint">
-                          {officer.office ?? "--"}
-                        </span>
-                      </span>
-                    </Link>
-                  </td>
-                  <td className="td">
-                    {officer.plan_name ? (
-                      <Badge tone="brand">{officer.plan_name}</Badge>
-                    ) : (
-                      <Badge tone="bad">no plan</Badge>
-                    )}
-                  </td>
-                  <td className="td">
-                    <QuotaBar
-                      used={officer.manual_searches_today}
-                      limit={officer.manual_search_limit_per_day}
-                    />
-                  </td>
-                  <td className="td text-sm tabular-nums">
-                    {fmtNumber(officer.manual_searches_month)}
-                  </td>
-                  <td className="td">
-                    <QuotaBar
-                      used={officer.tracking_queries_month}
-                      limit={officer.tracking_queries_per_month}
-                    />
-                  </td>
-                  <td className="td text-sm tabular-nums">
-                    {officer.active_trucks} / {formatLimit(officer.truck_limit)}
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {formatLimit(officer.tracking_queries_per_month)}
-                  </td>
-                </Tr>
-              ))}
+                      </Link>
+                    </td>
+                    <td className="td">
+                      {officer.plan_name ? (
+                        <Badge tone="brand">{officer.plan_name}</Badge>
+                      ) : (
+                        <Badge tone="bad">no plan</Badge>
+                      )}
+                    </td>
+                    <td className="td text-right">
+                      <Badge tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "good"}>
+                        {formatCredits(balance)}
+                      </Badge>
+                    </td>
+                    <td className="td text-right text-sm tabular-nums text-muted">
+                      {formatCredits(officer.credits_spent_today)}
+                    </td>
+                    <td className="td text-right text-sm font-medium tabular-nums text-ink">
+                      {formatCredits(officer.credits_spent_month)}
+                    </td>
+                    <td className="td text-right text-sm tabular-nums text-muted">
+                      {fmtNumber(officer.manual_searches_month)}
+                    </td>
+                    <td className="td text-right text-sm tabular-nums text-muted">
+                      {fmtNumber(officer.tracking_queries_month)}
+                    </td>
+                    <td className="td text-right text-sm tabular-nums text-muted">
+                      {officer.active_trucks} / {formatLimit(officer.truck_limit)}
+                    </td>
+                  </Tr>
+                );
+              })}
             </Tbody>
           </TableWrap>
         )}
@@ -212,7 +206,7 @@ export default async function UsagePage() {
 
       <Panel
         title="Recent LDB calls"
-        description="Newest first. Every manual search, plus the background checks that found a movement or failed - a quiet check that changed nothing is counted but not listed."
+        description="Newest first. Every manual search, plus the background checks that found a movement or failed - a quiet check that changed nothing is charged but not listed."
         bodyClassName="p-0"
       >
         {calls.length === 0 ? (

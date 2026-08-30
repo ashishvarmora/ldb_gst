@@ -8,7 +8,6 @@ import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { NUMERIC_LIMITS, BOOLEAN_LIMITS, parseLimitInput } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { istMonthStart, istToday } from "@/lib/format";
 import type { ActionResult } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
@@ -113,6 +112,13 @@ export async function createOfficer(
 
   const userId = created.user.id;
 
+  // That insert already ran assign_default_plan(), which gave the row the
+  // default plan and the credits it includes. Only write plan_id when the admin
+  // picked one - writing null would take the default straight back off.
+  const planPatch = planId
+    ? { plan_id: planId, plan_assigned_at: new Date().toISOString() }
+    : {};
+
   // The on_auth_user_created trigger already inserted a bare row; fill it in.
   const { error: profileError } = await admin
     .from("profiles")
@@ -128,8 +134,7 @@ export async function createOfficer(
         state: str(fd, "state") ?? "Gujarat",
         role: "officer",
         status: "active",
-        plan_id: planId,
-        plan_assigned_at: planId ? new Date().toISOString() : null,
+        ...planPatch,
         plan_expires_on: str(fd, "plan_expires_on"),
         notes: str(fd, "notes"),
         created_by: actor.id,
@@ -492,37 +497,6 @@ export async function saveOfficerIntegrations(
 
   revalidatePath(`/admin/officers/${userId}`);
   return { ok: true, message: "Integrations saved." };
-}
-
-export async function resetOfficerUsage(
-  _prev: ActionResult | null,
-  fd: FormData,
-): Promise<ActionResult> {
-  const actor = await assertSuperAdmin();
-  const admin = getSupabaseAdmin();
-
-  const userId = str(fd, "user_id");
-  const scope = fd.get("scope");
-  if (!userId) return fail("Missing officer id.");
-  if (scope !== "today" && scope !== "month") return fail("Unknown scope.");
-
-  const query = admin.from("usage_counters").update({ manual_searches: 0, tracking_queries: 0 }).eq("user_id", userId);
-  const { error } =
-    scope === "today"
-      ? await query.eq("usage_date", istToday())
-      : await query.gte("usage_date", istMonthStart());
-  if (error) return fail(error.message);
-
-  await writeAudit(actor, {
-    action: "officer.reset_usage",
-    entity: "profile",
-    entityId: userId,
-    meta: { scope },
-  });
-
-  revalidatePath(`/admin/officers/${userId}`);
-  revalidatePath("/admin/usage");
-  return { ok: true, message: scope === "today" ? "Today's counters reset." : "This month's counters reset." };
 }
 
 export async function deleteOfficer(

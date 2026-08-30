@@ -7,8 +7,10 @@ type Admin = ReturnType<typeof getSupabaseAdmin>;
 export const SETTINGS_FALLBACK: AppSettings = {
   ldbApiUrl: "https://ldb.co.in/api/ldbv2/truck/search",
   trackingEnabled: true,
-  globalPollingFloor: 5,
   noActivityHours: 6,
+  creditPriceInr: 10,
+  razorpayEnabled: false,
+  razorpayKeyId: "",
 };
 
 /**
@@ -31,7 +33,9 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
   return {
     ldbApiUrl: text("ldb_api_url", env.ldbApiUrl || SETTINGS_FALLBACK.ldbApiUrl),
     trackingEnabled: map.get("tracking_enabled") !== false,
-    globalPollingFloor: number("global_polling_floor", SETTINGS_FALLBACK.globalPollingFloor),
     noActivityHours: number("no_activity_hours", SETTINGS_FALLBACK.noActivityHours),
+    creditPriceInr: number("credit_price_inr", SETTINGS_FALLBACK.creditPriceInr),
+    razorpayEnabled: map.get("razorpay_enabled") === true,
+    razorpayKeyId: text("razorpay_key_id", ""),
   };
 }

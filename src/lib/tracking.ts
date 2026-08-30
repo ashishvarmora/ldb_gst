@@ -1,12 +1,11 @@
 import {
   alertDue,
-  anyAlertOn,
-  evaluateTruckAlerts,
+  evaluateAlert,
   normaliseLocation,
   type AlertDraft,
-  type AlertStateUpdate,
   type Position,
 } from "@/lib/alerts";
+import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { loadSettings } from "@/lib/settings";
 import { syncToSheet } from "@/lib/sheets";
@@ -17,11 +16,13 @@ import type {
   AppSettings,
   EffectiveLimits,
   GoogleSheetConfig,
-  QuotaVerdict,
   TelegramConfig,
   TrackedTruck,
+  TruckAlertWithTemplate,
   TruckStatus,
 } from "@/lib/types";
+
+type Admin = ReturnType<typeof getSupabaseAdmin>;
 
 /** Crossing shape the worker passes around. */
 export type EventLike = {
@@ -31,13 +32,9 @@ export type EventLike = {
   direction: string | null;
 };
 
-type Admin = ReturnType<typeof getSupabaseAdmin>;
-
-/** Dedupe/history window used by the time-based alert rules. */
-const HISTORY_ROWS = 200;
-/** Give up on a truck after this many consecutive failed polls. */
+/** Give up on a truck after this many consecutive failed checks. */
 const ERROR_CUTOFF = 20;
-/** Trucks polled per sweep, and how many at a time. */
+/** Trucks handled per sweep, and how many at a time. */
 const DEFAULT_BATCH = 60;
 const CONCURRENCY = 4;
 
@@ -45,8 +42,7 @@ export type PollOutcome = {
   truckId: string;
   truckNumber: string;
   userId: string;
-  /** "alerted" = visited for an alert only, no upstream call and no quota. */
-  status: "polled" | "alerted" | "skipped" | "failed";
+  status: "checked" | "skipped" | "failed";
   reason?: string;
   newEvents: number;
   alerts: number;
@@ -62,8 +58,7 @@ export type SweepSummary = {
   trackingEnabled: boolean;
   candidates: number;
   due: number;
-  polled: number;
-  alerted: number;
+  checked: number;
   skipped: number;
   failed: number;
   newEvents: number;
@@ -95,29 +90,6 @@ export function deriveStatus(
   return "no_activity";
 }
 
-/** The truck's latest known position, straight off the truck row. */
-function positionOf(truck: TrackedTruck): Position {
-  return {
-    locName: truck.last_location,
-    direction: truck.last_direction,
-    eventTime: truck.last_event_at,
-  };
-}
-
-/** A truck is due when it has never been polled, or the interval has elapsed. */
-export function isDue(
-  truck: Pick<TrackedTruck, "last_polled_at" | "polling_interval_minutes">,
-  now: Date,
-  floorMinutes: number,
-): boolean {
-  if (!truck.last_polled_at) return true;
-  const interval = Math.max(truck.polling_interval_minutes, floorMinutes);
-  const last = new Date(truck.last_polled_at).getTime();
-  if (Number.isNaN(last)) return true;
-  // 30s of slack so a 10-minute truck is not pushed to 15 by a 5-minute tick.
-  return now.getTime() - last >= interval * 60_000 - 30_000;
-}
-
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -147,9 +119,8 @@ export type OfficerContext = {
   limits: EffectiveLimits | null;
   telegram: TelegramConfig | null;
   sheet: GoogleSheetConfig | null;
-  /** Rows queued for the officer's Google Sheet, flushed at the end. */
+  /** Crossings queued for the officer's Google Sheet, flushed at the end. */
   sheetEvents: (string | number | null)[][];
-  sheetAlerts: (string | number | null)[][];
 };
 
 async function loadOfficerContext(admin: Admin, userId: string): Promise<OfficerContext> {
@@ -173,7 +144,6 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
     telegram: telegram ?? null,
     sheet: sheet ?? null,
     sheetEvents: [],
-    sheetAlerts: [],
   };
 }
 
@@ -182,9 +152,8 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
 /* -------------------------------------------------------------------------- */
 
 /**
- * There is no cooldown table any more. Each alert carries its own interval on
- * the truck row, and the timestamp is only advanced once the alert has been
- * evaluated, so an alert cannot repeat inside its own window by construction.
+ * There is no cooldown table. Each alert carries its own interval and its own
+ * last_run_at, so it cannot repeat inside its window by construction.
  */
 async function dispatchAlerts({
   admin,
@@ -243,16 +212,6 @@ async function dispatchAlerts({
       delivery_error: deliveryError,
     });
     if (error) console.error("alert_logs insert failed", error.message);
-
-    if (context.limits?.google_sheet_enabled) {
-      context.sheetAlerts.push([
-        fmtDateTime(new Date()),
-        truckNumber,
-        draft.kind,
-        draft.title,
-        draft.message,
-      ]);
-    }
   }
 
   await admin.rpc("bump_alerts_sent", { p_user: context.userId, p_count: drafts.length });
@@ -260,81 +219,31 @@ async function dispatchAlerts({
   return { created: drafts.length, delivered };
 }
 
-/**
- * Evaluates both alerts for one truck and sends whatever they produced.
- *
- * The caller persists `stateUpdate`, which is what makes the next interval
- * start from now. A truck that was polled folds it into the row update it was
- * making anyway, so one visit is still one write.
- *
- * That bookkeeping is applied whether or not Telegram accepted the message. If
- * a failed delivery left the clock alone, a bad chat id would produce an alert
- * on every sweep for ever.
- */
-async function runAlerts({
-  admin,
-  context,
-  truck,
-  position,
-  now,
-}: {
-  admin: Admin;
-  context: OfficerContext;
-  truck: TrackedTruck;
-  position: Position;
-  now: Date;
-}): Promise<{ created: number; delivered: number; stateUpdate: AlertStateUpdate }> {
-  if (!anyAlertOn(truck)) return { created: 0, delivered: 0, stateUpdate: {} };
-
-  const { drafts, stateUpdate } = evaluateTruckAlerts({
-    truckNumber: truck.truck_number,
-    truck,
-    position,
-    now,
-  });
-
-  // A plan can withdraw alerts after the officer switched them on. The truck
-  // then goes quiet, but the clock still has to move: leaving it unstamped
-  // would keep the truck permanently due and let it take a slot in every
-  // sweep, crowding out trucks that do have work to do.
-  if (!context.limits?.alerts_enabled) {
-    return { created: 0, delivered: 0, stateUpdate };
-  }
-
-  const result = await dispatchAlerts({
-    admin,
-    context,
-    truckNumber: truck.truck_number,
-    drafts,
-  });
-
-  return { ...result, stateUpdate };
-}
-
 /* -------------------------------------------------------------------------- */
 /* one truck                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export async function pollTruck({
+/**
+ * Checks one truck and runs whichever of its alerts are due.
+ *
+ * A truck is only ever here because an alert asked for it, so the upstream
+ * call and the credit are charged once and shared by every alert that was due
+ * at the same moment.
+ */
+export async function checkTruck({
   admin,
   truck,
+  alerts,
   context,
   settings,
   now,
-  fetchUpstream = true,
 }: {
   admin: Admin;
   truck: TrackedTruck;
+  alerts: TruckAlertWithTemplate[];
   context: OfficerContext;
   settings: AppSettings;
   now: Date;
-  /**
-   * False when the sweep picked this truck up for an alert alone. The alert
-   * reports the position already on record, so there is nothing to fetch - and
-   * charging a tracking query for a message the officer asked to repeat on a
-   * timer would make a 15-minute heartbeat cost as much as 15-minute polling.
-   */
-  fetchUpstream?: boolean;
 }): Promise<PollOutcome> {
   const outcome: PollOutcome = {
     truckId: truck.id,
@@ -346,52 +255,34 @@ export async function pollTruck({
     alertsDelivered: 0,
   };
 
-  if (!fetchUpstream) {
-    const alertResult = await runAlerts({
-      admin,
-      context,
-      truck,
-      position: positionOf(truck),
-      now,
-    });
-
-    if (Object.keys(alertResult.stateUpdate).length > 0) {
-      await admin.from("tracked_trucks").update(alertResult.stateUpdate).eq("id", truck.id);
-    }
-
-    return {
-      ...outcome,
-      status: "alerted",
-      alerts: alertResult.created,
-      alertsDelivered: alertResult.delivered,
-    };
+  // 1. A plan can withdraw alerts after an officer set some up. Checking the
+  //    truck anyway would charge a credit for a message that is never sent, so
+  //    stop before the balance is touched.
+  if (!context.limits?.alerts_enabled) {
+    return { ...outcome, reason: "alerts_not_enabled" };
   }
 
-  // 1. Quota. consume_quota is the only writer of usage_counters.
-  const { data: quotaRaw, error: quotaError } = await admin.rpc("consume_quota", {
-    p_user: truck.user_id,
-    p_source: "tracking",
-    p_amount: 1,
+  // 2. Credits. spend_credits is the only writer of the balance, and it locks
+  //    the row, so two overlapping sweeps cannot both spend the last one.
+  const verdict = await spendCredits({
+    admin,
+    userId: truck.user_id,
+    action: CREDIT_ACTIONS.autoCheck,
+    truckNumber: truck.truck_number,
   });
 
-  if (quotaError) {
-    return { ...outcome, status: "failed", error: `Quota check failed: ${quotaError.message}` };
-  }
-
-  const quota = (quotaRaw ?? { allowed: false }) as QuotaVerdict;
-  if (!quota.allowed) {
-    // Suspension and expiry are terminal until an admin acts, so stop polling.
-    if (quota.reason === "account_suspended" || quota.reason === "plan_expired") {
+  if (!verdict.allowed) {
+    // Out of credits is not a failure of the truck, and it fixes itself the
+    // moment the officer tops up, so tracking is left switched on.
+    if (verdict.reason === "account_suspended") {
       await admin.from("tracked_trucks").update({ is_active: false }).eq("id", truck.id);
     }
-    return { ...outcome, reason: quota.reason ?? "not_allowed" };
+    return { ...outcome, reason: verdict.reason ?? "not_allowed" };
   }
 
-  // 2. Upstream call.
+  // 3. Upstream call.
   const result = await fetchTruckEvents(truck.truck_number, settings.ldbApiUrl);
 
-  // 3. Failures are logged here; successes are logged below, once we know how
-  //    many crossings were actually new.
   if (!result.ok) {
     await admin.from("search_logs").insert({
       user_id: truck.user_id,
@@ -424,32 +315,23 @@ export async function pollTruck({
     };
   }
 
-  // 4. History for the window-based rules, and for ordering.
+  // 4. Store only movements. A plaza re-reports the same crossing under several
+  //    sequence numbers, and a parked truck registers over and over; those rows
+  //    say nothing the previous row does not already say.
+  //
+  //    The walk is seeded from the truck's last SAVED location, so it reaches
+  //    the same answer on every check: a repeat is skipped now and skipped
+  //    again next time, never inserted. The unique index on (user_id, seq_no)
+  //    lets only one of two overlapping sweeps win.
   const { data: history } = await admin
     .from("truck_events")
     .select("seq_no, event_time, loc_name, direction")
     .eq("user_id", truck.user_id)
     .eq("truck_number", truck.truck_number)
     .order("event_time", { ascending: false, nullsFirst: false })
-    .limit(HISTORY_ROWS);
+    .limit(50);
 
-  // 5. Insert only crossings we have never seen. ON CONFLICT DO NOTHING plus a
-  //    returning clause means the database itself tells us what is new, so two
-  //    overlapping sweeps cannot double-alert.
-  //
-  //    Only movements are stored. A plaza re-reports the same crossing under
-  //    several sequence numbers, and a parked truck registers over and over;
-  //    those rows say nothing the previous row does not already say.
-  //
-  //    The decision is made here, before writing, by walking the portal's list
-  //    oldest-first and comparing each plaza with the one before it. The walk
-  //    is seeded from the truck's last SAVED location, so it reaches the same
-  //    answer on every poll: a repeat is skipped now and skipped again next
-  //    time, never inserted, never alerted on. Two overlapping sweeps compute
-  //    the same list and the unique index on (user_id, seq_no) lets only one
-  //    of them win.
   let inserted: EventLike[] = [];
-  let skippedRepeats = 0;
 
   if (result.events.length > 0) {
     const chronological = [...result.events].sort((a, b) =>
@@ -462,10 +344,7 @@ export async function pollTruck({
     for (const event of chronological) {
       const location = normaliseLocation(event.locName);
       // An unnamed plaza cannot be compared, so it always counts as a move.
-      if (location !== null && location === previous) {
-        skippedRepeats += 1;
-        continue;
-      }
+      if (location !== null && location === previous) continue;
       previous = location ?? previous;
       movements.push(event);
     }
@@ -501,11 +380,9 @@ export async function pollTruck({
   inserted.sort((a, b) => (b.event_time ?? "").localeCompare(a.event_time ?? ""));
 
   // Log the call only when it carried news. A truck that has not moved produces
-  // a successful, empty poll every few minutes; at fifty trucks on a ten-minute
-  // interval that is over 200,000 rows a month saying "nothing happened".
-  //
-  // Quota is counted by consume_quota() into usage_counters, not by counting
-  // rows here, so billing is unaffected. Failures are always logged, below.
+  // a successful, empty check every few minutes; at fifty trucks that is over
+  // 200,000 rows a month saying "nothing happened". Credits are counted by
+  // spend_credits, not by counting rows here, so billing is unaffected.
   if (inserted.length > 0) {
     await admin.from("search_logs").insert({
       user_id: truck.user_id,
@@ -518,6 +395,8 @@ export async function pollTruck({
       new_events: inserted.length,
       error: null,
     });
+
+    await recordPlazas(admin, inserted.map((row) => row.loc_name));
   }
 
   const recentEvents: EventLike[] = [
@@ -527,28 +406,36 @@ export async function pollTruck({
     ),
   ].sort((a, b) => (b.event_time ?? "").localeCompare(a.event_time ?? ""));
 
-  const latestEventAt = recentEvents[0]?.event_time ?? truck.last_event_at ?? null;
   const latest = recentEvents[0] ?? null;
+  const latestEventAt = latest?.event_time ?? truck.last_event_at ?? null;
 
-  // 6. Alerts, against the position this poll just established.
-  const alertResult = await runAlerts({
-    admin,
-    context,
-    truck,
-    position: {
-      locName: latest?.loc_name ?? truck.last_location,
-      direction: latest?.direction ?? truck.last_direction,
-      eventTime: latestEventAt,
-    },
-    now,
-  });
+  const position: Position = {
+    locName: latest?.loc_name ?? truck.last_location,
+    direction: latest?.direction ?? truck.last_direction,
+    eventTime: latestEventAt,
+  };
 
-  // 7. Queue sheet rows for the flush at the end of the sweep.
-  //
-  //    The sheet mirrors exactly what was stored, so no second filter: the
-  //    repeats were already dropped before the insert. A real return trip
-  //    A -> B -> A still writes three rows, because the location changed at
-  //    each step.
+  // 5. Alerts, against the position this check just established.
+  const drafts: AlertDraft[] = [];
+
+  for (const alert of alerts) {
+    const { draft, stateUpdate } = evaluateAlert({
+      truckNumber: truck.truck_number,
+      alert,
+      position,
+      now,
+    });
+    if (draft) drafts.push(draft);
+    await admin.from("truck_alerts").update(stateUpdate).eq("id", alert.id);
+  }
+
+  const alertResult = context.limits?.alerts_enabled
+    ? await dispatchAlerts({ admin, context, truckNumber: truck.truck_number, drafts })
+    : { created: 0, delivered: 0 };
+
+  // 6. Queue sheet rows for the flush at the end of the sweep. The sheet holds
+  //    the crossings and nothing else: it is the long-term copy of where a
+  //    truck has been, for after retention trims the database.
   if (inserted.length > 0 && context.limits?.google_sheet_enabled && context.sheet?.spreadsheet_id) {
     const bySeq = new Map(result.events.map((event) => [event.seqNo, event]));
     const loggedAt = fmtDateTime(now);
@@ -567,38 +454,45 @@ export async function pollTruck({
         loggedAt,
       ]);
     }
-
   }
 
-  if (skippedRepeats > 0) {
-    console.info(
-      `${truck.truck_number}: ignored ${skippedRepeats} reading(s) reporting an unchanged location`,
-    );
-  }
-
-  // 8. Roll the truck forward. The alert bookkeeping rides along, so a polled
-  //    truck is still one write.
+  // 7. Roll the truck forward.
   await admin
     .from("tracked_trucks")
     .update({
       last_polled_at: now.toISOString(),
       last_event_at: latestEventAt,
-      last_location: latest?.loc_name ?? truck.last_location,
-      last_direction: latest?.direction ?? truck.last_direction,
+      last_location: position.locName,
+      last_direction: position.direction,
       status: deriveStatus(latestEventAt, now, settings.noActivityHours),
       consecutive_errors: 0,
-      ...alertResult.stateUpdate,
     })
     .eq("id", truck.id);
 
   return {
     ...outcome,
-    status: "polled",
+    status: "checked",
     newEvents: inserted.length,
     alerts: alertResult.created,
     alertsDelivered: alertResult.delivered,
     responseMs: result.ms,
   };
+}
+
+/**
+ * Keeps the plaza catalogue current. It is what the "alert me when the truck
+ * reaches this plaza" dropdown is built from, so it has to learn names as the
+ * platform sees them rather than being maintained by hand.
+ */
+async function recordPlazas(admin: Admin, names: (string | null)[]): Promise<void> {
+  const unique = [...new Set(names.map((n) => n?.trim()).filter((n): n is string => Boolean(n)))];
+  if (unique.length === 0) return;
+
+  const { error } = await admin.from("toll_plazas").upsert(
+    unique.map((name) => ({ name, last_seen_at: new Date().toISOString() })),
+    { onConflict: "name", ignoreDuplicates: true },
+  );
+  if (error) console.error("toll_plazas upsert failed", error.message);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -612,26 +506,9 @@ async function flushSheets(admin: Admin, contexts: OfficerContext[]): Promise<st
     const spreadsheetId = context.sheet?.spreadsheet_id;
     if (!spreadsheetId) continue;
     if (!context.limits?.google_sheet_enabled || !context.sheet?.is_enabled) continue;
-    if (context.sheetEvents.length === 0 && context.sheetAlerts.length === 0) continue;
+    if (context.sheetEvents.length === 0) continue;
 
-    // Refresh the usage tab in the same round trip; it is a full rewrite, so it
-    // never accumulates duplicate rows.
-    const { data: usage } = await admin
-      .from("usage_counters")
-      .select("usage_date, manual_searches, tracking_queries")
-      .eq("user_id", context.userId)
-      .order("usage_date", { ascending: false })
-      .limit(60);
-
-    const result = await syncToSheet(spreadsheetId, {
-      events: context.sheetEvents,
-      alerts: context.sheetAlerts,
-      usage: (usage ?? []).map((row) => [
-        row.usage_date,
-        row.manual_searches,
-        row.tracking_queries,
-      ]),
-    });
+    const result = await syncToSheet(spreadsheetId, { events: context.sheetEvents });
 
     await admin
       .from("google_sheet_configs")
@@ -664,8 +541,7 @@ export async function runTrackingSweep(
     trackingEnabled: settings.trackingEnabled,
     candidates: 0,
     due: 0,
-    polled: 0,
-    alerted: 0,
+    checked: 0,
     skipped: 0,
     failed: 0,
     newEvents: 0,
@@ -701,26 +577,41 @@ export async function runTrackingSweep(
 
   const { data: candidates, error } = await query;
   if (error) {
-    return finish({
-      ...base,
-      sheetErrors: [`Could not list trucks: ${error.message}`],
-    });
+    return finish({ ...base, sheetErrors: [`Could not list trucks: ${error.message}`] });
   }
 
-  // A truck earns a visit either because its polling interval elapsed, or
-  // because one of its alerts is due. The second case is what keeps "every 15
-  // minutes" honest on a truck that is only polled hourly - it costs no
-  // upstream call, because the alert reports the position already on record.
   const all = (candidates ?? []) as TrackedTruck[];
-  const due = options.truckIds?.length
-    ? all.map((truck) => ({ truck, fetchUpstream: true }))
-    : all
-        .map((truck) => ({
-          truck,
-          fetchUpstream: isDue(truck, startedAt, settings.globalPollingFloor),
-          alertOnly: alertDue(truck, startedAt),
-        }))
-        .filter((item) => item.fetchUpstream || item.alertOnly);
+  if (all.length === 0) return finish(base);
+
+  // A truck is checked because one of its alerts came due. Nothing else calls
+  // for a check, so a truck with no alerts costs nothing and is never fetched.
+  const { data: alertRows } = await admin
+    .from("truck_alerts")
+    .select("*, template:alert_rule_templates(*)")
+    .eq("is_enabled", true)
+    .in(
+      "tracked_truck_id",
+      all.map((truck) => truck.id),
+    );
+
+  const byTruck = new Map<string, TruckAlertWithTemplate[]>();
+  for (const row of (alertRows ?? []) as TruckAlertWithTemplate[]) {
+    // A rule the admin switched off stops firing without the officer losing it.
+    if (!row.template?.is_active) continue;
+    const list = byTruck.get(row.tracked_truck_id) ?? [];
+    list.push(row);
+    byTruck.set(row.tracked_truck_id, list);
+  }
+
+  const due = all
+    .map((truck) => {
+      const alerts = byTruck.get(truck.id) ?? [];
+      const ready = options.truckIds?.length
+        ? alerts
+        : alerts.filter((alert) => alertDue(alert, startedAt));
+      return { truck, alerts: ready };
+    })
+    .filter((item) => item.alerts.length > 0);
 
   const selected = due.slice(0, batch);
 
@@ -730,14 +621,14 @@ export async function runTrackingSweep(
     contexts.set(userId, await loadOfficerContext(admin, userId));
   }
 
-  const outcomes = await mapWithConcurrency(selected, CONCURRENCY, ({ truck, fetchUpstream }) =>
-    pollTruck({
+  const outcomes = await mapWithConcurrency(selected, CONCURRENCY, ({ truck, alerts }) =>
+    checkTruck({
       admin,
       truck,
+      alerts,
       context: contexts.get(truck.user_id)!,
       settings,
       now: new Date(),
-      fetchUpstream,
     }),
   );
 
@@ -763,8 +654,7 @@ export async function runTrackingSweep(
     candidates: all.length,
     due: due.length,
     deferred: Math.max(due.length - selected.length, 0),
-    polled: outcomes.filter((o) => o.status === "polled").length,
-    alerted: outcomes.filter((o) => o.status === "alerted").length,
+    checked: outcomes.filter((o) => o.status === "checked").length,
     skipped: outcomes.filter((o) => o.status === "skipped").length,
     failed: outcomes.filter((o) => o.status === "failed").length,
     newEvents: outcomes.reduce((sum, o) => sum + o.newEvents, 0),

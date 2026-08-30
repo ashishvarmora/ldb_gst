@@ -1,10 +1,11 @@
+import { CREDIT_ACTIONS, creditRefusalMessage, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { fmtDateTime } from "@/lib/format";
 import { blockedReason, loadOverview } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { syncToSheet } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { GoogleSheetConfig, QuotaVerdict } from "@/lib/types";
+import type { GoogleSheetConfig } from "@/lib/types";
 
 export type LookupResult =
   | { ok: true; found: number; newCount: number; responseMs: number }
@@ -32,28 +33,17 @@ export async function runManualLookup({
   const blocked = blockedReason(overview);
   if (blocked) return { ok: false, error: blocked, creditSpent: false };
 
-  // consume_quota is the single source of truth, so two tabs cannot slip an
+  // spend_credits is the single source of truth, so two tabs cannot slip an
   // extra search through between the check and the call.
-  const { data: quotaRaw, error: quotaError } = await admin.rpc("consume_quota", {
-    p_user: userId,
-    p_source: "manual",
-    p_amount: 1,
+  const verdict = await spendCredits({
+    admin,
+    userId,
+    action: CREDIT_ACTIONS.manualSearch,
+    truckNumber,
   });
-  if (quotaError) {
-    return { ok: false, error: `Could not check your quota: ${quotaError.message}`, creditSpent: false };
-  }
 
-  const quota = (quotaRaw ?? { allowed: false }) as QuotaVerdict;
-  if (!quota.allowed) {
-    const message =
-      quota.reason === "quota_exhausted"
-        ? `Daily limit reached — ${quota.used ?? 0} of ${quota.limit ?? 0} manual searches used. Resets at midnight IST.`
-        : quota.reason === "plan_expired"
-          ? "Your plan has expired. Contact your administrator."
-          : quota.reason === "account_suspended"
-            ? "This account is suspended."
-            : "Search refused. Contact your administrator.";
-    return { ok: false, error: message, creditSpent: false };
+  if (!verdict.allowed) {
+    return { ok: false, error: creditRefusalMessage(verdict), creditSpent: false };
   }
 
   const settings = await loadSettings(admin);
@@ -126,21 +116,34 @@ export async function runManualLookup({
   });
 
   // Keep a tracked truck's card from looking stale right after a manual check.
-  if (tracked && result.events.length > 0) {
-    const newest = result.events[0];
+  //
+  // last_polled_at is stamped even when the portal returned nothing, because it
+  // answers "when did we last look", not "when did we last find something".
+  // Without this a truck checked by hand kept reporting "never checked" until
+  // the worker happened to reach it.
+  if (tracked) {
+    const newest = result.events.length > 0 ? result.events[0] : null;
     await admin
       .from("tracked_trucks")
       .update({
-        last_event_at: newest.eventTime,
-        last_location: newest.locName,
-        last_direction: newest.direction,
+        last_polled_at: new Date().toISOString(),
+        ...(newest
+          ? {
+              last_event_at: newest.eventTime,
+              last_location: newest.locName,
+              last_direction: newest.direction,
+            }
+          : {}),
       })
       .eq("id", tracked.id);
   }
 
   await admin.rpc("touch_last_active", { p_user: userId });
 
-  if (overview.google_sheet_enabled) {
+  // The sheet is the long-term copy of where trucks have been, for after
+  // retention trims the database. It holds crossings and nothing else, so a
+  // search that turned up nothing new writes nothing.
+  if (overview.google_sheet_enabled && newCount > 0) {
     const { data: sheet } = await admin
       .from("google_sheet_configs")
       .select("*")
@@ -148,15 +151,19 @@ export async function runManualLookup({
       .maybeSingle<GoogleSheetConfig>();
 
     if (sheet?.is_enabled && sheet.spreadsheet_id) {
+      const loggedAt = fmtDateTime(new Date());
       const sync = await syncToSheet(sheet.spreadsheet_id, {
-        searches: [
-          [
-            fmtDateTime(new Date()),
-            truckNumber,
-            result.events.length,
-            newCount > 0 ? `${newCount} new crossing(s)` : "no new crossings",
-          ],
-        ],
+        events: result.events.map((event) => [
+          event.eventTime ? fmtDateTime(event.eventTime) : (event.eventTimeRaw ?? ""),
+          truckNumber,
+          event.locName ?? "",
+          event.lat ?? "",
+          event.lng ?? "",
+          event.direction ?? "",
+          event.eventName ?? "",
+          `'${event.seqNo}`,
+          loggedAt,
+        ]),
       });
       await admin
         .from("google_sheet_configs")

@@ -85,9 +85,13 @@ export function OfficerFields({
 
       {mode === "create" && plans ? (
         <FormGrid cols={2}>
-          <Field label="Plan" name="plan_id" hint="You can change this any time.">
+          <Field
+            label="Plan"
+            name="plan_id"
+            hint="Leave on the default and the account picks up the default plan and its credits by itself. You can change it any time."
+          >
             <Select name="plan_id" defaultValue="">
-              <option value="">No plan (officer cannot search yet)</option>
+              <option value="">Default plan (set in Settings)</option>
               {plans
                 .filter((plan) => plan.is_active)
                 .map((plan) => (

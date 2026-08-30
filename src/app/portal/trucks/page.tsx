@@ -1,81 +1,50 @@
-import Link from "next/link";
 import { Plus } from "lucide-react";
 
 import { addTruck } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
+import { Field, FormActions, Input } from "@/components/form";
 import { Modal } from "@/components/Modal";
 import { TruckCard } from "@/components/TruckCard";
-import { EmptyState, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
-import { fmtNumber } from "@/lib/format";
-import { IntervalField } from "@/components/IntervalField";
-import { intervalLabel, monthlyCallsAt } from "@/lib/intervals";
+import { EmptyState, PageHeader, Panel } from "@/components/ui";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
-import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { TrackedTruck } from "@/lib/types";
+import type { TrackedTruck, TruckAlertWithTemplate } from "@/lib/types";
 
 export const metadata = { title: "My trucks — Truck Watch" };
 
-const FILTERS = [
-  { key: "", label: "All" },
-  { key: "watchlist", label: "Watchlist" },
-  { key: "moving", label: "Moving" },
-  { key: "quiet", label: "No activity" },
-  { key: "paused", label: "Paused" },
-] as const;
-
-export default async function TrucksPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ filter?: string }>;
-}) {
-  const { filter } = await searchParams;
+export default async function TrucksPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ data: trucks }, settings] = await Promise.all([
+  const [{ data: trucks }, { data: alerts }] = await Promise.all([
     admin
       .from("tracked_trucks")
       .select("*")
       .eq("user_id", overview.id)
-      .order("is_watchlist", { ascending: false })
       .order("last_event_at", { ascending: false, nullsFirst: false }),
-    loadSettings(admin),
+    admin
+      .from("truck_alerts")
+      .select("*, template:alert_rule_templates(*)")
+      .eq("user_id", overview.id),
   ]);
 
   const all = (trucks ?? []) as TrackedTruck[];
 
-  const shown = all.filter((truck) => {
-    switch (filter) {
-      case "watchlist":
-        return truck.is_watchlist;
-      case "moving":
-        return truck.is_active && truck.status === "moving";
-      case "quiet":
-        return truck.is_active && truck.status === "no_activity";
-      case "paused":
-        return !truck.is_active;
-      default:
-        return true;
-    }
-  });
+  const byTruck = new Map<string, TruckAlertWithTemplate[]>();
+  for (const alert of (alerts ?? []) as TruckAlertWithTemplate[]) {
+    const list = byTruck.get(alert.tracked_truck_id) ?? [];
+    list.push(alert);
+    byTruck.set(alert.tracked_truck_id, list);
+  }
 
-  const floor = Math.max(overview.min_polling_interval_minutes, settings.globalPollingFloor);
   const slots = truckSlotsLeft(overview);
   const canAdd = slots > 0 && Boolean(overview.plan_id);
-
-  // What the current list actually costs per month, so the officer can see why
-  // the monthly pool moves the way it does.
-  const projected = all
-    .filter((truck) => truck.is_active)
-    .reduce((sum, truck) => sum + monthlyCallsAt(truck.polling_interval_minutes), 0);
 
   return (
     <>
       <PageHeader
         title="My trucks"
-        subtitle="Trucks the platform checks for you in the background. Every check is logged and can raise an alert."
+        subtitle="Trucks the platform watches for you. Each one is checked only when one of its alerts is due, so a truck with no alerts costs nothing."
         actions={
           <Modal
             triggerLabel="Add truck"
@@ -111,117 +80,30 @@ export default async function TrucksPage({
                   <Input name="label" placeholder="Textile case — supplier vehicle" />
                 </Field>
 
-                <Field
-                  label="Check every"
-                  hint={`Your administrator allows ${intervalLabel(floor)} at the fastest. A slower interval stretches your monthly pool much further.`}
-                >
-                  <IntervalField
-                    defaultMinutes={Math.max(30, floor)}
-                    floorMinutes={floor}
-                  />
-                </Field>
-
-                <Checkbox
-                  name="is_watchlist"
-                  label="Watchlist truck"
-                  hint="Alert me on every crossing, not just rule matches."
-                />
+                <p className="text-xs leading-relaxed text-muted">
+                  Once it is added, open the truck and add the alerts you want. Nothing is
+                  checked until then.
+                </p>
               </div>
               <FormActions>
-                <SubmitButton pendingLabel="Adding...">Start tracking</SubmitButton>
+                <SubmitButton pendingLabel="Adding...">Add truck</SubmitButton>
               </FormActions>
             </ActionForm>
           </Modal>
         }
       />
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Panel bodyClassName="px-4 py-3">
-          <p className="mb-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
-            Tracking slots
-          </p>
-          <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
-        </Panel>
-        <Panel bodyClassName="px-4 py-3">
-          <p className="mb-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
-            Monthly checks used
-          </p>
-          <QuotaBar
-            used={overview.tracking_queries_month}
-            limit={overview.tracking_queries_per_month}
-          />
-        </Panel>
-        <Panel bodyClassName="px-4 py-3">
-          <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
-            This list costs
-          </p>
-          <p className="mt-1.5 text-sm text-ink">
-            ~{fmtNumber(projected)} checks / month
-            {overview.tracking_queries_per_month !== -1 &&
-            projected > overview.tracking_queries_per_month ? (
-              <span className="mt-0.5 block text-xs text-warn-500">
-                More than your monthly pool. Slow some trucks down or you will run out mid-month.
-              </span>
-            ) : (
-              <span className="mt-0.5 block text-xs text-faint">
-                At the intervals you have set right now.
-              </span>
-            )}
-          </p>
-        </Panel>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {FILTERS.map((option) => {
-          const active = (filter ?? "") === option.key;
-          const count = all.filter((truck) => {
-            switch (option.key) {
-              case "watchlist":
-                return truck.is_watchlist;
-              case "moving":
-                return truck.is_active && truck.status === "moving";
-              case "quiet":
-                return truck.is_active && truck.status === "no_activity";
-              case "paused":
-                return !truck.is_active;
-              default:
-                return true;
-            }
-          }).length;
-
-          return (
-            <Link
-              key={option.key || "all"}
-              href={option.key ? `/portal/trucks?filter=${option.key}` : "/portal/trucks"}
-              className={cx(
-                "inline-flex min-h-9 items-center rounded-full border px-3.5 text-xs font-medium transition",
-                active
-                  ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
-                  : "border-line bg-panel text-muted hover:bg-sunken hover:text-ink",
-              )}
-            >
-              {option.label}
-              <span className="ml-1.5 opacity-60">{count}</span>
-            </Link>
-          );
-        })}
-      </div>
-
-      {shown.length === 0 ? (
+      {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            title={all.length === 0 ? "No trucks under tracking" : "Nothing matches this filter"}
-            description={
-              all.length === 0
-                ? "Add a truck and the platform checks it every few minutes, logs each toll crossing and messages you on Telegram when a rule matches."
-                : "Try a different filter."
-            }
+            title="No trucks under tracking"
+            description="Add a truck, then add an alert to it. The platform checks the truck when the alert is due, logs every toll crossing and messages you on Telegram."
           />
         </Panel>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((truck) => (
-            <TruckCard key={truck.id} truck={truck} />
+          {all.map((truck) => (
+            <TruckCard key={truck.id} truck={truck} alerts={byTruck.get(truck.id) ?? []} />
           ))}
         </div>
       )}

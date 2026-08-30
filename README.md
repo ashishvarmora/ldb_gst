@@ -22,8 +22,8 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 
 | Page | What you can do |
 | --- | --- |
-| **Overview** | Platform totals, 30-day usage chart, "needs attention" list (no plan, expired plan, quota exhausted, ≥80% used, truck limit hit), recent admin activity |
-| **Officers** | Create accounts (password generated and shown once), filter by name, office, district, plan or status, live quota bars per officer |
+| **Overview** | Platform totals, 30-day usage chart, "needs attention" list (expired plan, out of credits, truck limit hit), credits outstanding, recent admin activity |
+| **Officers** | Create accounts (password generated and shown once), filter by name, office, district, plan or status, credit balance per officer and top-ups |
 | **Officer detail** | Assign plan + expiry · per-officer limit overrides · Telegram + Sheet setup · 30-day usage chart · reset counters · tracked trucks · last 10 LDB calls · last 10 alerts · suspend · reset password · delete |
 | **Plans** | Create, edit, duplicate, archive, delete. Warns when a truck limit cannot be polled inside the monthly query cap |
 | **Trucks** | Every tracked truck across all officers, filter by officer/status/number |
@@ -36,31 +36,46 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 
 | Page | What an officer can do |
 | --- | --- |
-| **Home** | Big search box, quota at a glance, their trucks as status cards, recent alerts and searches |
+| **Home** | Credits held, spent today and this month; plan at a glance; today's alerts; today's usage below |
 | **Search** | Look up any registration number. Results are stored at a permanent URL, so reopening one costs nothing |
-| **Search result** | Route timeline grouped by day, map links, add to tracking, add to a case, check again |
-| **My trucks** | Status cards, filter by watchlist / moving / no activity / paused, add a truck, and a live estimate of what the current list costs per month |
-| **Truck detail** | Full route timeline, per-truck interval and watchlist settings, **the truck's two alerts and their intervals**, alerts raised for that truck, recent checks, remove (keeping history or not) |
-| **Alerts** | Read-only history of every alert sent and whether Telegram delivered it. Alerts themselves are switched on per truck, on the truck's own page |
-| **Records** | Every crossing across all their trucks in one filterable table — by truck, date range, direction, plaza — with busiest-plaza analytics and CSV export |
+| **Search result** | The route first, full width, then the detail underneath — plaza, state, timings, last crossing, add to tracking, add to a case |
+| **My trucks** | The trucks under automatic checking, each showing its alerts and when it was last checked |
+| **Truck detail** | Full route timeline, **the truck's alerts** — add as many as you like from the admin's catalogue, each with its own interval — alerts raised, recent checks, remove |
+| **Records** | Every crossing in one place, either merged per truck number or as a flat filterable table, with analytics and CSV export |
 | **Cases** | Case folders — paste a whole list of registration numbers, then read one combined timeline across the group |
-| **My plan** | What the plan includes, when it started and ends, days remaining, every allowance with usage, and what their current truck list will cost this month |
+| **My plan** | Credit balance and history, what each action costs, what the plan includes, when it expires |
 | **Settings** | Connect Telegram (with a test message), connect a Google Sheet (with a test), see their own 30-day usage |
 
 Sidebar on desktop, thumb-reachable tab bar on mobile — officers work from phones.
 
 ---
 
-## Two limits, not one
+## One credit balance
 
-Every officer has two independent quotas, as specified:
+An officer has a single number to think about. There used to be two quotas —
+searches per day and tracking queries per month — and you had to hold both in
+your head to know whether anything would work.
 
-- **Manual searches — per day.** The officer typing a number into the dashboard.
-- **Tracking queries — per month.** Background polling of tracked trucks.
+Every chargeable action draws on the same balance, and the admin sets the rate
+in `credit_rates`:
 
-Plus `truck_limit`, `min_polling_interval_minutes`, `min_alert_interval_minutes`,
-a case-folder cap, and three feature switches (Telegram, Sheets, truck alerts).
-Searching never eats into the tracking pool, and vice versa.
+| Action | Default rate |
+| --- | --- |
+| Manual search | 1 credit = 1 search |
+| Automatic check | 1 credit = 2 checks |
+
+Rates are stored as *how many of the action one credit buys*, because that is
+how they are spoken. Adding a chargeable action later is a row, not a
+migration. `spend_credits()` does the check and the decrement in one statement
+under a row lock, so two tabs cannot both spend the last credit, and every
+movement is written to `credit_transactions` — a wrong balance can always be
+reconstructed.
+
+A **plan** no longer says how much an account may use, only what it may reach:
+`truck_limit`, a case-folder cap, retention, and three feature switches
+(Telegram, Sheets, truck alerts). Plans are assigned automatically on sign-up
+and carry an opening allocation (`included_credits`); admins top up on
+top of it.
 
 How a number is stored:
 
@@ -74,9 +89,11 @@ How a number is stored:
 In the UI you type a number or the word `unlimited`; a blank override means inherit.
 The officer detail page shows plan value / override / effective side by side.
 
-**Quota arithmetic:** one truck at 10 minutes is ~4,320 calls a month. So a
-50-truck / 10,000-query plan really supports about two trucks at 10 minutes, or eight
-at 30. Both the plan editor and the officer's own truck list warn about this.
+**Credit arithmetic:** a truck with a 30-minute alert is 48 checks a day. At
+1 credit = 2 checks that is 24 credits a day, so a 500-credit opening balance
+covers roughly three weeks of one truck. Trucks are meant to be watched for
+days, not months — an alert is switched off, or the truck removed, when the
+case moves on.
 
 ---
 
@@ -88,7 +105,7 @@ Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the view
 `security_invoker`). In **SQL Editor**, run these in order:
 
 1. `supabase/migrations/0001_init.sql` — tables, indexes, triggers
-2. `supabase/migrations/0002_views_rls_seed.sql` — views, `consume_quota()`, RLS,
+2. `supabase/migrations/0002_views_rls_seed.sql` — helpers, RLS,
    three starter plans, default settings
 3. `supabase/migrations/0003_worker_rpcs.sql` — worker RPCs and extra indexes
 4. `supabase/migrations/0004_retention_and_records.sql` — data retention and the
@@ -97,9 +114,23 @@ Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the view
    its backfill
 6. `supabase/migrations/0006_store_movements_only.sql` — drops the repeats and
    the flag; the worker now filters before writing
+7. `supabase/migrations/0007_two_truck_alerts.sql` — retires the eight rule kinds
+8. `supabase/migrations/0008_credits_and_alert_rules.sql` — one credit balance,
+   and the admin's alert-rule catalogue
 
-All six are idempotent, so re-running them is safe. `node scripts/push-migrations.mjs`
-applies them in order over a direct connection.
+`node scripts/push-migrations.mjs` applies them in order over a direct
+connection. Every file is idempotent and is re-applied on each run, so they all
+have to stay valid against the *current* schema, not just the schema of their
+own day — which is why the later ones edit the earlier ones.
+
+Before applying anything to a live database:
+
+```bash
+npm run migrate:check
+```
+
+That runs the whole chain inside one transaction and rolls it back, so a syntax
+error or a broken dependency order surfaces without touching your data.
 
 ### 2. Environment
 
@@ -285,8 +316,8 @@ src/
                             SearchBox · UsageChart · AdminNav · PortalNav
   lib/
     limits.ts               single source of truth for every limit
-    tracking.ts             the sweep: quota -> poll -> store -> alert -> sheet
-    alerts.ts               the two built-in alerts, evaluated per truck
+    tracking.ts             the sweep: credits -> check -> store -> alert -> sheet
+    alerts.ts               the three alert rules, evaluated per truck alert
     ldb.ts                  LDB client + response parser
     telegram.ts  sheets.ts  delivery
     geo.ts                  toll-plaza -> state keyword table

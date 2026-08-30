@@ -27,7 +27,6 @@ const ACTION_TONE: Record<string, "good" | "warn" | "bad" | "brand" | "neutral">
   "officer.reactivate": "good",
   "officer.reset_password": "warn",
   "officer.update_integrations": "neutral",
-  "officer.reset_usage": "warn",
   "officer.delete": "bad",
   "plan.create": "good",
   "plan.update": "brand",
@@ -35,7 +34,18 @@ const ACTION_TONE: Record<string, "good" | "warn" | "bad" | "brand" | "neutral">
   "plan.archive": "warn",
   "plan.reactivate": "good",
   "plan.delete": "bad",
+  "credits.grant": "good",
+  "credit_rate.update": "warn",
+  "alert_rule.create": "good",
+  "alert_rule.update": "brand",
+  "alert_rule.reorder": "neutral",
+  "alert_rule.activate": "good",
+  "alert_rule.deactivate": "warn",
+  "alert_rule.delete": "bad",
   "settings.update": "brand",
+  "settings.update_payment": "warn",
+  "tracking.manual_run": "neutral",
+  "data.purge": "bad",
 };
 
 export default async function AuditPage({

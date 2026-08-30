@@ -1,73 +1,63 @@
 import {
   AlertTriangle,
-  Bell,
   CalendarDays,
   CheckCircle2,
-  Clock,
   Database,
   FolderOpen,
-  Gauge,
-  Search,
-  Sheet,
   Truck,
+  Wallet,
   XCircle,
 } from "lucide-react";
 
-import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Badge,
   DescRow,
+  EmptyState,
   LinkButton,
+  Mono,
   PageHeader,
   Panel,
   QuotaBar,
+  StatCard,
   cx,
 } from "@/components/ui";
-import { fmtDate, fmtNumber, fmtRelative, istDaysAgo, istToday } from "@/lib/format";
-import { intervalLabel, monthlyCallsAt } from "@/lib/intervals";
+import { CREDIT_REASON_LABEL, describeRate, formatCredits, loadCreditRates } from "@/lib/credits";
+import { fmtDate, fmtDateTime, fmtRupees, istToday } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { requirePortalSession } from "@/lib/officer";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { TrackedTruck, UsageCounter } from "@/lib/types";
+import type { CreditTransaction } from "@/lib/types";
 
 export const metadata = { title: "My plan — Truck Watch" };
 
 /**
- * Everything an officer might want to know about what they are allowed to do:
- * what the plan includes, when it started, when it runs out, and how much of
- * each allowance is left. All of it is set by their administrator.
+ * What the account may reach, and what it has left to spend.
+ *
+ * Everything chargeable comes out of one credit balance now, so the page is
+ * built around that balance and its ledger rather than a row of allowances an
+ * officer had to hold in their head.
  */
 export default async function PlanPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ data: usage }, { data: trucks }, { count: caseCount }] = await Promise.all([
+  const [{ data: ledger }, rates, { count: caseCount }, settings] = await Promise.all([
     admin
-      .from("usage_counters")
+      .from("credit_transactions")
       .select("*")
       .eq("user_id", overview.id)
-      .gte("usage_date", istDaysAgo(29)),
-    admin
-      .from("tracked_trucks")
-      .select("*")
-      .eq("user_id", overview.id)
-      .eq("is_active", true),
+      .order("created_at", { ascending: false })
+      .limit(30),
+    loadCreditRates(admin),
     admin
       .from("truck_groups")
       .select("id", { count: "exact", head: true })
       .eq("user_id", overview.id),
+    loadSettings(admin),
   ]);
 
-  const series = buildUsageSeries((usage ?? []) as UsageCounter[], 30);
-  const active = (trucks ?? []) as TrackedTruck[];
-
-  // What the current truck list will actually consume this month.
-  const projected = active.reduce(
-    (sum, truck) => sum + monthlyCallsAt(truck.polling_interval_minutes),
-    0,
-  );
-  const overCommitted =
-    overview.tracking_queries_per_month !== -1 && projected > overview.tracking_queries_per_month;
+  const history = (ledger ?? []) as CreditTransaction[];
 
   const today = istToday();
   const expiresOn = overview.plan_expires_on;
@@ -100,7 +90,7 @@ export default async function PlanPage() {
     <>
       <PageHeader
         title="My plan"
-        subtitle="What your account is allowed to do, and how much of it you have used. Your administrator sets all of this."
+        subtitle="What your account is allowed to do, what it has left to spend, and where the credits went. Your administrator sets all of this."
       />
 
       {expired ? (
@@ -121,7 +111,32 @@ export default async function PlanPage() {
         </div>
       ) : null}
 
-      {/* ---------------------------------------------------------------- */}
+      {/* ------------------------------- balance ------------------------- */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Credits left"
+          value={formatCredits(overview.credits)}
+          sub="pays for everything"
+          tone={overview.credits <= 0 ? "bad" : "brand"}
+          icon={<Wallet size={14} />}
+        />
+        <StatCard
+          label="Included with plan"
+          value={formatCredits(overview.included_credits ?? 0)}
+          sub="added by your administrator"
+        />
+        <StatCard label="Spent today" value={formatCredits(overview.credits_spent_today)} />
+        <StatCard label="Spent this month" value={formatCredits(overview.credits_spent_month)} />
+      </div>
+
+      {!settings.razorpayEnabled ? (
+        <p className="mb-5 rounded-xl border border-line bg-panel px-4 py-3 text-sm leading-relaxed text-muted">
+          Buying credits online is not set up yet — ask your administrator to add credits to your
+          account.
+        </p>
+      ) : null}
+
+      {/* ------------------------------- the plan ------------------------ */}
       <Panel className="mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -137,6 +152,9 @@ export default async function PlanPage() {
         </div>
 
         <dl className="mt-4 grid grid-cols-1 gap-x-8 border-t border-divider pt-3 sm:grid-cols-2">
+          <DescRow label="Price">
+            {overview.price_per_month ? `${fmtRupees(overview.price_per_month)} a month` : "--"}
+          </DescRow>
           <DescRow label="Started">
             {overview.plan_assigned_at ? fmtDate(overview.plan_assigned_at) : "--"}
           </DescRow>
@@ -146,9 +164,6 @@ export default async function PlanPage() {
             ) : (
               <span className="text-good-500">No end date</span>
             )}
-          </DescRow>
-          <DescRow label="Running for">
-            {overview.plan_assigned_at ? fmtRelative(overview.plan_assigned_at).replace(" ago", "") : "--"}
           </DescRow>
           <DescRow label="Days remaining">
             {daysLeft === null ? "unlimited" : expired ? "0" : `${daysLeft}`}
@@ -163,231 +178,136 @@ export default async function PlanPage() {
         ) : null}
       </Panel>
 
-      {/* ------------------------------- allowances ---------------------- */}
-      <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted uppercase">
-        Your allowances right now
-      </h2>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        {/* ----------------------------- ledger -------------------------- */}
+        <div className="lg:col-span-2">
+          <Panel
+            title="Credit history"
+            description="Your last 30 credit movements, newest first."
+            bodyClassName="p-0"
+          >
+            {history.length === 0 ? (
+              <EmptyState
+                title="Nothing spent yet"
+                description="Searches and automatic checks show up here as soon as they run."
+              />
+            ) : (
+              <ul className="divide-y divide-divider">
+                {history.map((row) => (
+                  <li
+                    key={row.id}
+                    className="flex items-start justify-between gap-3 px-4 py-2.5"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm text-ink">
+                        {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
+                      </span>
+                      <span className="block text-xs text-faint">
+                        {fmtDateTime(row.created_at)}
+                        {row.truck_number ? (
+                          <>
+                            {" · "}
+                            <Mono className="text-muted">{row.truck_number}</Mono>
+                          </>
+                        ) : null}
+                      </span>
+                      {row.note ? (
+                        <span className="mt-0.5 block text-xs text-muted">{row.note}</span>
+                      ) : null}
+                    </span>
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <AllowanceCard
-          icon={<Search size={15} />}
-          title="Manual searches"
-          period="per day, resets at midnight IST"
-          used={overview.manual_searches_today}
-          limit={overview.manual_search_limit_per_day}
-          note="Every time you search a number yourself, or press Check again."
-        />
-        <AllowanceCard
-          icon={<Gauge size={15} />}
-          title="Automatic checks"
-          period="per month, resets on the 1st"
-          used={overview.tracking_queries_month}
-          limit={overview.tracking_queries_per_month}
-          note="Background checking of your tracked trucks. A separate pool from searches."
-        />
-        <AllowanceCard
-          icon={<Truck size={15} />}
-          title="Tracked trucks"
-          period="at any one time"
-          used={overview.active_trucks}
-          limit={overview.truck_limit}
-          note="Pausing a truck frees its slot immediately."
-        />
-        <AllowanceCard
-          icon={<Bell size={15} />}
-          title="Fastest alerting"
-          period="per truck"
-          custom={
-            overview.alerts_enabled
-              ? intervalLabel(overview.min_alert_interval_minutes)
-              : "Not included"
-          }
-          note="Alerts are switched on one truck at a time. You may pick this or anything slower."
-        />
-        <AllowanceCard
-          icon={<FolderOpen size={15} />}
-          title="Case folders"
-          period="total"
-          used={caseCount ?? 0}
-          limit={overview.max_truck_groups}
-          hideBar
-          note="Group the vehicles in one investigation."
-        />
-        <AllowanceCard
-          icon={<Clock size={15} />}
-          title="Fastest checking"
-          period="per truck"
-          custom={intervalLabel(overview.min_polling_interval_minutes)}
-          note="You may pick this or anything slower, never faster."
-        />
-      </div>
+                    <span className="shrink-0 text-right">
+                      <span
+                        className={cx(
+                          "block text-sm font-medium tabular-nums",
+                          row.delta < 0 ? "text-bad-500" : "text-good-500",
+                        )}
+                      >
+                        {row.delta < 0 ? "−" : "+"}
+                        {formatCredits(Math.abs(row.delta))}
+                      </span>
+                      <span className="block text-xs tabular-nums text-faint">
+                        {formatCredits(row.balance_after)} left
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
 
-      {/* ------------------------------- what it includes ---------------- */}
-      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Panel title="What this plan includes" className="lg:col-span-2">
-          <ul className="space-y-2.5">
-            <Feature on label="Search any registration number" />
-            <Feature on label="Background tracking with a route timeline for every truck" />
-            <Feature on label="Records view with filtering and CSV export" />
-            <Feature
-              on={overview.alerts_enabled}
-              label={`Truck alerts — set per truck, at most one every ${intervalLabel(overview.min_alert_interval_minutes)}`}
-            />
-            <Feature
-              on={overview.telegram_enabled}
-              label="Telegram alerts sent to your phone"
-            />
-            <Feature
-              on={overview.google_sheet_enabled}
-              label="Google Sheet sync — a permanent copy of every crossing"
-            />
-            <Feature
-              on={overview.max_truck_groups !== 0}
-              label={`Case folders — ${formatLimit(overview.max_truck_groups)} allowed`}
-            />
-          </ul>
-        </Panel>
-
-        <Panel title="History kept in the app">
-          <div className="flex items-start gap-2.5">
-            <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
-            <div>
-              <p className="text-sm text-ink">
-                {overview.data_retention_days === -1
-                  ? "Kept indefinitely"
-                  : `${overview.data_retention_days} days`}
+        {/* ----------------------------- rates and limits ---------------- */}
+        <div className="space-y-5">
+          <Panel title="What each action costs">
+            {rates.length === 0 ? (
+              <p className="text-sm text-muted">
+                No rates are set yet. Ask your administrator what an action costs.
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                Older crossings are cleared from the app automatically. You mainly need recent
-                movement, and keeping less makes everything faster.
-              </p>
+            ) : (
+              <ul className="space-y-3">
+                {rates.map((rate) => (
+                  <li key={rate.action}>
+                    <p className="text-sm font-medium text-ink">{rate.label}</p>
+                    <p className="mt-0.5 text-sm text-brand-500">{describeRate(rate)}</p>
+                    {rate.description ? (
+                      <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                        {rate.description}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel title="What your plan allows">
+            <div className="space-y-3">
+              <div>
+                <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+                  <Truck size={12} />
+                  Tracked trucks
+                </p>
+                <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
+              </div>
+              <div>
+                <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+                  <FolderOpen size={12} />
+                  Case folders
+                </p>
+                <QuotaBar used={caseCount ?? 0} limit={overview.max_truck_groups} />
+              </div>
             </div>
-          </div>
 
-          <div className="mt-3 flex items-start gap-2.5 border-t border-divider pt-3">
-            <Sheet
-              size={16}
-              className={cx(
-                "mt-0.5 shrink-0",
-                overview.sheet_connected ? "text-good-500" : "text-warn-500",
-              )}
-            />
-            <div>
-              <p className="text-sm text-ink">
-                {overview.sheet_connected ? "Google Sheet connected" : "No Google Sheet"}
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                {overview.sheet_connected ? (
-                  <>
-                    Your sheet keeps <strong className="text-ink">everything</strong>, so clearing
-                    old records from the app loses nothing. Last synced{" "}
-                    {fmtRelative(overview.sheet_last_synced_at)}.
-                  </>
-                ) : (
-                  <span className="text-warn-500">
-                    Without a sheet the app is your only copy, so old records are not cleared —
-                    but nothing is backed up either. Connect one in Settings.
-                  </span>
-                )}
-              </p>
+            <dl className="mt-4 border-t border-divider pt-3">
+              <DescRow label="History kept">
+                <span className="inline-flex items-center gap-1.5">
+                  <Database size={12} className="text-faint" />
+                  {overview.data_retention_days === -1
+                    ? "indefinitely"
+                    : `${formatLimit(overview.data_retention_days)} days`}
+                </span>
+              </DescRow>
+            </dl>
+
+            <ul className="mt-3 space-y-2.5 border-t border-divider pt-3">
+              <Feature on={overview.alerts_enabled} label="Truck alerts, set per truck" />
+              <Feature on={overview.telegram_enabled} label="Alerts delivered on Telegram" />
+              <Feature
+                on={overview.google_sheet_enabled}
+                label="Google Sheet log of every crossing"
+              />
+            </ul>
+
+            <div className="mt-4">
+              <LinkButton href="/portal/settings" size="sm" variant="secondary">
+                Settings
+              </LinkButton>
             </div>
-          </div>
-
-          <div className="mt-3">
-            <LinkButton href="/portal/settings" size="sm" variant="secondary">
-              Settings
-            </LinkButton>
-          </div>
-        </Panel>
+          </Panel>
+        </div>
       </div>
-
-      {/* ------------------------------- projection ---------------------- */}
-      {active.length > 0 ? (
-        <Panel
-          className="mb-5"
-          title="What your current trucks will use"
-          description="Based on the interval set on each truck right now."
-        >
-          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            <p className="text-2xl font-semibold tabular-nums text-strong">
-              ~{fmtNumber(projected)}
-            </p>
-            <p className="text-sm text-muted">
-              automatic checks a month, against your allowance of{" "}
-              {formatLimit(overview.tracking_queries_per_month)}
-            </p>
-          </div>
-          {overCommitted ? (
-            <p className="mt-3 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
-              That is more than your monthly allowance, so checking will stop part-way through the
-              month. Set a slower interval on the trucks that do not need minute-by-minute detail —
-              going from 10 minutes to 30 cuts a truck&apos;s cost by two thirds.
-            </p>
-          ) : (
-            <p className="mt-2 text-xs text-muted">
-              Comfortably inside your allowance. Each truck at{" "}
-              {intervalLabel(active[0]?.polling_interval_minutes ?? 30)} costs about{" "}
-              {fmtNumber(monthlyCallsAt(active[0]?.polling_interval_minutes ?? 30))} checks a month.
-            </p>
-          )}
-        </Panel>
-      ) : null}
-
-      <Panel title="Your usage, last 30 days">
-        <UsageChart series={series} />
-      </Panel>
     </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-function AllowanceCard({
-  icon,
-  title,
-  period,
-  used,
-  limit,
-  custom,
-  note,
-  hideBar,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  period: string;
-  used?: number;
-  limit?: number;
-  custom?: string;
-  note: string;
-  hideBar?: boolean;
-}) {
-  const blocked = limit === 0;
-
-  return (
-    <div className="panel p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-medium text-ink">
-            <span className="text-brand-500">{icon}</span>
-            {title}
-          </p>
-          <p className="mt-0.5 text-[11px] text-faint">{period}</p>
-        </div>
-        {blocked ? <Badge tone="bad">not included</Badge> : null}
-      </div>
-
-      <p className="mt-3 text-xl font-semibold tabular-nums text-strong">
-        {custom ?? (limit === -1 ? "Unlimited" : `${fmtNumber(used ?? 0)} / ${fmtNumber(limit ?? 0)}`)}
-      </p>
-
-      {!hideBar && !custom && limit !== undefined ? (
-        <div className="mt-2">
-          <QuotaBar used={used ?? 0} limit={limit} />
-        </div>
-      ) : null}
-
-      <p className="mt-2 text-xs leading-relaxed text-muted">{note}</p>
-    </div>
   );
 }
 

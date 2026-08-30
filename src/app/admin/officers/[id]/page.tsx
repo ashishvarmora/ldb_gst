@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   Bell,
+  Coins,
   KeyRound,
   MessageCircle,
   PauseCircle,
@@ -10,6 +11,7 @@ import {
   Sheet,
   Trash2,
   Truck,
+  Wallet,
 } from "lucide-react";
 
 import { OverridesPanel } from "./OverridesPanel";
@@ -18,11 +20,11 @@ import {
   assignPlan,
   deleteOfficer,
   resetOfficerPassword,
-  resetOfficerUsage,
   saveOfficerIntegrations,
   setOfficerStatus,
   updateOfficer,
 } from "../actions";
+import { GrantCreditsForm } from "../../credits/GrantCreditsForm";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -48,10 +50,13 @@ import {
   Tr,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
 import { fmtDateTime, fmtRelative, initials } from "@/lib/format";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   AlertLog,
+  CreditTransaction,
   LimitOverrides,
   OfficerOverview,
   Plan,
@@ -116,6 +121,9 @@ export default async function OfficerDetailPage({
     { data: usage },
     { data: telegram },
     { data: sheet },
+    { data: ledger },
+    { data: truckAlerts },
+    settings,
   ] = await Promise.all([
     admin.from("profiles").select("*").eq("id", id).maybeSingle<Profile>(),
     admin.from("plans").select("*").order("sort_order"),
@@ -141,6 +149,14 @@ export default async function OfficerDetailPage({
     admin.from("usage_counters").select("*").eq("user_id", id).gte("usage_date", since),
     admin.from("telegram_configs").select("*").eq("user_id", id).maybeSingle(),
     admin.from("google_sheet_configs").select("*").eq("user_id", id).maybeSingle(),
+    admin
+      .from("credit_transactions")
+      .select("*")
+      .eq("user_id", id)
+      .order("created_at", { ascending: false })
+      .limit(15),
+    admin.from("truck_alerts").select("tracked_truck_id, is_enabled").eq("user_id", id),
+    loadSettings(admin),
   ]);
 
   const planList = (plans ?? []) as Plan[];
@@ -148,10 +164,21 @@ export default async function OfficerDetailPage({
   const truckList = (trucks ?? []) as TrackedTruck[];
   const searchList = (searches ?? []) as SearchLog[];
   const alertList = (alerts ?? []) as AlertLog[];
+  const movements = (ledger ?? []) as CreditTransaction[];
   const series = buildUsageSeries((usage ?? []) as UsageCounter[], 30);
   const suspended = overview.status === "suspended";
   const expired =
     overview.plan_expires_on !== null && new Date(overview.plan_expires_on) < new Date();
+
+  const balance = Number(overview.credits ?? 0);
+
+  // A truck has no schedule of its own - it is checked when one of its alerts
+  // is due, so the alert count is what says whether anything happens at all.
+  const alertsPerTruck = new Map<string, number>();
+  for (const row of (truckAlerts ?? []) as { tracked_truck_id: string; is_enabled: boolean }[]) {
+    if (!row.is_enabled) continue;
+    alertsPerTruck.set(row.tracked_truck_id, (alertsPerTruck.get(row.tracked_truck_id) ?? 0) + 1);
+  }
 
   return (
     <>
@@ -242,35 +269,32 @@ export default async function OfficerDetailPage({
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
+          label="Credits left"
+          value={formatCredits(balance)}
+          sub={
+            balance <= 0
+              ? "Out of credits — every search is refused"
+              : `Worth about Rs ${(balance * settings.creditPriceInr).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+          }
+          tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "brand"}
+          icon={<Wallet size={15} />}
+        />
+        <StatCard
+          label="Credits spent"
+          value={formatCredits(overview.credits_spent_month)}
+          sub={`${formatCredits(overview.credits_spent_today)} today · this month so far`}
+          icon={<Coins size={15} />}
+        />
+        <StatCard
           label="Tracked trucks"
           value={overview.active_trucks}
           sub={<QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />}
           icon={<Truck size={15} />}
         />
         <StatCard
-          label="Searches today"
-          value={overview.manual_searches_today}
-          sub={
-            <QuotaBar
-              used={overview.manual_searches_today}
-              limit={overview.manual_search_limit_per_day}
-            />
-          }
-        />
-        <StatCard
-          label="Queries this month"
-          value={overview.tracking_queries_month}
-          sub={
-            <QuotaBar
-              used={overview.tracking_queries_month}
-              limit={overview.tracking_queries_per_month}
-            />
-          }
-        />
-        <StatCard
           label="Alerts today"
           value={overview.alerts_today}
-          sub={`Last event ${fmtRelative(overview.last_event_at)}`}
+          sub={`${overview.active_alerts} switched on · last event ${fmtRelative(overview.last_event_at)}`}
           icon={<Bell size={15} />}
         />
       </div>
@@ -279,30 +303,67 @@ export default async function OfficerDetailPage({
         <div className="space-y-5 xl:col-span-2">
           <OverridesPanel officer={overview} plan={currentPlan} overrides={overrides ?? null} />
 
-          <Panel title="Usage, last 30 days" description="Manual searches and background tracking calls per day.">
+          <Panel
+            title="Usage, last 30 days"
+            description="Manual searches and background checks per day. Nothing here is a quota — it is what the credits below were spent on."
+          >
             <UsageChart series={series} />
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-divider pt-4">
-              <InlineActionForm action={resetOfficerUsage} hidden={{ user_id: id, scope: "today" }}>
-                <ConfirmSubmitButton
-                  variant="secondary"
-                  message="Reset today's counters to zero for this officer?"
-                >
-                  Reset today
-                </ConfirmSubmitButton>
-              </InlineActionForm>
-              <InlineActionForm action={resetOfficerUsage} hidden={{ user_id: id, scope: "month" }}>
-                <ConfirmSubmitButton
-                  variant="secondary"
-                  message="Reset every counter for this month to zero?"
-                >
-                  Reset this month
-                </ConfirmSubmitButton>
-              </InlineActionForm>
-              <p className="ml-auto max-w-xs text-right text-xs text-faint">
-                Resetting counters grants quota back immediately. It does not delete the LDB call
-                history.
-              </p>
-            </div>
+          </Panel>
+
+          <Panel
+            title="Credit history"
+            description="Every movement on this officer's balance, newest first."
+            bodyClassName="p-0"
+          >
+            {movements.length === 0 ? (
+              <EmptyState
+                title="No movements yet"
+                description="Add credits on the right, or wait for their first search to be charged."
+              />
+            ) : (
+              <TableWrap>
+                <Thead>
+                  <th className="th">When</th>
+                  <th className="th">Reason</th>
+                  <th className="th">Truck</th>
+                  <th className="th text-right">Change</th>
+                  <th className="th text-right">Balance after</th>
+                </Thead>
+                <Tbody>
+                  {movements.map((row) => (
+                    <Tr key={row.id}>
+                      <td className="td text-xs whitespace-nowrap text-muted">
+                        {fmtDateTime(row.created_at)}
+                      </td>
+                      <td className="td">
+                        <span className="block text-sm text-ink">
+                          {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
+                        </span>
+                        {row.note ? (
+                          <span className="block max-w-xs truncate text-xs text-faint">
+                            {row.note}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="td">
+                        {row.truck_number ? <Mono>{row.truck_number}</Mono> : "--"}
+                      </td>
+                      <td
+                        className={`td text-right text-sm font-medium tabular-nums ${
+                          Number(row.delta) < 0 ? "text-muted" : "text-good-500"
+                        }`}
+                      >
+                        {Number(row.delta) > 0 ? "+" : "-"}
+                        {formatCredits(Math.abs(Number(row.delta)))}
+                      </td>
+                      <td className="td text-right text-sm tabular-nums text-ink">
+                        {formatCredits(row.balance_after)}
+                      </td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </TableWrap>
+            )}
           </Panel>
 
           <Panel
@@ -316,25 +377,32 @@ export default async function OfficerDetailPage({
               <TableWrap>
                 <Thead>
                   <th className="th">Truck</th>
-                  <th className="th">Interval</th>
+                  <th className="th">Alerts on</th>
                   <th className="th">Last toll</th>
                   <th className="th">Last seen</th>
                   <th className="th">Status</th>
                 </Thead>
                 <Tbody>
-                  {truckList.map((truck) => (
+                  {truckList.map((truck) => {
+                    const alertCount = alertsPerTruck.get(truck.id) ?? 0;
+                    return (
                     <Tr key={truck.id}>
                       <td className="td">
                         <span className="flex items-center gap-2">
                           <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
-                          {truck.is_watchlist ? <Badge tone="warn">watchlist</Badge> : null}
                           {truck.is_active ? null : <Badge>paused</Badge>}
                         </span>
                         {truck.label ? (
                           <span className="block text-xs text-faint">{truck.label}</span>
                         ) : null}
                       </td>
-                      <td className="td text-sm tabular-nums">{truck.polling_interval_minutes} min</td>
+                      <td className="td">
+                        {alertCount === 0 ? (
+                          <Badge tone="warn">never checked</Badge>
+                        ) : (
+                          <span className="text-sm tabular-nums text-ink">{alertCount}</span>
+                        )}
+                      </td>
                       <td className="td text-sm">{truck.last_location ?? "--"}</td>
                       <td className="td text-xs whitespace-nowrap text-muted">
                         {fmtRelative(truck.last_event_at)}
@@ -345,7 +413,8 @@ export default async function OfficerDetailPage({
                         </Badge>
                       </td>
                     </Tr>
-                  ))}
+                    );
+                  })}
                 </Tbody>
               </TableWrap>
             )}
@@ -383,7 +452,18 @@ export default async function OfficerDetailPage({
               )}
             </Panel>
 
-            <Panel title="Last 10 alerts" bodyClassName="p-0">
+            <Panel
+              title="Last 10 alerts"
+              bodyClassName="p-0"
+              actions={
+                <Link
+                  href={`/admin/alerts/log?officer=${id}`}
+                  className="text-xs text-brand-400 hover:underline"
+                >
+                  Full log
+                </Link>
+              }
+            >
               {alertList.length === 0 ? (
                 <EmptyState title="No alerts yet" />
               ) : (
@@ -409,6 +489,49 @@ export default async function OfficerDetailPage({
         </div>
 
         <div className="space-y-5">
+          <Panel
+            title="Credits"
+            description="One balance pays for every search and every background check."
+            actions={
+              <Badge tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "good"}>
+                {formatCredits(balance)} left
+              </Badge>
+            }
+          >
+            <p className="mb-4 flex items-baseline gap-2">
+              <span className="text-3xl font-semibold tabular-nums text-strong">
+                {formatCredits(balance)}
+              </span>
+              <span className="text-sm text-muted">
+                credits · about Rs{" "}
+                {(balance * settings.creditPriceInr).toLocaleString("en-IN", {
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            </p>
+
+            <GrantCreditsForm userId={id} pricePerCredit={settings.creditPriceInr} />
+
+            <dl className="mt-4 border-t border-divider pt-3">
+              <DescRow label="Spent today">{formatCredits(overview.credits_spent_today)}</DescRow>
+              <DescRow label="Spent this month">
+                {formatCredits(overview.credits_spent_month)}
+              </DescRow>
+              <DescRow label="Plan includes">
+                {overview.included_credits === null
+                  ? "--"
+                  : `${formatCredits(overview.included_credits)} on assignment`}
+              </DescRow>
+            </dl>
+
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
+              {settings.razorpayEnabled
+                ? "Officers can also buy credits themselves once the Razorpay secret is set in the environment."
+                : "Officers cannot buy credits themselves yet — switch on payments in Settings when you have Razorpay keys."}{" "}
+              Rates for each action are set under Credits.
+            </p>
+          </Panel>
+
           <Panel title="Plan" description="Changing the plan takes effect on the next search.">
             <ActionForm action={assignPlan} closeOnSuccess={false}>
               <input type="hidden" name="user_id" value={id} />

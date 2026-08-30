@@ -20,6 +20,7 @@ import {
   buttonClass,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { formatCredits } from "@/lib/credits";
 import { fmtRelative, initials } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview, Plan } from "@/lib/types";
@@ -66,7 +67,7 @@ export default async function OfficersPage({
     <>
       <PageHeader
         title="Officers"
-        subtitle="Every GST officer account on the platform, with the quota they are using right now."
+        subtitle="Every GST officer account on the platform, with the credits they have left right now."
         actions={
           <Modal
             triggerLabel="New officer"
@@ -151,8 +152,8 @@ export default async function OfficersPage({
               <th className="th">Posting</th>
               <th className="th">Plan</th>
               <th className="th">Trucks</th>
-              <th className="th">Searches today</th>
-              <th className="th">Queries this month</th>
+              <th className="th text-right">Credits left</th>
+              <th className="th text-right">Spent this month</th>
               <th className="th">Links</th>
               <th className="th">Last event</th>
             </Thead>
@@ -206,18 +207,22 @@ export default async function OfficersPage({
                     <QuotaBar used={officer.active_trucks} limit={officer.truck_limit} />
                   </td>
 
-                  <td className="td">
-                    <QuotaBar
-                      used={officer.manual_searches_today}
-                      limit={officer.manual_search_limit_per_day}
-                    />
+                  <td className="td text-right">
+                    <Badge
+                      tone={
+                        Number(officer.credits ?? 0) <= 0
+                          ? "bad"
+                          : Number(officer.credits ?? 0) < 20
+                            ? "warn"
+                            : "good"
+                      }
+                    >
+                      {formatCredits(officer.credits)}
+                    </Badge>
                   </td>
 
-                  <td className="td">
-                    <QuotaBar
-                      used={officer.tracking_queries_month}
-                      limit={officer.tracking_queries_per_month}
-                    />
+                  <td className="td text-right text-sm tabular-nums text-muted">
+                    {formatCredits(officer.credits_spent_month)}
                   </td>
 
                   <td className="td">

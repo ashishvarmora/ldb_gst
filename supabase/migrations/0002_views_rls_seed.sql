@@ -30,183 +30,14 @@ revoke all on function public.is_super_admin() from public;
 grant execute on function public.is_super_admin() to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- officer_effective_limits
---   override (if not null) -> plan -> hard fallback
+-- officer_effective_limits / officer_overview used to be built here and then
+-- rebuilt by 0004 and 0007. Three copies of the same select had to be kept in
+-- step every time a limit changed, and one of them was always the stale one.
+-- They are now defined once, at the end of 0008, on the final column set.
+--
+-- consume_quota also lived here. Per-day and per-month allowances were
+-- replaced by a single credit balance in 0008; spend_credits() took over.
 -- ---------------------------------------------------------------------------
-drop view if exists public.officer_overview;
-drop view if exists public.officer_effective_limits;
-
-create view public.officer_effective_limits with (security_invoker = on) as
-select
-  p.id as user_id,
-  coalesce(o.truck_limit,                  pl.truck_limit,                  0) as truck_limit,
-  coalesce(o.manual_search_limit_per_day,  pl.manual_search_limit_per_day,  0) as manual_search_limit_per_day,
-  coalesce(o.tracking_queries_per_month,   pl.tracking_queries_per_month,   0) as tracking_queries_per_month,
-  coalesce(o.min_alert_interval_minutes,   pl.min_alert_interval_minutes,   15) as min_alert_interval_minutes,
-  coalesce(o.max_truck_groups,             pl.max_truck_groups,             0) as max_truck_groups,
-  coalesce(o.min_polling_interval_minutes, pl.min_polling_interval_minutes, 60) as min_polling_interval_minutes,
-  coalesce(o.telegram_enabled,             pl.telegram_enabled,             false) as telegram_enabled,
-  coalesce(o.google_sheet_enabled,          pl.google_sheet_enabled,        false) as google_sheet_enabled,
-  coalesce(o.alerts_enabled,                pl.alerts_enabled,              false) as alerts_enabled,
-  (o.user_id is not null) as has_overrides
-from public.profiles p
-left join public.plans pl on pl.id = p.plan_id
-left join public.user_limit_overrides o on o.user_id = p.id;
-
--- ---------------------------------------------------------------------------
--- officer_overview - one row per officer, everything the admin list needs.
--- ---------------------------------------------------------------------------
-create view public.officer_overview with (security_invoker = on) as
-select
-  p.id,
-  p.email,
-  p.full_name,
-  p.phone,
-  p.designation,
-  p.office,
-  p.district,
-  p.state,
-  p.role,
-  p.status,
-  p.plan_id,
-  p.plan_assigned_at,
-  p.plan_expires_on,
-  p.notes,
-  p.last_active_at,
-  p.created_at,
-  pl.name  as plan_name,
-  pl.price_per_month,
-  el.truck_limit,
-  el.manual_search_limit_per_day,
-  el.tracking_queries_per_month,
-  el.min_alert_interval_minutes,
-  el.max_truck_groups,
-  el.min_polling_interval_minutes,
-  el.telegram_enabled,
-  el.google_sheet_enabled,
-  el.alerts_enabled,
-  el.has_overrides,
-  coalesce(tt.active_trucks, 0)     as active_trucks,
-  coalesce(tt.total_trucks, 0)      as total_trucks,
-  coalesce(ud.manual_searches, 0)   as manual_searches_today,
-  coalesce(ud.tracking_queries, 0)  as tracking_queries_today,
-  coalesce(um.manual_searches, 0)   as manual_searches_month,
-  coalesce(um.tracking_queries, 0)  as tracking_queries_month,
-  coalesce(ad.alerts_today, 0)      as alerts_today,
-  coalesce(tg.chat_id is not null and tg.is_enabled, false)        as telegram_connected,
-  coalesce(gs.spreadsheet_id is not null and gs.is_enabled, false) as sheet_connected,
-  ev.last_event_at
-from public.profiles p
-left join public.plans pl on pl.id = p.plan_id
-left join public.officer_effective_limits el on el.user_id = p.id
-left join lateral (
-  select count(*) filter (where t.is_active) as active_trucks,
-         count(*)                            as total_trucks
-  from public.tracked_trucks t where t.user_id = p.id
-) tt on true
-left join lateral (
-  select u.manual_searches, u.tracking_queries
-  from public.usage_counters u
-  where u.user_id = p.id and u.usage_date = public.ist_today()
-) ud on true
-left join lateral (
-  select sum(u.manual_searches)::int as manual_searches,
-         sum(u.tracking_queries)::int as tracking_queries
-  from public.usage_counters u
-  where u.user_id = p.id
-    and u.usage_date >= date_trunc('month', public.ist_today())::date
-) um on true
-left join lateral (
-  select count(*) as alerts_today
-  from public.alert_logs a
-  where a.user_id = p.id
-    and (a.created_at at time zone 'Asia/Kolkata')::date = public.ist_today()
-) ad on true
-left join public.telegram_configs tg on tg.user_id = p.id
-left join public.google_sheet_configs gs on gs.user_id = p.id
-left join lateral (
-  select max(e.event_time) as last_event_at
-  from public.truck_events e where e.user_id = p.id
-) ev on true;
-
--- ---------------------------------------------------------------------------
--- consume_quota - atomic "may this officer make one more call?"
---   p_source 'manual'   -> checked against the per-DAY limit
---   p_source 'tracking' -> checked against the per-MONTH limit
--- Returns { allowed, limit, used, remaining, reason }
--- ---------------------------------------------------------------------------
-create or replace function public.consume_quota(
-  p_user   uuid,
-  p_source public.query_source,
-  p_amount integer default 1
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $fn$
-declare
-  v_status   public.account_status;
-  v_expires  date;
-  v_limit    integer;
-  v_used     integer;
-  v_today    date := public.ist_today();
-begin
-  select status, plan_expires_on into v_status, v_expires
-  from public.profiles where id = p_user;
-
-  if v_status is null then
-    return jsonb_build_object('allowed', false, 'reason', 'no_such_user');
-  end if;
-  if v_status <> 'active' then
-    return jsonb_build_object('allowed', false, 'reason', 'account_suspended');
-  end if;
-  if v_expires is not null and v_expires < v_today then
-    return jsonb_build_object('allowed', false, 'reason', 'plan_expired');
-  end if;
-
-  if p_source = 'manual' then
-    select manual_search_limit_per_day into v_limit
-    from public.officer_effective_limits where user_id = p_user;
-
-    select coalesce(manual_searches, 0) into v_used
-    from public.usage_counters where user_id = p_user and usage_date = v_today;
-  else
-    select tracking_queries_per_month into v_limit
-    from public.officer_effective_limits where user_id = p_user;
-
-    select coalesce(sum(tracking_queries), 0)::int into v_used
-    from public.usage_counters
-    where user_id = p_user and usage_date >= date_trunc('month', v_today)::date;
-  end if;
-
-  v_used := coalesce(v_used, 0);
-
-  if v_limit <> -1 and v_used + p_amount > v_limit then
-    return jsonb_build_object(
-      'allowed', false, 'reason', 'quota_exhausted',
-      'limit', v_limit, 'used', v_used, 'remaining', greatest(v_limit - v_used, 0));
-  end if;
-
-  insert into public.usage_counters (user_id, usage_date, manual_searches, tracking_queries)
-  values (
-    p_user, v_today,
-    case when p_source = 'manual'   then p_amount else 0 end,
-    case when p_source = 'tracking' then p_amount else 0 end
-  )
-  on conflict (user_id, usage_date) do update set
-    manual_searches  = usage_counters.manual_searches
-                       + case when p_source = 'manual'   then p_amount else 0 end,
-    tracking_queries = usage_counters.tracking_queries
-                       + case when p_source = 'tracking' then p_amount else 0 end;
-
-  return jsonb_build_object(
-    'allowed', true, 'limit', v_limit, 'used', v_used + p_amount,
-    'remaining', case when v_limit = -1 then -1 else greatest(v_limit - v_used - p_amount, 0) end);
-end $fn$;
-
-revoke all on function public.consume_quota(uuid, public.query_source, integer) from public;
-grant execute on function public.consume_quota(uuid, public.query_source, integer) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- handle_new_user - safety net so a user created straight from the Supabase
@@ -324,19 +155,21 @@ create policy settings_admin on public.app_settings for all to authenticated
 -- ===========================================================================
 -- Seed: three starter plans + default global settings
 -- ===========================================================================
+-- Usage is paid for in credits, not capped per plan, so a plan now says how
+-- many trucks may be tracked and what the account may reach - not how many
+-- searches a day it gets. included_credits is added by 0008 and topped up
+-- there, which is why it is absent here.
 insert into public.plans (
-  name, description, truck_limit, manual_search_limit_per_day,
-  tracking_queries_per_month, max_truck_groups,
-  min_polling_interval_minutes, min_alert_interval_minutes,
+  name, description, truck_limit, max_truck_groups,
   telegram_enabled, google_sheet_enabled,
   alerts_enabled, price_per_month, sort_order
 ) values
   ('Basic', 'Single-officer starter allocation.',
-   10, 20, 2000, 3, 30, 30, true, true, true, 0, 10),
+   10, 3, true, true, true, 0, 10),
   ('Professional', 'Full district workload.',
-   50, 100, 10000, 15, 10, 15, true, true, true, 0, 20),
+   50, 15, true, true, true, 0, 20),
   ('Unlimited', 'No caps. Use for headquarters or your own account.',
-   -1, -1, -1, -1, 5, 5, true, true, true, 0, 30)
+   -1, -1, true, true, true, 0, 30)
 on conflict (name) do nothing;
 
 insert into public.app_settings (key, value) values

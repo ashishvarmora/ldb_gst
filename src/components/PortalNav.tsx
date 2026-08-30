@@ -2,28 +2,28 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, FolderOpen, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
+import { FolderOpen, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
-/** Everything in the sidebar. */
+/** Everything in the sidebar. Alerts live under the bell in the header. */
 const NAV = [
   { href: "/portal", label: "Home", icon: Home },
   { href: "/portal/search", label: "Search", icon: Search },
   { href: "/portal/trucks", label: "My trucks", icon: Truck },
   { href: "/portal/records", label: "Records", icon: Rows3 },
-  { href: "/portal/alerts", label: "Alerts", icon: Bell },
   { href: "/portal/cases", label: "Cases", icon: FolderOpen },
   { href: "/portal/plan", label: "My plan", icon: Wallet },
 ] as const;
 
 /**
- * Five is the most a bottom bar can hold before the labels stop being legible
- * on a small phone. Records earns its place over Cases: it is the view an
- * officer opens repeatedly, where a case folder is set up once.
+ * Home, Search, My trucks, Records, My plan. Five is the most a bottom bar can
+ * hold before the labels stop being legible on a small phone, so Cases stays in
+ * the sidebar only: a case folder is set up once, where My plan is where the
+ * credit balance is topped up and everything stops without it.
  */
-const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/alerts"] as const;
+const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/plan"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);
 
 function isActive(pathname: string, href: string): boolean {

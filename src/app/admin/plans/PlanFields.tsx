@@ -1,7 +1,5 @@
 import { Checkbox, Field, FormGrid, Input, Textarea } from "@/components/form";
-import { IntervalField } from "@/components/IntervalField";
-import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED, estimateMonthlyQueries } from "@/lib/limits";
-import { fmtNumber } from "@/lib/format";
+import { BOOLEAN_LIMITS, NUMERIC_LIMITS, UNLIMITED } from "@/lib/limits";
 import type { Plan } from "@/lib/types";
 
 /** -1 is stored, but "Unlimited" is what an admin wants to read and type. */
@@ -12,14 +10,12 @@ function limitValue(value: number): string {
 /**
  * Every field of a plan. Shared by the create and edit forms so the two can
  * never drift apart.
+ *
+ * A plan says what an account may REACH. What it may USE comes out of the
+ * credit balance, at the rates on the credits page, so there are no per-day or
+ * per-month allowances here - only the credits the plan hands over up front.
  */
 export function PlanFields({ plan }: { plan?: Plan }) {
-  const trucks = plan?.truck_limit ?? 10;
-  const interval = plan?.min_polling_interval_minutes ?? 30;
-  const monthly = plan?.tracking_queries_per_month ?? 2000;
-  const needed = estimateMonthlyQueries(trucks === UNLIMITED ? 0 : trucks, interval);
-  const shortfall = trucks !== UNLIMITED && monthly !== UNLIMITED && needed > monthly;
-
   return (
     <div className="space-y-5">
       <FormGrid cols={2}>
@@ -51,13 +47,28 @@ export function PlanFields({ plan }: { plan?: Plan }) {
       </Field>
 
       <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
-          Limits
-        </p>
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Credits</p>
+        <FormGrid cols={2}>
+          <Field
+            label="Credits included"
+            name="included_credits"
+            hint="Granted once, when the plan is first assigned. Officers buy more on top; this is the starting allocation, not a cap."
+          >
+            <Input
+              name="included_credits"
+              type="number"
+              min={0}
+              step="1"
+              defaultValue={plan?.included_credits ?? 0}
+            />
+          </Field>
+        </FormGrid>
+      </div>
+
+      <div>
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Limits</p>
         <FormGrid cols={3}>
-          {NUMERIC_LIMITS.filter(
-            (field) => field.key !== "min_polling_interval_minutes",
-          ).map((field) => (
+          {NUMERIC_LIMITS.map((field) => (
             <Field
               key={field.key}
               label={field.label}
@@ -73,34 +84,10 @@ export function PlanFields({ plan }: { plan?: Plan }) {
             </Field>
           ))}
         </FormGrid>
-
-        {/* An interval is not really a number - give it minutes or hours. */}
-        <Field
-          label="Fastest checking interval"
-          hint="The floor for officers on this plan. They may pick this or anything slower. Faster costs more of their monthly pool."
-          className="mt-4"
-        >
-          <IntervalField
-            name="min_polling_interval_minutes"
-            defaultMinutes={plan?.min_polling_interval_minutes ?? 30}
-            floorMinutes={1}
-            showCost={false}
-          />
-        </Field>
       </div>
 
-      {shortfall ? (
-        <p className="rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
-          Heads up: {fmtNumber(trucks)} trucks polled every {interval} min needs about{" "}
-          {fmtNumber(needed)} queries a month, but this plan allows {fmtNumber(monthly)}. Officers
-          will hit the monthly cap before the month ends unless they poll some trucks more slowly.
-        </p>
-      ) : null}
-
       <div>
-        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
-          Features
-        </p>
+        <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">Features</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {BOOLEAN_LIMITS.map((field) => (
             <Checkbox

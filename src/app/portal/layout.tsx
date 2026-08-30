@@ -1,43 +1,63 @@
 import Link from "next/link";
-import { Search, Settings, ShieldCheck, Truck } from "lucide-react";
+import { Coins, Settings, ShieldCheck, Truck } from "lucide-react";
 
+import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { SignOutButton } from "@/components/SignOutButton";
 import { Avatar, cx } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import { initials } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { requirePortalSession } from "@/lib/officer";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
-/** Small "17 / 50" pill. At a glance: how much quota is left today. */
-function QuotaPill({
-  icon,
-  used,
-  limit,
-  label,
-}: {
-  icon: React.ReactNode;
-  used: number;
-  limit: number;
-  label: string;
-}) {
-  const unlimited = limit === -1;
-  const ratio = unlimited ? 0 : limit <= 0 ? 1 : used / limit;
+/** Roughly a day of ordinary work - worth a warning colour before it hits zero. */
+const LOW_CREDITS = 10;
+
+/** How many rows the bell can show. Enough history to be the only alerts view. */
+const BELL_LIMIT = 20;
+
+/**
+ * The balance the whole app runs on, on every page. An officer should never
+ * have to open the dashboard to find out whether their next search will work.
+ */
+function CreditPill({ credits }: { credits: number }) {
   const tone =
-    ratio >= 1
+    credits <= 0
       ? "border-bad-500/40 bg-bad-500/12 text-bad-500"
-      : ratio >= 0.8
+      : credits < LOW_CREDITS
         ? "border-warn-500/40 bg-warn-500/12 text-warn-500"
         : "border-line bg-raised text-muted";
 
   return (
     <span
-      title={label}
+      title="Credits left"
       className={cx(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap",
         tone,
       )}
     >
-      {icon}
+      <Coins size={12} />
+      <span className="font-medium tabular-nums">{formatCredits(credits)}</span>
+      <span className="opacity-70">left</span>
+    </span>
+  );
+}
+
+/** Small "3 / 10" pill. Trucks still have a hard cap, so this one stays. */
+function TruckPill({ used, limit }: { used: number; limit: number }) {
+  const unlimited = limit === -1;
+  const full = !unlimited && used >= limit;
+
+  return (
+    <span
+      title="Trucks under tracking"
+      className={cx(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap",
+        full ? "border-warn-500/40 bg-warn-500/12 text-warn-500" : "border-line bg-raised text-muted",
+      )}
+    >
+      <Truck size={12} />
       <span className="font-medium tabular-nums">
         {used.toLocaleString("en-IN")}
         <span className="opacity-60"> / {unlimited ? "∞" : formatLimit(limit)}</span>
@@ -46,9 +66,31 @@ function QuotaPill({
   );
 }
 
+function PlanPill({ name }: { name: string | null }) {
+  return name ? (
+    <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-xs whitespace-nowrap text-brand-400">
+      {name}
+    </span>
+  ) : (
+    <span className="rounded-full border border-bad-500/40 bg-bad-500/12 px-2.5 py-1 text-xs whitespace-nowrap text-bad-500">
+      No plan assigned
+    </span>
+  );
+}
+
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await requirePortalSession();
   const { overview } = session;
+
+  // Loaded here rather than inside the bell so the panel opens with no wait.
+  const { data: alertRows } = await getSupabaseAdmin()
+    .from("alert_logs")
+    .select("id,title,truck_number,delivered,read_at,created_at")
+    .eq("user_id", overview.id)
+    .order("created_at", { ascending: false })
+    .limit(BELL_LIMIT);
+
+  const alerts = (alertRows ?? []) as AlertBellItem[];
 
   return (
     <div className="theme-light flex min-h-screen">
@@ -57,38 +99,23 @@ export default async function PortalLayout({ children }: { children: React.React
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <Link href="/portal" className="-ml-1 flex min-h-10 items-center gap-2 rounded-lg px-1 lg:hidden">
-              <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
+            <Link
+              href="/portal"
+              className="-ml-1 flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-1 lg:hidden"
+            >
+              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
                 <Truck size={16} />
               </span>
-              <span className="text-sm font-semibold text-strong">Truck Watch</span>
+              <span className="truncate text-sm font-semibold text-strong">Truck Watch</span>
             </Link>
 
             <div className="hidden items-center gap-2 lg:flex">
-              <QuotaPill
-                icon={<Search size={12} />}
-                used={overview.manual_searches_today}
-                limit={overview.manual_search_limit_per_day}
-                label="Manual searches used today"
-              />
-              <QuotaPill
-                icon={<Truck size={12} />}
-                used={overview.active_trucks}
-                limit={overview.truck_limit}
-                label="Trucks under tracking"
-              />
-              {overview.plan_name ? (
-                <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-xs text-brand-400">
-                  {overview.plan_name}
-                </span>
-              ) : (
-                <span className="rounded-full border border-bad-500/40 bg-bad-500/12 px-2.5 py-1 text-xs text-bad-500">
-                  No plan assigned
-                </span>
-              )}
+              <CreditPill credits={overview.credits} />
+              <TruckPill used={overview.active_trucks} limit={overview.truck_limit} />
+              <PlanPill name={overview.plan_name} />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               {session.profile.role === "super_admin" ? (
                 <Link
                   href="/admin"
@@ -98,6 +125,8 @@ export default async function PortalLayout({ children }: { children: React.React
                   Admin console
                 </Link>
               ) : null}
+
+              <AlertBell alerts={alerts} unreadCount={overview.alerts_unread} />
 
               <Link
                 href="/portal/settings"
@@ -115,34 +144,20 @@ export default async function PortalLayout({ children }: { children: React.React
                   {session.profile.office ?? session.email}
                 </span>
               </span>
-              <Avatar size="sm" text={initials(session.profile.full_name, session.email)} />
+              {/* The avatar is decoration next to the name, so it goes first
+                  when the bell needs the room on a phone. */}
+              <span className="hidden sm:inline-flex">
+                <Avatar size="sm" text={initials(session.profile.full_name, session.email)} />
+              </span>
               <SignOutButton />
             </div>
           </div>
 
-          {/* Quota pills move under the title bar on small screens. */}
+          {/* The pills move under the title bar on small screens. */}
           <div className="mt-2.5 flex items-center gap-2 overflow-x-auto lg:hidden">
-            <QuotaPill
-              icon={<Search size={12} />}
-              used={overview.manual_searches_today}
-              limit={overview.manual_search_limit_per_day}
-              label="Manual searches used today"
-            />
-            <QuotaPill
-              icon={<Truck size={12} />}
-              used={overview.active_trucks}
-              limit={overview.truck_limit}
-              label="Trucks under tracking"
-            />
-            {overview.plan_name ? (
-              <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-xs whitespace-nowrap text-brand-400">
-                {overview.plan_name}
-              </span>
-            ) : (
-              <span className="rounded-full border border-bad-500/40 bg-bad-500/12 px-2.5 py-1 text-xs whitespace-nowrap text-bad-500">
-                No plan
-              </span>
-            )}
+            <CreditPill credits={overview.credits} />
+            <TruckPill used={overview.active_trucks} limit={overview.truck_limit} />
+            <PlanPill name={overview.plan_name} />
           </div>
         </header>
 

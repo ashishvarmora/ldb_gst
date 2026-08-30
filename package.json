@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "migrate": "node scripts/push-migrations.mjs",
+    "migrate:check": "node scripts/dry-run-migrations.mjs",
     "check-secrets": "node scripts/check-secrets.mjs"
   },
   "dependencies": {

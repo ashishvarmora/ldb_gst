@@ -3,6 +3,10 @@
  * override editor and the usage tables. Add a limit here and it shows up in
  * all three.
  *
+ * A limit says what an account may REACH - trucks, case folders, how long
+ * history is kept. What it may USE is paid for out of one credit balance, at
+ * rates in credit_rates, so there are no per-day or per-month allowances here.
+ *
  * Encoding reminder:  -1 = unlimited,  >= 0 = hard cap,  null in an override
  * row = inherit from the plan.
  */
@@ -11,11 +15,7 @@ export const UNLIMITED = -1;
 
 export type NumericLimitKey =
   | "truck_limit"
-  | "manual_search_limit_per_day"
-  | "tracking_queries_per_month"
   | "max_truck_groups"
-  | "min_polling_interval_minutes"
-  | "min_alert_interval_minutes"
   | "data_retention_days";
 
 export type BooleanLimitKey =
@@ -28,7 +28,7 @@ type NumericLimitField = {
   label: string;
   hint: string;
   unit: string;
-  /** min_polling_interval_minutes has no "unlimited" state. */
+  /** Not every limit has a sensible "unlimited" state. */
   allowUnlimited: boolean;
   min: number;
 };
@@ -43,24 +43,8 @@ export const NUMERIC_LIMITS: NumericLimitField[] = [
   {
     key: "truck_limit",
     label: "Tracked trucks",
-    hint: "How many trucks may sit under background polling at once.",
+    hint: "How many trucks may be under automatic checking at once.",
     unit: "trucks",
-    allowUnlimited: true,
-    min: 0,
-  },
-  {
-    key: "manual_search_limit_per_day",
-    label: "Manual searches / day",
-    hint: "Searches the officer runs by hand from the dashboard. Resets at IST midnight.",
-    unit: "per day",
-    allowUnlimited: true,
-    min: 0,
-  },
-  {
-    key: "tracking_queries_per_month",
-    label: "Tracking queries / month",
-    hint: "Background LDB calls. One tracked truck at 10 min burns ~4,300 a month.",
-    unit: "per month",
     allowUnlimited: true,
     min: 0,
   },
@@ -71,22 +55,6 @@ export const NUMERIC_LIMITS: NumericLimitField[] = [
     unit: "folders",
     allowUnlimited: true,
     min: 0,
-  },
-  {
-    key: "min_polling_interval_minutes",
-    label: "Fastest polling interval",
-    hint: "Floor on how often a truck may be polled. Lower = more API load.",
-    unit: "minutes",
-    allowUnlimited: false,
-    min: 1,
-  },
-  {
-    key: "min_alert_interval_minutes",
-    label: "Fastest alert interval",
-    hint: "Floor on how often a truck alert may repeat. The officer picks the interval per truck but can never go below this.",
-    unit: "minutes",
-    allowUnlimited: false,
-    min: 1,
   },
   {
     key: "data_retention_days",
@@ -112,7 +80,7 @@ export const BOOLEAN_LIMITS: BooleanLimitField[] = [
   {
     key: "alerts_enabled",
     label: "Truck alerts",
-    hint: "Officer may switch the two truck alerts on. Off means their trucks are still tracked, just silently.",
+    hint: "Officer may add alerts to their trucks. Off means nothing is checked and nothing is sent.",
   },
 ];
 
@@ -150,15 +118,6 @@ export function usageTone(used: number, limit: number): UsageTone {
   return "ok";
 }
 
-/**
- * Estimated monthly tracking queries for a set of trucks at a given interval.
- * Used to warn the admin when a plan cannot physically support its truck limit.
- */
-export function estimateMonthlyQueries(trucks: number, intervalMinutes: number): number {
-  if (trucks <= 0 || intervalMinutes <= 0) return 0;
-  const callsPerTruckPerDay = (24 * 60) / intervalMinutes;
-  return Math.round(callsPerTruckPerDay * 30 * trucks);
-}
 
 /**
  * Parse a limit field coming from a form. "" or "unlimited" -> UNLIMITED when

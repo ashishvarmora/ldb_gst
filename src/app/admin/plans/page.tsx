@@ -19,6 +19,7 @@ import { FormActions } from "@/components/form";
 import { Modal } from "@/components/Modal";
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { formatCredits } from "@/lib/credits";
 import { fmtRupees } from "@/lib/format";
 import { BOOLEAN_LIMITS, NUMERIC_LIMITS, formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -46,7 +47,7 @@ export default async function PlansPage() {
     <>
       <PageHeader
         title="Plans"
-        subtitle="A plan is a bundle of limits. Assign one to each officer, then override individual numbers on their page if you need to."
+        subtitle="A plan says what an officer may reach, and how many credits they start with. Assign one to each officer, then override individual numbers on their page if you need to."
         actions={
           <Modal
             triggerLabel="New plan"
@@ -112,14 +113,17 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
       </header>
 
       <dl className="flex-1 divide-y divide-divider px-5 py-1">
+        <div className="flex items-baseline justify-between gap-4 py-2">
+          <dt className="text-xs text-muted">Credits included</dt>
+          <dd className="text-sm font-medium tabular-nums text-brand-400">
+            {formatCredits(plan.included_credits)}
+          </dd>
+        </div>
         {NUMERIC_LIMITS.map((field) => (
           <div key={field.key} className="flex items-baseline justify-between gap-4 py-2">
             <dt className="text-xs text-muted">{field.label}</dt>
             <dd className="text-sm font-medium tabular-nums text-ink">
               {formatLimit(plan[field.key])}
-              {field.key === "min_polling_interval_minutes" ? (
-                <span className="text-faint"> min</span>
-              ) : null}
             </dd>
           </div>
         ))}
@@ -143,7 +147,7 @@ function PlanCard({ plan, officers }: { plan: Plan; officers: number }) {
           title={`Edit ${plan.name}`}
           description={
             officers > 0
-              ? `${officers} officer${officers === 1 ? "" : "s"} will pick up these limits immediately.`
+              ? `${officers} officer${officers === 1 ? "" : "s"} pick up these limits immediately. Credits already handed out are not clawed back or topped up.`
               : "No officers are on this plan yet."
           }
           width="xl"

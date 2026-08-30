@@ -48,17 +48,19 @@ export async function loadOverview(userId: string): Promise<OfficerOverview | nu
   return data ?? null;
 }
 
-/** Plain-language reason a search would be refused, or null when it is fine. */
+/**
+ * Plain-language reason a search would be refused, or null when it is fine.
+ *
+ * Usage itself is not checked here: spend_credits() decides that atomically at
+ * the moment of spending, and duplicating the balance test would only add a
+ * second answer that can disagree with it.
+ */
 export function blockedReason(overview: OfficerOverview): string | null {
-  if (!overview.plan_id) {
-    return "No plan is assigned to your account yet. Ask your administrator to assign one.";
-  }
   if (overview.plan_expires_on && new Date(overview.plan_expires_on) < new Date()) {
     return `Your plan expired on ${overview.plan_expires_on}. Ask your administrator to renew it.`;
   }
-  const limit = overview.manual_search_limit_per_day;
-  if (limit !== -1 && overview.manual_searches_today >= limit) {
-    return `You have used all ${limit} manual searches for today. The counter resets at midnight IST.`;
+  if (overview.credits <= 0) {
+    return "You have no credits left. Buy more, or ask your administrator to top up your account.";
   }
   return null;
 }

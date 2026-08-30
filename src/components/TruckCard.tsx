@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ChevronRight, Clock, MapPin, Star } from "lucide-react";
+import { BellOff, BellRing, ChevronRight, Clock, MapPin } from "lucide-react";
 
 import { directionLabel } from "@/components/Timeline";
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
+import { describeAlert } from "@/lib/alerts";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
-import type { TrackedTruck, TruckStatus } from "@/lib/types";
+import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
 
 export const TRUCK_STATUS_TONE: Record<TruckStatus, BadgeTone> = {
   moving: "good",
@@ -39,11 +40,36 @@ const STATUS_TEXT: Record<TruckStatus, string> = {
 };
 
 /**
- * The card an officer scans down a list of: where it was, when, which way, and
- * whether tracking is actually running.
+ * When this truck was last looked at, in a way that does not read as a fault.
+ *
+ * A truck is only ever checked because one of its alerts came due, so a truck
+ * with no alerts has genuinely never been checked and never will be. Saying
+ * "never" there sends officers hunting for a problem that is not one.
  */
-export function TruckCard({ truck }: { truck: TrackedTruck }) {
+export function lastCheckedLabel(
+  truck: Pick<TrackedTruck, "is_active" | "last_polled_at">,
+  alerts: Pick<TruckAlertWithTemplate, "is_enabled">[],
+): string {
+  if (!truck.is_active) return "Paused — not being checked";
+  if (truck.last_polled_at) return `Last checked ${fmtRelative(truck.last_polled_at)}`;
+  if (alerts.length === 0) return "No alerts yet — nothing is checked until you add one";
+  if (!alerts.some((alert) => alert.is_enabled)) return "Every alert is off — nothing is checked";
+  return "Waiting for the first check";
+}
+
+/**
+ * The card an officer scans down a list of: where it was, when, which way, and
+ * which alerts are watching it.
+ */
+export function TruckCard({
+  truck,
+  alerts = [],
+}: {
+  truck: TrackedTruck;
+  alerts?: TruckAlertWithTemplate[];
+}) {
   const status = truck.is_active ? truck.status : "unknown";
+  const enabled = alerts.filter((alert) => alert.is_enabled);
 
   return (
     <Link
@@ -67,12 +93,6 @@ export function TruckCard({ truck }: { truck: TrackedTruck }) {
               <Mono className="text-[15px] font-semibold tracking-wide text-strong">
                 {truck.truck_number}
               </Mono>
-              {truck.is_watchlist ? (
-                <Badge tone="warn">
-                  <Star size={9} />
-                  watchlist
-                </Badge>
-              ) : null}
               {!truck.is_active ? <Badge>paused</Badge> : null}
             </div>
             {truck.label ? (
@@ -113,23 +133,45 @@ export function TruckCard({ truck }: { truck: TrackedTruck }) {
                   <span className="text-muted"> · {fmtDateTime(truck.last_event_at)}</span>
                 </>
               ) : (
-                "Waiting for the first check"
+                "No crossing seen yet"
+              )}
+            </dd>
+          </div>
+
+          <div className="flex items-start gap-2">
+            {enabled.length > 0 ? (
+              <BellRing size={13} className="mt-px shrink-0 text-brand-500" />
+            ) : (
+              <BellOff size={13} className="mt-px shrink-0 text-faint" />
+            )}
+            <dd className="min-w-0 text-muted">
+              {enabled.length === 0 ? (
+                alerts.length === 0 ? (
+                  "No alerts yet"
+                ) : (
+                  `${alerts.length} alert${alerts.length === 1 ? "" : "s"}, all switched off`
+                )
+              ) : (
+                <>
+                  <span className="block truncate text-ink">{describeAlert(enabled[0])}</span>
+                  {enabled.length > 1 ? (
+                    <span className="block">
+                      + {enabled.length - 1} more alert{enabled.length - 1 === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                </>
               )}
             </dd>
           </div>
         </dl>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-divider pt-2.5 text-[11px] text-muted">
-          <span>
-            {truck.is_active
-              ? `Checked every ${truck.polling_interval_minutes} min`
-              : "Not being checked"}
-          </span>
-          <span className={truck.consecutive_errors > 0 ? "text-bad-500" : undefined}>
-            {truck.consecutive_errors > 0
-              ? `${truck.consecutive_errors} failed check${truck.consecutive_errors === 1 ? "" : "s"}`
-              : `last check ${fmtRelative(truck.last_polled_at)}`}
-          </span>
+          <span>{lastCheckedLabel(truck, alerts)}</span>
+          {truck.consecutive_errors > 0 ? (
+            <span className="text-bad-500">
+              {truck.consecutive_errors} failed check{truck.consecutive_errors === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
       </div>
     </Link>
