@@ -9,7 +9,6 @@ import {
   Coins,
   LayoutDashboard,
   Menu,
-  Package,
   Search,
   Settings,
   Truck,
@@ -22,6 +21,13 @@ import { NavSpinner } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
 /**
+ * Ten destinations, each one a question an admin arrives with.
+ *
+ * Plans and credits are one entry, not two: what a customer buys and what it
+ * costs them to use were separate pages that could only be read together, and
+ * the split sent people to the wrong one about half the time. They are tabs
+ * inside /admin/plans now.
+ *
  * The route is still /admin/officers - renaming a path breaks every bookmark
  * and every link already written against it. Only the word a reader sees
  * changed.
@@ -30,8 +36,7 @@ const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/explore", label: "Explore", icon: Search },
   { href: "/admin/officers", label: "Accounts", icon: Users },
-  { href: "/admin/plans", label: "Plans", icon: Package },
-  { href: "/admin/credits", label: "Credits", icon: Coins },
+  { href: "/admin/plans", label: "Plans & credits", icon: Coins },
   { href: "/admin/trucks", label: "Trucks", icon: Truck },
   { href: "/admin/usage", label: "Usage", icon: Gauge },
   { href: "/admin/alerts", label: "Alert rules", icon: Bell },
@@ -41,6 +46,9 @@ const NAV = [
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
+  // /admin/credits redirects into the plans section, so it lights the same
+  // entry rather than none at all on the way through.
+  if (href === "/admin/plans" && pathname.startsWith("/admin/credits")) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

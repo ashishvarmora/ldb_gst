@@ -321,7 +321,7 @@ export async function savePaymentSettings(
   const result = await persist(actor, parsed.values, "settings.update_payment");
   if (!result.ok) return result;
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   revalidatePath("/portal/plan");
 
   return {

@@ -15,6 +15,10 @@ export const SETTINGS_FALLBACK: AppSettings = {
   razorpayEnabled: false,
   razorpayKeyId: "",
   creditsPerRupee: 1,
+  referralEnabled: true,
+  referralPercent: 10,
+  referralMilestoneCount: 5,
+  referralMilestoneBonus: 500,
   brandName: "Truck Watch",
   signupEnabled: true,
   supportEmail: "",
@@ -52,6 +56,10 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     razorpayEnabled: map.get("razorpay_enabled") === true,
     razorpayKeyId: text("razorpay_key_id", ""),
     creditsPerRupee: number("credits_per_rupee", SETTINGS_FALLBACK.creditsPerRupee),
+    referralEnabled: map.get("referral_enabled") !== false,
+    referralPercent: number("referral_percent", SETTINGS_FALLBACK.referralPercent),
+    referralMilestoneCount: number("referral_milestone_count", SETTINGS_FALLBACK.referralMilestoneCount),
+    referralMilestoneBonus: number("referral_milestone_bonus", SETTINGS_FALLBACK.referralMilestoneBonus),
     brandName: text("brand_name", SETTINGS_FALLBACK.brandName),
     // Absent means open. Only an explicit false closes sign-up, so a
     // half-seeded settings table cannot lock everyone out of registering.

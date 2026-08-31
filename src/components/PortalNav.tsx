@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
+import { FolderOpen, Gift, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
@@ -17,6 +17,7 @@ const NAV = [
   // the label is what a customer reads, so only the label is neutral wording.
   { href: "/portal/cases", label: "Groups", icon: FolderOpen },
   { href: "/portal/plan", label: "My plan", icon: Wallet },
+  { href: "/portal/referrals", label: "Invite and earn", icon: Gift },
 ] as const;
 
 /**
@@ -24,6 +25,10 @@ const NAV = [
  * hold before the labels stop being legible on a small phone, so Folders stays
  * in the sidebar only: a folder is set up once, where My plan is where the
  * credit balance is topped up and everything stops without it.
+ *
+ * Invite and earn is left out for the same reason. It is reached on a phone
+ * from the card on Home, the plan page and Settings, all of which can say what
+ * it is worth - which a one-word tab label never could.
  */
 const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/plan"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);
@@ -33,8 +38,16 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function PortalSidebar({ brandName }: { brandName: string }) {
+export function PortalSidebar({
+  brandName,
+  /** False hides Invite and earn, matching the page, which shows nothing. */
+  referralsEnabled,
+}: {
+  brandName: string;
+  referralsEnabled: boolean;
+}) {
   const pathname = usePathname();
+  const items = NAV.filter((item) => referralsEnabled || item.href !== "/portal/referrals");
 
   return (
     <div className="hidden w-56 shrink-0 border-r border-divider px-3 py-4 lg:block">
@@ -49,7 +62,7 @@ export function PortalSidebar({ brandName }: { brandName: string }) {
       </Link>
 
       <nav className="mt-5 flex flex-col gap-0.5">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
           return (
             <Link

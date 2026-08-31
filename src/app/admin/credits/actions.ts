@@ -6,6 +6,7 @@ import { diffFields, writeAudit } from "@/lib/audit";
 import { assertSuperAdmin } from "@/lib/auth";
 import { creditsForAmount, describeRate, formatCredits, grantCredits } from "@/lib/credits";
 import { bool, fail, str } from "@/lib/forms";
+import { describeReferralReward } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult, CreditPack, CreditRate } from "@/lib/types";
@@ -70,7 +71,7 @@ export async function saveCreditRate(
     meta: { changes: diffFields(before as unknown as Record<string, unknown>, patch) },
   });
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   // Customers read the same rate on their own plan page.
   revalidatePath("/portal/plan");
   return {
@@ -88,10 +89,13 @@ type PackValues = {
   price_inr: number;
   credits: number;
   is_open_ended: boolean;
-  bonus_percent: number;
+  credit_percent: number;
   sort_order: number;
   is_active: boolean;
 };
+
+/** A tier that gives exactly the base rate. The column's default, and its floor. */
+const PLAIN_PERCENT = 100;
 
 /** Two decimal places, matching numeric(10, 2) and numeric(12, 2) in the table. */
 function positiveAmount(raw: string | null): number | null {
@@ -102,19 +106,23 @@ function positiveAmount(raw: string | null): number | null {
 }
 
 /**
- * The stored bonus_percent column: the extra an open tier hands out on top of
- * the base rate. Zero is a real answer, and so is a blank box.
+ * The stored credit_percent column: what share of the money becomes credits.
+ * 100 is one credit per rupee at a base rate of 1, 250 is two and a half.
+ *
+ * Zero is not a setting here, it is a tier that sells nothing - which is why the
+ * table refuses it. A blank box means the admin did not decide, so it lands on
+ * the plain rate rather than on a tier nobody could buy.
  *
  * Not to be confused with bonusPercent() in lib/credits, which invents no
  * number of its own - it compares two fixed rungs by rupees-per-credit. This
  * one is a figure the admin types and the database stores.
  */
-function readStoredBonusPercent(raw: string | null): number | null {
-  if (raw === null) return 0;
+function readCreditPercent(raw: string | null): number | null {
+  if (raw === null) return PLAIN_PERCENT;
   const value = Math.round(Number(raw) * 100) / 100;
-  // Matches credit_packs_bonus_percent_check, so a value this accepts is a
+  // Matches credit_packs_credit_percent_check, so a value this accepts is a
   // value the table accepts.
-  if (!Number.isFinite(value) || value < 0 || value > 1000) return null;
+  if (!Number.isFinite(value) || value <= 0 || value > 10_000) return null;
   return value;
 }
 
@@ -129,7 +137,9 @@ function readStoredBonusPercent(raw: string | null): number | null {
  * anyone - the amount the buyer types decides - so an empty box there is not a
  * mistake to refuse.
  */
-async function readPack(fd: FormData): Promise<{ values: PackValues } | { error: string }> {
+async function readPack(
+  fd: FormData,
+): Promise<{ values: PackValues; creditsPerRupee: number } | { error: string }> {
   const name = str(fd, "name");
   if (!name) return { error: "Give the pack a name the customer will recognise." };
 
@@ -144,10 +154,14 @@ async function readPack(fd: FormData): Promise<{ values: PackValues } | { error:
     };
   }
 
-  const bonus = readStoredBonusPercent(str(fd, "bonus_percent"));
-  if (bonus === null) {
-    return { error: "Bonus must be a percentage between 0 and 1,000." };
+  const percent = readCreditPercent(str(fd, "credit_percent"));
+  if (percent === null) {
+    return { error: "Credit share must be a percentage above 0 and no more than 10,000." };
   }
+
+  // Read once and returned to the caller: the message it writes has to quote
+  // the same base rate this priced the tier against.
+  const { creditsPerRupee } = await loadSettings(getSupabaseAdmin());
 
   let credits = positiveAmount(str(fd, "credits"));
   if (credits === null) {
@@ -155,9 +169,8 @@ async function readPack(fd: FormData): Promise<{ values: PackValues } | { error:
     // The column is not-null and checked positive, so an open tier still needs
     // some value even though nothing ever reads it. What the minimum buys is
     // the one figure here that is not an invention.
-    const { creditsPerRupee } = await loadSettings(getSupabaseAdmin());
     const atMinimum = creditsForAmount(
-      { is_open_ended: true, price_inr: price, credits: 0, bonus_percent: bonus },
+      { is_open_ended: true, price_inr: price, credits: 0, credit_percent: percent },
       price,
       creditsPerRupee,
     );
@@ -171,15 +184,16 @@ async function readPack(fd: FormData): Promise<{ values: PackValues } | { error:
   }
 
   return {
+    creditsPerRupee,
     values: {
       name,
       price_inr: price,
       credits,
       is_open_ended: isOpen,
-      // A fixed rung states its credits outright, so a bonus on it would be a
-      // number that changes nothing. Stored as zero rather than kept around to
+      // A fixed rung states its credits outright, so a percentage on it would
+      // change nothing. Stored at the plain rate rather than kept around to
       // confuse the next person who reads the row.
-      bonus_percent: isOpen ? bonus : 0,
+      credit_percent: isOpen ? percent : PLAIN_PERCENT,
       sort_order: sortOrder,
       is_active: bool(fd, "is_active"),
     },
@@ -190,19 +204,19 @@ async function readPack(fd: FormData): Promise<{ values: PackValues } | { error:
  * The sentence the admin just wrote, back to them.
  *
  * An open tier has no single credit figure to quote - the amount decides - so
- * it states the rule instead. Saying "Rs 5,000 = 50,000 credits" about a tier
- * that actually gives 6,250 is exactly the confusion this branch exists to stop.
+ * it states the rule and then works it out at the minimum. A percentage on its
+ * own is not checkable: 250% only means something once you can see that Rs
+ * 3,000 comes back as 7,500 credits.
  */
-function describePack(values: PackValues): string {
+function describePack(values: PackValues, creditsPerRupee: number): string {
   const price = `Rs ${values.price_inr.toLocaleString("en-IN")}`;
 
   if (!values.is_open_ended) {
     return `${price} = ${formatCredits(values.credits)} credits`;
   }
 
-  return values.bonus_percent > 0
-    ? `${price} or more, with ${formatCredits(values.bonus_percent)}% extra credits`
-    : `${price} or more, at the base rate`;
+  const atMinimum = creditsForAmount(values, values.price_inr, creditsPerRupee);
+  return `${price} or more at ${formatCredits(values.credit_percent)}% credit, so ${price} buys ${formatCredits(atMinimum ?? 0)} credits`;
 }
 
 export async function createCreditPack(
@@ -237,9 +251,12 @@ export async function createCreditPack(
     meta: { ...parsed.values },
   });
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   revalidatePath("/portal/plan");
-  return { ok: true, message: `Pack created. ${describePack(parsed.values)}.` };
+  return {
+    ok: true,
+    message: `Pack created. ${describePack(parsed.values, parsed.creditsPerRupee)}.`,
+  };
 }
 
 export async function saveCreditPack(
@@ -279,11 +296,11 @@ export async function saveCreditPack(
     meta: { changes: diffFields(before as unknown as Record<string, unknown>, parsed.values) },
   });
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   revalidatePath("/portal/plan");
   return {
     ok: true,
-    message: `Saved. ${describePack(parsed.values)} — from the next purchase onwards.`,
+    message: `Saved. ${describePack(parsed.values, parsed.creditsPerRupee)} — from the next purchase onwards.`,
   };
 }
 
@@ -319,7 +336,7 @@ export async function deleteCreditPack(
     meta: {},
   });
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   revalidatePath("/portal/plan");
   return { ok: true, message: `Pack "${pack?.name ?? "removed"}" deleted.` };
 }
@@ -329,12 +346,12 @@ export async function deleteCreditPack(
 /* -------------------------------------------------------------------------- */
 
 /**
- * credits_per_rupee - what one rupee buys before any tier's extra.
+ * credits_per_rupee - what one rupee buys at a tier of 100%.
  *
  * It is an app_settings row like any other, but it is edited here rather than
- * on the settings page because it is the bottom of this conversion: the open
- * tier is this number plus a percentage, and reading either one without the
- * other tells you nothing about what a customer gets.
+ * on the settings page because it is the bottom of this conversion: an open
+ * tier is this number times its own percentage, and reading either one without
+ * the other tells you nothing about what a customer gets.
  *
  * Same shape as the settings actions - upsert, audit, revalidate - only over a
  * single key, so saving it cannot disturb the rows the settings forms own.
@@ -381,13 +398,101 @@ export async function saveCreditsPerRupee(
     meta: { changes: diffFields(before, after) },
   });
 
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   // The open tier prices itself against this on the customer's own page.
   revalidatePath("/portal/plan");
 
   return {
     ok: true,
-    message: `Saved. Rs 1 = ${formatCredits(rate)} credit${rate === 1 ? "" : "s"} before any tier's extra — from the next purchase onwards.`,
+    message: `Saved. Rs 1 = ${formatCredits(rate)} credit${rate === 1 ? "" : "s"} on a tier of 100% — from the next purchase onwards.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* what a referral is worth                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The four numbers behind the referral scheme.
+ *
+ * Only the numbers. Nothing here grants anything: rewards are worked out by
+ * reward_referral() inside settle_payment, so there is one path from "money
+ * arrived" to "everyone owed was paid" and a webhook delivered twice pays once.
+ *
+ * A milestone of zero on either side switches the milestone off, which is why
+ * zero is accepted where the pack percentages refuse it.
+ */
+export async function saveReferralSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  // NaN for a blank box, never 0 - Number("") is zero, and a percentage that
+  // silently became "nothing" is the kind of setting nobody notices until a
+  // referrer complains.
+  const number = (name: string): number => {
+    const raw = str(fd, name);
+    return raw === null ? Number.NaN : Number(raw);
+  };
+
+  const percent = number("referral_percent");
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    return fail("The share of a first payment must be between 0 and 100 percent.");
+  }
+
+  const milestoneCount = number("referral_milestone_count");
+  if (!Number.isInteger(milestoneCount) || milestoneCount < 0 || milestoneCount > 1_000) {
+    return fail("The milestone is a whole number of referrals between 0 and 1,000. Use 0 for none.");
+  }
+
+  const milestoneBonus = number("referral_milestone_bonus");
+  if (!Number.isFinite(milestoneBonus) || milestoneBonus < 0 || milestoneBonus > 1_000_000) {
+    return fail("The milestone bonus must be between 0 and 1,000,000 credits. Use 0 for none.");
+  }
+
+  const enabled = bool(fd, "referral_enabled");
+  const values: Record<string, unknown> = {
+    referral_enabled: enabled,
+    referral_percent: Math.round(percent * 100) / 100,
+    referral_milestone_count: milestoneCount,
+    referral_milestone_bonus: Math.round(milestoneBonus * 100) / 100,
+  };
+
+  const { data: existing } = await admin
+    .from("app_settings")
+    .select("key, value")
+    .in("key", Object.keys(values));
+  const before = Object.fromEntries((existing ?? []).map((row) => [row.key, row.value]));
+
+  const { error } = await admin.from("app_settings").upsert(
+    Object.entries(values).map(([key, value]) => ({
+      key,
+      value: value as never,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })),
+    { onConflict: "key" },
+  );
+  if (error) return fail(error.message);
+
+  await writeAudit(actor, {
+    action: "settings.update_referrals",
+    entity: "settings",
+    entityLabel: "referrals",
+    meta: { changes: diffFields(before, values) },
+  });
+
+  revalidatePath("/admin/plans");
+  // Customers read their own referral link and its terms on the plan page.
+  revalidatePath("/portal/plan");
+
+  return {
+    ok: true,
+    message: enabled
+      ? `Saved. ${describeReferralReward(Math.round(percent * 100) / 100, milestoneCount, milestoneBonus)} Referrals already rewarded keep what they earned.`
+      : "Saved. Referrals are switched off, so no new one earns anything. Anything already earned stays.",
   };
 }
 
@@ -448,7 +553,7 @@ export async function grantAccountCredits(
   });
 
   revalidatePath(`/admin/officers/${userId}`);
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
   revalidatePath("/admin");
 
   return {

@@ -320,7 +320,7 @@ export async function assignPlan(
 
   revalidatePath(`/admin/officers/${userId}`);
   revalidatePath("/admin/officers");
-  revalidatePath("/admin/credits");
+  revalidatePath("/admin/plans");
 
   if (!planId) {
     return {

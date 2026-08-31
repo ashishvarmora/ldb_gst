@@ -145,6 +145,10 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   admin_adjust: "Adjusted by administrator",
   purchase: "Purchased",
   plan_grant: "Included with plan",
+  // Written by reward_referral(). Without these two the credit history shows a
+  // column value to a customer, which is the one place a raw reason leaks out.
+  referral: "Referral reward",
+  referral_milestone: "Referral bonus",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -152,8 +156,8 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Rupees per credit for a pack, so two packs can be compared at a glance.
- * Lower is better value, which is what the bonus tiers are for.
+ * Rupees per credit for a pack, so two rungs can be compared at a glance.
+ * Lower is better value, which is what the larger rungs are for.
  */
 export function rupeesPerCredit(pack: Pick<CreditPack, "price_inr" | "credits">): number {
   if (!pack.credits) return 0;
@@ -161,9 +165,12 @@ export function rupeesPerCredit(pack: Pick<CreditPack, "price_inr" | "credits">)
 }
 
 /**
- * How much better a pack is than the cheapest one, as a percentage. Used to
- * label the bonus tiers rather than storing a "bonus" column that could drift
- * out of step with the numbers it describes.
+ * How much better value a pack is than the cheapest rung, as a percentage.
+ * Derived rather than stored, so it can never disagree with the prices it
+ * describes.
+ *
+ * Not to be confused with credit_percent on the pack itself: that is a stored
+ * rate the admin sets for an open tier, this is a comparison between rungs.
  */
 export function bonusPercent(pack: CreditPack, baseline: CreditPack | undefined): number {
   if (!baseline) return 0;
@@ -192,7 +199,7 @@ export async function loadCreditPacks(admin: Admin, onlyActive = true): Promise<
  * one case where there is nothing to sell.
  */
 export function creditsForAmount(
-  pack: Pick<CreditPack, "is_open_ended" | "price_inr" | "credits" | "bonus_percent">,
+  pack: Pick<CreditPack, "is_open_ended" | "price_inr" | "credits" | "credit_percent">,
   amountInr: number,
   creditsPerRupee: number,
 ): number | null {
@@ -200,11 +207,13 @@ export function creditsForAmount(
   if (!Number.isFinite(amountInr) || amountInr < pack.price_inr) return null;
   // Rounded down, like the database: never hand over a fraction of a credit
   // that was not paid for.
-  return Math.floor(amountInr * (creditsPerRupee || 1) * (1 + pack.bonus_percent / 100));
+  return Math.floor(amountInr * (creditsPerRupee || 1) * (pack.credit_percent || 100) / 100);
 }
 
-/** "1 rupee = 1 credit, plus 25%" - the open tier stated as a sentence. */
+/** "250% of what you pay" - the open tier stated as a sentence. */
 export function describeOpenTier(pack: CreditPack, creditsPerRupee: number): string {
-  const base = `Rs 1 = ${formatCredits(creditsPerRupee)} credit${creditsPerRupee === 1 ? "" : "s"}`;
-  return pack.bonus_percent > 0 ? `${base}, plus ${formatCredits(pack.bonus_percent)}% extra` : base;
+  // Both halves of the sum, because either alone is misleading: the percentage
+  // means nothing without the base rate, and the rate hides the tier's value.
+  const each = ((creditsPerRupee || 1) * (pack.credit_percent || 100)) / 100;
+  return `${formatCredits(pack.credit_percent)}% credit — Rs 1 buys ${formatCredits(each)} credit${each === 1 ? "" : "s"}`;
 }

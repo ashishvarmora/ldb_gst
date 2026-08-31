@@ -1,14 +1,28 @@
 import type { Metadata, Viewport } from "next";
 
 import { publicSettings } from "@/components/SiteFooter";
+import { env } from "@/lib/env";
 import "./globals.css";
+
+/** What the product is, in one line, wherever a link to it is unfurled. */
+const DESCRIPTION =
+  "Look up a lorry by its registration number, see the toll plazas it has passed, and get a Telegram message when it moves.";
 
 /** The brand is admin-configurable, so the document title has to be read, not written. */
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
+    // Without a base, a shared link resolves its preview against the page it
+    // was shared from rather than against us.
+    metadataBase: new URL(env.siteUrl),
     title: brandName,
-    description: "Track a truck by its registration number and get told on Telegram when it moves.",
+    description: DESCRIPTION,
+    openGraph: {
+      title: brandName,
+      description: DESCRIPTION,
+      siteName: brandName,
+      type: "website",
+    },
   };
 }
 

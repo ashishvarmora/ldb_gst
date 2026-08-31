@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { BellRing, Coins, Search, Send, Wallet } from "lucide-react";
 
+import { InviteCard } from "./referrals/InviteCard";
 import { SkeletonPanel } from "@/components/Skeleton";
 import { publicSettings } from "@/components/SiteFooter";
 import {
@@ -40,11 +41,19 @@ const LOW_CREDITS = 10;
  * instead - see WelcomeHome below.
  */
 export default async function PortalHome() {
-  const { overview, profile } = await requirePortalSession();
+  const [{ overview, profile }, { referralEnabled }] = await Promise.all([
+    requirePortalSession(),
+    // Already resolved for the layout on this request, so this costs nothing.
+    publicSettings(),
+  ]);
 
   const firstName = (profile.full_name ?? "").split(" ")[0];
 
-  if (!overview.plan_active) return <WelcomeHome overview={overview} firstName={firstName} />;
+  if (!overview.plan_active) {
+    return (
+      <WelcomeHome overview={overview} firstName={firstName} referralEnabled={referralEnabled} />
+    );
+  }
 
   // Telegram is the only way an alert reaches a phone, so alerts running with
   // no chat id means the account is quietly getting nothing.
@@ -163,6 +172,8 @@ export default async function PortalHome() {
           <TodaysAlertsPanel userId={overview.id} alertsToday={overview.alerts_today} />
         </Suspense>
       </div>
+
+      {referralEnabled ? <InviteCard className="mt-5" /> : null}
     </>
   );
 }
@@ -178,9 +189,11 @@ export default async function PortalHome() {
 function WelcomeHome({
   overview,
   firstName,
+  referralEnabled,
 }: {
   overview: OfficerOverview;
   firstName: string;
+  referralEnabled: boolean;
 }) {
   const ended =
     overview.plan_expires_on !== null && overview.plan_expires_on < istToday();
@@ -219,7 +232,9 @@ function WelcomeHome({
             : "You are a couple of minutes away from tracking your first truck."
         }
         actions={
-          <LinkButton href="/portal/plan" variant="primary">
+          /* Full width on a phone. This is the only thing anyone can usefully
+             do on this screen, so it should not be a small button in a corner. */
+          <LinkButton href="/portal/plan" variant="primary" className="w-full sm:w-auto">
             {ended ? "Renew your plan" : "See the plans"}
           </LinkButton>
         }
@@ -242,6 +257,18 @@ function WelcomeHome({
             </li>
           ))}
         </ol>
+
+        {/* The header button is above the fold; this one is where someone
+            finishes reading the three steps and asks what to do next. On a
+            phone that is a whole screen apart. */}
+        <div className="border-t border-divider px-5 py-4">
+          <LinkButton href="/portal/plan" variant="primary" className="w-full sm:w-auto">
+            {ended ? "Renew your plan" : "Choose your plan"}
+          </LinkButton>
+          <p className="mt-2 text-xs text-muted">
+            Plans start from one month. You can change or top up at any time.
+          </p>
+        </div>
       </Panel>
 
       {/* Credits outlive a plan, so a returning customer is told the balance is
@@ -253,6 +280,7 @@ function WelcomeHome({
         </p>
       ) : null}
 
+      {referralEnabled ? <InviteCard className="mt-4" /> : null}
     </>
   );
 }

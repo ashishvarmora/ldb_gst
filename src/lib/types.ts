@@ -41,6 +41,9 @@ export type Profile = {
   plan_expires_on: string | null;
   notes: string | null;
   credits: number;
+  /** Shared to invite someone. Derived from the id, so it never collides. */
+  referral_code: string | null;
+  referred_by: string | null;
   last_active_at: string | null;
   created_at: string;
 };
@@ -304,6 +307,11 @@ export type AppSettings = {
   razorpayKeyId: string;
   /** Base money-to-credits rate: 1 rupee buys this many credits. */
   creditsPerRupee: number;
+  referralEnabled: boolean;
+  /** Share of a referred person's first payment, paid to the referrer. */
+  referralPercent: number;
+  referralMilestoneCount: number;
+  referralMilestoneBonus: number;
   /** Shown wherever the product names itself. */
   brandName: string;
   /** False closes public registration; existing accounts are unaffected. */
@@ -333,12 +341,16 @@ export type CreditPack = {
   credits: number;
   /**
    * True: the buyer names any amount at or above price_inr, and the credits
-   * are worked out from the base rate plus bonus_percent. The ladder ends in a
+   * are worked out from the base rate and credit_percent. The ladder ends in a
    * rule rather than a wall.
    */
   is_open_ended: boolean;
-  /** Extra credits on an open tier, as a percentage. Ignored on a fixed rung. */
-  bonus_percent: number;
+  /**
+   * Open tiers only: what share of the money becomes credits, against the base
+   * rate. 100 is one credit per rupee, 250 is two and a half. A fixed rung
+   * states its credits outright and ignores this.
+   */
+  credit_percent: number;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -409,3 +421,36 @@ export type CreditActivity = {
 
 /** One row of the search_plazas() RPC. */
 export type PlazaMatch = { name: string; seen_count: number; score: number };
+
+/* -------------------------------------------------------------------------- */
+/* referrals                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One person invited. Stays "pending", earning nothing, until their first
+ * payment lands - a sign-up is free to manufacture, a payment is not.
+ */
+export type Referral = {
+  id: string;
+  referrer_id: string;
+  referred_id: string;
+  status: "pending" | "rewarded";
+  reward_credits: number;
+  first_amount: number | null;
+  rewarded_at: string | null;
+  created_at: string;
+  /** Joined for display; absent on a bare select. */
+  referred?: { email: string; full_name: string | null; created_at: string } | null;
+};
+
+/** One row of public.referral_summary. */
+export type ReferralSummary = {
+  referrer_id: string;
+  email: string;
+  full_name: string | null;
+  referral_code: string | null;
+  invited: number;
+  paid: number;
+  waiting: number;
+  credits_earned: number;
+};

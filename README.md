@@ -87,11 +87,20 @@ lives in the admin panel rather than in code:
 
 | Pack | Price | Credits |
 | --- | --- | --- |
-| Starter | ₹100 | 200 |
-| Standard | ₹500 | 1,100 |
-| Bulk | ₹5,000 | 12,500 |
-| Bulk+ | ₹10,000 | 25,000 |
-| Maximum | ₹20,000 | 50,000 |
+| Starter | ₹100 | 100 |
+| Standard | ₹500 | 1,200 |
+| Plus | ₹1,000 | 2,500 |
+| Custom amount | ₹3,000 **or more** | 250% — ₹3,000 buys 7,500 |
+
+The ladder ends in a rule rather than a wall. The last rung is **open**: the
+price becomes a minimum, the buyer names the amount, and
+`credit_percent` says what share of the money becomes credits — 100 is one
+credit per rupee, 250 is two and a half. Someone wanting 7,500 credits no
+longer has to overshoot to the next fixed rung.
+
+`credits_for_amount()` in the database is the authority on that sum. The
+checkout recomputes through it before charging, because the amount arrives
+from a form and forms are user-controlled.
 
 Credits may be topped up **only while a plan is active** - buying a plan is what
 a new account does first, and topping up is what it does when they run out. It
@@ -107,6 +116,30 @@ before checkout returns.
 
 So the whole flow is three admin-set steps: **money → credits** (packs),
 **credits → usage** (rates), and **what a plan allows** (trucks).
+
+### Referrals
+
+Everyone gets a referral code, and a link that carries it into sign-up.
+
+**A referral is worth nothing until the person invited makes their first
+payment.** Sign-ups cost nothing to manufacture; payments do not. So a
+referral sits at `pending` — visible to both sides, earning nothing — until
+money actually arrives, and only then pays out:
+
+- a share of that first payment, as credits (`referral_percent`),
+- and a lump once N of them have paid (`referral_milestone_count` /
+  `referral_milestone_bonus`).
+
+Both are granted by `reward_referral()`, called from inside
+`settle_payment()` — one path from "money arrived" to "everyone owed was
+paid". It is idempotent twice over: the reward only matches a referral still
+`pending`, and the milestone only pays when the ledger has no milestone row
+for that referrer. A webhook delivered twice pays once.
+
+A person can be referred once, by one person, ever — `referred_id` is unique,
+or two referrers could both claim the same first payment. Nobody refers
+themselves. Rewards land in `credit_transactions` like everything else, so a
+balance is still explainable line by line.
 
 How a number is stored:
 
@@ -133,26 +166,19 @@ case moves on.
 ### 1. Supabase project
 
 Create a project at [supabase.com](https://supabase.com) (Postgres 15+; the views use
-`security_invoker`). In **SQL Editor**, run these in order:
+`security_invoker`).
 
-1. `supabase/migrations/0001_init.sql` — tables, indexes, triggers
-2. `supabase/migrations/0002_views_rls_seed.sql` — helpers, RLS,
-   three starter plans, default settings
-3. `supabase/migrations/0003_worker_rpcs.sql` — worker RPCs and extra indexes
-4. `supabase/migrations/0004_retention_and_records.sql` — data retention and the
-   records-view indexes
-5. `supabase/migrations/0005_location_change_flag.sql` — the movement flag and
-   its backfill
-6. `supabase/migrations/0006_store_movements_only.sql` — drops the repeats and
-   the flag; the worker now filters before writing
-7. `supabase/migrations/0007_two_truck_alerts.sql` — retires the eight rule kinds
-8. `supabase/migrations/0008_credits_and_alert_rules.sql` — one credit balance,
-   and the admin's alert-rule catalogue
+```bash
+npm run migrate        # applies supabase/migrations/*.sql in filename order
+```
 
-`node scripts/push-migrations.mjs` applies them in order over a direct
-connection. Every file is idempotent and is re-applied on each run, so they all
-have to stay valid against the *current* schema, not just the schema of their
-own day — which is why the later ones edit the earlier ones.
+Every file carries a header explaining what it changed and why, so
+`ls supabase/migrations` is the index — a list here would only be a second
+copy to keep in step, and it has already fallen behind twice.
+
+Every file is idempotent and re-applied on every run, so each one has to stay
+valid against the *current* schema rather than the schema of its own day —
+which is why later migrations edit earlier ones.
 
 Before applying anything to a live database:
 

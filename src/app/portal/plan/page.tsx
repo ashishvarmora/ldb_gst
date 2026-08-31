@@ -1,10 +1,18 @@
 import { AlertTriangle, CalendarDays, Wallet } from "lucide-react";
 
+import { InviteCard } from "../referrals/InviteCard";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
 import { Pager, pageFromParam, pagerHref } from "@/components/Pager";
 import { Badge, EmptyState, Mono, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
-import { CREDIT_REASON_LABEL, describeRate, formatCredits, loadCreditPacks, loadCreditRates } from "@/lib/credits";
+import {
+  CREDIT_REASON_LABEL,
+  creditsForAmount,
+  describeRate,
+  formatCredits,
+  loadCreditPacks,
+  loadCreditRates,
+} from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRupees, istToday } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
@@ -106,6 +114,22 @@ export default async function PlanPage({
     ? "Choose a plan first. Credits top up an account that already has one."
     : payBlocked;
 
+  /**
+   * The open pack sells a minimum and a rate, never a price, so it is quoted as
+   * "Rs 3,000 or more". Naming a single figure would advertise a purchase that
+   * is only the smallest one available.
+   */
+  const openPack = packs.find((pack) => pack.is_open_ended);
+  const openPackCredits = openPack
+    ? creditsForAmount(openPack, openPack.price_inr, settings.creditsPerRupee)
+    : null;
+  const openPackLine =
+    openPack && openPackCredits
+      ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more — ${fmtRupees(openPack.price_inr)} of it buys ${formatCredits(openPackCredits)} credits.`
+      : openPack
+        ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more, and you name the amount.`
+        : "";
+
   const historyPager = (page: number) =>
     `${pagerHref({ path: "/portal/plan", params: { payments: paymentsPage }, pageKey: "history" }, page)}#history`;
   const paymentsPager = (page: number) =>
@@ -157,6 +181,8 @@ export default async function PlanPage({
             Buy more credits at any time. The plan stays as it is.
           </Step>
         </div>
+
+        {settings.referralEnabled ? <InviteCard className="mt-3" /> : null}
 
         {rates.length > 0 ? (
           <Disclosure title="What each action costs" className="mt-3">
@@ -278,7 +304,7 @@ export default async function PlanPage({
 
       <Panel
         title="Top up credits"
-        description="Credits pay for every search and automatic check. Buying more never changes your plan."
+        description={`Credits pay for every search and automatic check. Topping up never buys the plan again — your plan, its end date and its truck limit stay exactly as they are.${openPackLine}`}
         className="mb-3"
       >
         <BuyCredits
@@ -288,6 +314,10 @@ export default async function PlanPage({
           disabledReason={creditsBlocked}
         />
       </Panel>
+
+      {/* The other way to get credits, right where someone is deciding how
+          much to spend on them. */}
+      {settings.referralEnabled ? <InviteCard className="mb-3" /> : null}
 
       <div className="space-y-3">
         <div id="history">

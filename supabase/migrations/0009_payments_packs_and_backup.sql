@@ -51,12 +51,12 @@ create index if not exists credit_packs_active_idx on public.credit_packs (is_ac
 alter table public.credit_packs drop constraint if exists credit_packs_name_key;
 alter table public.credit_packs add constraint credit_packs_name_key unique (name);
 
+-- Only the two rungs that survive into the final ladder. Seeding names that a
+-- later migration renames or drops means re-running this file resurrects them,
+-- and they accumulate one copy per run. 0013 owns the ladder's real shape.
 insert into public.credit_packs (name, price_inr, credits, sort_order) values
-  ('Starter',  100,   200,   10),
-  ('Standard', 500,   1100,  20),
-  ('Bulk',     5000,  12500, 30),
-  ('Bulk+',    10000, 25000, 40),
-  ('Maximum',  20000, 50000, 50)
+  ('Starter',  100, 200,  10),
+  ('Standard', 500, 1100, 20)
 on conflict (name) do nothing;
 
 comment on table public.credit_packs is

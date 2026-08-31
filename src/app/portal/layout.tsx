@@ -88,7 +88,7 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await requirePortalSession();
   const { overview } = session;
 
-  const [{ brandName }, { data: alertRows }] = await Promise.all([
+  const [{ brandName, referralEnabled }, { data: alertRows }] = await Promise.all([
     publicSettings(),
     // Loaded here rather than inside the bell so the panel opens with no wait.
     getSupabaseAdmin()
@@ -107,7 +107,7 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div className="theme-light flex min-h-screen">
-      <PortalSidebar brandName={brandName} />
+      <PortalSidebar brandName={brandName} referralsEnabled={referralEnabled} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">

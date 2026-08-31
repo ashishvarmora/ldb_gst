@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckCircle2, Send } from "lucide-react";
 
 import { saveMyTelegram, testMyTelegram } from "./actions";
+import { InviteCard } from "../referrals/InviteCard";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, Input } from "@/components/form";
@@ -24,7 +25,7 @@ export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ brandName, supportEmail }, { data: telegram }] = await Promise.all([
+  const [{ brandName, supportEmail, referralEnabled }, { data: telegram }] = await Promise.all([
     publicSettings(),
     admin.from("telegram_configs").select("*").eq("user_id", overview.id).maybeSingle<TelegramConfig>(),
   ]);
@@ -212,6 +213,10 @@ export default async function PortalSettingsPage() {
               </>
             )}
           </Panel>
+
+          {/* The settings gear is on every screen, so this is the way onto the
+              referral page from anywhere on a phone. */}
+          {referralEnabled ? <InviteCard /> : null}
 
           <Panel title="My account">
             <dl>

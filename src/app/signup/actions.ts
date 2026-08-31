@@ -8,6 +8,7 @@ import { sendEmail, welcomeEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { fail, str } from "@/lib/forms";
+import { attachReferral, resolveReferralCode } from "@/lib/referrals";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
@@ -56,7 +57,7 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
    * deliberately starts with no plan and no credits: a plan is chosen and paid
    * for afterwards.
    */
-  const { error: createError } = await admin.auth.admin.createUser({
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -71,6 +72,26 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
       return fail("An account already exists for that email address. Try signing in instead.");
     }
     return fail(reportError("Sign-up: create user", createError));
+  }
+
+  /*
+   * The invitation, recorded after the account exists and before anything else
+   * can go wrong.
+   *
+   * The code is resolved here rather than trusted from the form, so a hand-typed
+   * hidden field cannot credit somebody who never invited anyone. An unknown or
+   * malformed code resolves to null and is simply dropped: it must never block a
+   * registration, it just earns nobody anything. attachReferral swallows its own
+   * failures for the same reason - the account is what the person came for, the
+   * attribution is bookkeeping.
+   *
+   * Recorded even while referrals are switched off. The row is what a later
+   * payment reads to decide whether anyone is owed, so throwing it away now
+   * would silently punish everyone who was invited during a pause.
+   */
+  const referrerId = await resolveReferralCode(admin, str(fd, "ref"));
+  if (referrerId && created?.user?.id) {
+    await attachReferral(admin, referrerId, created.user.id);
   }
 
   // Sign in through the request-scoped client so the session cookie is set on
@@ -90,5 +111,8 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
   const sent = await sendEmail({ to: email, ...mail });
   if (!sent.ok) console.error("Sign-up: welcome email not sent:", sent.error);
 
-  redirect("/portal");
+  // Straight to the plans rather than the dashboard. A brand new account has no
+  // plan, so nothing on the dashboard can be anything but zero, and choosing a
+  // plan is the only thing that makes the rest of the product work.
+  redirect("/portal/plan");
 }

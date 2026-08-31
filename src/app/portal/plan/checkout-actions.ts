@@ -43,8 +43,6 @@ export type CheckoutStart =
       orderId: string;
       /** Rupees. The browser needs paise, which the client converts. */
       amountInr: number;
-      /** Credits this purchase hands over - a pack's size, or a plan's grant. */
-      credits: number;
       /** What was bought, for the payment window's own heading. */
       itemName: string;
       /** One line under it, e.g. "500 credits" or "Growth, 3 months". */
@@ -224,7 +222,6 @@ export async function startCheckout(
       ok: true,
       orderId: order.data.id,
       amountInr,
-      credits,
       itemName: pack.name,
       itemDetail: `${formatCredits(credits)} credits`,
       // Must be the twin of the secret that opened the order, so it comes from
@@ -319,7 +316,6 @@ export async function startPlanCheckout(
       ok: true,
       orderId: order.data.id,
       amountInr,
-      credits: plan.included_credits,
       itemName: `${plan.name} plan`,
       itemDetail: months === 1 ? "1 month" : `${months} months`,
       keyId: env.razorpayKeyId,

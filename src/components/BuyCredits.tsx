@@ -16,7 +16,7 @@ import {
 // never referenced here, so nothing privileged is constructed in the browser.
 //
 // bonusPercent is aliased on the way in: it compares two fixed packs by value,
-// and has nothing to do with the bonus_percent an open tier carries. Two
+// and has nothing to do with the credit_percent an open tier carries. Two
 // different ideas that would otherwise share a name on the same card.
 import {
   bonusPercent as valueAgainstEntryPack,
@@ -468,6 +468,10 @@ export function BuyCredits({
             // to sell at that price, so no credit figure is quoted.
             const credits = creditsForAmount(pack, amount, creditsPerRupee);
             const tooLittle = credits === null;
+            // What a single rupee buys on this tier. Said outright rather than
+            // as a percentage: "250%" is only meaningful next to a base rate
+            // the buyer has never been shown.
+            const perRupee = (creditsPerRupee * (pack.credit_percent || 100)) / 100;
 
             return (
               <li
@@ -479,10 +483,10 @@ export function BuyCredits({
               >
                 <div className="flex items-start justify-between gap-1.5">
                   <p className="text-xs font-medium text-muted">{pack.name}</p>
-                  {pack.bonus_percent > 0 ? (
+                  {perRupee > 1 ? (
                     <Badge tone="good" className="px-1.5">
                       <Sparkles size={10} />
-                      {formatCredits(pack.bonus_percent)}% extra credits
+                      Rs 1 buys {formatCredits(perRupee)} credits
                     </Badge>
                   ) : null}
                 </div>

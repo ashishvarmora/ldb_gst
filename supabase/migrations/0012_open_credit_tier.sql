@@ -56,10 +56,14 @@ set is_open_ended = true,
 where name = 'Maximum'
   and not exists (select 1 from public.credit_packs where is_open_ended);
 
--- The rungs between the entry pack and the open tier are now redundant: the
--- open tier covers everything from 5,000 up, at a better rate than either.
+insert into public.credit_packs (name, price_inr, credits, sort_order, is_open_ended, bonus_percent)
+select 'Custom amount', 5000, 12500, 40, true, 25
+where not exists (select 1 from public.credit_packs where is_open_ended);
+
+-- Rungs from the first seed that the open tier now covers. Named explicitly so
+-- a pack an admin created is never caught by this.
 delete from public.credit_packs
-where name in ('Bulk', 'Bulk+')
+where name in ('Bulk', 'Bulk+', 'Maximum')
   and exists (select 1 from public.credit_packs where is_open_ended);
 
 -- ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui";
 // constructed in the browser.
 //
 // bonusPercent is aliased on the way in: it is the comparison between two fixed
-// rungs, not the bonus_percent column an open tier stores. Two different ideas
+// rungs, not the credit_percent column an open tier stores. Two different ideas
 // that would otherwise share a name on the same row.
 import {
   bonusPercent as valueAgainstEntryRung,
@@ -28,7 +28,7 @@ import {
 } from "@/lib/credits";
 import type { CreditPack } from "@/lib/types";
 
-type Draft = { price: string; credits: string; open: boolean; bonus: string };
+type Draft = { price: string; credits: string; open: boolean; percent: string };
 
 /** "Rs 0.45 per credit". Three decimals only when the ladder is that fine. */
 function perCredit(value: number): string {
@@ -41,12 +41,6 @@ function parse(raw: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-/** A bonus of nothing is a real setting, so it cannot share parse() above. */
-function parsePercent(raw: string, fallback: number): number {
-  const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 ? value : fallback;
-}
-
 /** Rupees, the way this page writes them everywhere else. */
 function rupees(value: number): string {
   return `Rs ${value.toLocaleString("en-IN")}`;
@@ -57,7 +51,7 @@ function rupees(value: number): string {
  *
  * Every row is recalculated from the values currently in the boxes, not from
  * what is stored, so raising one pack's credits shows immediately how it now
- * compares with the rest. The ladder is not a formula - the bonus tiers are
+ * compares with the rest. The ladder is not a formula - the rungs are
  * deliberately uneven - so seeing the comparison is the only way to keep it
  * sensible while editing it.
  *
@@ -85,7 +79,7 @@ export function PackLadder({
           price: String(pack.price_inr),
           credits: String(pack.credits),
           open: pack.is_open_ended,
-          bonus: String(pack.bonus_percent),
+          percent: String(pack.credit_percent),
         },
       ]),
     ),
@@ -102,7 +96,7 @@ export function PackLadder({
       price_inr: parse(draft?.price ?? "", pack.price_inr),
       credits: parse(draft?.credits ?? "", pack.credits),
       is_open_ended: draft?.open ?? pack.is_open_ended,
-      bonus_percent: parsePercent(draft?.bonus ?? "", pack.bonus_percent),
+      credit_percent: parse(draft?.percent ?? "", pack.credit_percent),
     };
   });
 
@@ -124,7 +118,7 @@ export function PackLadder({
         const row = live[index];
         const open = row.is_open_ended;
         const rate = rupeesPerCredit(row);
-        const valueBonus = open ? 0 : valueAgainstEntryRung(row, baseline);
+        const valueGain = open ? 0 : valueAgainstEntryRung(row, baseline);
         const isBaseline = !open && baseline?.id === pack.id;
 
         // The minimum, then double, then quadruple it. Written against the row
@@ -165,9 +159,9 @@ export function PackLadder({
                   {pack.is_active ? null : <Badge tone="warn">hidden</Badge>}
                   {isBaseline ? (
                     <Badge tone="neutral">entry rung</Badge>
-                  ) : open || valueBonus === 0 ? null : (
-                    <Badge tone={valueBonus > 0 ? "good" : "bad"}>
-                      {valueBonus > 0 ? `+${valueBonus}%` : `${valueBonus}%`} vs {baseline?.name}
+                  ) : open || valueGain === 0 ? null : (
+                    <Badge tone={valueGain > 0 ? "good" : "bad"}>
+                      {valueGain > 0 ? `+${valueGain}%` : `${valueGain}%`} vs {baseline?.name}
                     </Badge>
                   )}
                 </div>
@@ -185,7 +179,9 @@ export function PackLadder({
 
             {open ? (
               <div className="border-b border-divider bg-sunken/50 px-4 py-3">
-                <p className="text-xs text-muted">What that comes to, at the base rate above:</p>
+                <p className="text-xs text-muted">
+                  What that comes to, at the base rate above and this tier&apos;s percentage:
+                </p>
                 <ul className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
                   {examples.map((example) => (
                     <li key={example.amount} className="text-xs tabular-nums text-ink">
@@ -234,19 +230,20 @@ export function PackLadder({
 
                 {open ? (
                   <Field
-                    label="Extra (%)"
-                    name={`bonus_${pack.id}`}
-                    hint="On top of the base rate."
+                    label="Credit (%)"
+                    name={`percent_${pack.id}`}
+                    hint="Share of the money. 100 is the base rate, 250 is two and a half times it."
                   >
                     <Input
-                      name="bonus_percent"
-                      id={`bonus_${pack.id}`}
+                      name="credit_percent"
+                      id={`percent_${pack.id}`}
                       type="number"
-                      min={0}
-                      max={1000}
+                      required
+                      min={1}
+                      max={10000}
                       step="any"
-                      value={drafts[pack.id]?.bonus ?? ""}
-                      onChange={(e) => edit(pack.id, { bonus: e.target.value })}
+                      value={drafts[pack.id]?.percent ?? ""}
+                      onChange={(e) => edit(pack.id, { percent: e.target.value })}
                     />
                   </Field>
                 ) : (
@@ -298,7 +295,7 @@ export function PackLadder({
                 <Checkbox
                   name="is_open_ended"
                   label="Open tier — the buyer names the amount"
-                  hint="The price becomes a minimum, and credits are worked out from the base rate plus the extra. The credits box does not apply."
+                  hint="The price becomes a minimum, and credits are the base rate times the percentage. The credits box does not apply."
                   defaultChecked={pack.is_open_ended}
                 />
               </div>
