@@ -153,7 +153,9 @@ export default async function PlanPage({
       <>
         <PageHeader
           title={returning ? "Renew your plan" : "Choose a plan"}
-          subtitle="A plan sets how many trucks you can watch and comes with credits to spend. Top up credits later without buying the plan again."
+          /* The top-up rule is dropped from here: the Top up credits panel
+             already says it, at the point where somebody is about to do it. */
+          subtitle="How many trucks you can watch, and the credits to spend."
         />
 
         {expired ? (

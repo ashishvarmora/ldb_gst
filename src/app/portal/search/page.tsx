@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
+import { HelpNote } from "@/components/Disclosure";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { SearchBox } from "@/components/SearchBox";
 import { publicSettings } from "@/components/SiteFooter";
@@ -59,7 +60,7 @@ export default async function SearchPage({
     <>
       <PageHeader
         title="Search a truck"
-        subtitle="Any registration number, tracked or not. Results are kept, so reopening one costs nothing."
+        subtitle="Any registration number, tracked or not."
       />
 
       {notice ? (
@@ -74,12 +75,23 @@ export default async function SearchPage({
         </div>
       ) : null}
 
-      <Panel className="mb-4">
-        <SearchBox
-          autoFocus
-          hint={`${formatCredits(overview.credits)} credits left. Spaces and dashes are ignored. Searching does not start tracking.`}
-        />
+      <Panel className="mb-3">
+        {/* The hint under the input is the one number that decides whether the
+            next tap works. The two rules that used to be crammed in beside it
+            are below, where they are read once instead of on every visit. */}
+        <SearchBox autoFocus hint={`${formatCredits(overview.credits)} credits left.`} />
       </Panel>
+
+      <HelpNote title="What a search does, and what it costs" className="mb-4">
+        <p>Spaces and dashes are ignored, so type the number however you have it.</p>
+        <p className="mt-2">
+          Searching does not start tracking — the truck is only watched once you add it in{" "}
+          <Link href="/portal/trucks" className="font-medium text-brand-500 hover:underline">
+            My trucks
+          </Link>
+          . Every result is kept, so reopening one from the list below costs nothing.
+        </p>
+      </HelpNote>
 
       <Panel
         title="Your searches"

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ArrowRight, Gift, Info, Truck, Wallet } from "lucide-react";
 
+import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton, Panel, cx } from "@/components/ui";
 import {
@@ -67,17 +68,32 @@ export default async function PricingPage() {
       : "Online payment is switched off at the moment. Contact us and your account will be set up by hand.";
 
   return (
-    <PublicShell action={headerAction} mainClassName="flex-1 px-4 py-10">
+    <PublicShell action={headerAction} mainClassName="flex-1 px-4 py-7 sm:py-10">
       <div className="mx-auto max-w-5xl">
+        {/*
+          This used to open with five lines of centred prose, which on a phone
+          is most of a screen standing between a visitor and the first price.
+          The model is one sentence now; the reason it works that way is a tap
+          away for whoever wants it, and the two section headings below answer
+          it anyway.
+        */}
         <header className="text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-strong sm:text-4xl">
+          <h1 className="text-2xl font-semibold tracking-tight text-strong sm:text-4xl">
             Plans and pricing
           </h1>
-          <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted">
-            Two things to buy, and they do different jobs. A plan decides how many trucks you can
-            keep under watch. Credits pay for the searching and the checking, out of a single
-            balance you top up whenever it runs low.
+          <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-muted">
+            A plan sets how many trucks you can watch. Credits pay for each search and check.
           </p>
+
+          <div className="mt-2 flex justify-center">
+            <HelpNote title="Why two things and not one price?">
+              A plan is a standing allowance - it decides how many trucks may be under watch at
+              once, and nothing more. Credits are the running cost of actually looking: every search
+              and every automatic check draws on one balance you top up whenever it runs low. Kept
+              apart, a quiet month costs you almost nothing and a busy one does not need a bigger
+              plan.
+            </HelpNote>
+          </div>
         </header>
 
         {payNote ? (
@@ -88,10 +104,10 @@ export default async function PricingPage() {
         ) : null}
 
         {/* ------------------------------ plans ---------------------------- */}
-        <section className="mt-10">
+        <section className="mt-8 sm:mt-10">
           <SectionHeading
             title="Plans"
-            body="Every plan carries credits to start with, and every plan can be topped up. The only thing that changes between them is how many trucks may be watched at once."
+            body="Every plan comes with credits and can be topped up. Only the truck limit changes."
           />
 
           {plans.length === 0 ? (
@@ -132,10 +148,10 @@ export default async function PricingPage() {
         </section>
 
         {/* ------------------------------ credits --------------------------- */}
-        <section className="mt-12">
+        <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="Buying credits"
-            body="Credits never expire on their own and buying more does not touch your plan. Larger amounts are worth more per rupee."
+            body="Credits never expire, and buying more does not touch your plan. Bigger packs cost less per credit."
           />
 
           {packs.length === 0 ? (
@@ -154,7 +170,7 @@ export default async function PricingPage() {
         </section>
 
         {/* ------------------------- what credits buy ----------------------- */}
-        <section className="mt-12">
+        <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="What credits are spent on"
             body="These are the only two things that draw on the balance. Nothing else on the platform costs anything."
@@ -195,7 +211,7 @@ export default async function PricingPage() {
 
         {/* ------------------------------ referrals ------------------------- */}
         {settings.referralEnabled ? (
-          <section className="mt-12">
+          <section className="mt-9 sm:mt-12">
             <Panel className="border-brand-500/40">
               <div className="flex gap-3.5">
                 <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
@@ -323,7 +339,7 @@ async function loadCatalogue(): Promise<{
 function SectionHeading({ title, body }: { title: string; body: string }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold tracking-tight text-strong">{title}</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-strong sm:text-xl">{title}</h2>
       <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">{body}</p>
     </div>
   );

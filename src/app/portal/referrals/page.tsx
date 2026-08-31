@@ -93,7 +93,11 @@ export default async function ReferralsPage({
     <>
       <PageHeader
         title="Invite and earn credits"
-        subtitle="Share your link with someone who runs trucks. You earn credits the moment they make their first payment — not when they sign up."
+        /* The when-you-earn rule is not repeated here. It is the one thing on
+           this page somebody must not miss, so it is said once, in the
+           highlighted line under the link - saying it twice made the top of the
+           page a paragraph and still left the callout to read. */
+        subtitle="Share your link with someone who runs trucks."
       />
 
       {/* ------------------------------- the link ------------------------- */}
@@ -192,7 +196,7 @@ export default async function ReferralsPage({
           {ordered.length === 0 ? (
             <EmptyState
               title="Nobody has used your link yet"
-              description="Send it to someone who runs trucks. Everyone who signs up shows up here, and you will see exactly when each one starts earning."
+              description="Everyone who signs up through it shows up here."
             />
           ) : (
             <>

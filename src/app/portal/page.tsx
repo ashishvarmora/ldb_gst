@@ -212,21 +212,27 @@ function WelcomeHome({
   const ended =
     overview.plan_expires_on !== null && overview.plan_expires_on < istToday();
 
+  /*
+   * Kept open, unlike the explanation on every other page: this is the whole
+   * of a first-run screen, and folding away the only thing on it would leave a
+   * blank page. Trimmed to one line each instead - three short steps read as a
+   * short job, three long ones read as homework.
+   */
   const steps = [
     {
       icon: Wallet,
       title: "Choose a plan",
-      body: "The plan sets how many trucks you can keep under tracking and hands you the credits to start with.",
+      body: "Sets how many trucks you can watch, and comes with credits to start.",
     },
     {
       icon: Search,
       title: "Search a truck",
-      body: "Type any registration number to see where it was last picked up. Add it to tracking and its route builds up for you.",
+      body: "Type a registration number to see where it was last picked up.",
     },
     {
       icon: BellRing,
       title: "Get told on Telegram",
-      body: "Connect Telegram in Settings and an alert reaches your phone whenever a truck you watch moves.",
+      body: "An alert reaches your phone whenever a truck you watch moves.",
     },
   ];
 

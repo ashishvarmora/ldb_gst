@@ -4,6 +4,7 @@ import { BellOff, Plus } from "lucide-react";
 import { AddTruckForm } from "./AddTruckForm";
 import { Modal } from "@/components/Modal";
 import { TruckCard, isWatching } from "@/components/TruckCard";
+import { HelpNote } from "@/components/Disclosure";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -107,7 +108,7 @@ export default async function TrucksPage({
     <>
       <PageHeader
         title="My trucks"
-        subtitle="Every truck here is checked only when one of its alerts is due. No alert means nothing is checked and nothing reaches you."
+        subtitle="What you are watching, and what each one will tell you."
         actions={
           <Modal
             triggerLabel="Add truck"
@@ -127,11 +128,20 @@ export default async function TrucksPage({
         }
       />
 
+      {/* The rule that surprises people - an alert is what causes a check, so a
+          truck with none is watched in name only. Kept on the page because it
+          decides whether this page does anything, folded because it is read
+          once. */}
+      <HelpNote title="When is a truck actually checked?" className="mb-4">
+        Only when one of its alerts is due. A truck with no alert is never
+        checked and nothing about it reaches you.
+      </HelpNote>
+
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
             title="No trucks yet"
-            description="Add a truck and pick what you want to hear about it. Every toll crossing is recorded, and you get a Telegram message whenever the alert has something to say."
+            description="Add a truck and pick what you want to hear about it."
           />
         </Panel>
       ) : (

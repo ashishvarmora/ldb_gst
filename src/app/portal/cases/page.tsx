@@ -95,7 +95,7 @@ export default async function CasesPage({
                 <Field
                   label="Truck numbers"
                   name="truck_numbers"
-                  hint="Optional. Separate with commas, spaces or new lines — anything that is not a registration number is ignored."
+                  hint="Optional. Commas, spaces or new lines — anything else is ignored."
                 >
                   <Textarea
                     name="truck_numbers"

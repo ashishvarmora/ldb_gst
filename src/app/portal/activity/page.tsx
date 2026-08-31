@@ -8,6 +8,7 @@ import {
   type ActivityKind,
   type ActivityQuery,
 } from "./ActivityFilters";
+import { HelpNote } from "@/components/Disclosure";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
 import {
@@ -132,7 +133,7 @@ export default async function ActivityPage({
     <>
       <PageHeader
         title="Activity"
-        subtitle="Every search you have run and every credit that has moved, newest first."
+        subtitle="Every search and every credit that moved, newest first."
         actions={
           /* The other half of the pair: this page is the itemised one, the plan
              page is the balance, the top-up and the per-day summary. */
@@ -235,24 +236,29 @@ export default async function ActivityPage({
         noun="entries"
       />
 
-      {/* Nobody should discover the retention window by finding a month missing.
-          It sits under the list, where someone who has just scrolled to the
-          oldest entry on screen is asking exactly this. */}
-      <p className="mt-4 rounded-lg border border-line bg-panel px-3 py-2.5 text-xs leading-relaxed text-muted">
-        {retentionSentence(rules)}{" "}
-        <Link href="/portal/settings" className="font-medium text-brand-500 hover:underline">
-          Connect your own Google Sheet
-        </Link>{" "}
-        in Settings and the copy is written there, where it stays yours.
-      </p>
-
-      <p className="mt-2 text-xs leading-relaxed text-muted">
-        Looking for payments, or usage totalled per day rather than entry by entry? Those are on{" "}
-        <Link href="/portal/plan#history" className="font-medium text-brand-500 hover:underline">
-          Plan and credits
-        </Link>
-        .
-      </p>
+      {/*
+        Two paragraphs of small print used to sit open here. Nobody should
+        discover the retention window by finding a month missing, so it stays
+        directly under the list where a reader who has just scrolled to the
+        oldest entry is asking exactly this - but folded, because that reader is
+        one in twenty.
+      */}
+      <HelpNote title="How long this is kept, and where the totals are" className="mt-4">
+        <p>
+          {retentionSentence(rules)}{" "}
+          <Link href="/portal/settings" className="font-medium text-brand-500 hover:underline">
+            Connect your own Google Sheet
+          </Link>{" "}
+          in Settings and the copy is written there, where it stays yours.
+        </p>
+        <p className="mt-2">
+          Looking for payments, or usage totalled per day rather than entry by entry? Those are on{" "}
+          <Link href="/portal/plan#history" className="font-medium text-brand-500 hover:underline">
+            Plan and credits
+          </Link>
+          .
+        </p>
+      </HelpNote>
     </>
   );
 }

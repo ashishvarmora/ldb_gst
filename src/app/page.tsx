@@ -172,10 +172,12 @@ export default async function Home() {
           <h2 className="text-center text-xl font-semibold tracking-tight text-strong">
             A plan, and credits to spend
           </h2>
-          <p className="mx-auto mt-2 max-w-xl text-center text-sm leading-relaxed text-muted">
-            A plan sets how many trucks you can watch at once and comes with a batch of credits.
-            Every search and every background check draws from that one balance, and you top it up
-            when it runs low without buying the plan again.
+          {/* The full explanation of why the price has two halves lives on
+              /pricing, which this section already links to. Repeating it here
+              gave the same paragraph three homes and meant a visitor read it
+              before reaching a single figure. A teaser teases. */}
+          <p className="mx-auto mt-2 max-w-md text-center text-sm leading-relaxed text-muted">
+            A plan sets how many trucks you can watch. Credits pay for each search and check.
           </p>
 
           {plans.length > 0 ? (

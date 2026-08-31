@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ExternalLink, MapPin } from "lucide-react";
 
+import { Disclosure, HelpNote } from "@/components/Disclosure";
 import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
   RECORD_RANGES,
@@ -161,10 +162,7 @@ export default async function RecordsPage({
 
   return (
     <>
-      <PageHeader
-        title="Records"
-        subtitle="Every toll crossing your trucks have made, by truck or as one flat log."
-      />
+      <PageHeader title="Records" subtitle="Every toll crossing your trucks have made." />
 
       <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <StatCard
@@ -295,80 +293,115 @@ export default async function RecordsPage({
         />
       )}
 
+      {/*
+        Four separate cards of analysis used to sit open under the list, which
+        on a phone is four screens of scrolling past the thing the page is for.
+        They are one folded section now: the reader who came to look something
+        up never meets them, and the reader who came for the pattern gets all
+        four in one place.
+      */}
       {scoped.length > 0 ? (
-        <>
-          <Panel
+        <Disclosure
+          title="Patterns"
+          hint="When the movement happens, where it lands, and which legs repeat"
+          className="mt-4"
+          bodyClassName="p-0"
+        >
+          <Section
             title="Crossings per day"
-            description={
+            note={
               range === "all"
                 ? `The ${stripDays} days up to the newest crossing.`
                 : `The last ${stripDays} days.`
             }
-            className="mt-5"
           >
             <DayStrip series={daily} />
-          </Panel>
+          </Section>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <Panel title="Busiest plazas" description="Where the crossings land." bodyClassName="p-0">
+          <Section title="Busiest plazas" note="Where the crossings land." flush>
+            <ul className="divide-y divide-divider">
+              {topPlazas.map(([plaza, count]) => (
+                <li key={plaza} className="px-4 py-2.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm text-ink">{plaza}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted">
+                      {fmtNumber(count)}
+                    </span>
+                  </div>
+                  <Meter share={count / scoped.length} />
+                </li>
+              ))}
+            </ul>
+          </Section>
+
+          <Section title="Busiest hours" note="When the trucks are moving.">
+            <HourStrip hours={hours} />
+          </Section>
+
+          <Section title="Repeated legs" note="One plaza to the next, same truck." flush>
+            {routes.length === 0 ? (
+              <EmptyState
+                title="No leg has repeated yet"
+                description="Once a truck runs the same pair of plazas twice it shows up here."
+              />
+            ) : (
               <ul className="divide-y divide-divider">
-                {topPlazas.map(([plaza, count]) => (
-                  <li key={plaza} className="px-4 py-2.5">
+                {routes.map((route) => (
+                  <li key={`${route.from}->${route.to}`} className="px-4 py-2.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm text-ink">{plaza}</span>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink">
+                        <span className="truncate">{route.from}</span>
+                        <ArrowRight size={12} className="shrink-0 text-faint" />
+                        <span className="truncate">{route.to}</span>
+                      </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted">
-                        {fmtNumber(count)}
+                        {fmtNumber(route.count)}x
                       </span>
                     </div>
-                    <Meter share={count / scoped.length} />
                   </li>
                 ))}
               </ul>
-            </Panel>
-
-            <Panel title="Busiest hours" description="When the trucks are moving.">
-              <HourStrip hours={hours} />
-            </Panel>
-
-            <Panel
-              title="Repeated legs"
-              description="One plaza to the next, same truck."
-              bodyClassName="p-0"
-            >
-              {routes.length === 0 ? (
-                <EmptyState
-                  title="No leg has repeated yet"
-                  description="Once a truck runs the same pair of plazas twice it shows up here."
-                />
-              ) : (
-                <ul className="divide-y divide-divider">
-                  {routes.map((route) => (
-                    <li key={`${route.from}->${route.to}`} className="px-4 py-2.5">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink">
-                          <span className="truncate">{route.from}</span>
-                          <ArrowRight size={12} className="shrink-0 text-faint" />
-                          <span className="truncate">{route.to}</span>
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted">
-                          {fmtNumber(route.count)}x
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
-          </div>
-        </>
+            )}
+          </Section>
+        </Disclosure>
       ) : null}
 
-      <p className="mt-4 text-xs leading-relaxed text-muted">
+      <HelpNote title="How long records are kept" className="mt-4">
         {retentionDays === -1
           ? "This history is kept indefinitely."
           : `Crossings older than ${retentionDays} days are cleared automatically, so the app stays quick to search. Export anything you need to keep.`}
-      </p>
+      </HelpNote>
     </>
+  );
+}
+
+/**
+ * One block inside the Patterns section.
+ *
+ * A plain heading rather than a nested Panel: a card inside a card gives the
+ * analysis the same border weight as the list above it, which is what made four
+ * of these read as four pages.
+ */
+function Section({
+  title,
+  note,
+  flush,
+  children,
+}: {
+  title: string;
+  note?: string;
+  /** For a list that draws its own row padding. */
+  flush?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-b border-divider last:border-b-0">
+      <header className="px-4 pt-3.5 pb-2">
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+        {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
+      </header>
+      <div className={flush ? "pb-1.5" : "px-4 pb-4"}>{children}</div>
+    </section>
   );
 }
 

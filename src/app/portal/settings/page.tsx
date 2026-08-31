@@ -326,7 +326,7 @@ export default async function PortalSettingsPage() {
           <Panel
             id="backup"
             title="Backup to your Google Sheet"
-            description="History is cleared from the app after a while to keep it quick. Every row is copied to a sheet first — name your own and that copy is yours to open."
+            description="Your own copy of every row, before the app clears its own."
             className="scroll-mt-20"
             actions={
               /* A sheet that stopped working is the whole reason this badge is
