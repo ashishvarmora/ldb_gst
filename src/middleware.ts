@@ -35,5 +35,14 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  /*
+   * sw.js and the manifest are excluded for the same reason the static folders
+   * are: they are fetched by the browser itself, outside any session, and
+   * refreshing an auth cookie on those requests is a Supabase round trip that
+   * nothing reads - and one that would attach Set-Cookie to a response the
+   * service worker may cache.
+   */
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

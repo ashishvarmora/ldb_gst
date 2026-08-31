@@ -4,6 +4,7 @@ import { Coins, ShieldCheck, Truck } from "lucide-react";
 import { AccountMenu, type AccountMenuProps } from "@/components/AccountMenu";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
+import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
@@ -183,7 +184,12 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</main>
+        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
+          {/* Offered to a signed-in customer only: somebody who has not got an
+              account yet has nothing to open the installed app onto. */}
+          <InstallPrompt />
+          {children}
+        </main>
 
         {/* Support details belong to a signed-in customer as much as to a
             visitor. The bottom tab bar floats over the page on phones, so the
