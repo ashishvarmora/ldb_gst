@@ -19,6 +19,49 @@ export function emailConfigured(): boolean {
   return Boolean(env.resendApiKey && env.emailFrom);
 }
 
+/**
+ * Resend's shared sandbox sender. It needs no DNS, so it is what a new account
+ * reaches for and what deployments end up shipping with - but Resend only
+ * delivers from it to the address that owns the Resend account. Every other
+ * recipient is refused with a 403, which means a password reset sent from here
+ * reaches nobody who needs one.
+ */
+const SANDBOX_DOMAIN = "resend.dev";
+
+/** The address out of "Name <a@b.com>", or the string as given. */
+function senderAddress(from: string): string {
+  return from.match(/<([^>]*)>/)?.[1]?.trim() ?? from.trim();
+}
+
+/**
+ * Why this deployment cannot mail a stranger, or null when it can.
+ *
+ * Deliberately not folded into emailConfigured(): the key and the from address
+ * can both be set, every send can come back 200 for the operator testing it
+ * with their own address, and every customer can still hear nothing. That gap
+ * is the whole reason a broken reset flow looks like a working one.
+ */
+export function emailSenderProblem(): string | null {
+  if (!env.resendApiKey) return "RESEND_API_KEY is not set, so no email can be sent at all.";
+  if (!env.emailFrom) return "EMAIL_FROM is not set, so no email can be sent at all.";
+
+  const address = senderAddress(env.emailFrom);
+  const domain = address.split("@")[1]?.toLowerCase() ?? "";
+
+  if (!domain) {
+    return `EMAIL_FROM does not contain an email address (it reads "${env.emailFrom}").`;
+  }
+  if (domain === SANDBOX_DOMAIN || domain.endsWith(`.${SANDBOX_DOMAIN}`)) {
+    return `EMAIL_FROM is ${address}, which is Resend's sandbox sender. Resend only delivers from it to the address that owns the Resend account, so nobody else can receive a password reset. Verify a domain at resend.com/domains and set EMAIL_FROM to an address on it.`;
+  }
+  return null;
+}
+
+/** Whether a reset link can actually reach a customer, not just the operator. */
+export function canEmailCustomers(): boolean {
+  return emailSenderProblem() === null;
+}
+
 export async function sendEmail({
   to,
   subject,
@@ -56,7 +99,8 @@ export async function sendEmail({
       | null;
 
     if (!response.ok) {
-      return { ok: false, error: body?.message ?? `Resend returned ${response.status}.` };
+      const detail = body?.message ?? body?.name ?? "no reason given";
+      return { ok: false, error: `Resend returned ${response.status}: ${detail}` };
     }
     return { ok: true, id: body?.id };
   } catch (error) {

@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { publicSettings } from "@/components/SiteFooter";
-import { emailConfigured, passwordResetEmail, sendEmail } from "@/lib/email";
+import { emailSenderProblem, passwordResetEmail, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { done, fail, str } from "@/lib/forms";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -18,6 +18,21 @@ import type { ActionResult } from "@/lib/types";
 const SAME_ANSWER =
   "If that address has an account, a link to choose a new password is on its way. It expires in an hour, so use it soon.";
 
+/**
+ * The answer when the fault is ours. It has to be given for *every* address,
+ * including ones with no account: a message that only appeared for real
+ * accounts would answer the enumeration question the same way "no such account"
+ * does. So it is decided before the address is looked up, never after a send
+ * fails - the check below runs first for exactly that reason.
+ */
+function ourFault(supportEmail: string): ActionResult {
+  return done(
+    supportEmail
+      ? `We cannot send reset emails at the moment - the fault is on our side, not with your address. Please write to ${supportEmail} and we will get you back in.`
+      : "We cannot send reset emails at the moment - the fault is on our side, not with your address. Please contact support and we will get you back in.",
+  );
+}
+
 export async function requestPasswordReset(
   _prev: ActionResult | null,
   fd: FormData,
@@ -26,15 +41,22 @@ export async function requestPasswordReset(
   const parsed = z.string().email().safeParse(email);
   if (!parsed.success) return fail("Enter a valid email address.");
 
-  if (!emailConfigured()) {
-    // Not the sender's problem and not their business either: a page that
-    // announces "email is not configured" tells an attacker more than it tells
-    // the person who just wants back into their account.
-    console.error("Password reset requested but email is not configured on this deployment.");
-    return done("We could not send that email just now. Support has been notified - please try again later.");
+  const { brandName, supportEmail } = await publicSettings();
+
+  /*
+   * Asked before anything is sent, because a deployment can be unable to reach
+   * a customer while every send still returns 200 for the operator testing it
+   * with their own address. Silently carrying on is what makes this form look
+   * like it works while nobody ever gets a link.
+   */
+  const senderProblem = emailSenderProblem();
+  if (senderProblem) {
+    console.error(
+      `Password reset cannot be delivered - email is misconfigured on this deployment. ${senderProblem}`,
+    );
+    return ourFault(supportEmail);
   }
 
-  const { brandName } = await publicSettings();
   const admin = getSupabaseAdmin();
 
   const { data, error } = await admin.auth.admin.generateLink({
@@ -49,14 +71,26 @@ export async function requestPasswordReset(
     // An unknown address is the ordinary case and not worth a log line; a
     // genuine fault is.
     if (error && !/not found/i.test(error.message)) {
-      console.error("Password reset: generateLink failed:", error);
+      console.error("Password reset: generateLink failed:", error.message);
     }
     return done(SAME_ANSWER);
   }
 
   const mail = passwordResetEmail(brandName, link);
   const sent = await sendEmail({ to: email, ...mail });
-  if (!sent.ok) console.error("Password reset: email not sent:", sent.error);
+
+  if (!sent.ok) {
+    /*
+     * The address exists and the send still failed, so this is ours. The
+     * reader gets SAME_ANSWER rather than ourFault(): only an existing account
+     * can reach this line, so a distinct message here would leak exactly what
+     * the identical answers above are protecting. The log is where this one is
+     * meant to be read.
+     */
+    console.error(
+      `Password reset: Resend rejected the send. Link generated but not delivered. Reason: ${sent.error}`,
+    );
+  }
 
   return done(SAME_ANSWER);
 }

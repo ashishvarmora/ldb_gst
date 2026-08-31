@@ -22,6 +22,7 @@ import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/compo
 import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { loadRetentionRules } from "@/lib/backup";
+import { emailSenderProblem } from "@/lib/email";
 import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
@@ -63,6 +64,10 @@ export default async function SettingsPage() {
   );
   const planList = (plans ?? []) as Plan[];
   const health = integrationHealth();
+  /* Why a password reset cannot reach a customer, or null. Its own line on
+     the health panel because "the key is set" and "a stranger receives the
+     mail" are different questions, and only the second one matters. */
+  const emailProblem = emailSenderProblem();
 
   const trackingEnabled = settings.tracking_enabled !== false;
   const razorpayEnabled = settings.razorpay_enabled === true;
@@ -530,7 +535,30 @@ export default async function SettingsPage() {
                 label="Razorpay key secret"
                 detail="RAZORPAY_KEY_SECRET, needed before anyone can pay"
               />
+              <HealthRow
+                ok={!emailProblem}
+                label="Password reset email"
+                detail="RESEND_API_KEY + EMAIL_FROM on a verified domain"
+              />
             </ul>
+
+            {emailProblem ? (
+              <p className="mt-4 flex items-start gap-2.5 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2.5 text-xs leading-relaxed text-bad-500">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  <strong>Nobody can reset their password.</strong> {emailProblem}
+                </span>
+              </p>
+            ) : null}
+
+            {/* A reset link is built from this, and a link on the wrong host is
+                one Supabase refuses to redirect to. */}
+            <p className="mt-3 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
+              Reset links point at <Mono className="text-xs break-all">{env.siteUrl}</Mono>. Set{" "}
+              <Mono className="text-xs">NEXT_PUBLIC_SITE_URL</Mono> if that is not your public
+              address, and add <Mono className="text-xs break-all">{env.siteUrl}/reset-password</Mono>{" "}
+              to the redirect allow-list in Supabase under Authentication → URL Configuration.
+            </p>
           </Panel>
 
           <Panel
