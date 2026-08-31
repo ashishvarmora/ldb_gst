@@ -47,7 +47,7 @@ export function foldDailyCalls(rows: LedgerCall[]): UsageDayRow[] {
 
 /**
  * Every charged call in the last `days` days, one row per day. Pass `userId`
- * for a single officer, leave it out for the whole platform.
+ * for a single account, leave it out for the whole platform.
  */
 export async function loadDailyCalls(
   admin: Admin,

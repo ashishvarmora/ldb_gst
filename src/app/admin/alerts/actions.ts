@@ -11,8 +11,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult, AlertRuleKind, AlertRuleTemplate } from "@/lib/types";
 
 /**
- * The admin's catalogue of alert rules. Officers pick from it; they never write
- * a rule themselves.
+ * The admin's catalogue of alert rules. People pick from it; they never write a
+ * rule themselves.
  *
  * The set of kinds lives in one place - ALERT_KIND_LABEL in src/lib/alerts.ts.
  * The dropdown is built from it and this validator checks against it, so adding
@@ -38,7 +38,7 @@ type RuleDraft = {
 /** Read the whole rule off the form, or say what is wrong with it. */
 function readRule(fd: FormData): { rule: RuleDraft } | { error: string } {
   const name = str(fd, "name");
-  if (!name) return { error: "Give the rule a name officers will recognise." };
+  if (!name) return { error: "Give the rule a name people will recognise." };
 
   const kind = str(fd, "kind");
   if (!isAlertKind(kind)) return { error: "Choose what the rule watches for." };
@@ -63,8 +63,8 @@ function readRule(fd: FormData): { rule: RuleDraft } | { error: string } {
     };
   }
 
-  // An officer starts on the suggested interval, so a suggestion below the
-  // floor would be refused the moment they saved it.
+  // A new alert starts on the suggested interval, so a suggestion below the
+  // floor would be refused the moment it was saved.
   if (preset < min) {
     return { error: "The suggested interval cannot be faster than the fastest repeat." };
   }
@@ -136,7 +136,7 @@ export async function updateAlertRule(
     .eq("id", ruleId);
   if (error) return fail(error.message);
 
-  // Officers already on this rule keep their own interval, so tightening the
+  // Alerts already on this rule keep their own interval, so tightening the
   // floor does not retro-fix them. Say how many are affected.
   const { count } = await admin
     .from("truck_alerts")
@@ -160,7 +160,7 @@ export async function updateAlertRule(
     ok: true,
     message:
       (count ?? 0) > 0
-        ? `Rule saved. ${count} existing officer alert${count === 1 ? " is" : "s are"} still faster than the new floor - edit them or leave them.`
+        ? `Rule saved. ${count} existing alert${count === 1 ? " is" : "s are"} still faster than the new floor - edit them or leave them.`
         : "Rule saved.",
   };
 }
@@ -200,13 +200,13 @@ export async function setAlertRuleActive(
   return {
     ok: true,
     message: active
-      ? "Rule is offered to officers again."
-      : "Rule hidden from officers. Alerts already using it keep running.",
+      ? "Rule is offered again."
+      : "Rule hidden from the picker. Alerts already using it keep running.",
   };
 }
 
 /**
- * Nudge a rule up or down the list officers see.
+ * Nudge a rule up or down the list people see.
  *
  * Swapping sort_order with the neighbour keeps the numbers the admin typed
  * meaningful, instead of renumbering the whole catalogue on every move.
@@ -286,9 +286,9 @@ export async function deleteAlertRule(
     .eq("id", ruleId)
     .maybeSingle<{ name: string }>();
 
-  // truck_alerts.template_id is ON DELETE CASCADE, so this takes every officer
-  // alert built on the rule with it. Counted first so the audit row records
-  // what was actually destroyed.
+  // truck_alerts.template_id is ON DELETE CASCADE, so this takes every alert
+  // built on the rule with it. Counted first so the audit row records what was
+  // actually destroyed.
   const { count } = await admin
     .from("truck_alerts")
     .select("id", { count: "exact", head: true })
@@ -302,7 +302,7 @@ export async function deleteAlertRule(
     entity: "alert_rule_template",
     entityId: ruleId,
     entityLabel: rule?.name ?? null,
-    meta: { officer_alerts_removed: count ?? 0 },
+    meta: { alerts_removed: count ?? 0 },
   });
 
   revalidatePath("/admin/alerts");
@@ -310,7 +310,7 @@ export async function deleteAlertRule(
     ok: true,
     message:
       (count ?? 0) > 0
-        ? `Rule deleted, along with ${count} officer alert${count === 1 ? "" : "s"} that used it.`
+        ? `Rule deleted, along with ${count} alert${count === 1 ? "" : "s"} that used it.`
         : "Rule deleted.",
   };
 }

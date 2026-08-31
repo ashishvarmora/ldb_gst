@@ -2,19 +2,25 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import type { PaymentKind } from "@/lib/types";
 
 /**
  * Razorpay's webhook. Point Razorpay at /api/webhooks/razorpay.
  *
  * THIS, not the browser, decides whether a payment happened. The checkout
- * handshake in checkout-actions.ts is a convenience: the officer can close the
+ * handshake in checkout-actions.ts is a convenience: the user can close the
  * tab, lose signal or kill the app the instant after paying, and then nothing
  * ever comes back from the browser. Razorpay retries this endpoint until it is
  * acknowledged, so the money is always accounted for eventually.
  *
- * The two paths meet at credit_payment(), which only matches a payment still in
- * 'created'. Whichever arrives first grants the credits; the other finds
+ * The two paths meet at settle_payment(), which only matches a payment still in
+ * 'created'. Whichever arrives first hands over what was bought; the other finds
  * nothing to do. That is what makes running both safe.
+ *
+ * settle_payment covers both kinds of purchase: a credit pack tops the balance
+ * up, a plan assigns the plan, extends the expiry and grants its included
+ * credits. Which one it was comes back as `kind`, so the log says what the
+ * money actually bought.
  */
 
 // Node, not edge: the signature is an HMAC from node:crypto.
@@ -32,6 +38,14 @@ type PaymentEntity = {
 type WebhookBody = {
   event?: string;
   payload?: { payment?: { entity?: PaymentEntity } };
+};
+
+/** What settle_payment() returns. `kind` says which sort of purchase settled. */
+type SettleResult = {
+  granted?: boolean;
+  kind?: PaymentKind;
+  credits?: number;
+  reason?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -70,28 +84,40 @@ export async function POST(request: NextRequest) {
 
   try {
     if (event === "payment.captured") {
-      const { data, error } = await admin.rpc("credit_payment", {
+      const { data, error } = await admin.rpc("settle_payment", {
         p_order_id: orderId,
         p_payment_id: paymentId,
       });
 
       if (error) {
         // A 500 here is correct: this is the one case where a Razorpay retry is
-        // exactly what we want, because the credits have not been granted yet.
-        console.error(`razorpay webhook: credit_payment failed for ${orderId}`, error);
+        // exactly what we want, because nothing has been granted yet.
+        console.error(`razorpay webhook: settle_payment failed for ${orderId}`, error);
         return NextResponse.json({ ok: false }, { status: 500 });
       }
 
-      const result = (data ?? {}) as { granted?: boolean };
-      return NextResponse.json({ ok: true, granted: result.granted === true });
+      const result = (data ?? {}) as SettleResult;
+      const granted = result.granted === true;
+
+      // Worth a line either way: "granted false" is the ordinary sight of the
+      // browser handshake having got there first, and reading it in the log
+      // beats wondering later whether the webhook ran at all.
+      console.info(
+        granted
+          ? `razorpay webhook: settled ${orderId} as ${result.kind ?? "unknown"}`
+          : `razorpay webhook: ${orderId} was already settled (${result.reason ?? "not pending"})`,
+      );
+
+      return NextResponse.json({ ok: true, granted, kind: result.kind ?? null });
     }
 
     if (event === "payment.failed") {
       const reason =
         entity.error_description ?? entity.error_reason ?? entity.error_code ?? "Payment failed.";
 
-      // Only a payment still waiting: a row already credited must not be
-      // reopened by a late or replayed failure event.
+      // Only a payment still waiting: a row already settled - credits granted
+      // or a plan assigned - must not be reopened by a late or replayed
+      // failure event.
       const { error } = await admin
         .from("payments")
         .update({ status: "failed", failure_reason: reason })

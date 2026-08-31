@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { reportError } from "@/lib/errors";
 import { bool, done, fail, str } from "@/lib/forms";
 import { assertPortalUser } from "@/lib/officer";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, TelegramConfig } from "@/lib/types";
@@ -47,19 +48,21 @@ export async function testMyTelegram(
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
 
-  const { data: config } = await admin
-    .from("telegram_configs")
-    .select("*")
-    .eq("user_id", session.id)
-    .maybeSingle<TelegramConfig>();
+  const [{ data: config }, { brandName }] = await Promise.all([
+    admin.from("telegram_configs").select("*").eq("user_id", session.id).maybeSingle<TelegramConfig>(),
+    loadSettings(admin),
+  ]);
 
   if (!config?.chat_id) return fail("Save your chat id first.");
+
+  // The brand is admin-typed and the message is sent as HTML, so the three
+  // characters Telegram parses as markup have to be escaped first.
+  const brand = brandName.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const result = await sendTelegramMessage({
     chatId: config.chat_id,
     botToken: config.bot_token,
-    text:
-      "<b>Truck Watch is connected</b>\n\nThis is a test message. Alerts for your tracked trucks will arrive here.",
+    text: `<b>${brand} is connected</b>\n\nThis is a test message. Alerts for your tracked trucks will arrive here.`,
   });
 
   await admin

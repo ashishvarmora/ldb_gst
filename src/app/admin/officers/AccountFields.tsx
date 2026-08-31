@@ -1,16 +1,21 @@
 import { Field, FormGrid, Input, Select, Textarea } from "@/components/form";
+import { formatCredits } from "@/lib/credits";
 import type { Plan, Profile } from "@/lib/types";
 
 /**
- * Identity fields for an officer. Used by the create modal and the edit form on
- * the officer detail page. `mode` decides whether email/password/plan appear.
+ * Identity fields for one customer account. Shared by the create modal and the
+ * edit form on the account page, so the two can never drift apart. `mode`
+ * decides whether email, password and plan appear.
+ *
+ * The company and place fields are optional on purpose: anyone can sign up now,
+ * and most people will fill in a name and nothing else.
  */
-export function OfficerFields({
-  officer,
+export function AccountFields({
+  account,
   plans,
   mode,
 }: {
-  officer?: Profile;
+  account?: Profile;
   plans?: Plan[];
   mode: "create" | "edit";
 }) {
@@ -18,13 +23,13 @@ export function OfficerFields({
     <div className="space-y-4">
       {mode === "create" ? (
         <FormGrid cols={2}>
-          <Field label="Email" name="email" hint="This is their login id.">
+          <Field label="Email" name="email" hint="This is their sign-in id.">
             <Input
               name="email"
               type="email"
               required
               autoComplete="off"
-              placeholder="officer@gujaratgst.gov.in"
+              placeholder="name@example.com"
             />
           </Field>
           <Field
@@ -48,38 +53,38 @@ export function OfficerFields({
           <Input
             name="full_name"
             required
-            defaultValue={officer?.full_name ?? ""}
+            defaultValue={account?.full_name ?? ""}
             placeholder="R. K. Patel"
           />
         </Field>
-        <Field label="Designation" name="designation">
+        <Field label="Job title" name="designation" hint="Optional.">
           <Input
             name="designation"
-            defaultValue={officer?.designation ?? ""}
-            placeholder="State Tax Officer"
+            defaultValue={account?.designation ?? ""}
+            placeholder="Fleet manager"
           />
         </Field>
       </FormGrid>
 
       <FormGrid cols={2}>
-        <Field label="Office" name="office">
+        <Field label="Company or organisation" name="office" hint="Optional.">
           <Input
             name="office"
-            defaultValue={officer?.office ?? ""}
-            placeholder="Ahmedabad GST — Ghatak 12"
+            defaultValue={account?.office ?? ""}
+            placeholder="Patel Roadlines"
           />
         </Field>
         <Field label="Phone" name="phone" hint="For your records. Alerts go over Telegram.">
-          <Input name="phone" defaultValue={officer?.phone ?? ""} placeholder="+91 98250 00000" />
+          <Input name="phone" defaultValue={account?.phone ?? ""} placeholder="+91 98250 00000" />
         </Field>
       </FormGrid>
 
       <FormGrid cols={2}>
-        <Field label="District" name="district">
-          <Input name="district" defaultValue={officer?.district ?? ""} placeholder="Ahmedabad" />
+        <Field label="City or district" name="district">
+          <Input name="district" defaultValue={account?.district ?? ""} placeholder="Ahmedabad" />
         </Field>
         <Field label="State" name="state">
-          <Input name="state" defaultValue={officer?.state ?? "Gujarat"} placeholder="Gujarat" />
+          <Input name="state" defaultValue={account?.state ?? ""} placeholder="Gujarat" />
         </Field>
       </FormGrid>
 
@@ -88,15 +93,15 @@ export function OfficerFields({
           <Field
             label="Plan"
             name="plan_id"
-            hint="Leave on the default and the account picks up the default plan and its credits by itself. You can change it any time."
+            hint="Picking one here hands over its included credits straight away. Leave it empty and the account can buy a plan itself."
           >
             <Select name="plan_id" defaultValue="">
-              <option value="">Default plan (set in Settings)</option>
+              <option value="">No plan — they buy their own</option>
               {plans
                 .filter((plan) => plan.is_active)
                 .map((plan) => (
                   <option key={plan.id} value={plan.id}>
-                    {plan.name}
+                    {plan.name} — {formatCredits(plan.included_credits)} credits
                   </option>
                 ))}
             </Select>
@@ -104,7 +109,7 @@ export function OfficerFields({
           <Field
             label="Plan expires on"
             name="plan_expires_on"
-            hint="Optional. After this date all searches are refused."
+            hint="Optional. After this date every search is refused."
           >
             <Input name="plan_expires_on" type="date" />
           </Field>
@@ -115,7 +120,7 @@ export function OfficerFields({
         <Field
           label="Telegram chat id"
           name="telegram_chat_id"
-          hint="Optional now. The officer sends /start to your bot to get it, and can fill it in themselves later."
+          hint="Optional now. They send /start to your bot to get it, and can fill it in themselves later."
         >
           <Input name="telegram_chat_id" placeholder="123456789" />
         </Field>
@@ -125,8 +130,8 @@ export function OfficerFields({
         <Textarea
           name="notes"
           rows={2}
-          defaultValue={officer?.notes ?? ""}
-          placeholder="Charges collected in cash for FY 26-27. Renewal due April."
+          defaultValue={account?.notes ?? ""}
+          placeholder="Pays by bank transfer. Renewal due April."
         />
       </Field>
     </div>

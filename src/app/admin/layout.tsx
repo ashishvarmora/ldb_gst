@@ -6,20 +6,25 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { Avatar } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { initials } from "@/lib/format";
+import { loadSettings } from "@/lib/settings";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSuperAdmin();
+  // The product names itself from a setting, so the console has to read it too
+  // rather than carrying a second, drifting copy of the name.
+  const { brandName } = await loadSettings(getSupabaseAdmin());
 
   return (
     <div className="theme-light flex min-h-screen">
-      <AdminSidebar />
+      <AdminSidebar brandName={brandName} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
-            <AdminMobileNav />
+            <AdminMobileNav brandName={brandName} />
             <span className="hidden text-xs text-faint sm:inline">
-              Super admin console — you manage every officer account from here.
+              Admin console — every account, plan and payment is managed here.
             </span>
           </div>
 

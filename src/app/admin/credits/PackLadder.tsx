@@ -12,13 +12,23 @@ import {
 } from "@/components/ActionForm";
 import { Checkbox, Field, Input } from "@/components/form";
 import { Badge } from "@/components/ui";
-// Only the pure formatters and the two ladder sums. The service-role helpers in
+// Only the pure formatters and the ladder sums. The service-role helpers in
 // the same module are never referenced here, so nothing privileged is
 // constructed in the browser.
-import { bonusPercent, formatCredits, rupeesPerCredit } from "@/lib/credits";
+//
+// bonusPercent is aliased on the way in: it is the comparison between two fixed
+// rungs, not the bonus_percent column an open tier stores. Two different ideas
+// that would otherwise share a name on the same row.
+import {
+  bonusPercent as valueAgainstEntryRung,
+  creditsForAmount,
+  describeOpenTier,
+  formatCredits,
+  rupeesPerCredit,
+} from "@/lib/credits";
 import type { CreditPack } from "@/lib/types";
 
-type Draft = { price: string; credits: string };
+type Draft = { price: string; credits: string; open: boolean; bonus: string };
 
 /** "Rs 0.45 per credit". Three decimals only when the ladder is that fine. */
 function perCredit(value: number): string {
@@ -31,6 +41,17 @@ function parse(raw: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+/** A bonus of nothing is a real setting, so it cannot share parse() above. */
+function parsePercent(raw: string, fallback: number): number {
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/** Rupees, the way this page writes them everywhere else. */
+function rupees(value: number): string {
+  return `Rs ${value.toLocaleString("en-IN")}`;
+}
+
 /**
  * The money-to-credits ladder, edited in place.
  *
@@ -39,13 +60,33 @@ function parse(raw: string, fallback: number): number {
  * compares with the rest. The ladder is not a formula - the bonus tiers are
  * deliberately uneven - so seeing the comparison is the only way to keep it
  * sensible while editing it.
+ *
+ * A row prices itself in one of two ways and never both. A fixed rung leads
+ * with the sentence it makes: "Rs 500 buys 1,100 credits" - the whole of what
+ * that row decides, and reading it as a sentence is what stops a price and a
+ * credit count being swapped. An open tier has no such sentence, because the
+ * buyer picks the amount; it states its rule and then shows what that rule
+ * actually costs at three amounts, so the consequence is on screen rather than
+ * left as arithmetic.
  */
-export function PackLadder({ packs }: { packs: CreditPack[] }) {
+export function PackLadder({
+  packs,
+  creditsPerRupee,
+}: {
+  packs: CreditPack[];
+  /** The base rate an open tier multiplies. Edited just above this ladder. */
+  creditsPerRupee: number;
+}) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
     Object.fromEntries(
       packs.map((pack) => [
         pack.id,
-        { price: String(pack.price_inr), credits: String(pack.credits) },
+        {
+          price: String(pack.price_inr),
+          credits: String(pack.credits),
+          open: pack.is_open_ended,
+          bonus: String(pack.bonus_percent),
+        },
       ]),
     ),
   );
@@ -60,44 +101,76 @@ export function PackLadder({ packs }: { packs: CreditPack[] }) {
       ...pack,
       price_inr: parse(draft?.price ?? "", pack.price_inr),
       credits: parse(draft?.credits ?? "", pack.credits),
+      is_open_ended: draft?.open ?? pack.is_open_ended,
+      bonus_percent: parsePercent(draft?.bonus ?? "", pack.bonus_percent),
     };
   });
 
-  // The entry rung: the cheapest thing an officer can buy. Everything above it
-  // is expected to give more credits per rupee, and the percentage says by how
-  // much.
-  const baseline = live.reduce<CreditPack | undefined>(
-    (lowest, pack) => (!lowest || pack.price_inr < lowest.price_inr ? pack : lowest),
-    undefined,
-  );
+  // The entry rung: the cheapest fixed thing a customer can buy. Everything
+  // above it is expected to give more credits per rupee, and the percentage
+  // says by how much.
+  //
+  // An open tier is left out of this comparison on purpose. Its credits column
+  // is not what it sells, so a rupees-per-credit figure for it would be a
+  // number nobody could ever pay.
+  const baseline = live.reduce<CreditPack | undefined>((lowest, pack) => {
+    if (pack.is_open_ended) return lowest;
+    return !lowest || pack.price_inr < lowest.price_inr ? pack : lowest;
+  }, undefined);
 
   return (
     <ul className="space-y-3">
       {packs.map((pack, index) => {
         const row = live[index];
+        const open = row.is_open_ended;
         const rate = rupeesPerCredit(row);
-        const bonus = bonusPercent(row, baseline);
-        const isBaseline = baseline?.id === pack.id;
+        const valueBonus = open ? 0 : valueAgainstEntryRung(row, baseline);
+        const isBaseline = !open && baseline?.id === pack.id;
+
+        // The minimum, then double, then quadruple it. Written against the row
+        // rather than hard-coded, so changing the minimum changes the worked
+        // example along with it.
+        const examples = open
+          ? [row.price_inr, row.price_inr * 2, row.price_inr * 4].map((amount) => ({
+              amount,
+              credits: creditsForAmount(row, amount, creditsPerRupee),
+            }))
+          : [];
 
         return (
           <li key={pack.id} className="overflow-hidden rounded-xl border border-line/70 bg-panel/50">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-divider px-4 py-2.5">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-divider px-4 py-3">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-ink">{pack.name}</p>
+                {open ? (
+                  <p className="text-base text-strong">
+                    <span className="font-semibold tabular-nums">{rupees(row.price_inr)}</span>{" "}
+                    <span className="text-muted">or more · {describeOpenTier(row, creditsPerRupee)}</span>
+                  </p>
+                ) : (
+                  <p className="text-base text-strong">
+                    <span className="font-semibold tabular-nums">{rupees(row.price_inr)}</span>{" "}
+                    <span className="text-muted">buys</span>{" "}
+                    <span className="font-semibold tabular-nums">{formatCredits(row.credits)}</span>{" "}
+                    <span className="text-muted">credits</span>
+                  </p>
+                )}
+
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted">{pack.name}</span>
+                  {open ? (
+                    <Badge tone="brand">open tier</Badge>
+                  ) : (
+                    <span className="text-xs tabular-nums text-brand-500">{perCredit(rate)}</span>
+                  )}
                   {pack.is_active ? null : <Badge tone="warn">hidden</Badge>}
                   {isBaseline ? (
                     <Badge tone="neutral">entry rung</Badge>
-                  ) : bonus === 0 ? null : (
-                    <Badge tone={bonus > 0 ? "good" : "bad"}>
-                      {bonus > 0 ? `+${bonus}%` : `${bonus}%`} vs {baseline?.name}
+                  ) : open || valueBonus === 0 ? null : (
+                    <Badge tone={valueBonus > 0 ? "good" : "bad"}>
+                      {valueBonus > 0 ? `+${valueBonus}%` : `${valueBonus}%`} vs {baseline?.name}
                     </Badge>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted">
-                  Rs {row.price_inr.toLocaleString("en-IN")} buys{" "}
-                  {formatCredits(row.credits)} credits — {perCredit(rate)}
-                </p>
               </div>
 
               <InlineActionForm action={deleteCreditPack} hidden={{ pack_id: pack.id }}>
@@ -110,8 +183,30 @@ export function PackLadder({ packs }: { packs: CreditPack[] }) {
               </InlineActionForm>
             </div>
 
+            {open ? (
+              <div className="border-b border-divider bg-sunken/50 px-4 py-3">
+                <p className="text-xs text-muted">What that comes to, at the base rate above:</p>
+                <ul className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
+                  {examples.map((example) => (
+                    <li key={example.amount} className="text-xs tabular-nums text-ink">
+                      {rupees(example.amount)} <span className="text-muted">buys</span>{" "}
+                      <span className="font-medium text-brand-500">
+                        {example.credits === null ? "--" : formatCredits(example.credits)}
+                      </span>{" "}
+                      <span className="text-muted">credits</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <ActionForm action={saveCreditPack} closeOnSuccess={false} className="px-4 py-4">
               <input type="hidden" name="pack_id" value={pack.id} />
+
+              {/* credits is not-null in the table but means nothing on an open
+                  tier, so the stored value rides along untouched rather than a
+                  new one being invented on every save. */}
+              {open ? <input type="hidden" name="credits" value={pack.credits} /> : null}
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Field label="Name" name={`name_${pack.id}`}>
@@ -124,7 +219,7 @@ export function PackLadder({ packs }: { packs: CreditPack[] }) {
                   />
                 </Field>
 
-                <Field label="Price (Rs)" name={`price_${pack.id}`}>
+                <Field label={open ? "Minimum (Rs)" : "Price (Rs)"} name={`price_${pack.id}`}>
                   <Input
                     name="price_inr"
                     id={`price_${pack.id}`}
@@ -137,18 +232,37 @@ export function PackLadder({ packs }: { packs: CreditPack[] }) {
                   />
                 </Field>
 
-                <Field label="Credits" name={`credits_${pack.id}`}>
-                  <Input
-                    name="credits"
-                    id={`credits_${pack.id}`}
-                    type="number"
-                    required
-                    min={1}
-                    step="1"
-                    value={drafts[pack.id]?.credits ?? ""}
-                    onChange={(e) => edit(pack.id, { credits: e.target.value })}
-                  />
-                </Field>
+                {open ? (
+                  <Field
+                    label="Extra (%)"
+                    name={`bonus_${pack.id}`}
+                    hint="On top of the base rate."
+                  >
+                    <Input
+                      name="bonus_percent"
+                      id={`bonus_${pack.id}`}
+                      type="number"
+                      min={0}
+                      max={1000}
+                      step="any"
+                      value={drafts[pack.id]?.bonus ?? ""}
+                      onChange={(e) => edit(pack.id, { bonus: e.target.value })}
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Credits" name={`credits_${pack.id}`}>
+                    <Input
+                      name="credits"
+                      id={`credits_${pack.id}`}
+                      type="number"
+                      required
+                      min={1}
+                      step="1"
+                      value={drafts[pack.id]?.credits ?? ""}
+                      onChange={(e) => edit(pack.id, { credits: e.target.value })}
+                    />
+                  </Field>
+                )}
 
                 <Field label="Order" name={`sort_${pack.id}`} hint="Lowest first.">
                   <Input
@@ -162,13 +276,34 @@ export function PackLadder({ packs }: { packs: CreditPack[] }) {
                 </Field>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              {/* The shared Checkbox is uncontrolled, and the sentence at the
+                  top of this row has to change the moment the box is ticked.
+                  Listening on the wrapper picks the change up without a second
+                  checkbox implementation living in this file. */}
+              <div
+                className="mt-3 grid gap-3 sm:grid-cols-2"
+                onChange={(e) => {
+                  const target = e.target as HTMLInputElement;
+                  if (target.name === "is_open_ended" && target.type === "checkbox") {
+                    edit(pack.id, { open: target.checked });
+                  }
+                }}
+              >
                 <Checkbox
                   name="is_active"
-                  label="Offered to officers"
+                  label="Offered to customers"
                   hint="Off keeps the pack and its history, but hides it on the buy page."
                   defaultChecked={pack.is_active}
                 />
+                <Checkbox
+                  name="is_open_ended"
+                  label="Open tier — the buyer names the amount"
+                  hint="The price becomes a minimum, and credits are worked out from the base rate plus the extra. The credits box does not apply."
+                  defaultChecked={pack.is_open_ended}
+                />
+              </div>
+
+              <div className="mt-3 flex justify-end">
                 <SubmitButton size="sm">Save pack</SubmitButton>
               </div>
             </ActionForm>

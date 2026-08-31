@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { ArrowLeft, Filter } from "lucide-react";
 
+import { pageRange } from "../../pager";
 import { Select } from "@/components/form";
+import { Pager, pageFromParam } from "@/components/Pager";
 import {
   Badge,
   EmptyState,
@@ -23,6 +25,8 @@ import type { AlertLog, AlertRuleKind } from "@/lib/types";
 
 export const metadata = { title: "Alert delivery log — Admin" };
 
+const PAGE_SIZE = 50;
+
 /**
  * alert_logs is a permanent record, so it still holds rows written before the
  * rule catalogue existed, with kinds like "approaching_city" that no longer
@@ -37,17 +41,23 @@ type Row = AlertLog & { profiles: { full_name: string | null; email: string } | 
 export default async function AlertLogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ officer?: string; delivered?: string; kind?: string }>;
+  searchParams: Promise<{ officer?: string; delivered?: string; kind?: string; page?: string }>;
 }) {
   await requireSuperAdmin();
-  const { officer, delivered, kind } = await searchParams;
+  // `officer` stays the parameter name: the account page links straight here
+  // with it, so renaming it would break those links for no gain.
+  const { officer, delivered, kind, page: pageParam } = await searchParams;
   const admin = getSupabaseAdmin();
+
+  const requested = pageFromParam(pageParam);
+  const { from, to } = pageRange(requested, PAGE_SIZE);
 
   let query = admin
     .from("alert_logs")
-    .select("*, profiles(full_name, email)")
+    .select("*, profiles(full_name, email)", { count: "exact" })
     .order("created_at", { ascending: false })
-    .limit(200);
+    .order("id", { ascending: false })
+    .range(from, to);
 
   if (officer) query = query.eq("user_id", officer);
   if (kind) query = query.eq("kind", kind);
@@ -56,7 +66,7 @@ export default async function AlertLogPage({
 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
-  const [{ data: alerts, error }, { data: officers }, { count: last24h }, { count: undelivered }] =
+  const [{ data: alerts, error, count }, { data: accounts }, { count: last24h }, { count: undelivered }] =
     await Promise.all([
       query,
       admin.from("profiles").select("id, full_name, email").eq("role", "officer").order("full_name"),
@@ -65,6 +75,8 @@ export default async function AlertLogPage({
     ]);
 
   const rows = (alerts ?? []) as Row[];
+  const total = count ?? rows.length;
+  const filtered = Boolean(officer || delivered || kind);
 
   return (
     <>
@@ -78,7 +90,7 @@ export default async function AlertLogPage({
 
       <PageHeader
         title="Alert delivery log"
-        subtitle="Every alert the platform generated, and whether it actually reached the officer on Telegram."
+        subtitle="Every alert the platform generated, and whether it actually reached the account on Telegram."
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
@@ -89,13 +101,17 @@ export default async function AlertLogPage({
           tone={(undelivered ?? 0) > 0 ? "warn" : "neutral"}
           sub={(undelivered ?? 0) > 0 ? "Usually a missing Telegram chat id" : "All alerts delivered"}
         />
-        <StatCard label="Shown below" value={fmtNumber(rows.length)} sub="Newest 200 matching" />
+        <StatCard
+          label={filtered ? "Matching these filters" : "Alerts on record"}
+          value={fmtNumber(total)}
+          sub={`Shown ${PAGE_SIZE} at a time`}
+        />
       </div>
 
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
         <Select name="officer" defaultValue={officer ?? ""} className="w-56">
-          <option value="">All officers</option>
-          {(officers ?? []).map((row) => (
+          <option value="">All accounts</option>
+          {(accounts ?? []).map((row) => (
             <option key={row.id} value={row.id}>
               {row.full_name ?? row.email}
             </option>
@@ -121,7 +137,7 @@ export default async function AlertLogPage({
           <Filter size={14} />
           Apply
         </button>
-        {officer || delivered || kind ? (
+        {filtered ? (
           <Link href="/admin/alerts/log" className={buttonClass("ghost")}>
             Clear
           </Link>
@@ -133,14 +149,18 @@ export default async function AlertLogPage({
           <EmptyState title="Could not load alerts" description={error.message} />
         ) : rows.length === 0 ? (
           <EmptyState
-            title="No alerts yet"
-            description="Alerts appear once officers attach a rule to a truck and it reports in."
+            title={total > 0 ? "That page is past the end of the log" : "No alerts yet"}
+            description={
+              total > 0
+                ? "Use the page links below to get back."
+                : "Alerts appear once someone attaches a rule to a truck and it reports in."
+            }
           />
         ) : (
           <TableWrap>
             <Thead>
               <th className="th">When</th>
-              <th className="th">Officer</th>
+              <th className="th">Account</th>
               <th className="th">Truck</th>
               <th className="th">Type</th>
               <th className="th">Alert</th>
@@ -193,6 +213,14 @@ export default async function AlertLogPage({
           </TableWrap>
         )}
       </Panel>
+
+      <Pager
+        page={requested}
+        pageSize={PAGE_SIZE}
+        total={total}
+        noun="alerts"
+        href={{ path: "/admin/alerts/log", params: { officer, delivered, kind } }}
+      />
     </>
   );
 }

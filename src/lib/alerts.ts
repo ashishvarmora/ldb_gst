@@ -1,10 +1,11 @@
+import { intervalLabel, intervalShort } from "@/lib/intervals";
 import type { AlertRuleKind, TruckAlert, TruckAlertWithTemplate } from "@/lib/types";
 
 /**
- * Alert evaluation.
+ * Alert evaluation, and the words used for it everywhere.
  *
- * The admin keeps a catalogue of rules; an officer attaches as many as they
- * like to a truck and sets each one's interval. Three kinds exist:
+ * The admin keeps a catalogue of rules; you attach as many as you like to a
+ * truck and set each one's interval. Three kinds exist:
  *
  *   periodic_location  every N minutes, report where the truck is - even when
  *                      that is the same plaza as last time.
@@ -13,28 +14,69 @@ import type { AlertRuleKind, TruckAlert, TruckAlertWithTemplate } from "@/lib/ty
  *   plaza_crossing     every N minutes, report only if the truck is at one
  *                      named toll plaza.
  *
- * Deliberately a pure function of the alert row, the truck's position and the
- * clock. The worker owns fetching, delivery and persistence.
+ * Evaluation is deliberately a pure function of the alert row, the truck's
+ * position and the clock. The worker owns fetching, delivery and persistence.
  */
 
+/**
+ * Names say what lands on your phone, not what the machine watches. The old
+ * "Location update" and "Location changed" were one word apart and nobody
+ * could tell which was which in a dropdown - the difference people care about
+ * is "every time" versus "only when it moves".
+ *
+ * These are also the admin catalogue's own kind names, so they have to read as
+ * a rule name there as well as an answer here.
+ */
 export const ALERT_KIND_LABEL: Record<AlertRuleKind, string> = {
-  periodic_location: "Location update",
-  location_change: "Location changed",
-  plaza_crossing: "Reached a toll plaza",
+  periodic_location: "Every time we look",
+  location_change: "Only when it moves",
+  plaza_crossing: "When it reaches a plaza",
 };
 
 export const ALERT_KIND_HINT: Record<AlertRuleKind, string> = {
   periodic_location:
-    "Sends the truck's current toll plaza on a fixed beat, whether or not it has moved.",
+    "A message on every check, saying which toll plaza the truck is at - even if it has not moved.",
   location_change:
-    "Checks on a fixed beat and messages you only when the toll plaza is different from the one it last reported.",
+    "We check just as often, but you only hear from us when the truck has reached a different toll plaza.",
   plaza_crossing:
-    "Watches one toll plaza you name and messages you the moment the truck is recorded there.",
+    "Name one toll plaza. You hear from us the first time the truck is recorded there.",
 };
 
-/** Only this kind needs a plaza chosen, so only this kind shows the dropdown. */
+/** A sample of the message itself. Shorter than any explanation of it. */
+export const ALERT_KIND_EXAMPLE: Record<AlertRuleKind, string> = {
+  periodic_location: "GJ02AT8546 is at Nadiad Toll Plaza",
+  location_change: "GJ02AT8546 moved to Nadiad Toll Plaza",
+  plaza_crossing: "GJ02AT8546 reached Nadiad Toll Plaza",
+};
+
+/** Only this kind needs a plaza named, so only this kind shows the search box. */
 export function needsPlaza(kind: AlertRuleKind): boolean {
   return kind === "plaza_crossing";
+}
+
+/**
+ * One sentence for what this alert will actually do, in the order a person
+ * asks it: how often we look, and when they hear from us. Takes loose parts
+ * rather than a row so the add form can show it before the alert exists.
+ */
+export function alertSentence(
+  kind: AlertRuleKind,
+  minutes: number,
+  plaza?: string | null,
+): string {
+  // "We look" matches describeCadence() in src/lib/intervals.ts - the two sit
+  // next to each other in the form and should not sound like two features.
+  const beat = `We look every ${intervalLabel(minutes)}`;
+  switch (kind) {
+    case "periodic_location":
+      return `${beat} and message you every time with where the truck is.`;
+    case "location_change":
+      return `${beat} and message you only when the truck has reached a different toll plaza.`;
+    case "plaza_crossing":
+      return `${beat} and message you when the truck reaches ${plaza?.trim() || "the toll plaza you name"}.`;
+    default:
+      return `${beat}.`;
+  }
 }
 
 /** The truck's latest known position. */
@@ -60,6 +102,12 @@ export type AlertDraft = {
 export type AlertStateUpdate = {
   last_run_at: string;
   last_location?: string | null;
+  /**
+   * The crossing that was reported. A truck can pass one plaza twice in a
+   * day, so the plaza name alone cannot answer "is this new" - 11:00 Malvan
+   * and 15:00 Malvan are two crossings with one name.
+   */
+  last_event_at?: string | null;
 };
 
 export type AlertOutcome = { draft: AlertDraft | null; stateUpdate: AlertStateUpdate };
@@ -77,6 +125,31 @@ export function normaliseLocation(name: string | null | undefined): string | nul
   if (!name) return null;
   const cleaned = name.trim().toLowerCase().replace(/\s+/g, " ");
   return cleaned === "" ? null : cleaned;
+}
+
+/**
+ * Is a reading at the same plaza a fresh crossing, or the previous one being
+ * re-reported?
+ *
+ * A plaza reports one physical crossing under several sequence numbers, so the
+ * same name arriving again usually means nothing. Usually - a truck that goes
+ * out and comes back passes it twice, and those are two crossings sharing one
+ * name. Time is the only thing that separates them.
+ *
+ * With no timestamp on either side there is nothing to judge by, and the safe
+ * answer is no: treating an undated reading as a revisit would let a plaza that
+ * reports without times insert a row on every single check.
+ */
+export function isRevisit(
+  previousAt: string | null,
+  eventAt: string | null,
+  revisitMinutes: number,
+): boolean {
+  if (!previousAt || !eventAt) return false;
+  const before = new Date(previousAt).getTime();
+  const now = new Date(eventAt).getTime();
+  if (Number.isNaN(before) || Number.isNaN(now)) return false;
+  return now - before >= revisitMinutes * 60_000;
 }
 
 /**
@@ -144,20 +217,43 @@ export function evaluateAlert({
 
     /* -------------------------------------------------------------------- */
     case "location_change": {
-      const previous = normaliseLocation(alert.last_location);
-      if (current === null || current === previous) return { draft: null, stateUpdate };
+      // "Has the truck reached a toll plaza since I last told you?" - asked
+      // about the crossing, because a return trip passes the same plaza again
+      // and a name comparison would call that no change at all.
+      if (current === null) return { draft: null, stateUpdate };
 
-      // No previous plaza means this is the first look, not a move. Record the
-      // baseline quietly - otherwise switching the alert on always fires once.
+      const previous = normaliseLocation(alert.last_location);
+      const seenAt = position.eventTime;
+      const reportedAt = alert.last_event_at ?? null;
+
+      const isNewCrossing =
+        seenAt && reportedAt
+          ? new Date(seenAt).getTime() > new Date(reportedAt).getTime()
+          // Without both timestamps there is nothing better than the name.
+          : current !== previous;
+
+      if (!isNewCrossing) return { draft: null, stateUpdate };
+
+      // No previous crossing means this is the first look, not a move. Record
+      // the baseline quietly - otherwise switching the alert on fires once.
       stateUpdate.last_location = position.locName;
-      if (previous === null) return { draft: null, stateUpdate };
+      stateUpdate.last_event_at = seenAt;
+      if (previous === null && reportedAt === null) return { draft: null, stateUpdate };
+
+      // Coming back to the plaza it was last seen at is a real move, and
+      // "moved to Malvan, previously Malvan" would read as a glitch.
+      const returned = previous !== null && current === previous;
 
       return {
         draft: {
           alertId: alert.id,
           kind: "location_change",
-          title: `${truckNumber} moved to ${position.locName}`,
-          message: `Now at ${place(position)}${heading(position)}, previously ${alert.last_location}.`,
+          title: returned
+            ? `${truckNumber} is back at ${position.locName}`
+            : `${truckNumber} moved to ${position.locName}`,
+          message: returned
+            ? `Passed ${place(position)}${heading(position)} again.`
+            : `Now at ${place(position)}${heading(position)}, previously ${alert.last_location}.`,
           position,
         },
         stateUpdate,
@@ -169,13 +265,21 @@ export function evaluateAlert({
       const watched = normaliseLocation(alert.plaza);
       if (!watched || current === null) return { draft: null, stateUpdate };
 
-      // A truck sitting at the watched plaza would otherwise be reported on
-      // every interval. last_location remembers what was already announced, so
-      // it is announced once per arrival.
-      const announced = normaliseLocation(alert.last_location);
       stateUpdate.last_location = position.locName;
+      if (current !== watched) return { draft: null, stateUpdate };
 
-      if (current !== watched || announced === watched) return { draft: null, stateUpdate };
+      // Sitting at the watched plaza must not report on every interval, but
+      // arriving a second time later that day must. So the guard is the
+      // crossing, not the plaza: report once per crossing, every crossing.
+      const seenAt = position.eventTime;
+      const reportedAt = alert.last_event_at ?? null;
+      const alreadyReported =
+        seenAt && reportedAt
+          ? new Date(seenAt).getTime() <= new Date(reportedAt).getTime()
+          : normaliseLocation(alert.last_location) === watched;
+
+      if (alreadyReported) return { draft: null, stateUpdate };
+      stateUpdate.last_event_at = seenAt;
 
       return {
         draft: {
@@ -195,18 +299,15 @@ export function evaluateAlert({
   }
 }
 
-/** One line describing an alert in a list: "Location changed · every 30 min". */
+/** One line describing an alert in a list: "Only when it moves · every 30m". */
 export function describeAlert(alert: TruckAlertWithTemplate): string {
-  const parts = [alert.template.name, `every ${intervalWords(alert.interval_minutes)}`];
+  const parts = [alert.template.name, `every ${intervalShort(alert.interval_minutes)}`];
   if (alert.plaza) parts.push(alert.plaza);
   return parts.join(" · ");
 }
 
-/** "45 min", "2 h", "1 h 30 min" - short enough for a badge. */
-export function intervalWords(minutes: number): string {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "--";
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
-}
+/**
+ * Kept so nothing importing it breaks. Interval wording lives in
+ * src/lib/intervals.ts now, where the minutes/hours arithmetic already is.
+ */
+export const intervalWords = intervalShort;

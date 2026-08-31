@@ -84,7 +84,8 @@ try {
       );
       const { rows: after } = await client.query(`select credits from public.profiles where id=$1`, [who[0].id]);
       console.log(`\n  spend_credits verdict: ${JSON.stringify(spent[0].v)}`);
-      console.log(`  balance after +100 then one auto_check: ${after[0].credits} (expected 99.50)`);
+      console.log(`  balance after +100 then one auto_check: ${after[0].credits}`);
+      console.log(`  (the charge depends on the admin-set rate, so there is no fixed expected value)`);
     }
   }
 } finally {

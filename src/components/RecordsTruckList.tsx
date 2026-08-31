@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronDown, MapPin } from "lucide-react";
 
+import { ShowMore } from "@/components/Pager";
 import { directionLabel } from "@/components/Timeline";
 import { Badge, EmptyState, LinkButton, Mono, TableWrap, Tbody, Thead, Tr } from "@/components/ui";
 import { fmtDate, fmtNumber, fmtRelative, fmtTime } from "@/lib/format";
@@ -23,8 +24,12 @@ export type TruckRecordSummary = {
   recent: RecordRow[];
 };
 
-/** How many crossings a truck lists inline before pointing at the full list. */
-const INLINE_LIMIT = 40;
+/**
+ * How many crossings a truck lists inline before pointing at the full list.
+ * Deliberately short: an opened truck should still fit on a phone screen, and
+ * the rest is one tap away in the paged view.
+ */
+const INLINE_LIMIT = 10;
 
 /**
  * One entry per truck number, with all of that truck's crossings merged behind
@@ -145,25 +150,28 @@ export function RecordsTruckList({
                 </Tbody>
               </TableWrap>
 
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-divider px-4 py-2.5 text-xs">
+              <div className="border-t border-divider px-3 py-2">
                 {group.crossings > group.recent.length ? (
-                  <span className="text-muted">
-                    Showing the newest {fmtNumber(group.recent.length)} of{" "}
-                    {fmtNumber(group.crossings)}.
-                  </span>
+                  <ShowMore
+                    href={`/portal/records?view=all&truck=${group.truckNumber}&range=${range}`}
+                    remaining={group.crossings - group.recent.length}
+                    noun="more crossings"
+                  />
                 ) : null}
-                <Link
-                  href={`/portal/records?view=all&truck=${group.truckNumber}&range=${range}`}
-                  className="font-medium text-brand-500 hover:underline"
-                >
-                  All crossings for this truck
-                </Link>
-                <Link
-                  href={`/portal/search/${group.truckNumber}`}
-                  className="font-medium text-brand-500 hover:underline"
-                >
-                  Open its route
-                </Link>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 pt-1 text-xs">
+                  <Link
+                    href={`/portal/records?view=all&truck=${group.truckNumber}&range=${range}`}
+                    className="font-medium text-brand-500 hover:underline"
+                  >
+                    All crossings for this truck
+                  </Link>
+                  <Link
+                    href={`/portal/search/${group.truckNumber}`}
+                    className="font-medium text-brand-500 hover:underline"
+                  >
+                    Open its route
+                  </Link>
+                </div>
               </div>
             </div>
           </details>

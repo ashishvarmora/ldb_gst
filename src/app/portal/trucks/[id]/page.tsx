@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
+  BellOff,
   BellPlus,
+  CheckCircle2,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -29,7 +31,7 @@ import { LatestPosition, RouteHistory } from "@/components/Timeline";
 import { TruckAlertForm } from "@/components/TruckAlertForm";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE, lastCheckedLabel } from "@/components/TruckCard";
 import { Badge, EmptyState, Panel } from "@/components/ui";
-import { intervalWords } from "@/lib/alerts";
+import { alertSentence } from "@/lib/alerts";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
@@ -64,14 +66,21 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * One truck, phone first.
  *
- * The top of the page answers the only three questions an officer opens it
- * for: where is it, when was it last checked, and what is watching it.
- * Everything else - the route, past alerts, past checks, settings, removal -
- * sits behind a collapsible section, so the page is a short list of headings
- * rather than a wall of panels.
+ * The top of the page answers the only three questions it is opened for:
+ * where is it, when was it last checked, and what is watching it. Everything
+ * else - the route, past alerts, past checks, settings, removal - sits behind
+ * a collapsible section, so the page is a short list of headings rather than a
+ * wall of panels.
  */
-export default async function TruckDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TruckDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ added?: string }>;
+}) {
   const { id } = await params;
+  const { added } = await searchParams;
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
@@ -90,7 +99,6 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
     { data: checks },
     { data: rules },
     { data: templates },
-    { data: plazas },
     manualRate,
   ] = await Promise.all([
     admin
@@ -125,7 +133,6 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
       .select("*")
       .eq("is_active", true)
       .order("sort_order", { ascending: true }),
-    admin.from("toll_plazas").select("name").order("name", { ascending: true }).limit(500),
     loadRate(admin, CREDIT_ACTIONS.manualSearch),
   ]);
 
@@ -134,7 +141,6 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
   const checkList = (checks ?? []) as SearchLog[];
   const ruleList = (rules ?? []) as TruckAlertWithTemplate[];
   const templateList = (templates ?? []) as AlertRuleTemplate[];
-  const plazaNames = ((plazas ?? []) as { name: string }[]).map((row) => row.name);
 
   const enabledRules = ruleList.filter((rule) => rule.is_enabled);
   const manualCost = costOf(manualRate);
@@ -199,13 +205,29 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
       </Panel>
 
       {/* --------------------------- alerts, always open ------------------- */}
+      {added ? (
+        <p className="flex items-start gap-2 rounded-xl border border-good-500/40 bg-good-500/10 px-3 py-2.5 text-sm text-good-500">
+          <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+          <span>
+            {truck.truck_number} is on your list.{" "}
+            {enabledRules.length > 0
+              ? "Here is what will reach you about it."
+              : "Nothing is watching it yet — add an alert below."}
+          </span>
+        </p>
+      ) : null}
+
       <Panel
         title="Alerts on this truck"
         description="This truck is checked only when one of these is due, and each check costs credits."
       >
         {ruleList.length === 0 ? (
-          <p className="text-sm text-muted">
-            No alerts yet, so nothing is being checked. Add one below.
+          <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
+            <BellOff size={15} className="mt-0.5 shrink-0" />
+            <span>
+              Nothing is watching {truck.truck_number}. It will not be checked and nothing will
+              reach you until you add an alert below.
+            </span>
           </p>
         ) : (
           <ul className="divide-y divide-divider overflow-hidden rounded-lg border border-line">
@@ -217,9 +239,10 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
                     {rule.is_enabled ? null : <Badge>off</Badge>}
                     {rule.template.is_active ? null : <Badge tone="warn">withdrawn</Badge>}
                   </div>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Every {intervalWords(rule.interval_minutes)}
-                    {rule.plaza ? ` · ${rule.plaza}` : ""}
+                  {/* The rule name alone was read as a category rather than a
+                      promise, so each row says what it will do in full. */}
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                    {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
                   </p>
                 </div>
 
@@ -261,12 +284,12 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
 
         <div className="mt-4">
           <Disclosure
-            title="Add an alert"
-            hint="Pick a rule, then set how often it runs."
+            title={ruleList.length === 0 ? "Add the first alert" : "Add another alert"}
+            hint="Pick what you want to hear about, then how often we check."
             defaultOpen={ruleList.length === 0}
             badge={<BellPlus size={13} className="text-brand-500" />}
           >
-            <TruckAlertForm truckId={truck.id} templates={templateList} plazas={plazaNames} />
+            <TruckAlertForm truckId={truck.id} templates={templateList} />
           </Disclosure>
         </div>
       </Panel>
@@ -344,15 +367,18 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
         )}
       </Disclosure>
 
-      <Disclosure title="Settings" hint="Label, pause, and removing this truck">
+      {/* Not folded away like the sections above it. There are only two fields
+          and a remove button, and hiding them behind a dropdown made people
+          hunt for the pause switch. */}
+      <Panel title="Settings" description="Label, pause, and removing this truck.">
         <ActionForm action={updateTruck} closeOnSuccess={false}>
           <input type="hidden" name="truck_id" value={truck.id} />
-          <div className="space-y-4">
-            <Field label="Label" name="label">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
+            <Field label="Label" name="label" hint="Only you see this.">
               <Input
                 name="label"
                 defaultValue={truck.label ?? ""}
-                placeholder="Which case is this for?"
+                placeholder="e.g. Supplier vehicle — north route"
               />
             </Field>
 
@@ -384,7 +410,7 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
             </ConfirmSubmitButton>
           </ActionForm>
         </div>
-      </Disclosure>
+      </Panel>
     </div>
   );
 }

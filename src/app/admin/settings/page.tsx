@@ -4,18 +4,27 @@ import {
   CheckCircle2,
   Clock,
   DatabaseBackup,
+  Globe,
   PlayCircle,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
 
-import { runBackupNow, runTrackingNow, saveBackupSettings, savePaymentSettings, saveSettings } from "./actions";
+import {
+  runBackupNow,
+  runTrackingNow,
+  saveBackupSettings,
+  savePaymentSettings,
+  saveSettings,
+  saveSiteSettings,
+} from "./actions";
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
-import { Checkbox, Field, FormActions, FormGrid, Input, Select } from "@/components/form";
+import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/components/form";
 import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Plan } from "@/lib/types";
 
@@ -37,9 +46,12 @@ export default async function SettingsPage() {
   await requireSuperAdmin();
   const admin = getSupabaseAdmin();
 
-  const [{ data: rows }, { data: plans }, headerList] = await Promise.all([
+  // Raw rows for the panels that still need to tell "absent" from "off", and the
+  // resolved object for the Site panel, whose defaults live in loadSettings().
+  const [{ data: rows }, { data: plans }, site, headerList] = await Promise.all([
     admin.from("app_settings").select("key, value"),
     admin.from("plans").select("*").eq("is_active", true).order("sort_order"),
+    loadSettings(admin),
     headers(),
   ]);
 
@@ -76,11 +88,129 @@ export default async function SettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        subtitle="Platform-wide. There is nothing per officer here except the plan they are given."
+        subtitle={`Platform-wide. Everything here applies to ${site.brandName} as a whole — there is nothing per customer on this page.`}
       />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
+          <Panel
+            title="Site"
+            description="What the product calls itself, whether anyone may register, and how to reach you. All of it is shown to people who are not signed in."
+          >
+            <ActionForm action={saveSiteSettings} closeOnSuccess={false}>
+              <div className="space-y-4">
+                <Field
+                  label="Product name"
+                  name="brand_name"
+                  hint="Used everywhere the product names itself — the sign-in page, the footer, page titles and emails."
+                >
+                  <Input
+                    name="brand_name"
+                    required
+                    maxLength={60}
+                    defaultValue={site.brandName}
+                    placeholder="Truck Watch"
+                    autoComplete="off"
+                  />
+                </Field>
+
+                <Checkbox
+                  name="signup_enabled"
+                  label="Anyone may create an account"
+                  hint="Off hides and refuses public registration. Existing customers are unaffected, and you can still create accounts from the Customers page."
+                  defaultChecked={site.signupEnabled}
+                />
+
+                <FormGrid cols={2}>
+                  <Field
+                    label="Support email"
+                    name="support_email"
+                    hint="Shown in the public footer. Leave blank to show no email at all."
+                  >
+                    <Input
+                      name="support_email"
+                      type="email"
+                      defaultValue={site.supportEmail}
+                      placeholder="help@example.com"
+                      autoComplete="off"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Support phone"
+                    name="support_phone"
+                    hint="Shown in the public footer. Blank means no number is published."
+                  >
+                    <Input
+                      name="support_phone"
+                      defaultValue={site.supportPhone}
+                      placeholder="+91 98250 00000"
+                      autoComplete="off"
+                    />
+                  </Field>
+                </FormGrid>
+
+                <Field
+                  label="Postal address"
+                  name="support_address"
+                  hint="Shown in the public footer. Payment providers usually want a real address on the site."
+                >
+                  <Textarea
+                    name="support_address"
+                    rows={2}
+                    maxLength={300}
+                    defaultValue={site.supportAddress}
+                    placeholder="12 Ring Road, Ahmedabad 380015"
+                  />
+                </Field>
+
+                <FormGrid cols={2}>
+                  <Field
+                    label="Privacy policy link"
+                    name="privacy_url"
+                    hint="Linked from the footer and the sign-up page. Blank hides the link."
+                  >
+                    <Input
+                      name="privacy_url"
+                      type="url"
+                      defaultValue={site.privacyUrl}
+                      placeholder="https://example.com/privacy"
+                      autoComplete="off"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Terms link"
+                    name="terms_url"
+                    hint="Linked from the footer and the sign-up page. Blank hides the link."
+                  >
+                    <Input
+                      name="terms_url"
+                      type="url"
+                      defaultValue={site.termsUrl}
+                      placeholder="https://example.com/terms"
+                      autoComplete="off"
+                    />
+                  </Field>
+                </FormGrid>
+
+                <p className="flex items-start gap-2.5 rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
+                  <Globe size={15} className="mt-0.5 shrink-0 text-brand-500" />
+                  <span>
+                    Every blank box above simply disappears from the public pages, so it is safe to
+                    leave one empty until you have the real answer. Closing sign-up is the switch to
+                    reach for while you are still setting prices — nobody can register, and you can
+                    still make accounts by hand.
+                  </span>
+                </p>
+              </div>
+
+              <FormActions>
+                <SubmitButton>Save site settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
           <Panel
             title="Tracking engine"
             description="Applies to the background worker, which checks a truck whenever one of its alerts falls due."
@@ -101,43 +231,39 @@ export default async function SettingsPage() {
                 <Checkbox
                   name="tracking_enabled"
                   label="Background tracking is running"
-                  hint="Turn off to pause every officer's background checking at once, without touching their plans or credits."
+                  hint="Turn off to pause every customer's background checking at once, without touching their plans or credits."
                   defaultChecked={trackingEnabled}
                 />
 
-                <FormGrid cols={2}>
-                  <Field
-                    label="Default plan for new officers"
-                    name="default_plan_name"
-                    hint="Assigned automatically the moment an officer account is created, along with the credits that plan includes."
-                  >
-                    <Select
-                      name="default_plan_name"
-                      defaultValue={text(settings, "default_plan_name", "")}
-                    >
-                      <option value="">None</option>
-                      {planList.map((plan) => (
-                        <option key={plan.id} value={plan.name}>
-                          {plan.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-
-                  <Field
-                    label="Treat as no activity after (hours)"
+                <Field
+                  label="Treat as no activity after (hours)"
+                  name="no_activity_hours"
+                  hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
+                >
+                  <Input
                     name="no_activity_hours"
-                    hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
-                  >
-                    <Input
-                      name="no_activity_hours"
-                      type="number"
-                      min={1}
-                      max={168}
-                      defaultValue={num(settings, "no_activity_hours", 6)}
-                    />
-                  </Field>
-                </FormGrid>
+                    type="number"
+                    min={1}
+                    max={168}
+                    defaultValue={num(settings, "no_activity_hours", 6)}
+                    className="max-w-40"
+                  />
+                </Field>
+
+                <Field
+                  label="Same plaza counts as the same crossing for (minutes)"
+                  name="revisit_minutes"
+                  hint="A toll plaza reports one crossing several times over. Inside this window a repeat is ignored; past it, the truck has come back and that is a new crossing worth alerting on. Raise it if return trips are being reported twice; lower it if a same-day round trip is being missed."
+                >
+                  <Input
+                    name="revisit_minutes"
+                    type="number"
+                    min={5}
+                    max={1440}
+                    defaultValue={num(settings, "revisit_minutes", 90)}
+                    className="max-w-40"
+                  />
+                </Field>
               </div>
 
               <FormActions>
@@ -296,15 +422,15 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
-            title="Officer payments"
-            description="Razorpay, so officers can buy their own credits instead of settling with you offline."
+            title="Customer payments"
+            description="Razorpay, so customers can buy a plan and top up their credits themselves instead of settling with you offline."
           >
             <ActionForm action={savePaymentSettings} closeOnSuccess={false}>
               <div className="space-y-4">
                 <Checkbox
                   name="razorpay_enabled"
-                  label="Officers may buy credits online"
-                  hint="Off means there is no online payment at all — credits arrive only when you add them by hand on the officer's page."
+                  label="Customers may pay online"
+                  hint="Off means there is no online payment at all — plans and credits arrive only when you assign or add them by hand."
                   defaultChecked={razorpayEnabled}
                 />
 
@@ -336,10 +462,9 @@ export default async function SettingsPage() {
                 </div>
 
                 <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
-                  <span className="text-ink">What a payment buys is not set here.</span> The credit
-                  packs on the credits page are the price list: each one says what a rupee amount is
-                  worth in credits. This panel only decides whether officers may pay in the app at
-                  all.
+                  <span className="text-ink">What a payment buys is not set here.</span> Plans carry
+                  their own monthly price, and the credit packs on the Credits page are the top-up
+                  price list. This panel only decides whether anyone may pay in the app at all.
                 </p>
               </div>
 
@@ -350,17 +475,17 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
-            title="What officers need to give you"
-            description="Nothing sensitive. You hold the credentials; the officer supplies one thing."
+            title="What a customer has to give you"
+            description="Nothing sensitive. You hold the credentials; the customer supplies one thing."
           >
             <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
               <p className="text-sm font-medium text-ink">Telegram chat id</p>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                You run one bot for the whole platform. The officer sends it <Mono>/start</Mono> —
+                You run one bot for the whole platform. The customer sends it <Mono>/start</Mono> —
                 Telegram only allows a bot to message someone who has started it. Then read their
                 numeric chat id with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them
-                fetch it from <Mono>@userinfobot</Mono>. Paste it on the officer&apos;s page. Never
-                ask for their phone number — Telegram alerts do not use it.
+                fetch it from <Mono>@userinfobot</Mono>. Paste it on their account page. Never ask
+                for a phone number — Telegram alerts do not use it.
               </p>
             </div>
           </Panel>
@@ -373,7 +498,7 @@ export default async function SettingsPage() {
               <HealthRow
                 ok={health.serviceRole}
                 label="Service role key"
-                detail="Needed to create officer accounts"
+                detail="Needed to create customer accounts"
               />
               <HealthRow
                 ok={health.telegram}
@@ -393,7 +518,7 @@ export default async function SettingsPage() {
               <HealthRow
                 ok={razorpaySecretSet}
                 label="Razorpay key secret"
-                detail="RAZORPAY_KEY_SECRET, needed before any officer can pay"
+                detail="RAZORPAY_KEY_SECRET, needed before anyone can pay"
               />
             </ul>
           </Panel>
@@ -469,8 +594,23 @@ export default async function SettingsPage() {
             </p>
           </Panel>
 
-          <Panel title="Current values" description="Exactly what the worker will read.">
+          <Panel title="Current values" description="Exactly what the site and the worker will read.">
             <dl>
+              <DescRow label="Product name">{site.brandName}</DescRow>
+              <DescRow label="Public sign-up">
+                <Badge tone={site.signupEnabled ? "good" : "neutral"}>
+                  {site.signupEnabled ? "open" : "closed"}
+                </Badge>
+              </DescRow>
+              <DescRow label="Support email">{site.supportEmail || "not shown"}</DescRow>
+              <DescRow label="Support phone">{site.supportPhone || "not shown"}</DescRow>
+              <DescRow label="Policies">
+                {site.privacyUrl || site.termsUrl
+                  ? [site.privacyUrl ? "privacy" : null, site.termsUrl ? "terms" : null]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "none linked"}
+              </DescRow>
               <DescRow label="LDB endpoint">
                 <Mono className="text-xs break-all">
                   {text(settings, "ldb_api_url", env.ldbApiUrl)}
@@ -482,6 +622,9 @@ export default async function SettingsPage() {
                 </Badge>
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
+              <DescRow label="Same-plaza window">
+                {num(settings, "revisit_minutes", 90)} min
+              </DescRow>
               <DescRow label="Retention">
                 {keepForEver ? "kept for ever" : `${retentionDays} days`}
               </DescRow>
@@ -496,8 +639,8 @@ export default async function SettingsPage() {
               <DescRow label="Automatic">
                 <Badge tone={purgeEnabled ? "good" : "neutral"}>{purgeEnabled ? "on" : "off"}</Badge>
               </DescRow>
-              <DescRow label="Active plans">{planList.length}</DescRow>
-              <DescRow label="Officer payments">
+              <DescRow label="Plans on sale">{planList.length}</DescRow>
+              <DescRow label="Online payment">
                 <Badge tone={razorpayEnabled ? (razorpaySecretSet ? "good" : "warn") : "neutral"}>
                   {razorpayEnabled ? (razorpaySecretSet ? "on" : "on, no secret") : "off"}
                 </Badge>

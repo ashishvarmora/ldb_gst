@@ -11,8 +11,11 @@ function csvCell(value: unknown): string {
 }
 
 /**
- * One row per officer for the current month, credits and all. This is the sheet
- * you would use to work out what to collect from each office.
+ * One row per account for the current month, credits and all. This is the sheet
+ * you would use to work out what to collect from each customer.
+ *
+ * Deliberately not paged: a spreadsheet is the one place where the whole list
+ * is the point, and the screen is where paging belongs.
  */
 export async function GET() {
   const session = await getSessionUser();
@@ -30,7 +33,7 @@ export async function GET() {
   if (error) return new NextResponse(error.message, { status: 500 });
 
   const header = [
-    "Officer",
+    "Account",
     "Email",
     "Phone",
     "Designation",
@@ -92,7 +95,7 @@ export async function GET() {
   return new NextResponse(lines.join("\n"), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="gst-truck-usage-${month}.csv"`,
+      "Content-Disposition": `attachment; filename="truck-usage-${month}.csv"`,
     },
   });
 }

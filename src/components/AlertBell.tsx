@@ -24,8 +24,8 @@ export type AlertBellItem = {
  * hands it, not a teaser with a "see all" link to nowhere.
  *
  * `alerts` is rendered on the server and passed down whole, so opening the
- * panel is instant: an officer checking why their phone buzzed should not wait
- * on a round trip.
+ * panel is instant: someone checking why their phone buzzed should not wait on
+ * a round trip.
  */
 export function AlertBell({
   alerts,
@@ -39,8 +39,8 @@ export function AlertBell({
   const [seen, setSeen] = useState(false);
   /**
    * Which rows were unread at the moment the panel opened. Reading `read_at`
-   * directly would make the highlight vanish under the officer's eyes as soon
-   * as the refresh lands, which is exactly when they are trying to spot what is
+   * directly would make the highlight vanish under the reader's eyes as soon as
+   * the refresh lands, which is exactly when they are trying to spot what is
    * new.
    */
   const [fresh, setFresh] = useState<number[]>([]);

@@ -1,17 +1,17 @@
 /**
- * Turns whatever went wrong into something an officer can act on.
+ * Turns whatever went wrong into something the reader can act on.
  *
- * The failures here are mostly not the officer's fault and mostly not
+ * The failures here are mostly not the reader's fault and mostly not
  * interesting to them: a Postgres constraint name, an HTTP 502 from the toll
  * portal or a fetch timeout all mean "it did not work, and here is what to do
  * next". Showing the raw text asks the reader to translate machine language,
  * and occasionally leaks a column or table name.
  *
  * The original is still written to the server log by the caller, so nothing is
- * lost for debugging - it is just not shown to someone who cannot use it.
+ * lost for debugging - it is just not shown to someone who cannot act on it.
  */
 
-/** What the officer sees when nothing more specific fits. */
+/** What is shown when nothing more specific fits. */
 const FALLBACK = "Something went wrong at our end. Please try again in a moment.";
 
 type Rule = { match: RegExp; message: string };
@@ -31,7 +31,7 @@ const RULES: Rule[] = [
     message: "Too many lookups at once. Wait a minute and try again." },
   {
     match: /\b40[13]\b|forbidden|unauthorized|not authorised|not authorized/i,
-    message: "You do not have access to that. If you think you should, ask your administrator.",
+    message: "You do not have access to that.",
   },
   { match: /\b404\b|not found/i, message: "That is no longer here. It may have been removed." },
 
@@ -42,8 +42,8 @@ const RULES: Rule[] = [
   },
   // Order matters from here down. A row-level-security denial reads as
   // "new row violates row-level security policy", so the generic constraint
-  // rule below would otherwise claim it and tell the officer to check a form
-  // they cannot fix.
+  // rule below would otherwise claim it and tell someone to check a form they
+  // cannot fix.
   { match: /row-level security|permission denied/i,
     message: "You do not have access to that record." },
   {
@@ -69,7 +69,7 @@ export function friendlyError(error: unknown, fallback = FALLBACK): string {
   }
 
   // A short sentence that is already plain English is better than the
-  // fallback: most of ours are written for the officer in the first place.
+  // fallback: most of ours are written for a person in the first place.
   //
   // The status-code test is not redundant with the rules above. Those match
   // the codes worth explaining; this catches every other one - "refused the

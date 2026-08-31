@@ -6,9 +6,20 @@ import { z } from "zod";
 
 import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
+import { formatCredits, grantCredits } from "@/lib/credits";
 import { NUMERIC_LIMITS, parseLimitInput } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
+
+/**
+ * Everything an admin can do to one customer account.
+ *
+ * Two names here are stored values rather than wording, and stay as they are:
+ * the "officer" role on profiles, which is what the database has always called
+ * a customer account, and the "officer.*" audit actions, which are the keys
+ * years of log rows are already filed under. Renaming either would rewrite
+ * history to no benefit.
+ */
 
 /* -------------------------------------------------------------------------- */
 /* form helpers                                                                */
@@ -45,7 +56,7 @@ function generatePassword(): string {
 
 const profileSchema = z.object({
   email: z.string().email("Enter a valid email address."),
-  full_name: z.string().min(2, "Enter the officer's name.").nullable(),
+  full_name: z.string().min(2, "Enter the customer's name.").nullable(),
   phone: z
     .string()
     .regex(/^[0-9+\-\s()]{6,20}$/, "Phone number looks wrong.")
@@ -56,7 +67,7 @@ const profileSchema = z.object({
 /* create                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export async function createOfficer(
+export async function createAccount(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -96,9 +107,10 @@ export async function createOfficer(
 
   const userId = created.user.id;
 
-  // That insert already ran assign_default_plan(), which gave the row the
-  // default plan and the credits it includes. Only write plan_id when the admin
-  // picked one - writing null would take the default straight back off.
+  // Nothing hands out a plan by itself any more - the default-plan trigger went
+  // when people started buying plans, because it would have given one away free
+  // to everyone who signed up. An account made here gets a plan only if one is
+  // picked in the form, and gets that plan's credits with it.
   const planPatch = planId
     ? { plan_id: planId, plan_assigned_at: new Date().toISOString() }
     : {};
@@ -115,7 +127,7 @@ export async function createOfficer(
         designation: str(fd, "designation"),
         office: str(fd, "office"),
         district: str(fd, "district"),
-        state: str(fd, "state") ?? "Gujarat",
+        state: str(fd, "state"),
         role: "officer",
         status: "active",
         ...planPatch,
@@ -132,6 +144,30 @@ export async function createOfficer(
     return fail(`Account rolled back: ${profileError.message}`);
   }
 
+  // A plan assigned by hand still has to hand over its credits, because nothing
+  // else will: settle_payment() only runs for an account that paid.
+  let grantedCredits = 0;
+  if (planId) {
+    const { data: plan } = await admin
+      .from("plans")
+      .select("included_credits")
+      .eq("id", planId)
+      .maybeSingle<{ included_credits: number }>();
+
+    const included = Number(plan?.included_credits ?? 0);
+    if (included > 0) {
+      await grantCredits({
+        admin,
+        userId,
+        amount: included,
+        reason: "plan_grant",
+        actorId: actor.id,
+        note: "Included with the plan assigned when the account was created.",
+      });
+      grantedCredits = included;
+    }
+  }
+
   const chatId = str(fd, "telegram_chat_id");
   if (chatId) {
     await admin.from("telegram_configs").upsert({ user_id: userId, chat_id: chatId });
@@ -142,17 +178,21 @@ export async function createOfficer(
     entity: "profile",
     entityId: userId,
     entityLabel: email,
-    meta: { plan_id: planId, generated_password: !suppliedPassword },
+    meta: { plan_id: planId, granted_credits: grantedCredits, generated_password: !suppliedPassword },
   });
 
   revalidatePath("/admin/officers");
   revalidatePath("/admin");
 
+  const opening = planId
+    ? ` Opened with ${formatCredits(grantedCredits)} credits from the plan.`
+    : " No plan and no credits yet — assign one, or let them buy one.";
+
   return {
     ok: true,
     message: suppliedPassword
-      ? `${email} created. Share the password you set.`
-      : `${email} created. Temporary password: ${password} — copy it now, it is not stored in readable form.`,
+      ? `${email} created.${opening} Share the password you set.`
+      : `${email} created.${opening} Temporary password: ${password} — copy it now, it is not stored in readable form.`,
   };
 }
 
@@ -160,7 +200,7 @@ export async function createOfficer(
 /* update details                                                              */
 /* -------------------------------------------------------------------------- */
 
-export async function updateOfficer(
+export async function updateAccount(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -168,7 +208,7 @@ export async function updateOfficer(
   const admin = getSupabaseAdmin();
 
   const userId = str(fd, "user_id");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
 
   const parsed = profileSchema
     .omit({ email: true })
@@ -219,7 +259,7 @@ export async function assignPlan(
   const admin = getSupabaseAdmin();
 
   const userId = str(fd, "user_id");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
 
   const planId = str(fd, "plan_id");
   const expiresOn = str(fd, "plan_expires_on");
@@ -229,15 +269,17 @@ export async function assignPlan(
   }
 
   let planName = "no plan";
+  let included = 0;
   if (planId) {
     const { data: plan } = await admin
       .from("plans")
-      .select("name, is_active")
+      .select("name, is_active, included_credits")
       .eq("id", planId)
       .maybeSingle();
     if (!plan) return fail("That plan no longer exists.");
     if (!plan.is_active) return fail(`Plan "${plan.name}" is archived. Reactivate it first.`);
     planName = plan.name;
+    included = Number(plan.included_credits ?? 0);
   }
 
   const { error } = await admin
@@ -250,21 +292,53 @@ export async function assignPlan(
     .eq("id", userId);
   if (error) return fail(error.message);
 
+  // Handing over the credits is a separate decision, and an explicit one. An
+  // admin correcting an expiry date must not top anyone up by accident, and an
+  // admin opening a paid-for account must not have to remember a second form.
+  const wantsCredits = bool(fd, "grant_included_credits");
+  let granted = 0;
+  if (planId && wantsCredits && included > 0) {
+    const result = await grantCredits({
+      admin,
+      userId,
+      amount: included,
+      reason: "plan_grant",
+      actorId: actor.id,
+      note: `Included with the ${planName} plan, assigned by an administrator.`,
+    });
+    if (!result.ok) return fail(result.error ?? "Plan saved, but the credits could not be added.");
+    granted = included;
+  }
+
   await writeAudit(actor, {
     action: "officer.assign_plan",
     entity: "profile",
     entityId: userId,
     entityLabel: planName,
-    meta: { plan_id: planId, plan_expires_on: expiresOn },
+    meta: { plan_id: planId, plan_expires_on: expiresOn, granted_credits: granted },
   });
 
   revalidatePath(`/admin/officers/${userId}`);
   revalidatePath("/admin/officers");
-  return { ok: true, message: `Plan set to ${planName}.` };
+  revalidatePath("/admin/credits");
+
+  if (!planId) {
+    return {
+      ok: true,
+      message: "Plan removed. Searching and tracking are refused until another is assigned.",
+    };
+  }
+  return {
+    ok: true,
+    message:
+      granted > 0
+        ? `Plan set to ${planName} and ${formatCredits(granted)} credits added.`
+        : `Plan set to ${planName}. No credits were added — tick the box below if this is a renewal.`,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
-/* per-officer limit overrides                                                 */
+/* per-account limit overrides                                                 */
 /* -------------------------------------------------------------------------- */
 
 export async function saveOverrides(
@@ -275,7 +349,7 @@ export async function saveOverrides(
   const admin = getSupabaseAdmin();
 
   const userId = str(fd, "user_id");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
 
   // Only numeric limits are left - every feature switch a plan used to carry is
   // now either paid for out of the credit balance or set once for the platform.
@@ -320,7 +394,7 @@ export async function saveOverrides(
     });
     revalidatePath(`/admin/officers/${userId}`);
     revalidatePath("/admin/officers");
-    return { ok: true, message: "Overrides cleared — the officer now follows the plan exactly." };
+    return { ok: true, message: "Overrides cleared — the account now follows the plan exactly." };
   }
 
   const { error } = await admin
@@ -341,10 +415,10 @@ export async function saveOverrides(
 }
 
 /* -------------------------------------------------------------------------- */
-/* status, password, integrations, usage                                       */
+/* status, password, integrations, deletion                                    */
 /* -------------------------------------------------------------------------- */
 
-export async function setOfficerStatus(
+export async function setAccountStatus(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -353,14 +427,14 @@ export async function setOfficerStatus(
 
   const userId = str(fd, "user_id");
   const status = fd.get("status");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
   if (status !== "active" && status !== "suspended") return fail("Unknown status.");
   if (userId === actor.id) return fail("You cannot suspend your own account.");
 
   const { error } = await admin.from("profiles").update({ status }).eq("id", userId);
   if (error) return fail(error.message);
 
-  // A suspended officer must not keep polling in the background either.
+  // A suspended account must not keep polling in the background either.
   if (status === "suspended") {
     await admin.from("tracked_trucks").update({ is_active: false }).eq("user_id", userId);
   }
@@ -378,12 +452,12 @@ export async function setOfficerStatus(
     ok: true,
     message:
       status === "active"
-        ? "Account reactivated. Tracking stays paused until the officer re-enables each truck."
+        ? "Account reactivated. Tracking stays paused until they re-enable each truck."
         : "Account suspended and background tracking paused.",
   };
 }
 
-export async function resetOfficerPassword(
+export async function resetAccountPassword(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -391,7 +465,7 @@ export async function resetOfficerPassword(
   const admin = getSupabaseAdmin();
 
   const userId = str(fd, "user_id");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
 
   const supplied = str(fd, "new_password");
   if (supplied && supplied.length < 8) return fail("Password must be at least 8 characters.");
@@ -415,7 +489,7 @@ export async function resetOfficerPassword(
   };
 }
 
-export async function saveOfficerIntegrations(
+export async function saveAccountIntegrations(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -423,7 +497,7 @@ export async function saveOfficerIntegrations(
   const admin = getSupabaseAdmin();
 
   const userId = str(fd, "user_id");
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
 
   const chatId = str(fd, "telegram_chat_id");
   const botToken = str(fd, "telegram_bot_token");
@@ -452,7 +526,7 @@ export async function saveOfficerIntegrations(
   return { ok: true, message: "Telegram settings saved." };
 }
 
-export async function deleteOfficer(
+export async function deleteAccount(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
@@ -461,7 +535,7 @@ export async function deleteOfficer(
 
   const userId = str(fd, "user_id");
   const typed = str(fd, "confirm_email")?.toLowerCase();
-  if (!userId) return fail("Missing officer id.");
+  if (!userId) return fail("Missing account id.");
   if (userId === actor.id) return fail("You cannot delete your own account.");
 
   const { data: profile } = await admin
@@ -469,7 +543,7 @@ export async function deleteOfficer(
     .select("email")
     .eq("id", userId)
     .maybeSingle();
-  if (!profile) return fail("That officer no longer exists.");
+  if (!profile) return fail("That account no longer exists.");
 
   if (typed !== profile.email.toLowerCase()) {
     return fail(`Type ${profile.email} exactly to confirm deletion.`);

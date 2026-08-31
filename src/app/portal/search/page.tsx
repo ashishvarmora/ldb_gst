@@ -1,30 +1,59 @@
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
+import { Pager, pageFromParam } from "@/components/Pager";
 import { SearchBox } from "@/components/SearchBox";
-import { Badge, EmptyState, Mono, PageHeader, Panel } from "@/components/ui";
+import { publicSettings } from "@/components/SiteFooter";
+import { Badge, EmptyState, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
-import { fmtDateTime } from "@/lib/format";
-import { blockedReason, requirePortalSession } from "@/lib/officer";
+import { fmtDateTime, fmtNumber, istToday } from "@/lib/format";
+import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog } from "@/lib/types";
 
-export const metadata = { title: "Search — Truck Watch" };
+export async function generateMetadata() {
+  const { brandName } = await publicSettings();
+  return { title: `Search — ${brandName}` };
+}
 
-export default async function SearchPage() {
+/** Searches per page. Short enough to scan on a phone without scrolling far. */
+const PAGE_SIZE = 20;
+
+export default async function SearchPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const { data: logs } = await admin
+  const page = pageFromParam((await searchParams).page);
+  const from = (page - 1) * PAGE_SIZE;
+
+  // Counted as well as read: the history is kept in full, so the page can say
+  // how much of it there is rather than implying these are all of them.
+  const { data: logs, count } = await admin
     .from("search_logs")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("user_id", overview.id)
     .eq("source", "manual")
     .order("created_at", { ascending: false })
-    .limit(30);
+    .range(from, from + PAGE_SIZE - 1);
 
   const history = (logs ?? []) as SearchLog[];
-  const blocked = blockedReason(overview);
+  const total = count ?? history.length;
+
+  /* The shared blockedReason() text is written for the worker, which cannot
+     link anywhere. Here the fix is one tap away, so the portal says it in its
+     own words and points at the page that solves it. */
+  const planEnded = overview.plan_expires_on !== null && overview.plan_expires_on < istToday();
+  const notice = !overview.plan_active
+    ? planEnded
+      ? "Your plan has ended, so searching is paused. Renew it to start again."
+      : "Choose a plan to start searching. It comes with the credits a search spends."
+    : overview.credits <= 0
+      ? "You have run out of credits, so searching is paused until you top up."
+      : null;
 
   return (
     <>
@@ -33,10 +62,15 @@ export default async function SearchPage() {
         subtitle="Any registration number, tracked or not. Results are kept, so reopening one costs nothing."
       />
 
-      {blocked ? (
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warn-500" />
-          <p className="text-sm text-warn-500">{blocked}</p>
+      {notice ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
+          <p className="flex items-start gap-2.5 text-sm text-warn-500">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            {notice}
+          </p>
+          <LinkButton href="/portal/plan" size="sm" variant="secondary">
+            Go to plan
+          </LinkButton>
         </div>
       ) : null}
 
@@ -49,13 +83,22 @@ export default async function SearchPage() {
 
       <Panel
         title="Your searches"
-        description="Every lookup you have made. Tap one to reopen its result."
+        description={
+          total === 0
+            ? "Every lookup you make is kept here."
+            : `${fmtNumber(total)} lookup${total === 1 ? "" : "s"} kept, newest first. Tap one to reopen its result.`
+        }
         bodyClassName="p-0"
       >
         {history.length === 0 ? (
           <EmptyState
-            title="No searches yet"
-            description="Type a registration number above to make your first lookup."
+            title={page > 1 ? "Nothing on this page" : "No searches yet"}
+            description={
+              page > 1
+                ? "There are no searches this far back."
+                : "Type a registration number above to make your first lookup."
+            }
+            action={page > 1 ? <LinkButton href="/portal/search">Back to the first page</LinkButton> : null}
           />
         ) : (
           <ul className="divide-y divide-divider">
@@ -76,8 +119,8 @@ export default async function SearchPage() {
                         {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
                       </span>
                     ) : (
-                      /* The stored error is a portal or database message. The
-                         officer only needs to know the lookup did not land. */
+                      /* The stored error is a toll-network or database message.
+                         All anyone needs here is that it did not land. */
                       <Badge tone="bad">did not go through</Badge>
                     )}
                   </span>
@@ -87,6 +130,14 @@ export default async function SearchPage() {
           </ul>
         )}
       </Panel>
+
+      <Pager
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        noun="searches"
+        href={{ path: "/portal/search" }}
+      />
     </>
   );
 }

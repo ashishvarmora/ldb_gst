@@ -4,6 +4,7 @@ import { Coins, Settings, ShieldCheck, Truck } from "lucide-react";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { SignOutButton } from "@/components/SignOutButton";
+import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { Avatar, cx } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { initials } from "@/lib/format";
@@ -18,8 +19,8 @@ const LOW_CREDITS = 10;
 const BELL_LIMIT = 20;
 
 /**
- * The balance the whole app runs on, on every page. An officer should never
- * have to open the dashboard to find out whether their next search will work.
+ * The balance the whole app runs on, on every page. Nobody should have to open
+ * the dashboard to find out whether their next search will work.
  */
 function CreditPill({ credits }: { credits: number }) {
   const tone =
@@ -72,9 +73,14 @@ function PlanPill({ name }: { name: string | null }) {
       {name}
     </span>
   ) : (
-    <span className="rounded-full border border-bad-500/40 bg-bad-500/12 px-2.5 py-1 text-xs whitespace-nowrap text-bad-500">
-      No plan assigned
-    </span>
+    /* A fresh account has no plan yet. That is the next step, not a fault, so
+       the pill is an invitation in a warning colour rather than an error. */
+    <Link
+      href="/portal/plan"
+      className="rounded-full border border-warn-500/40 bg-warn-500/12 px-2.5 py-1 text-xs whitespace-nowrap text-warn-500 transition hover:bg-warn-500/20"
+    >
+      Choose a plan
+    </Link>
   );
 }
 
@@ -82,19 +88,26 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await requirePortalSession();
   const { overview } = session;
 
-  // Loaded here rather than inside the bell so the panel opens with no wait.
-  const { data: alertRows } = await getSupabaseAdmin()
-    .from("alert_logs")
-    .select("id,title,truck_number,delivered,read_at,created_at")
-    .eq("user_id", overview.id)
-    .order("created_at", { ascending: false })
-    .limit(BELL_LIMIT);
+  const [{ brandName }, { data: alertRows }] = await Promise.all([
+    publicSettings(),
+    // Loaded here rather than inside the bell so the panel opens with no wait.
+    getSupabaseAdmin()
+      .from("alert_logs")
+      .select("id,title,truck_number,delivered,read_at,created_at")
+      .eq("user_id", overview.id)
+      .order("created_at", { ascending: false })
+      .limit(BELL_LIMIT),
+  ]);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
 
+  // The email is the one label every account has - a name and a company are
+  // both optional, so neither can be the thing the header depends on.
+  const displayName = session.profile.full_name ?? session.email.split("@")[0];
+
   return (
     <div className="theme-light flex min-h-screen">
-      <PortalSidebar />
+      <PortalSidebar brandName={brandName} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
@@ -106,7 +119,7 @@ export default async function PortalLayout({ children }: { children: React.React
               <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
                 <Truck size={16} />
               </span>
-              <span className="truncate text-sm font-semibold text-strong">Truck Watch</span>
+              <span className="truncate text-sm font-semibold text-strong">{brandName}</span>
             </Link>
 
             <div className="hidden items-center gap-2 lg:flex">
@@ -137,11 +150,11 @@ export default async function PortalLayout({ children }: { children: React.React
               </Link>
 
               <span className="hidden text-right sm:block">
-                <span className="block text-xs font-medium text-ink">
-                  {session.profile.full_name ?? "Officer"}
+                <span className="block max-w-40 truncate text-xs font-medium text-ink">
+                  {displayName}
                 </span>
-                <span className="block text-[11px] text-faint">
-                  {session.profile.office ?? session.email}
+                <span className="block max-w-40 truncate text-[11px] text-faint">
+                  {session.email}
                 </span>
               </span>
               {/* The avatar is decoration next to the name, so it goes first
@@ -161,7 +174,14 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 px-4 py-5 pb-24 sm:px-6 lg:px-8 lg:pb-8">{children}</main>
+        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</main>
+
+        {/* Support details belong to a signed-in customer as much as to a
+            visitor. The bottom tab bar floats over the page on phones, so the
+            footer carries the clearance the main column used to. */}
+        <div className="pb-24 lg:pb-6">
+          <SiteFooter />
+        </div>
       </div>
 
       <PortalBottomNav />

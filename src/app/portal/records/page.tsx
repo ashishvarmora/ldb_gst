@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { Download, ExternalLink, MapPin } from "lucide-react";
+import { ArrowRight, ExternalLink, MapPin } from "lucide-react";
 
+import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
   RECORD_RANGES,
-  RecordsFilters,
-  RecordsViewSwitch,
+  RecordsControls,
   type RecordsQuery,
   type RecordsView,
 } from "@/components/RecordsFilters";
@@ -21,34 +21,44 @@ import {
   Tbody,
   Thead,
   Tr,
-  buttonClass,
   cx,
 } from "@/components/ui";
 import { reportError } from "@/lib/errors";
-import { fmtDate, fmtNumber, fmtRelative, fmtTime, istDaysAgo } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtRelative, fmtTime, istDaysAgo, istToday } from "@/lib/format";
 import { stateFromLocation } from "@/lib/geo";
 import { requirePortalSession } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckEvent } from "@/lib/types";
 
-export const metadata = { title: "Records — Truck Watch" };
-
-const PAGE_SIZE = 100;
+/** Rows per page in the flat log, and trucks per page in the grouped view. */
+const PAGE_SIZE = 50;
+const TRUCK_PAGE_SIZE = 12;
 
 /**
  * How many rows the summaries and the by-truck view read. Well past what any
- * officer's retention window holds, and a hard stop so one enormous account
+ * account's retention window holds, and a hard stop so one enormous account
  * cannot stall the page.
  */
 const SUMMARY_LIMIT = 5000;
 
+/** The longest day strip worth drawing on a phone. */
+const MAX_STRIP_DAYS = 30;
+
+export async function generateMetadata() {
+  const { brandName } = await loadSettings(getSupabaseAdmin());
+  return { title: `Records — ${brandName}` };
+}
+
 /**
  * Every toll crossing on record, read two ways.
  *
- * "By truck" merges all of a truck's crossings into one row - the question an
- * officer actually starts with. "All crossings" is the flat, filterable,
- * exportable log for when they already know what they are looking for.
+ * "By truck" merges all of a truck's crossings into one row - the question most
+ * people start with. "All crossings" is the flat, filterable, exportable log for
+ * when they already know what they are looking for.
+ *
+ * The summaries below the list are the reason to keep records at all: when the
+ * movement happens, where it concentrates, and which legs repeat.
  */
 export default async function RecordsPage({
   searchParams,
@@ -56,8 +66,7 @@ export default async function RecordsPage({
   searchParams: Promise<RecordsQuery>;
 }) {
   const { overview } = await requirePortalSession();
-  // Retention is one platform setting now, not a per-officer allowance, so it
-  // is read from settings rather than from the officer's own row.
+  // Retention is one platform setting now, not a per-account allowance.
   const { dataRetentionDays: retentionDays } = await loadSettings(getSupabaseAdmin());
   const params = await searchParams;
   const admin = getSupabaseAdmin();
@@ -65,7 +74,7 @@ export default async function RecordsPage({
   const view: RecordsView = params.view === "all" ? "all" : "trucks";
   const range = RECORD_RANGES.some((r) => r.key === params.range) ? params.range! : "7";
   const since = range === "all" ? null : `${istDaysAgo(Number(range))}T00:00:00+05:30`;
-  const page = Math.max(1, Number(params.page) || 1);
+  const page = pageFromParam(params.page);
   const from = (page - 1) * PAGE_SIZE;
 
   // The summary query is deliberately unfiltered apart from the date range: the
@@ -90,10 +99,7 @@ export default async function RecordsPage({
   if (params.direction) pageQuery = pageQuery.eq("direction", params.direction);
   if (params.q) pageQuery = pageQuery.ilike("loc_name", `%${params.q}%`);
 
-  const [summary, flat] = await Promise.all([
-    summaryQuery,
-    view === "all" ? pageQuery : null,
-  ]);
+  const [summary, flat] = await Promise.all([summaryQuery, view === "all" ? pageQuery : null]);
 
   const error = summary.error;
   const inRange = (summary.data ?? []) as RecordRow[];
@@ -125,30 +131,36 @@ export default async function RecordsPage({
   }
   const topPlazas = [...byPlaza.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
 
+  // "Everything kept" can span years, which no strip can draw - so it ends at
+  // the newest crossing rather than at today, and never runs longer than a month.
+  const stripDays = range === "all" ? MAX_STRIP_DAYS : Math.min(Number(range), MAX_STRIP_DAYS);
+  const stripAnchor = range === "all" && newest ? istPartsOf(newest).date : istToday();
+  const daily = dailyCounts(scoped, stripDays, stripAnchor);
+  const hours = hourCounts(scoped);
+  const routes = topRoutes(scoped);
+
   const events = (flat?.data ?? []) as TruckEvent[];
-  const pages = Math.max(1, Math.ceil(scoped.length / PAGE_SIZE));
   const filtered = Boolean(params.truck || params.q || params.direction);
   const capped = inRange.length === SUMMARY_LIMIT;
+
+  const truckPage = pageSlice(groups, page, TRUCK_PAGE_SIZE);
 
   const exportQuery = new URLSearchParams();
   for (const [key, value] of Object.entries({ ...params, range })) {
     if (value && key !== "page" && key !== "view") exportQuery.set(key, value);
   }
 
+  // Every filter is carried through a page change; only the page itself moves.
+  const pagerHrefBase = { path: "/portal/records", params: { ...params, view, range } };
+
   return (
     <>
       <PageHeader
         title="Records"
-        subtitle="Every toll crossing your trucks have made. Read it by truck, or as one flat log you can filter and export."
-        actions={
-          <a href={`/portal/records/export?${exportQuery}`} className={buttonClass("secondary")}>
-            <Download size={14} />
-            Export CSV
-          </a>
-        }
+        subtitle="Every toll crossing your trucks have made, by truck or as one flat log."
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <StatCard
           label="Crossings"
           value={fmtNumber(scoped.length)}
@@ -158,21 +170,24 @@ export default async function RecordsPage({
         <StatCard label="Trucks" value={fmtNumber(groups.length)} sub="with a crossing" />
         <StatCard label="Toll plazas" value={fmtNumber(distinctPlazas)} sub="distinct" />
         <StatCard
-          label="Period covered"
-          value={spanDays > 0 ? `${fmtNumber(spanDays)}d` : "--"}
-          sub={oldest ? `${fmtDate(oldest)} to ${fmtDate(newest)}` : "no crossings"}
+          label="Per day"
+          value={spanDays > 0 ? (scoped.length / spanDays).toFixed(1) : "--"}
+          sub={spanDays > 0 ? `across ${fmtNumber(spanDays)} days` : "no crossings"}
         />
       </div>
 
-      <div className="mb-4 flex flex-col gap-3">
-        <RecordsViewSwitch view={view} params={{ ...params, range }} />
-        <RecordsFilters params={params} view={view} range={range} trucks={trucks} />
-      </div>
+      <RecordsControls
+        params={params}
+        view={view}
+        range={range}
+        trucks={trucks}
+        exportHref={`/portal/records/export?${exportQuery}`}
+      />
 
       {capped ? (
         <p className="mb-3 rounded-lg border border-line bg-panel px-3 py-2 text-xs leading-relaxed text-muted">
-          This range holds more than {fmtNumber(SUMMARY_LIMIT)} crossings. The figures above cover
-          the newest {fmtNumber(SUMMARY_LIMIT)} — narrow the date range for exact totals.
+          This range holds more than {fmtNumber(SUMMARY_LIMIT)} crossings. The figures cover the
+          newest {fmtNumber(SUMMARY_LIMIT)} — narrow the date range for exact totals.
         </p>
       ) : null}
 
@@ -183,7 +198,7 @@ export default async function RecordsPage({
             description={reportError("records query", error)}
           />
         ) : view === "trucks" ? (
-          <RecordsTruckList groups={groups} range={range} filtered={filtered} />
+          <RecordsTruckList groups={truckPage} range={range} filtered={filtered} />
         ) : events.length === 0 ? (
           <EmptyState
             title={filtered ? "Nothing matches those filters" : "No movements on record"}
@@ -256,32 +271,42 @@ export default async function RecordsPage({
         )}
       </Panel>
 
-      {view === "all" && pages > 1 ? (
-        <nav className="mt-3 flex flex-wrap items-center justify-between gap-3" aria-label="Pagination">
-          <p className="text-xs text-muted">
-            Showing {fmtNumber(from + 1)}–{fmtNumber(Math.min(from + PAGE_SIZE, scoped.length))} of{" "}
-            {fmtNumber(scoped.length)}
-          </p>
-          <div className="flex gap-2">
-            <PageLink params={params} page={page - 1} disabled={page <= 1}>
-              Previous
-            </PageLink>
-            <PageLink params={params} page={page + 1} disabled={page >= pages}>
-              Next
-            </PageLink>
-          </div>
-        </nav>
-      ) : null}
+      {view === "all" ? (
+        <Pager
+          page={page}
+          total={scoped.length}
+          pageSize={PAGE_SIZE}
+          href={pagerHrefBase}
+          noun="crossings"
+        />
+      ) : (
+        <Pager
+          page={page}
+          total={groups.length}
+          pageSize={TRUCK_PAGE_SIZE}
+          href={pagerHrefBase}
+          noun="trucks"
+        />
+      )}
 
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Panel title="Busiest plazas" description="Across the crossings shown." bodyClassName="p-0">
-          {topPlazas.length === 0 ? (
-            <EmptyState title="Nothing to summarise" />
-          ) : (
-            <ul className="divide-y divide-divider">
-              {topPlazas.map(([plaza, count]) => {
-                const share = Math.round((count / scoped.length) * 100);
-                return (
+      {scoped.length > 0 ? (
+        <>
+          <Panel
+            title="Crossings per day"
+            description={
+              range === "all"
+                ? `The ${stripDays} days up to the newest crossing.`
+                : `The last ${stripDays} days.`
+            }
+            className="mt-5"
+          >
+            <DayStrip series={daily} />
+          </Panel>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <Panel title="Busiest plazas" description="Where the crossings land." bodyClassName="p-0">
+              <ul className="divide-y divide-divider">
+                {topPlazas.map(([plaza, count]) => (
                   <li key={plaza} className="px-4 py-2.5">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-sm text-ink">{plaza}</span>
@@ -289,72 +314,236 @@ export default async function RecordsPage({
                         {fmtNumber(count)}
                       </span>
                     </div>
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
-                      <div
-                        className="h-full rounded-full bg-brand-500"
-                        style={{ width: `${Math.max(share, 3)}%` }}
-                      />
-                    </div>
+                    <Meter share={count / scoped.length} />
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </Panel>
+                ))}
+              </ul>
+            </Panel>
 
-        <Panel title="How long records are kept">
-          <p className="text-sm leading-relaxed text-muted">
-            {retentionDays === -1 ? (
-              <>Your administrator keeps this history indefinitely.</>
-            ) : (
-              <>
-                Crossings older than{" "}
-                <strong className="text-ink">{retentionDays} days</strong> are cleared
-                automatically, so the app stays quick to search.
-              </>
-            )}
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            {/* Retention and the backup are both the administrator's settings
-                now, so the officer is told what happens rather than asked to
-                arrange it - there is nothing for them to configure here. */}
-            Your administrator keeps the long-term copy. Export anything you need for a case file
-            before it ages out.
-          </p>
-        </Panel>
-      </div>
+            <Panel title="Busiest hours" description="When the trucks are moving.">
+              <HourStrip hours={hours} />
+            </Panel>
+
+            <Panel
+              title="Repeated legs"
+              description="One plaza to the next, same truck."
+              bodyClassName="p-0"
+            >
+              {routes.length === 0 ? (
+                <EmptyState
+                  title="No leg has repeated yet"
+                  description="Once a truck runs the same pair of plazas twice it shows up here."
+                />
+              ) : (
+                <ul className="divide-y divide-divider">
+                  {routes.map((route) => (
+                    <li key={`${route.from}->${route.to}`} className="px-4 py-2.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink">
+                          <span className="truncate">{route.from}</span>
+                          <ArrowRight size={12} className="shrink-0 text-faint" />
+                          <span className="truncate">{route.to}</span>
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted">
+                          {fmtNumber(route.count)}x
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+        </>
+      ) : null}
+
+      <p className="mt-4 text-xs leading-relaxed text-muted">
+        {retentionDays === -1
+          ? "This history is kept indefinitely."
+          : `Crossings older than ${retentionDays} days are cleared automatically, so the app stays quick to search. Export anything you need to keep.`}
+      </p>
     </>
   );
 }
 
-function PageLink({
-  params,
-  page,
-  disabled,
-  children,
-}: {
-  params: RecordsQuery;
-  page: number;
-  disabled: boolean;
-  children: React.ReactNode;
-}) {
-  if (disabled) {
-    return (
-      <span className={cx(buttonClass("secondary", "sm"), "pointer-events-none opacity-50")}>
-        {children}
-      </span>
+/* -------------------------------------------------------------------------- */
+/* summaries                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * IST has no daylight saving, so shifting by a fixed offset and reading the
+ * result as UTC gives the exact local date and hour without a formatter.
+ */
+const IST_OFFSET_MS = 5.5 * 3_600_000;
+
+function istPartsOf(iso: string): { date: string; hour: number } {
+  const shifted = new Date(Date.parse(iso) + IST_OFFSET_MS);
+  return { date: shifted.toISOString().slice(0, 10), hour: shifted.getUTCHours() };
+}
+
+type DayCount = { date: string; count: number };
+
+/** Every day in the window, including the empty ones - a gap is information. */
+function dailyCounts(rows: RecordRow[], days: number, anchorDate: string): DayCount[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.event_time) continue;
+    const { date } = istPartsOf(row.event_time);
+    counts.set(date, (counts.get(date) ?? 0) + 1);
+  }
+
+  const anchor = Date.parse(`${anchorDate}T00:00:00Z`);
+  const series: DayCount[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const date = new Date(anchor - i * 86_400_000).toISOString().slice(0, 10);
+    series.push({ date, count: counts.get(date) ?? 0 });
+  }
+  return series;
+}
+
+function hourCounts(rows: RecordRow[]): number[] {
+  const buckets = new Array(24).fill(0) as number[];
+  for (const row of rows) {
+    if (!row.event_time) continue;
+    buckets[istPartsOf(row.event_time).hour] += 1;
+  }
+  return buckets;
+}
+
+type Route = { from: string; to: string; count: number };
+
+/**
+ * Consecutive plazas for one truck, counted. Two crossings of the same plaza in
+ * a row are the same stop reported twice, not a leg, so they are skipped. Only
+ * legs seen more than once are worth showing - a single leg is just a crossing.
+ */
+function topRoutes(rows: RecordRow[], limit = 6): Route[] {
+  const byTruck = new Map<string, RecordRow[]>();
+  for (const row of rows) {
+    if (!row.event_time || !row.loc_name) continue;
+    const list = byTruck.get(row.truck_number);
+    if (list) list.push(row);
+    else byTruck.set(row.truck_number, [row]);
+  }
+
+  const legs = new Map<string, Route>();
+  for (const list of byTruck.values()) {
+    const ordered = [...list].sort(
+      (a, b) => Date.parse(a.event_time!) - Date.parse(b.event_time!),
     );
+    for (let i = 1; i < ordered.length; i += 1) {
+      const from = ordered[i - 1].loc_name!;
+      const to = ordered[i].loc_name!;
+      if (from === to) continue;
+      // Two names, one key: a joined string could collide with a plaza whose
+      // own name contains the separator.
+      const key = JSON.stringify([from, to]);
+      const seen = legs.get(key);
+      if (seen) seen.count += 1;
+      else legs.set(key, { from, to, count: 1 });
+    }
   }
-  const next = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value && key !== "page") next.set(key, value);
-  }
-  next.set("view", "all");
-  next.set("page", String(page));
+
+  return [...legs.values()]
+    .filter((leg) => leg.count > 1)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+/* -------------------------------------------------------------------------- */
+/* strips                                                                      */
+/* -------------------------------------------------------------------------- */
+
+function Meter({ share }: { share: number }) {
+  return (
+    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+      <div
+        className="h-full rounded-full bg-brand-500"
+        style={{ width: `${Math.max(Math.round(share * 100), 3)}%` }}
+      />
+    </div>
+  );
+}
+
+function DayStrip({ series }: { series: DayCount[] }) {
+  const peak = Math.max(1, ...series.map((day) => day.count));
+  const busiest = series.reduce((best, day) => (day.count > best.count ? day : best), series[0]);
 
   return (
-    <Link href={`/portal/records?${next}`} className={buttonClass("secondary", "sm")}>
-      {children}
-    </Link>
+    <div>
+      <div className="flex h-24 items-end gap-px sm:gap-1">
+        {series.map((day) => (
+          <div
+            key={day.date}
+            title={`${day.date}: ${day.count} crossing${day.count === 1 ? "" : "s"}`}
+            className="flex flex-1 flex-col justify-end"
+          >
+            <div
+              className={cx("w-full rounded-sm", day.count > 0 ? "bg-brand-500" : "bg-sunken")}
+              style={{ height: day.count > 0 ? `${Math.max((day.count / peak) * 100, 6)}%` : "3px" }}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-[11px] text-faint">
+        <span>{fmtDate(series[0]?.date)}</span>
+        {busiest && busiest.count > 0 ? (
+          <span className="text-muted">
+            Busiest {fmtDate(busiest.date)} — {fmtNumber(busiest.count)}
+          </span>
+        ) : null}
+        <span>{fmtDate(series[series.length - 1]?.date)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** "12am", "7am", "1pm" - a clock hour as it is spoken. */
+function hourLabel(hour: number): string {
+  const suffix = hour < 12 ? "am" : "pm";
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve}${suffix}`;
+}
+
+function HourStrip({ hours }: { hours: number[] }) {
+  const peak = Math.max(1, ...hours);
+  const busiest = hours.indexOf(Math.max(...hours));
+  const anyMovement = hours.some((count) => count > 0);
+
+  return (
+    <div>
+      <div className="flex h-20 items-end gap-px">
+        {hours.map((count, hour) => (
+          <div
+            key={hour}
+            title={`${hourLabel(hour)}: ${count} crossing${count === 1 ? "" : "s"}`}
+            className="flex flex-1 flex-col justify-end"
+          >
+            <div
+              className={cx(
+                "w-full rounded-sm",
+                count === 0 ? "bg-sunken" : hour === busiest ? "bg-brand-600" : "bg-brand-500/70",
+              )}
+              style={{ height: count > 0 ? `${Math.max((count / peak) * 100, 8)}%` : "3px" }}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex justify-between text-[11px] text-faint">
+        <span>12am</span>
+        <span>6am</span>
+        <span>12pm</span>
+        <span>6pm</span>
+        <span>11pm</span>
+      </div>
+
+      {anyMovement ? (
+        <p className="mt-2 text-xs text-muted">
+          Busiest between {hourLabel(busiest)} and {hourLabel((busiest + 1) % 24)}.
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -33,7 +33,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
         <Field
           label="Rule name"
           name="name"
-          hint="What the officer sees in their list. Keep it plain."
+          hint="What people see in their alert list. Keep it plain."
         >
           <Input name="name" required defaultValue={rule?.name} placeholder="Location changed" />
         </Field>
@@ -60,7 +60,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
       <Field
         label="Description"
         name="description"
-        hint="Shown under the rule name when an officer picks it. Say what will land on their phone."
+        hint="Shown under the rule name in the picker. Say what will land on their phone."
       >
         <Textarea
           name="description"
@@ -72,8 +72,8 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
 
       {needsPlaza(kind) ? (
         <p className="rounded-lg border border-brand-500/35 bg-brand-500/8 px-3 py-2 text-xs leading-relaxed text-muted">
-          The officer names the toll plaza when they attach this rule to a truck, so one rule covers
-          every plaza on the network.
+          The toll plaza is named when the rule is attached to a truck, so one rule covers every
+          plaza on the network.
         </p>
       ) : null}
 
@@ -85,7 +85,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
           <Field
             label="Fastest repeat (minutes)"
             name="min_interval_minutes"
-            hint={`The floor for this rule. An officer may pick this or anything slower. Currently ${intervalLabel(minNumber)}.`}
+            hint={`The floor for this rule. Anyone may pick this or anything slower. Currently ${intervalLabel(minNumber)}.`}
           >
             <Input
               name="min_interval_minutes"
@@ -101,7 +101,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
           <Field
             label="Suggested interval (minutes)"
             name="default_interval_minutes"
-            hint={`Pre-filled when an officer adds this rule. Currently ${intervalLabel(presetNumber)}.`}
+            hint={`Pre-filled when this rule is added to a truck. Currently ${intervalLabel(presetNumber)}.`}
           >
             <Input
               name="default_interval_minutes"
@@ -117,12 +117,12 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
 
         {tooFast ? (
           <p className="mt-3 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
-            The suggested interval is faster than the floor, so every officer adding this rule would
-            be refused. Raise it to {minNumber} minutes or more.
+            The suggested interval is faster than the floor, so anyone adding this rule would be
+            refused. Raise it to {minNumber} minutes or more.
           </p>
         ) : (
           <p className="mt-3 text-xs text-faint">
-            Every check costs the officer credits, so a fast floor is an expensive rule.
+            Every check costs the account credits, so a fast floor is an expensive rule.
           </p>
         )}
       </div>
@@ -131,7 +131,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
         <Field
           label="Sort order"
           name="sort_order"
-          hint="Lower numbers come first in the officer's list."
+          hint="Lower numbers come first in the picker."
         >
           <Input
             name="sort_order"
@@ -144,7 +144,7 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
 
         <Checkbox
           name="is_active"
-          label="Offer this rule to officers"
+          label="Offer this rule to everyone"
           hint="Off keeps existing alerts running but hides the rule from the picker."
           defaultChecked={rule?.is_active ?? true}
         />

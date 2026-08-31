@@ -3,15 +3,99 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { intervalWords, needsPlaza } from "@/lib/alerts";
+import { needsPlaza } from "@/lib/alerts";
 import { reportError } from "@/lib/errors";
-import { bool, done, fail, int, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
-import { MAX_INTERVAL_MINUTES } from "@/lib/intervals";
+import { bool, done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
+import { intervalLabel, toMinutes, type IntervalUnit } from "@/lib/intervals";
 import { runManualLookup } from "@/lib/manual-search";
 import { assertPortalUser, loadOverview, truckSlotsLeft } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ActionResult, AlertRuleTemplate, TrackedTruck } from "@/lib/types";
+import type {
+  ActionResult,
+  AlertRuleTemplate,
+  PlazaMatch,
+  TrackedTruck,
+} from "@/lib/types";
 
+/* -------------------------------------------------------------------------- */
+/* shared bits of the alert forms                                              */
+/* -------------------------------------------------------------------------- */
+
+type IntervalRead =
+  | { ok: true; minutes: number; clampedFrom: number | null }
+  | { ok: false; error: string };
+
+/**
+ * Reads the number + minutes/hours pair the forms post, and holds it to the
+ * rule's floor.
+ *
+ * Clamping rather than refusing: someone who asks for every 5 minutes on a
+ * 15-minute rule wants "as often as possible", and being told the alert was
+ * not created at all is a worse answer than being told it runs every 15.
+ */
+function readInterval(fd: FormData, template: AlertRuleTemplate): IntervalRead {
+  const raw = str(fd, "interval_value");
+  const unit: IntervalUnit = fd.get("interval_unit") === "hours" ? "hours" : "minutes";
+
+  let requested: number | null = null;
+  if (raw !== null) {
+    const value = Number(raw);
+    requested = Number.isInteger(value) ? toMinutes(value, unit) : null;
+    if (requested === null) {
+      return { ok: false, error: "Enter how often to check as a whole number of minutes or hours." };
+    }
+  }
+
+  const minutes = Math.max(requested ?? template.default_interval_minutes, template.min_interval_minutes);
+  return { ok: true, minutes, clampedFrom: requested !== null && minutes > requested ? requested : null };
+}
+
+/** The rule the person picked, or a reason it cannot be used. */
+async function loadTemplate(templateId: string): Promise<AlertRuleTemplate | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("alert_rule_templates")
+    .select("*")
+    .eq("id", templateId)
+    .maybeSingle<AlertRuleTemplate>();
+  return data?.is_active ? data : null;
+}
+
+function alertAddedMessage(template: AlertRuleTemplate, minutes: number, clampedFrom: number | null): string {
+  return clampedFrom !== null
+    ? `${template.name} added. The fastest this alert may run is every ${intervalLabel(template.min_interval_minutes)}, so that is what was set.`
+    : `${template.name} added, checking every ${intervalLabel(minutes)}.`;
+}
+
+/**
+ * Toll plaza suggestions for the alert form, straight from what the platform
+ * has recorded. Fuzzy, so a misspelling still finds the plaza - see
+ * search_plazas() in migration 0010.
+ */
+export async function findPlazas(query: string): Promise<PlazaMatch[]> {
+  await assertPortalUser();
+
+  const q = query.trim();
+  const { data, error } = await getSupabaseAdmin().rpc("search_plazas", {
+    p_q: q === "" ? null : q,
+    p_limit: 8,
+  });
+
+  if (error) {
+    reportError("searching toll plazas", error);
+    return [];
+  }
+  return (data ?? []) as PlazaMatch[];
+}
+
+/**
+ * Adds a truck and its first alert together.
+ *
+ * These used to be two steps, and the gap between them was the single biggest
+ * source of confusion: a truck with no alert is never checked, so people added
+ * one, saw nothing happen for a day, and assumed the platform was broken. The
+ * alert is part of adding a truck now, and this ends on the truck's own page
+ * with that alert on screen.
+ */
 export async function addTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
@@ -47,6 +131,26 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     );
   }
 
+  /* The alert is settled before the truck exists, so a form with a missing
+     plaza cannot leave a silent truck behind. */
+  const templateId = str(fd, "template_id");
+  const template = templateId ? await loadTemplate(templateId) : null;
+  if (templateId && !template) return fail("That alert is no longer available. Pick another one.");
+
+  const plaza = str(fd, "plaza");
+  let minutes = 0;
+  let clampedFrom: number | null = null;
+
+  if (template) {
+    if (needsPlaza(template.kind) && !plaza) {
+      return fail(`"${template.name}" watches one toll plaza. Type which plaza to watch.`);
+    }
+    const interval = readInterval(fd, template);
+    if (!interval.ok) return fail(interval.error);
+    minutes = interval.minutes;
+    clampedFrom = interval.clampedFrom;
+  }
+
   const payload = {
     user_id: session.id,
     truck_number: truckNumber,
@@ -55,16 +159,41 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   };
 
   // Re-activating a paused truck keeps its history instead of duplicating it.
-  const { error } = existing
-    ? await admin.from("tracked_trucks").update(payload).eq("id", existing.id)
-    : await admin.from("tracked_trucks").insert(payload);
+  const { data: saved, error } = existing
+    ? await admin.from("tracked_trucks").update(payload).eq("id", existing.id).select("id").maybeSingle()
+    : await admin.from("tracked_trucks").insert(payload).select("id").maybeSingle();
 
   if (error) return fail(reportError("adding a truck", error, "Could not add that truck."));
+
+  const truckId = saved?.id ?? existing?.id ?? null;
+
+  if (template && truckId) {
+    const { error: alertError } = await admin.from("truck_alerts").insert({
+      user_id: session.id,
+      tracked_truck_id: truckId,
+      template_id: template.id,
+      is_enabled: true,
+      interval_minutes: minutes,
+      plaza: needsPlaza(template.kind) ? plaza : null,
+    });
+
+    // The truck is already saved, so a failed alert is not worth throwing the
+    // whole form away for. Its page says plainly that nothing is watching it.
+    if (alertError) reportError("adding the first alert", alertError);
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
 
-  return done(`${truckNumber} added. Open it and add an alert to start checking it.`);
+  // Land on the truck itself: seeing the alert listed is the confirmation that
+  // matters, and it is where a missing alert is impossible to miss.
+  if (truckId) redirect(`/portal/trucks/${truckId}?added=1`);
+
+  return done(
+    template
+      ? `${truckNumber} added. ${alertAddedMessage(template, minutes, clampedFrom)}`
+      : `${truckNumber} added. Open it and add an alert to start checking it.`,
+  );
 }
 
 export async function updateTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -114,7 +243,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
 
 /**
  * Attaches one of the admin's alert rules to a truck. Several rows may use the
- * same rule, so an officer can watch two plazas on the same vehicle.
+ * same rule, so two plazas can be watched on the same vehicle.
  */
 export async function addTruckAlert(
   _prev: ActionResult | null,
@@ -137,33 +266,23 @@ export async function addTruckAlert(
 
   if (!truck) return fail("That truck is not on your list.");
 
-  const { data: template } = await admin
-    .from("alert_rule_templates")
-    .select("*")
-    .eq("id", templateId)
-    .maybeSingle<AlertRuleTemplate>();
-
-  if (!template || !template.is_active) {
-    return fail("That alert is no longer available. Pick another one.");
-  }
-
-  const requested = int(fd, "interval_minutes", { min: 1, max: MAX_INTERVAL_MINUTES });
-  const minutes = Math.max(
-    requested ?? template.default_interval_minutes,
-    template.min_interval_minutes,
-  );
+  const template = await loadTemplate(templateId);
+  if (!template) return fail("That alert is no longer available. Pick another one.");
 
   const plaza = str(fd, "plaza");
   if (needsPlaza(template.kind) && !plaza) {
-    return fail(`"${template.name}" watches one toll plaza. Choose which plaza to watch.`);
+    return fail(`"${template.name}" watches one toll plaza. Type which plaza to watch.`);
   }
+
+  const interval = readInterval(fd, template);
+  if (!interval.ok) return fail(interval.error);
 
   const { error } = await admin.from("truck_alerts").insert({
     user_id: session.id,
     tracked_truck_id: truckId,
     template_id: template.id,
     is_enabled: true,
-    interval_minutes: minutes,
+    interval_minutes: interval.minutes,
     plaza: needsPlaza(template.kind) ? plaza : null,
   });
 
@@ -173,11 +292,7 @@ export async function addTruckAlert(
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
-  return done(
-    requested !== null && minutes > requested
-      ? `${template.name} added. This alert may run every ${intervalWords(template.min_interval_minutes)} at the fastest, so that was used.`
-      : `${template.name} added, every ${intervalWords(minutes)}.`,
-  );
+  return done(alertAddedMessage(template, interval.minutes, interval.clampedFrom));
 }
 
 export async function setTruckAlertEnabled(
@@ -277,7 +392,7 @@ export async function setTruckPaused(
   return done(active ? "Tracking resumed." : "Tracking paused. No credits are spent while paused.");
 }
 
-/** Officer-initiated re-check. Spends a manual credit, same as a search. */
+/** A re-check asked for by hand. Spends a manual credit, same as a search. */
 export async function checkTruckNow(
   _prev: ActionResult | null,
   fd: FormData,

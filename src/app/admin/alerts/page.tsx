@@ -18,6 +18,8 @@ import {
   setAlertRuleActive,
   updateAlertRule,
 } from "./actions";
+import { CapNote, pageRange } from "../pager";
+import { Pager, pageFromParam } from "@/components/Pager";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -44,38 +46,103 @@ import type { AlertRuleTemplate } from "@/lib/types";
 
 export const metadata = { title: "Alert rules — Admin" };
 
-export default async function AlertRulesPage() {
-  await requireSuperAdmin();
-  const admin = getSupabaseAdmin();
+/** The catalogue is short by nature, so a page of ten is already generous. */
+const PAGE_SIZE = 10;
 
-  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+/** PostgREST caps one select at the project's max-rows, so usage is walked. */
+const BATCH = 1000;
+const MAX_BATCHES = 10;
 
-  const [{ data: rules, error }, { data: attached }, { count: sent24h }] = await Promise.all([
-    admin.from("alert_rule_templates").select("*").order("sort_order").order("name"),
-    admin.from("truck_alerts").select("template_id, is_enabled").limit(5000),
-    admin.from("alert_logs").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
-  ]);
+type Admin = ReturnType<typeof getSupabaseAdmin>;
+type Usage = { total: number; enabled: number };
 
-  const list = (rules ?? []) as AlertRuleTemplate[];
+/**
+ * How many alerts sit on each of these rules. Deleting a rule takes them all
+ * with it, so the number belongs next to the delete button - and it has to be
+ * exact for that warning to mean anything.
+ *
+ * Scoped to the rules on screen, which keeps it a small read however long the
+ * catalogue grows.
+ */
+async function loadUsage(
+  admin: Admin,
+  ids: string[],
+): Promise<{ usage: Map<string, Usage>; capped: boolean }> {
+  const usage = new Map<string, Usage>();
+  if (ids.length === 0) return { usage, capped: false };
 
-  // How many officer alerts sit on each rule. Deleting a rule takes them all
-  // with it, so the number belongs next to the delete button.
-  const usage = new Map<string, { total: number; enabled: number }>();
-  for (const row of (attached ?? []) as { template_id: string; is_enabled: boolean }[]) {
-    const entry = usage.get(row.template_id) ?? { total: 0, enabled: 0 };
-    entry.total += 1;
-    if (row.is_enabled) entry.enabled += 1;
-    usage.set(row.template_id, entry);
+  let after = "";
+  let capped = false;
+
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    let query = admin
+      .from("truck_alerts")
+      .select("id, template_id, is_enabled")
+      .in("template_id", ids)
+      .order("id", { ascending: true })
+      .limit(BATCH);
+    if (after) query = query.gt("id", after);
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) break;
+
+    const rows = data as { id: string; template_id: string; is_enabled: boolean }[];
+    for (const row of rows) {
+      const entry = usage.get(row.template_id) ?? { total: 0, enabled: 0 };
+      entry.total += 1;
+      if (row.is_enabled) entry.enabled += 1;
+      usage.set(row.template_id, entry);
+    }
+
+    after = rows[rows.length - 1].id;
+    if (rows.length < BATCH) break;
+    capped = batch === MAX_BATCHES - 1;
   }
 
-  const attachedTotal = (attached ?? []).length;
-  const activeRules = list.filter((rule) => rule.is_active).length;
+  return { usage, capped };
+}
+
+export default async function AlertRulesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  await requireSuperAdmin();
+  const { page: pageParam } = await searchParams;
+  const admin = getSupabaseAdmin();
+
+  const requested = pageFromParam(pageParam);
+  const { from, to } = pageRange(requested, PAGE_SIZE);
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+
+  const [{ data: rules, error, count }, { count: attachedTotal }, { count: activeRules }, { count: sent24h }] =
+    await Promise.all([
+      admin
+        .from("alert_rule_templates")
+        .select("*", { count: "exact" })
+        .order("sort_order")
+        .order("name")
+        .range(from, to),
+      admin.from("truck_alerts").select("id", { count: "exact", head: true }),
+      admin
+        .from("alert_rule_templates")
+        .select("id", { count: "exact", head: true })
+        .eq("is_active", true),
+      admin.from("alert_logs").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
+    ]);
+
+  const list = (rules ?? []) as AlertRuleTemplate[];
+  const total = count ?? list.length;
+  const { usage, capped } = await loadUsage(
+    admin,
+    list.map((rule) => rule.id),
+  );
 
   return (
     <>
       <PageHeader
         title="Alert rules"
-        subtitle="The catalogue officers choose from. They attach a rule to a truck and set its interval — they never write a rule themselves."
+        subtitle="The catalogue people choose from. They attach a rule to a truck and set its interval — they never write a rule themselves."
         actions={
           <>
             <LinkButton href="/admin/alerts/log" variant="secondary">
@@ -86,7 +153,7 @@ export default async function AlertRulesPage() {
               triggerLabel="New rule"
               triggerIcon={<Plus size={15} />}
               title="Add an alert rule"
-              description="Officers see this in their truck's alert picker as soon as you save it."
+              description="It appears in every truck's alert picker as soon as you save it."
               width="xl"
             >
               <ActionForm action={createAlertRule}>
@@ -103,13 +170,13 @@ export default async function AlertRulesPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           label="Rules in catalogue"
-          value={fmtNumber(list.length)}
-          sub={`${activeRules} offered to officers`}
+          value={fmtNumber(total)}
+          sub={`${fmtNumber(activeRules ?? 0)} offered to people`}
           icon={<Bell size={15} />}
         />
         <StatCard
-          label="Officer alerts using them"
-          value={fmtNumber(attachedTotal)}
+          label="Alerts using them"
+          value={fmtNumber(attachedTotal ?? 0)}
           sub="Across every truck on the platform"
           tone="brand"
         />
@@ -140,8 +207,12 @@ export default async function AlertRulesPage() {
       {list.length === 0 ? (
         <Panel>
           <EmptyState
-            title="No rules yet"
-            description="Officers have nothing to attach until you add one. Start with a plain location update."
+            title={total > 0 ? "That page is past the end of the catalogue" : "No rules yet"}
+            description={
+              total > 0
+                ? "Use the page links below to get back."
+                : "Nobody has anything to attach until you add one. Start with a plain location update."
+            }
           />
         </Panel>
       ) : (
@@ -151,12 +222,29 @@ export default async function AlertRulesPage() {
               key={rule.id}
               rule={rule}
               usage={usage.get(rule.id) ?? { total: 0, enabled: 0 }}
-              first={index === 0}
-              last={index === list.length - 1}
+              // Position in the whole catalogue, not on this page: the first
+              // rule of page two can still be nudged up into page one.
+              first={from + index === 0}
+              last={from + index === total - 1}
             />
           ))}
         </div>
       )}
+
+      <Pager
+        page={requested}
+        pageSize={PAGE_SIZE}
+        total={total}
+        noun="rules"
+        href={{ path: "/admin/alerts" }}
+      />
+
+      {capped ? (
+        <CapNote>
+          The “in use” counts stopped at {fmtNumber(BATCH * MAX_BATCHES)} alerts per page of rules,
+          so they are a floor rather than an exact figure here.
+        </CapNote>
+      ) : null}
 
       <Panel
         className="mt-5"
@@ -165,14 +253,14 @@ export default async function AlertRulesPage() {
       >
         <ul className="space-y-2.5 text-xs leading-relaxed text-muted">
           <li>
-            <span className="text-ink">One rule, many trucks.</span> An officer attaches the same
-            rule to as many trucks as they like, and may attach it twice to one truck — two toll
-            plazas watched on the same lorry, for instance.
+            <span className="text-ink">One rule, many trucks.</span> The same rule can be attached to
+            as many trucks as someone likes, and twice to one truck — two toll plazas watched on the
+            same lorry, for instance.
           </li>
           <li>
             <span className="text-ink">A truck is only checked when an alert is due.</span> There is
             no separate polling schedule, so the fastest repeat you allow here is what decides how
-            often the platform calls LDB — and how many credits the officer spends.
+            often the platform calls LDB — and how many credits the account spends.
           </li>
           <li>
             <span className="text-ink">Deactivating is almost always the right move.</span> It hides
@@ -192,7 +280,7 @@ function RuleCard({
   last,
 }: {
   rule: AlertRuleTemplate;
-  usage: { total: number; enabled: number };
+  usage: Usage;
   first: boolean;
   last: boolean;
 }) {
@@ -252,8 +340,8 @@ function RuleCard({
           title={`Edit ${rule.name}`}
           description={
             usage.total > 0
-              ? `${usage.total} officer alert${usage.total === 1 ? "" : "s"} use this rule. Wording changes show up immediately; intervals they already chose are left alone.`
-              : "No officer is using this rule yet."
+              ? `${usage.total} alert${usage.total === 1 ? "" : "s"} use this rule. Wording changes show up immediately; intervals already chosen are left alone.`
+              : "Nobody is using this rule yet."
           }
           width="xl"
         >
@@ -295,7 +383,7 @@ function RuleCard({
             <ConfirmSubmitButton
               message={
                 usage.total > 0
-                  ? `Delete "${rule.name}"? This also deletes ${usage.total} officer alert${usage.total === 1 ? "" : "s"} built on it, and those officers are not told. Stop offering the rule instead if you only want to retire it.`
+                  ? `Delete "${rule.name}"? This also deletes ${usage.total} alert${usage.total === 1 ? "" : "s"} built on it, and nobody is told. Stop offering the rule instead if you only want to retire it.`
                   : `Delete "${rule.name}"? This cannot be undone.`
               }
             >

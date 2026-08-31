@@ -9,9 +9,8 @@ import { assertPortalUser } from "@/lib/officer";
 import type { ActionResult } from "@/lib/types";
 
 /**
- * Manual lookup from the search box. On success the officer lands on a permanent
- * URL for that truck, so the result can be revisited without spending another
- * credit.
+ * Manual lookup from the search box. On success it lands on a permanent URL for
+ * that truck, so the result can be revisited without spending another credit.
  */
 export async function manualSearch(
   _prev: ActionResult | null,
@@ -25,7 +24,7 @@ export async function manualSearch(
   const truckNumber = normalizeTruck(raw);
   if (truckNumber.length < 6) return fail("That truck number looks too short.");
   if (!looksLikeTruckNumber(truckNumber)) {
-    return fail(`"${truckNumber}" does not look like a registration number. Example: GJ02AT8546`);
+    return fail(`"${truckNumber}" does not look like a registration number. Example: MH12AB1234`);
   }
 
   const result = await runManualLookup({ userId: session.id, truckNumber });
@@ -61,6 +60,6 @@ export async function searchAgain(
     message:
       result.newCount > 0
         ? `${result.newCount} new crossing${result.newCount === 1 ? "" : "s"} found.`
-        : `No new crossings. The portal is showing ${result.found} recent crossing${result.found === 1 ? "" : "s"}.`,
+        : `No new crossings. The toll network is showing ${result.found} recent crossing${result.found === 1 ? "" : "s"}.`,
   };
 }

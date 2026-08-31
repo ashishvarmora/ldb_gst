@@ -1,6 +1,7 @@
 import {
   alertDue,
   evaluateAlert,
+  isRevisit,
   normaliseLocation,
   type AlertDraft,
   type Position,
@@ -293,14 +294,21 @@ export async function checkTruck({
     };
   }
 
-  // 4. Store only movements. A plaza re-reports the same crossing under several
-  //    sequence numbers, and a parked truck registers over and over; those rows
-  //    say nothing the previous row does not already say.
+  // 4. Store movements, and count a return trip as one.
   //
-  //    The walk is seeded from the truck's last SAVED location, so it reaches
+  //    A plaza re-reports one physical crossing under several sequence numbers,
+  //    so a reading at the same plaza as the previous stored one is usually
+  //    noise. Usually - but not when the truck has been away and come back:
+  //    Malvan at 11:00 and Malvan at 15:00 are two crossings, and dropping the
+  //    second lost the whole return leg.
+  //
+  //    Time is what separates them. Same plaza inside the revisit window is
+  //    the same crossing being re-reported; the same plaza hours later is news.
+  //
+  //    The walk is seeded from the truck's last SAVED crossing, so it reaches
   //    the same answer on every check: a repeat is skipped now and skipped
-  //    again next time, never inserted. The unique index on (user_id, seq_no)
-  //    lets only one of two overlapping sweeps win.
+  //    again next time. The unique index on (user_id, seq_no) lets only one of
+  //    two overlapping sweeps win.
   const { data: history } = await admin
     .from("truck_events")
     .select("seq_no, event_time, loc_name, direction")
@@ -317,13 +325,17 @@ export async function checkTruck({
     );
 
     let previous = normaliseLocation(truck.last_location);
+    let previousAt = truck.last_event_at;
     const movements: typeof chronological = [];
 
     for (const event of chronological) {
       const location = normaliseLocation(event.locName);
       // An unnamed plaza cannot be compared, so it always counts as a move.
-      if (location !== null && location === previous) continue;
+      if (location !== null && location === previous && !isRevisit(previousAt, event.eventTime, settings.revisitMinutes)) {
+        continue;
+      }
       previous = location ?? previous;
+      previousAt = event.eventTime ?? previousAt;
       movements.push(event);
     }
 

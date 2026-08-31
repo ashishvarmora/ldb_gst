@@ -32,7 +32,7 @@ export async function assertPortalUser(): Promise<SessionUser> {
   const session = await getSessionUser();
   if (!session) throw new Error("Please sign in again.");
   if (session.profile.status !== "active") {
-    throw new Error("This account is suspended. Contact your administrator.");
+    throw new Error("This account has been suspended. Contact support if you think that is wrong.");
   }
   return session;
 }
@@ -58,11 +58,11 @@ export async function loadOverview(userId: string): Promise<OfficerOverview | nu
 export function blockedReason(overview: OfficerOverview): string | null {
   if (!overview.plan_active) {
     return overview.plan_expires_on && new Date(overview.plan_expires_on) < new Date()
-      ? `Your plan ended on ${overview.plan_expires_on}. Ask your administrator to renew it.`
-      : "No plan is active on your account yet. Ask your administrator to set one up.";
+      ? `Your plan ended on ${overview.plan_expires_on}. Renew it on the Plan and credits page.`
+      : "Choose a plan to get started. You can pick one on the Plan and credits page.";
   }
   if (overview.credits <= 0) {
-    return "You have run out of credits. Top up on the My plan page, or ask your administrator.";
+    return "You have run out of credits. Top up on the Plan and credits page.";
   }
   return null;
 }

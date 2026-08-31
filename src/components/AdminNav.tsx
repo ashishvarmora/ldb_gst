@@ -21,10 +21,15 @@ import {
 import { NavSpinner } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
+/**
+ * The route is still /admin/officers - renaming a path breaks every bookmark
+ * and every link already written against it. Only the word a reader sees
+ * changed.
+ */
 const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/explore", label: "Explore", icon: Search },
-  { href: "/admin/officers", label: "Officers", icon: Users },
+  { href: "/admin/officers", label: "Accounts", icon: Users },
   { href: "/admin/plans", label: "Plans", icon: Package },
   { href: "/admin/credits", label: "Credits", icon: Coins },
   { href: "/admin/trucks", label: "Trucks", icon: Truck },
@@ -68,10 +73,17 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function AdminSidebar() {
+/**
+ * The product's own name, which an admin sets in settings. This is a client
+ * component and cannot read app_settings itself, so the server layout passes it
+ * down; until it does, the fallback keeps the sidebar from naming a customer.
+ */
+const DEFAULT_BRAND = "Truck Watch";
+
+export function AdminSidebar({ brandName }: { brandName?: string }) {
   return (
     <div className="hidden w-60 shrink-0 border-r border-divider px-3 py-4 lg:block">
-      <Brand />
+      <Brand brandName={brandName} />
       <div className="mt-5">
         <NavLinks />
       </div>
@@ -79,7 +91,7 @@ export function AdminSidebar() {
   );
 }
 
-export function AdminMobileNav() {
+export function AdminMobileNav({ brandName }: { brandName?: string }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -98,7 +110,7 @@ export function AdminMobileNav() {
           <div className="fixed inset-0 bg-strong/25 backdrop-blur-sm" onClick={() => setOpen(false)} />
           <div className="animate-in relative z-10 h-full w-64 border-r border-line bg-panel px-3 py-4">
             <div className="flex items-center justify-between">
-              <Brand />
+              <Brand brandName={brandName} />
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -118,14 +130,16 @@ export function AdminMobileNav() {
   );
 }
 
-function Brand() {
+function Brand({ brandName }: { brandName?: string }) {
   return (
     <Link href="/admin" className="flex items-center gap-2.5 px-1">
       <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
         <Truck size={16} />
       </span>
       <span className="leading-tight">
-        <span className="block text-sm font-semibold text-strong">GST Truck Intel</span>
+        <span className="block truncate text-sm font-semibold text-strong">
+          {brandName || DEFAULT_BRAND}
+        </span>
         <span className="block text-[11px] text-faint">Admin console</span>
       </span>
     </Link>

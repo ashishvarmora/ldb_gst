@@ -23,12 +23,20 @@ type SettingSpec = { key: string; label: string } & (
   | { kind: "sheet" }
   | { kind: "retention" }
   | { kind: "int"; min: number; max: number }
+  // Site panel. "optional_*" kinds accept blank, which the public pages read as
+  // "do not show this at all" - see loadSettings().
+  | { kind: "name"; max: number }
+  | { kind: "optional_text"; max: number }
+  | { kind: "optional_email" }
+  | { kind: "optional_phone" }
+  | { kind: "optional_link" }
 );
 
 const ENGINE_SPECS: SettingSpec[] = [
   { key: "ldb_api_url", label: "LDB API endpoint", kind: "url" },
   { key: "tracking_enabled", label: "Background tracking", kind: "bool" },
   { key: "no_activity_hours", label: "No-activity threshold", kind: "int", min: 1, max: 168 },
+  { key: "revisit_minutes", label: "Same-plaza window", kind: "int", min: 5, max: 1440 },
 ];
 
 const BACKUP_SPECS: SettingSpec[] = [
@@ -41,6 +49,16 @@ const BACKUP_SPECS: SettingSpec[] = [
 const PAYMENT_SPECS: SettingSpec[] = [
   { key: "razorpay_enabled", label: "Razorpay", kind: "bool" },
   { key: "razorpay_key_id", label: "Razorpay key id", kind: "key_id" },
+];
+
+const SITE_SPECS: SettingSpec[] = [
+  { key: "brand_name", label: "Product name", kind: "name", max: 60 },
+  { key: "signup_enabled", label: "Public sign-up", kind: "bool" },
+  { key: "support_email", label: "Support email", kind: "optional_email" },
+  { key: "support_phone", label: "Support phone", kind: "optional_phone" },
+  { key: "support_address", label: "Postal address", kind: "optional_text", max: 300 },
+  { key: "privacy_url", label: "Privacy policy link", kind: "optional_link" },
+  { key: "terms_url", label: "Terms link", kind: "optional_link" },
 ];
 
 function readSpecs(
@@ -96,6 +114,45 @@ function readSpecs(
         values[spec.key] = id;
         break;
       }
+
+      case "name":
+        // The one site field that cannot be blank: it is what the product calls
+        // itself on every public page, and an empty header reads as a bug.
+        if (text.length < 2 || text.length > spec.max) {
+          return { error: `${spec.label} must be between 2 and ${spec.max} characters.` };
+        }
+        values[spec.key] = text;
+        break;
+
+      case "optional_text":
+        if (text.length > spec.max) {
+          return { error: `${spec.label} must be ${spec.max} characters or fewer.` };
+        }
+        values[spec.key] = text;
+        break;
+
+      case "optional_email":
+        // Deliberately loose. This address is printed for people to write to,
+        // never signed in to, so a shape check is all it is worth.
+        if (text !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(text)) {
+          return { error: `${spec.label} does not look like an email address.` };
+        }
+        values[spec.key] = text.toLowerCase();
+        break;
+
+      case "optional_phone":
+        if (text !== "" && !/^[0-9+\-\s()]{6,20}$/.test(text)) {
+          return { error: `${spec.label} looks wrong. Digits, spaces, + - ( ) only.` };
+        }
+        values[spec.key] = text;
+        break;
+
+      case "optional_link":
+        if (text !== "" && !/^https?:\/\/\S+$/.test(text)) {
+          return { error: `${spec.label} must start with http:// or https://, or be left blank.` };
+        }
+        values[spec.key] = text;
+        break;
 
       case "retention": {
         const days = Number(text);
@@ -163,14 +220,44 @@ export async function saveSettings(
 ): Promise<ActionResult> {
   const actor = await assertSuperAdmin();
 
+  // No default plan is written any more: a new account starts with no plan and
+  // no credits, and buys or is given one. The setting it used to save was read
+  // only by the trigger that 0010 dropped.
   const parsed = readSpecs(fd, ENGINE_SPECS);
   if ("error" in parsed) return { ok: false, error: parsed.error };
 
-  const defaultPlan = fd.get("default_plan_name");
-  parsed.values.default_plan_name = typeof defaultPlan === "string" ? defaultPlan : "";
-
   const result = await persist(actor, parsed.values, "settings.update");
   return result.ok ? { ok: true, message: "Settings saved." } : result;
+}
+
+/**
+ * The public face of the site: what it calls itself, whether anyone may sign up,
+ * and how to reach a human. Every one of these is rendered to people who are not
+ * signed in, so the message says where the change will show up.
+ */
+export async function saveSiteSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, SITE_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const result = await persist(actor, parsed.values, "settings.update_site");
+  if (!result.ok) return result;
+
+  // The brand name and the footer details are read by every public page, so the
+  // whole tree is revalidated rather than guessing which routes show them.
+  revalidatePath("/", "layout");
+
+  return {
+    ok: true,
+    message:
+      parsed.values.signup_enabled === true
+        ? `Saved. The site calls itself "${parsed.values.brand_name}" and anyone can register.`
+        : `Saved. The site calls itself "${parsed.values.brand_name}". Registration is closed, so new accounts can only be created from this console.`,
+  };
 }
 
 /**
@@ -227,7 +314,7 @@ export async function savePaymentSettings(
   if (parsed.values.razorpay_enabled === true && !parsed.values.razorpay_key_id) {
     return {
       ok: false,
-      error: "Add the Razorpay key id before switching payments on, or officers see a broken page.",
+      error: "Add the Razorpay key id before switching payments on, or customers see a broken page.",
     };
   }
 
@@ -240,8 +327,8 @@ export async function savePaymentSettings(
   return {
     ok: true,
     message: parsed.values.razorpay_enabled
-      ? "Payment settings saved. Checkout still needs RAZORPAY_KEY_SECRET in the environment before an officer can pay."
-      : "Payment settings saved. Officers cannot buy credits, so add credits by hand on their page.",
+      ? "Payment settings saved. Checkout still needs RAZORPAY_KEY_SECRET in the environment before anyone can pay."
+      : "Payment settings saved. Nobody can buy a plan or credits in the app, so assign and top up by hand on the account's page.",
   };
 }
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BellOff, BellRing, ChevronRight, Clock, MapPin } from "lucide-react";
+import { BellOff, BellRing, ChevronRight, Clock, MapPin, Plus } from "lucide-react";
 
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
 import { describeAlert } from "@/lib/alerts";
@@ -38,12 +38,17 @@ const STATUS_TEXT: Record<TruckStatus, string> = {
   unknown: "text-muted",
 };
 
+/** Will anything reach you about this truck? The list is sorted on this. */
+export function isWatching(alerts: Pick<TruckAlertWithTemplate, "is_enabled">[]): boolean {
+  return alerts.some((alert) => alert.is_enabled);
+}
+
 /**
  * When this truck was last looked at, in a way that does not read as a fault.
  *
  * A truck is only ever checked because one of its alerts came due, so a truck
  * with no alerts has genuinely never been checked and never will be. Saying
- * "never" there sends officers hunting for a problem that is not one.
+ * "never" there sends people hunting for a problem that is not one.
  */
 export function lastCheckedLabel(
   truck: Pick<TrackedTruck, "is_active" | "last_polled_at">,
@@ -51,26 +56,76 @@ export function lastCheckedLabel(
 ): string {
   if (!truck.is_active) return "Paused — not being checked";
   if (truck.last_polled_at) return `Last checked ${fmtRelative(truck.last_polled_at)}`;
-  if (alerts.length === 0) return "No alerts yet — nothing is checked until you add one";
-  if (!alerts.some((alert) => alert.is_enabled)) return "Every alert is off — nothing is checked";
+  if (alerts.length === 0) return "Never checked — it has no alert yet";
+  if (!isWatching(alerts)) return "Every alert is off — nothing is checked";
   return "Waiting for the first check";
 }
 
-/** "Location changed · every 30 min" for the first alert, "+2 more" folded in. */
-function alertSummary(alerts: TruckAlertWithTemplate[]): string {
+/**
+ * The alert line, which is the reason the truck is on the list at all: what
+ * will reach you, or why nothing will.
+ */
+function AlertStrip({
+  truck,
+  alerts,
+}: {
+  truck: TrackedTruck;
+  alerts: TruckAlertWithTemplate[];
+}) {
   const enabled = alerts.filter((alert) => alert.is_enabled);
+
   if (enabled.length === 0) {
-    if (alerts.length === 0) return "No alerts yet";
-    return `${alerts.length} alert${alerts.length === 1 ? "" : "s"}, all switched off`;
+    const nothingYet = alerts.length === 0;
+    return (
+      <div
+        className={cx(
+          "mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2",
+          truck.is_active
+            ? "border-warn-500/40 bg-warn-500/10 text-warn-500"
+            : "border-line bg-raised text-muted",
+        )}
+      >
+        <BellOff size={14} className="shrink-0" />
+        <span className="min-w-0 flex-1 text-xs leading-snug">
+          {nothingYet ? "No alert yet — nothing reaches you" : "All alerts off — nothing reaches you"}
+        </span>
+        {truck.is_active ? (
+          /* The whole card is already a link to the truck, where the add-alert
+             form is open when there is nothing on it - so this is the cue, not
+             a second link. */
+          <span className="flex shrink-0 items-center gap-1 rounded-md bg-warn-500/15 px-2 py-1 text-[11px] font-medium">
+            <Plus size={11} />
+            Add one
+          </span>
+        ) : null}
+      </div>
+    );
   }
-  const first = describeAlert(enabled[0]);
-  return enabled.length === 1 ? first : `${first} + ${enabled.length - 1} more`;
+
+  return (
+    <div className="mt-3 rounded-lg border border-brand-500/30 bg-brand-500/8 px-2.5 py-2">
+      <p className="flex items-center gap-2 text-xs font-medium text-brand-500">
+        <BellRing size={14} className="shrink-0" />
+        Watching
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {enabled.slice(0, 2).map((alert) => (
+          <li key={alert.id} className="truncate text-xs text-ink">
+            {describeAlert(alert)}
+          </li>
+        ))}
+        {enabled.length > 2 ? (
+          <li className="text-xs text-muted">+ {enabled.length - 2} more</li>
+        ) : null}
+      </ul>
+    </div>
+  );
 }
 
 /**
- * One card per truck, holding only what an officer scans a list for: the
- * number, whether it is moving, where it was last seen, when it was last
- * checked, and what is watching it. Anything else belongs on the truck's page.
+ * One card per truck, holding only what a list is scanned for: the number,
+ * what is watching it, whether it is moving, where it was last seen and when
+ * it was last checked. Anything else belongs on the truck's own page.
  */
 export function TruckCard({
   truck,
@@ -80,7 +135,6 @@ export function TruckCard({
   alerts?: TruckAlertWithTemplate[];
 }) {
   const status = truck.is_active ? truck.status : "unknown";
-  const enabled = alerts.filter((alert) => alert.is_enabled);
 
   return (
     <Link
@@ -122,6 +176,8 @@ export function TruckCard({
           </span>
         </div>
 
+        <AlertStrip truck={truck} alerts={alerts} />
+
         <dl className="mt-3 space-y-2 border-t border-divider pt-3 text-xs">
           <div className="flex items-start gap-2">
             <MapPin size={13} className="mt-px shrink-0 text-faint" />
@@ -137,15 +193,6 @@ export function TruckCard({
                 <span className="text-muted">No crossing recorded yet</span>
               )}
             </dd>
-          </div>
-
-          <div className="flex items-start gap-2">
-            {enabled.length > 0 ? (
-              <BellRing size={13} className="mt-px shrink-0 text-brand-500" />
-            ) : (
-              <BellOff size={13} className="mt-px shrink-0 text-faint" />
-            )}
-            <dd className="min-w-0 truncate text-muted">{alertSummary(alerts)}</dd>
           </div>
 
           <div className="flex items-start gap-2">

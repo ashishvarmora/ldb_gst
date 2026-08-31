@@ -1,9 +1,9 @@
 import { Skeleton, SkeletonPageHeader, SkeletonPanel } from "@/components/Skeleton";
 
 /**
- * Shown the instant an officer taps Home, while the real page streams in behind
- * it. Without this the app looks frozen for the length of a database round
- * trip, which on a phone on mobile data is very noticeable.
+ * Shown the instant Home is tapped, while the real page streams in behind it.
+ * Without this the app looks frozen for the length of a database round trip,
+ * which on a phone on mobile data is very noticeable.
  *
  * The shapes mirror the dashboard - credits panel, then plan and alerts side
  * by side - so nothing jumps when the data arrives.

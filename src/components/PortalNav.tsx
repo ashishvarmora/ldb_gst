@@ -13,14 +13,16 @@ const NAV = [
   { href: "/portal/search", label: "Search", icon: Search },
   { href: "/portal/trucks", label: "My trucks", icon: Truck },
   { href: "/portal/records", label: "Records", icon: Rows3 },
-  { href: "/portal/cases", label: "Cases", icon: FolderOpen },
+  // The route keeps its /cases path - the table behind it is truck_groups and
+  // the label is what a customer reads, so only the label is neutral wording.
+  { href: "/portal/cases", label: "Groups", icon: FolderOpen },
   { href: "/portal/plan", label: "My plan", icon: Wallet },
 ] as const;
 
 /**
  * Home, Search, My trucks, Records, My plan. Five is the most a bottom bar can
- * hold before the labels stop being legible on a small phone, so Cases stays in
- * the sidebar only: a case folder is set up once, where My plan is where the
+ * hold before the labels stop being legible on a small phone, so Folders stays
+ * in the sidebar only: a folder is set up once, where My plan is where the
  * credit balance is topped up and everything stops without it.
  */
 const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/plan"] as const;
@@ -31,7 +33,7 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function PortalSidebar() {
+export function PortalSidebar({ brandName }: { brandName: string }) {
   const pathname = usePathname();
 
   return (
@@ -41,8 +43,8 @@ export function PortalSidebar() {
           <Truck size={16} />
         </span>
         <span className="leading-tight">
-          <span className="block text-sm font-semibold text-strong">Truck Watch</span>
-          <span className="block text-[11px] text-faint">GST officer</span>
+          <span className="block truncate text-sm font-semibold text-strong">{brandName}</span>
+          <span className="block text-[11px] text-faint">Truck tracking</span>
         </span>
       </Link>
 
@@ -71,7 +73,7 @@ export function PortalSidebar() {
   );
 }
 
-/** Thumb-reachable tab bar. The officer's phone is the primary device. */
+/** Thumb-reachable tab bar. A phone is the primary device here. */
 export function PortalBottomNav() {
   const pathname = usePathname();
 
@@ -94,7 +96,7 @@ export function PortalBottomNav() {
               )}
             >
               {/* A bar on the edge the tab touches reads faster than colour
-                  alone, and still works for a colour-blind officer. */}
+                  alone, and still works for a colour-blind reader. */}
               <span
                 aria-hidden
                 className={cx(

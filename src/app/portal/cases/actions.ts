@@ -10,8 +10,9 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
 /**
- * Case folders group the vehicles in one investigation, so an officer can look
- * at a whole fake-billing ring at once instead of truck by truck.
+ * A group is a named list of truck numbers, so several vehicles can be read at
+ * once instead of truck by truck. The table is truck_groups and the actions
+ * keep their older "case" names; only what a person reads has changed.
  */
 
 async function ownedCase(userId: string, caseId: string) {
@@ -30,7 +31,7 @@ export async function createCase(_prev: ActionResult | null, fd: FormData): Prom
   const admin = getSupabaseAdmin();
 
   const name = str(fd, "name");
-  if (!name) return fail("Give the case a name.");
+  if (!name) return fail("Give the group a name.");
 
   const { data, error } = await admin
     .from("truck_groups")
@@ -42,9 +43,9 @@ export async function createCase(_prev: ActionResult | null, fd: FormData): Prom
     .select("id")
     .single();
 
-  if (error) return fail(reportError("creating a case", error, "Could not create that case."));
+  if (error) return fail(reportError("creating a group", error, "Could not create that group."));
 
-  // Optional seed list, e.g. pasted straight out of a notice.
+  // Optional seed list, e.g. pasted straight out of a spreadsheet.
   const seed = str(fd, "truck_numbers");
   let added = 0;
   if (seed) {
@@ -68,8 +69,8 @@ export async function createCase(_prev: ActionResult | null, fd: FormData): Prom
   revalidatePath("/portal/cases");
   return done(
     added > 0
-      ? `Case "${name}" created with ${added} truck${added === 1 ? "" : "s"}.`
-      : `Case "${name}" created.`,
+      ? `Group "${name}" created with ${added} truck${added === 1 ? "" : "s"}.`
+      : `Group "${name}" created.`,
   );
 }
 
@@ -79,8 +80,8 @@ export async function updateCase(_prev: ActionResult | null, fd: FormData): Prom
 
   const caseId = str(fd, "case_id");
   const name = str(fd, "name");
-  if (!caseId) return fail("Missing case id.");
-  if (!name) return fail("Give the case a name.");
+  if (!caseId) return fail("Missing group id.");
+  if (!name) return fail("Give the group a name.");
 
   const { error } = await admin
     .from("truck_groups")
@@ -88,11 +89,11 @@ export async function updateCase(_prev: ActionResult | null, fd: FormData): Prom
     .eq("id", caseId)
     .eq("user_id", session.id);
 
-  if (error) return fail(reportError("saving a case", error, "Could not save that case."));
+  if (error) return fail(reportError("saving a group", error, "Could not save that group."));
 
   revalidatePath("/portal/cases");
   revalidatePath(`/portal/cases/${caseId}`);
-  return done("Case saved.");
+  return done("Group saved.");
 }
 
 export async function deleteCase(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -100,7 +101,7 @@ export async function deleteCase(_prev: ActionResult | null, fd: FormData): Prom
   const admin = getSupabaseAdmin();
 
   const caseId = str(fd, "case_id");
-  if (!caseId) return fail("Missing case id.");
+  if (!caseId) return fail("Missing group id.");
 
   const { error } = await admin
     .from("truck_groups")
@@ -108,7 +109,7 @@ export async function deleteCase(_prev: ActionResult | null, fd: FormData): Prom
     .eq("id", caseId)
     .eq("user_id", session.id);
 
-  if (error) return fail(reportError("deleting a case", error, "Could not delete that case."));
+  if (error) return fail(reportError("deleting a group", error, "Could not delete that group."));
 
   revalidatePath("/portal/cases");
   redirect("/portal/cases");
@@ -123,11 +124,11 @@ export async function addTruckToCase(
 
   const caseId = str(fd, "case_id");
   const raw = str(fd, "truck_number");
-  if (!caseId) return fail("Pick a case folder.");
+  if (!caseId) return fail("Pick a group.");
   if (!raw) return fail("Enter a truck number.");
 
   const owned = await ownedCase(session.id, caseId);
-  if (!owned) return fail("That case folder is not yours.");
+  if (!owned) return fail("That group is not yours.");
 
   const truckNumber = normalizeTruck(raw);
   if (!looksLikeTruckNumber(truckNumber)) {
@@ -142,7 +143,7 @@ export async function addTruckToCase(
     });
 
   if (error) {
-    return fail(reportError("adding a truck to a case", error, "Could not add that truck."));
+    return fail(reportError("adding a truck to a group", error, "Could not add that truck."));
   }
 
   revalidatePath("/portal/cases");
@@ -159,10 +160,10 @@ export async function removeTruckFromCase(
 
   const caseId = str(fd, "case_id");
   const truckNumber = str(fd, "truck_number");
-  if (!caseId || !truckNumber) return fail("Missing case or truck.");
+  if (!caseId || !truckNumber) return fail("Missing group or truck.");
 
   const owned = await ownedCase(session.id, caseId);
-  if (!owned) return fail("That case folder is not yours.");
+  if (!owned) return fail("That group is not yours.");
 
   const { error } = await admin
     .from("truck_group_members")
@@ -171,7 +172,7 @@ export async function removeTruckFromCase(
     .eq("truck_number", truckNumber);
 
   if (error) {
-    return fail(reportError("removing a truck from a case", error, "Could not remove that truck."));
+    return fail(reportError("removing a truck from a group", error, "Could not remove that truck."));
   }
 
   revalidatePath(`/portal/cases/${caseId}`);

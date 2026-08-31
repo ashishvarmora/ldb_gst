@@ -1,16 +1,20 @@
-# GST Truck Intelligence
+# Truck Watch
 
-A private truck-tracking platform for GST officers. Two apps and a background worker
-in one Vercel deployment:
+A truck-tracking service. Look up a lorry by its registration number, see the toll
+plazas it has passed, and get told on Telegram when it moves. Two apps and a
+background worker in one Vercel deployment:
 
-- **Admin console** (`/admin`) — you create officer accounts, put each on a plan,
-  override individual limits, and watch what everyone is consuming.
-- **Officer dashboard** (`/portal`) — officers search trucks, track them, get Telegram
-  alerts, and group vehicles into case folders.
-- **Tracking worker** (`/api/cron/track`) — polls LDB on each truck's own interval,
-  stores crossings, fires alerts, mirrors everything into the officer's Google Sheet.
+- **Customer dashboard** (`/portal`) — sign up, buy a plan, add a truck, attach
+  alerts to it, and read the history. Alerts arrive on Telegram.
+- **Admin console** (`/admin`) — set what a rupee buys and what a credit buys,
+  maintain the alert catalogue, and see every account, truck and payment.
+- **Tracking worker** (`/api/cron/track`) — checks a truck when one of its alerts
+  is due, stores what moved, and sends the alert.
 
-Hierarchy is `Super Admin (you) → Officer (user)`. No tenant layer, no self-signup.
+Anyone can register. An account starts with no plan and no credits; a plan is
+bought, and credits are topped up when they run out. There is one super admin.
+
+The brand name is a setting, not a constant — change it in Admin → Settings.
 
 Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 
@@ -22,19 +26,19 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 
 | Page | What you can do |
 | --- | --- |
-| **Overview** | Platform totals, 30-day usage chart, "needs attention" list (expired plan, out of credits, truck limit hit), credits outstanding, recent admin activity |
-| **Officers** | Create accounts (password generated and shown once), filter by name, office, district, plan or status, credit balance per officer and top-ups |
-| **Officer detail** | Assign plan + expiry · per-officer limit overrides · Telegram + Sheet setup · 30-day usage chart · reset counters · tracked trucks · last 10 LDB calls · last 10 alerts · suspend · reset password · delete |
-| **Plans** | Create, edit, duplicate, archive, delete. Warns when a truck limit cannot be polled inside the monthly query cap |
-| **Trucks** | Every tracked truck across all officers, filter by officer/status/number |
-| **Usage** | Per-officer consumption, recent LDB calls with latency and failures, CSV export for billing |
-| **Alerts** | Every alert raised and whether Telegram actually delivered it |
-| **Audit log** | Field-level before/after for every admin change |
-| **Settings** | LDB endpoint, global pause switch, polling floor, no-activity threshold, data retention, connection health, **run the worker now**, **clear old records now** |
+| **Overview** | Platform totals, 30-day usage chart, "needs attention" list (no plan yet, expired, out of credits, truck limit hit), credits outstanding |
+| **Accounts** | Every registered account: contact details, plan, credit balance, top-ups, suspend, reset password. You can still create one by hand. |
+| **Account detail** | Tabbed: overview, credits and full history, their trucks, their activity, settings. Assign a plan, add credits, set an individual truck limit. |
+| **Plans** | Create, edit, archive. A plan sets a truck limit, the credits it includes and its price - all of it customer-facing |
+| **Trucks** | Every tracked truck across all accounts, filtered by account, status or number |
+| **Usage** | Credits spent per account, recent upstream calls with latency and failures, CSV export |
+| **Alert rules** | The catalogue of alerts people may attach to a truck, plus the delivery log of everything sent |
+| **Audit log** | What customers have been doing, with admin changes behind a filter |
+| **Settings** | Site name, support details and policy links, open or close sign-up, payment keys, backup sheet and retention, the upstream endpoint, the global pause switch, **run the worker now**, **run the backup now** |
 
-### Officer dashboard — `/portal`
+### Customer dashboard — `/portal`
 
-| Page | What an officer can do |
+| Page | What it does |
 | --- | --- |
 | **Home** | Credits held, spent today and this month; plan at a glance; today's alerts; today's usage below |
 | **Search** | Look up any registration number. Results are stored at a permanent URL, so reopening one costs nothing |
@@ -44,15 +48,15 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 | **Records** | Every crossing in one place, either merged per truck number or as a flat filterable table, with analytics and CSV export |
 | **Cases** | Case folders — paste a whole list of registration numbers, then read one combined timeline across the group |
 | **My plan** | Credit balance and history, what each action costs, what the plan includes, when it expires |
-| **Settings** | Connect Telegram (with a test message), connect a Google Sheet (with a test), see their own 30-day usage |
+| **Settings** | Connect Telegram, which is how alerts reach a phone |
 
-Sidebar on desktop, thumb-reachable tab bar on mobile — officers work from phones.
+Sidebar on desktop, thumb-reachable tab bar on mobile - most people use this from a phone.
 
 ---
 
 ## One credit balance
 
-An officer has a single number to think about. There used to be two quotas —
+There is a single number to think about. There used to be two quotas —
 searches per day and tracking queries per month — and you had to hold both in
 your head to know whether anything would work.
 
@@ -89,15 +93,16 @@ lives in the admin panel rather than in code:
 | Bulk+ | ₹10,000 | 25,000 |
 | Maximum | ₹20,000 | 50,000 |
 
-An officer may buy **only while their plan is active**; without one the packs
-are visible but not purchasable. Payment is Razorpay, behind an admin toggle —
+Credits may be topped up **only while a plan is active** - buying a plan is what
+a new account does first, and topping up is what it does when they run out. It
+never has to buy the plan again. Payment is Razorpay, behind an admin toggle -
 switch it off and credits arrive only from the admin, by hand.
 
 Nothing the browser says is trusted. An order is recorded before checkout
-opens, and credits are granted only by `credit_payment()`, which flips the row
+opens, and what was bought is handed over only by `settle_payment()`, which flips the row
 from `created` to `paid` in the same statement — so a replayed webhook, or a
 handshake that arrives twice, grants nothing the second time. The webhook is
-the authority rather than the browser, because an officer can close the tab
+the authority rather than the browser, because someone can close the tab
 before checkout returns.
 
 So the whole flow is three admin-set steps: **money → credits** (packs),
@@ -110,10 +115,10 @@ How a number is stored:
 | `-1` in a **plan** | Unlimited |
 | `0` or more in a **plan** | Hard cap |
 | `NULL` in an **override** | Inherit from the plan |
-| `-1` in an **override** | Unlimited, for this officer only |
+| `-1` in an **override** | Unlimited, for this account only |
 
 In the UI you type a number or the word `unlimited`; a blank override means inherit.
-The officer detail page shows plan value / override / effective side by side.
+The account detail page shows plan value / override / effective side by side.
 
 **Credit arithmetic:** a truck with a 30-minute alert is 48 checks a day. At
 1 credit = 2 checks that is 24 credits a day, so a 500-credit opening balance
@@ -196,7 +201,7 @@ are a local bootstrap convenience and are never read by the deployed app.
 npm run dev
 ```
 
-Sign in at <http://localhost:3000/login>. Admins land on `/admin`, officers on
+Sign in at <http://localhost:3000/login>, or register at `/signup`. Admins land on `/admin`, everyone else on
 `/portal` — the same login serves both.
 
 ### 5. Deploy
@@ -228,59 +233,63 @@ secret returns 403, but Vercel's deployment protection returns a **200 with an
 HTML login page** — a scheduler that only checks the status code will report
 success while nothing runs at all.
 
-### 6. First officer
+### 6. First account
 
 1. **Admin → Plans** — check the seeded plans or make your own.
-2. **Admin → Officers → New officer** — fill in details, pick a plan. Copy the
-   generated password from the success message; it is shown once.
-3. Give the officer their email, password and your bot's Telegram handle.
-4. They sign in, send `/start` to the bot, paste the chat id in **Settings**, and add
-   their first truck.
+2. Register at `/signup` like any customer would, or create the account from
+   **Admin → Accounts → New account** and copy the generated password, which
+   is shown once.
+3. Buy or assign a plan - a new account starts with none, so nothing can be
+   tracked until it has one.
+4. Send `/start` to the bot, paste the chat id in **Settings**, then add a truck
+   and give it an alert. A truck with no alert is never checked.
 5. **Admin → Settings → Run the worker now** to confirm the chain end to end.
 
 ---
 
-## Credentials: what you hold, what the officer gives you
+## Credentials: what you hold, what a customer gives you
 
-You hold every credential. The officer supplies two harmless strings.
+You hold every credential. A customer supplies one harmless string: their Telegram chat id.
 
 **Telegram — one platform bot.** Create it with
 [@BotFather](https://t.me/BotFather), put the token in `TELEGRAM_BOT_TOKEN`. The
-officer sends your bot `/start` (Telegram will not let a bot message someone who has
+customer sends your bot `/start` (Telegram will not let a bot message someone who has
 not started it), then you read their numeric chat id with
 `node scripts/get-telegram-chat-id.mjs` — or they fetch it themselves from
 `@userinfobot`. That number is all you need. **A mobile number is never involved**,
-and officers never create bots.
+and customers never create bots.
 
 **Google Sheets — one service account.** Create a service account in Google Cloud,
-enable the Sheets API, put the client email and private key in the env vars. The
-officer creates a blank sheet, shares it as **Editor** with your service-account
-address (shown on both settings pages), and sends the link. No OAuth screen, no
-officer credentials, no per-officer Apps Script.
+enable the Sheets API, and put the client email and private key in the env vars.
+You then create one backup sheet, share it as **Editor** with the service-account
+address (shown in Admin → Settings), and paste the link there. Old crossings are
+copied into it before they are deleted, and no customer ever handles a credential.
 
-**Why not the Apps Script approach from the original guide?** It works for one sheet
-but needs a separate script, trigger and Google account per officer, and you cannot
-see or bill usage centrally. One worker writing into per-officer sheets scales to
-fifty officers; fifty Apps Script projects does not.
+**Why one sheet and not one each?** Customers used to connect their own, written
+to on every check. That put the copy which has to survive the purge in the hands of
+someone not running the purge, and a third-party write on the hot path of every
+check. One sheet the operator owns, written in bulk just before a delete, is the
+same record without either problem.
 
 ---
 
 ## Data retention
 
-The officer's Google Sheet is the permanent record. The database only needs
-enough history to answer "where has this truck been lately", so old rows are
-trimmed automatically.
+One Google Sheet, owned by the operator, is the long-term record. The database
+only needs enough history to answer "where has this truck been lately", so old
+rows are copied out and then deleted.
 
-- **`data_retention_days`** is a limit like any other: a plan default, a
-  per-officer override, `-1` to keep everything. Default 30 days.
-- The purge runs **once a day**, at the end of a tracking sweep, and deletes
-  `truck_events`, `search_logs`, `alert_logs` and old `usage_counters` past the
-  window. Admin → Settings has a manual **Clear old records now** button.
-- **An officer with no working Google Sheet is skipped.** For them the database
-  is the only copy, and trimming it would lose the case history rather than a
-  cache. The admin can override that with an explicit checkbox.
-- The officer sees their own retention window, and a warning if they have no
-  sheet, on both **Records** and **My plan**.
+- **`data_retention_days`** is one platform setting, not a per-account one.
+  `-1` keeps everything. Default 30 days.
+- **`backup_interval_days`** decides how often the copy-and-delete runs. It
+  happens at the end of a tracking sweep, and Admin → Settings has a manual
+  **Run backup now** button.
+- **A failed copy deletes nothing.** Losing the only record of where a truck
+  went because a sheet was misconfigured is far worse than carrying the rows
+  for another interval.
+- **No sheet configured means no backup is wanted**, and the rows are simply
+  deleted on schedule. That is a supported choice and the settings page says so
+  in red, because it is permanent.
 
 ### What actually gets stored
 
@@ -303,35 +312,60 @@ even when the portal's window slides and a response starts mid-run.
 | The same response polled again 5 minutes later | nothing |
 | Truck parked at a plaza for an hour | nothing |
 | Return trip A → B → A | three rows — the location changed each time |
+| Out and back past **one** plaza, hours apart | two rows — see below |
 
 Comparison is on a normalised name, so `"Nadiad Toll Plaza"` and
 `" nadiad toll  plaza "` are the same place.
 
-**Call logging follows the same idea.** A manual search is always logged — the
-officer spent a credit and needs to see it. A background check is logged only
-when it found a movement or failed; a quiet check is counted against the monthly
-quota (by `consume_quota()`, into `usage_counters`) but does not add a row.
-Fifty trucks on a ten-minute interval would otherwise write over 200,000 rows a
-month saying "nothing happened".
+#### The same plaza twice
+
+That last row is the case that is easy to get wrong. Take:
+
+```
+Dahegam → Malvan (11:00) → Ahmedabad → Malvan (15:00) → Dahegam
+```
+
+Only Malvan is a toll plaza, so the platform sees *Malvan, then Malvan* and
+nothing in between. Comparing plaza names alone, the second one looks like the
+first being re-reported, and the entire return leg disappears — no row, and no
+alert.
+
+**Time is the only thing that separates them.** Two readings of one crossing
+arrive minutes apart; a return trip is hours later. So `revisit_minutes`
+(default 90, in Admin → Settings) is how long the same plaza keeps counting as
+the same crossing. Inside it, a repeat is ignored. Past it, the truck has come
+back and that is news.
+
+Alerts ask the same question of the crossing rather than the name:
+`truck_alerts.last_event_at` records *which crossing* an alert last reported,
+so a second pass of one plaza fires ("is back at Malvan") while the same
+crossing re-reported stays silent.
+
+**Call logging follows the same idea.** A manual search is always logged —
+someone spent a credit and needs to see it. A background check is logged only
+when it found a movement or failed; a quiet check still costs its credit, which
+`credit_transactions` records, but does not add a log row. Fifty trucks on a
+ten-minute interval would otherwise write over 200,000 rows a month saying
+"nothing happened".
 
 ---
 
 ## Security model
 
-- **RLS is on for every table.** Officers only ever read rows where
+- **RLS is on for every table.** Accounts only ever read rows where
   `user_id = auth.uid()`. Log tables (`truck_events`, `search_logs`, `alert_logs`,
   `usage_counters`) are read-only to them; only the worker writes those.
-- **Officers cannot write `profiles`.** No self-promotion to admin, no editing their
+- **Accounts cannot write `profiles`.** No self-promotion to admin, no editing their
   own plan.
 - **The service-role key never reaches the browser.** It is used only inside Server
   Actions and route handlers, each of which first calls `assertSuperAdmin()` or
-  `assertPortalUser()`. Every officer-facing query is additionally scoped by the
+  `assertPortalUser()`. Every customer-facing query is additionally scoped by the
   session's own user id.
 - **`is_super_admin()`** is `SECURITY DEFINER` so policies can call it without
   recursing through the `profiles` policy.
 - **Every admin mutation is audited** with actor, timestamp and a field-level diff.
 - **The cron route requires `CRON_SECRET`** and refuses to run if it is unset.
-- **Suspending an officer** pauses their background tracking, so a suspended account
+- **Suspending an account** pauses its background tracking, so a suspended account
   cannot keep burning LDB quota.
 
 ---
@@ -342,7 +376,7 @@ month saying "nothing happened".
 src/
   app/
     login/  no-access/
-    admin/                  overview · officers · plans · trucks · usage ·
+    admin/                  overview · accounts · plans · trucks · usage ·
                             alerts · audit · settings · usage/export (CSV)
     portal/                 home · search · trucks · alerts · cases · settings
     api/cron/track/         the tracking worker
@@ -355,12 +389,12 @@ src/
     ldb.ts                  LDB client + response parser
     telegram.ts  sheets.ts  delivery
     geo.ts                  toll-plaza -> state keyword table
-    auth.ts  officer.ts     the two gates
-    manual-search.ts        shared officer-initiated lookup
+    auth.ts  officer.ts     the two gates (officer.ts is the portal gate)
+    manual-search.ts        shared person-initiated lookup
     audit.ts  format.ts  forms.ts  intervals.ts  settings.ts  env.ts  types.ts
 supabase/migrations/        0001 schema · 0002 views+RLS+seed · 0003 worker RPCs
 scripts/bootstrap-admin.mjs        create or reset your super-admin login
-scripts/get-telegram-chat-id.mjs  read an officer's chat id after they press Start
+scripts/get-telegram-chat-id.mjs  read a chat id after someone presses Start   
 docs/CREDENTIALS.md         where every .env value comes from, step by step
 docs/TRACKING-WORKER.md     how the worker runs, and how to debug it
 ```
@@ -392,7 +426,7 @@ npm run build
   3 alerts raised, one 403 recorded and retried, quota consumed exactly once per
   poll. A forced second sweep produced zero duplicate events and zero duplicate
   alerts.
-- Guards: cron route rejects a wrong secret, suspended officers are excluded, the
+- Guards: cron route rejects a wrong secret, suspended accounts are excluded, the
   global kill switch stops everything, an expired plan pauses every truck.
 - All 21 routes render, and the CSV export produces correct billing rows.
 

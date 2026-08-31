@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 
-import { grantOfficerCredits } from "./actions";
+import { grantAccountCredits } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, FormGrid, Input, Select } from "@/components/form";
 import { CREDIT_REASON_LABEL } from "@/lib/credits";
@@ -9,7 +9,7 @@ import { CREDIT_REASON_LABEL } from "@/lib/credits";
 const REASONS = ["admin_topup", "purchase", "admin_adjust"] as const;
 
 /**
- * Top up one officer. Also the way a mistake is taken back out - a negative
+ * Top up one account. Also the way a mistake is taken back out - a negative
  * amount is allowed, and the balance is clamped at zero by the database.
  *
  * `pricePerCredit` is only for the hint: there is no single price any more, so
@@ -24,7 +24,7 @@ export function GrantCreditsForm({
   pricePerCredit?: number;
 }) {
   return (
-    <ActionForm action={grantOfficerCredits} closeOnSuccess={false} resetOnSuccess>
+    <ActionForm action={grantAccountCredits} closeOnSuccess={false} resetOnSuccess>
       <input type="hidden" name="user_id" value={userId} />
 
       <div className="space-y-4">
@@ -48,7 +48,7 @@ export function GrantCreditsForm({
             />
           </Field>
 
-          <Field label="Reason" name="reason" hint="Shows in the officer's credit history.">
+          <Field label="Reason" name="reason" hint="Shows in the customer's credit history.">
             <Select name="reason" defaultValue="admin_topup">
               {REASONS.map((reason) => (
                 <option key={reason} value={reason}>

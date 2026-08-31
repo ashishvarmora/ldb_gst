@@ -1,14 +1,19 @@
 import type { Metadata, Viewport } from "next";
 
+import { publicSettings } from "@/components/SiteFooter";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "GST Truck Intelligence — Admin",
-  description: "Manage GST officer accounts, plans and truck-tracking quotas.",
-};
+/** The brand is admin-configurable, so the document title has to be read, not written. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { brandName } = await publicSettings();
+  return {
+    title: brandName,
+    description: "Track a truck by its registration number and get told on Telegram when it moves.",
+  };
+}
 
 export const viewport: Viewport = {
-  themeColor: "#070a12",
+  themeColor: "#f4f6fa",
   width: "device-width",
   initialScale: 1,
 };

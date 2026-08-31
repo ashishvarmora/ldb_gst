@@ -5,26 +5,50 @@ import { createCase } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, Input, Textarea } from "@/components/form";
 import { Modal } from "@/components/Modal";
-import { EmptyState, Mono, PageHeader, Panel } from "@/components/ui";
-import { fmtDate } from "@/lib/format";
+import { Pager, pageFromParam } from "@/components/Pager";
+import { publicSettings } from "@/components/SiteFooter";
+import { EmptyState, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckGroup } from "@/lib/types";
 
-export const metadata = { title: "Cases — Truck Watch" };
+export async function generateMetadata() {
+  const { brandName } = await publicSettings();
+  return { title: `Groups — ${brandName}` };
+}
 
-export default async function CasesPage() {
+/** Cards per page. Fills the three-column grid four rows deep on a laptop. */
+const PAGE_SIZE = 12;
+
+/**
+ * A group is a named list of truck numbers - the table behind it is
+ * truck_groups, and the route keeps its older /cases path so existing links
+ * still work.
+ */
+export default async function CasesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const { data: groups } = await admin
+  const page = pageFromParam((await searchParams).page);
+  const from = (page - 1) * PAGE_SIZE;
+
+  const { data: groups, count } = await admin
     .from("truck_groups")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("user_id", overview.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(from, from + PAGE_SIZE - 1);
 
   const caseList = (groups ?? []) as TruckGroup[];
+  const total = count ?? caseList.length;
 
+  // Members are read only for the groups on this page - the count under each
+  // card is worth one small query, a whole account's membership is not.
   const byGroup = new Map<string, string[]>();
   if (caseList.length > 0) {
     const { data: members } = await admin
@@ -42,26 +66,30 @@ export default async function CasesPage() {
   return (
     <>
       <PageHeader
-        title="Case folders"
-        subtitle="Group the vehicles in one investigation and read the whole set at once."
+        title="Groups"
+        subtitle={
+          total > 0
+            ? `${fmtNumber(total)} group${total === 1 ? "" : "s"}. Put the trucks that belong together in one place and read them on a single timeline.`
+            : "Put the trucks that belong together in one place and read them on a single timeline."
+        }
         actions={
           <Modal
-            triggerLabel="New case"
+            triggerLabel="New group"
             triggerIcon={<Plus size={15} />}
-            title="Create a case folder"
+            title="Create a group"
             description="You can paste a whole list of truck numbers at once."
             width="md"
           >
             <ActionForm action={createCase} resetOnSuccess>
               <div className="space-y-4">
-                <Field label="Case name" name="name">
-                  <Input name="name" required placeholder="Fake billing — textile ring" />
+                <Field label="Group name" name="name">
+                  <Input name="name" required placeholder="e.g. Delhi–Mumbai run" />
                 </Field>
                 <Field label="Notes" name="description" hint="Optional. Only you can see this.">
                   <Textarea
                     name="description"
                     rows={2}
-                    placeholder="Three suppliers, invoices dated Jul–Aug 2026."
+                    placeholder="e.g. Three vehicles on contract until December."
                   />
                 </Field>
                 <Field
@@ -72,13 +100,13 @@ export default async function CasesPage() {
                   <Textarea
                     name="truck_numbers"
                     rows={3}
-                    placeholder="GJ02AT8546, GJ01XX1234, MH04AB9999"
+                    placeholder="e.g. MH12AB1234, GJ02AT8546, KA01CD5678"
                     className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
                   />
                 </Field>
               </div>
               <FormActions>
-                <SubmitButton pendingLabel="Creating...">Create case</SubmitButton>
+                <SubmitButton pendingLabel="Creating...">Create group</SubmitButton>
               </FormActions>
             </ActionForm>
           </Modal>
@@ -88,8 +116,15 @@ export default async function CasesPage() {
       {caseList.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            title="No case folders yet"
-            description="A case folder is just a named list of trucks. Open one and you see every crossing across the whole group on a single timeline."
+            title={page > 1 ? "Nothing on this page" : "No groups yet"}
+            description={
+              page > 1
+                ? "There are no groups this far back."
+                : "A group is just a named list of trucks. Open one and you see every crossing across the whole group on a single timeline."
+            }
+            action={
+              page > 1 ? <LinkButton href="/portal/cases">Back to the first page</LinkButton> : null
+            }
           />
         </Panel>
       ) : (
@@ -146,6 +181,15 @@ export default async function CasesPage() {
           })}
         </div>
       )}
+
+      <Pager
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        noun="groups"
+        href={{ path: "/portal/cases" }}
+        className="mt-4"
+      />
     </>
   );
 }

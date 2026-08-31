@@ -30,8 +30,8 @@ function istDateKey(iso: string | null): string {
 }
 
 /**
- * Toll crossings as a route, newest first, grouped by day. This is the view GST
- * officers actually read - a flat table of latitudes is not it.
+ * Toll crossings as a route, newest first, grouped by day. This is the view
+ * people actually read - a flat table of latitudes is not it.
  */
 export function Timeline({
   events,
@@ -45,7 +45,7 @@ export function Timeline({
     return (
       <EmptyState
         title="No toll crossings on record"
-        description="The portal only reports crossings from roughly the last week. If the truck has not passed a plaza recently there is nothing to show."
+        description="The toll network only reports crossings from roughly the last week. If the truck has not passed a plaza recently there is nothing to show."
       />
     );
   }
@@ -146,17 +146,32 @@ export function Timeline({
 }
 
 /**
- * The handful of facts an officer reads straight after the route itself, so it
- * sits directly under the timeline rather than in a sidebar.
+ * The handful of facts read straight after the route itself, so it sits
+ * directly under the timeline rather than in a sidebar.
  *
  * Only the state is inferred. A district cannot be read off a free-text plaza
- * name honestly, and a guessed district on a GST record is worse than none.
+ * name honestly, and a guessed district on a record is worse than none.
+ *
+ * `events` may be only the page on screen, so the totals that describe the
+ * whole history are passed in rather than counted from it.
  */
-export function RouteSummary({ events }: { events: TruckEvent[] }) {
+export function RouteSummary({
+  events,
+  total,
+  oldest: oldestStored,
+}: {
+  events: TruckEvent[];
+  /** Crossings stored for this truck, which may exceed what was loaded. */
+  total?: number;
+  /** The first crossing ever recorded, when it is off the loaded page. */
+  oldest?: TruckEvent | null;
+}) {
   if (events.length === 0) return null;
 
   const latest = events[0];
-  const oldest = events[events.length - 1];
+  const oldest = oldestStored ?? events[events.length - 1];
+  const stored = total ?? events.length;
+  const partial = stored > events.length;
   const state = stateFromLocation(latest.loc_name);
   const plazas = new Set(events.map((event) => event.loc_name).filter(Boolean)).size;
 
@@ -179,9 +194,10 @@ export function RouteSummary({ events }: { events: TruckEvent[] }) {
       </SummaryCell>
 
       <SummaryCell label="Crossings on record">
-        <span className="block text-sm font-medium tabular-nums text-strong">{events.length}</span>
+        <span className="block text-sm font-medium tabular-nums text-strong">{stored}</span>
         <span className="mt-0.5 block text-xs text-muted">
           across {plazas} plaza{plazas === 1 ? "" : "s"}
+          {partial ? " on this page" : ""}
         </span>
       </SummaryCell>
 
@@ -208,9 +224,9 @@ function SummaryCell({ label, children }: { label: string; children: ReactNode }
  * The whole stored history for one truck: the recent stretch open, everything
  * older folded away behind one tap.
  *
- * An officer building a case needs every crossing, but they read the last few
- * days first. Printing all of them straight out would bury that under weeks of
- * scrolling on a phone, so the older ones stay one tap away instead.
+ * Every crossing matters when you are piecing a journey together, but the last
+ * few days are read first. Printing all of them straight out would bury that
+ * under weeks of scrolling on a phone, so the older ones stay one tap away.
  */
 export function RouteHistory({
   events,
@@ -258,7 +274,7 @@ export function RouteHistory({
 
 /**
  * Where the truck is now, as the first thing on the page. This is the question
- * an officer opens a truck to answer, so it is answered before anything else.
+ * a truck is opened to answer, so it is answered before anything else.
  */
 export function LatestPosition({ event }: { event: TruckEvent | null }) {
   if (!event) {

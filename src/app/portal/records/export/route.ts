@@ -11,9 +11,9 @@ function csvCell(value: unknown): string {
 }
 
 /**
- * The officer's own records as a spreadsheet, honouring whatever filters they
- * had applied on screen. Always scoped to their own user id, so editing the
- * query string can never reach another officer's data.
+ * The account's own records as a spreadsheet, honouring whatever filters were
+ * applied on screen. Always scoped to the signed-in user id, so editing the
+ * query string can never reach another account's data.
  */
 export async function GET(request: NextRequest) {
   const session = await getSessionUser();

@@ -10,7 +10,9 @@ import {
   Users,
 } from "lucide-react";
 
+import { CapNote, pageRange } from "../pager";
 import { Input } from "@/components/form";
+import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
   Avatar,
   Badge,
@@ -37,7 +39,7 @@ import {
 } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
-  CreditTransaction,
+  CreditActivity,
   OfficerOverview,
   TruckDirectoryRow,
   TruckStatus,
@@ -59,14 +61,43 @@ const STATUS_LABEL: Record<TruckStatus, string> = {
   unknown: "Unknown",
 };
 
-/** How many officer matches get the full profile treatment before it is a list. */
+/** How many account matches get the full profile treatment before it is a list. */
 const FULL_PROFILE_LIMIT = 3;
 
-/** truck_directory is read whole for the overview, in pages this size. */
-const PAGE = 1000;
-const MAX_PAGES = 10;
+/* Page sizes. Each list on this page carries its own page number, so opening
+   one does not reset the others. */
+const GROUPS_PAGE = 10;
+const MATCHES_PAGE = 20;
+const SHARED_PAGE = 12;
+const BUSY_PAGE = 10;
+const ACCOUNTS_PAGE = 10;
+const TRUCKS_PER_ACCOUNT = 25;
+const ACTIVITY_PER_ACCOUNT = 8;
+
+/**
+ * A search groups its hits by number before showing them, so they cannot be
+ * paged in the database. This is the cap on what one search reads.
+ */
+const SEARCH_ROW_CAP = 500;
+
+/** The overview's scan of the directory, walked because one select is capped. */
+const SCAN_BATCH = 1000;
+const MAX_SCAN_BATCHES = 20;
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
+
+/**
+ * Only the columns the overview counts on. "Watched by two or more" is a
+ * question about every row at once, so it cannot be paged away - but read four
+ * narrow columns instead of the whole join and the scan stays cheap.
+ */
+type ScanRow = Pick<
+  TruckDirectoryRow,
+  "tracked_truck_id" | "truck_number" | "officer_id" | "officer_name" | "officer_email" | "event_count" | "last_event_at"
+>;
+
+const SCAN_COLUMNS =
+  "tracked_truck_id, truck_number, officer_id, officer_name, officer_email, event_count, last_event_at";
 
 /**
  * A search term is going into a PostgREST `or` filter, where a comma or a
@@ -77,36 +108,37 @@ function safeTerm(raw: string): string {
   return raw.replace(/[(),*%\\]/g, " ").trim();
 }
 
-/** Every tracked truck with its officer. Paged, because one select is capped. */
-async function loadDirectory(admin: Admin): Promise<TruckDirectoryRow[]> {
-  const rows: TruckDirectoryRow[] = [];
+async function scanDirectory(admin: Admin): Promise<{ rows: ScanRow[]; capped: boolean }> {
+  const rows: ScanRow[] = [];
   let after = "";
+  let capped = false;
 
-  for (let page = 0; page < MAX_PAGES; page += 1) {
+  for (let batch = 0; batch < MAX_SCAN_BATCHES; batch += 1) {
     let query = admin
       .from("truck_directory")
-      .select("*")
+      .select(SCAN_COLUMNS)
       .order("tracked_truck_id", { ascending: true })
-      .limit(PAGE);
+      .limit(SCAN_BATCH);
     if (after) query = query.gt("tracked_truck_id", after);
 
     const { data, error } = await query;
     if (error || !data || data.length === 0) break;
 
-    const batch = data as TruckDirectoryRow[];
-    rows.push(...batch);
-    after = batch[batch.length - 1].tracked_truck_id;
-    if (batch.length < PAGE) break;
+    const page = data as unknown as ScanRow[];
+    rows.push(...page);
+    after = page[page.length - 1].tracked_truck_id;
+    if (page.length < SCAN_BATCH) break;
+    capped = batch === MAX_SCAN_BATCHES - 1;
   }
 
-  return rows;
+  return { rows, capped };
 }
 
-/** One truck number and everyone watching it. */
-type NumberGroup = { number: string; rows: TruckDirectoryRow[] };
+/** One truck number and every row watching it. */
+type NumberGroup<T extends { truck_number: string }> = { number: string; rows: T[] };
 
-function groupByNumber(rows: TruckDirectoryRow[]): NumberGroup[] {
-  const groups = new Map<string, TruckDirectoryRow[]>();
+function groupByNumber<T extends { truck_number: string }>(rows: T[]): NumberGroup<T>[] {
+  const groups = new Map<string, T[]>();
   for (const row of rows) {
     const list = groups.get(row.truck_number);
     if (list) list.push(row);
@@ -118,116 +150,151 @@ function groupByNumber(rows: TruckDirectoryRow[]): NumberGroup[] {
 export default async function ExplorePage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    matches?: string;
+    shared?: string;
+    busy?: string;
+    accounts?: string;
+  }>;
 }) {
   await requireSuperAdmin();
-  const { q } = await searchParams;
+  const params = await searchParams;
+  const { q, page: pageParam, matches: matchesParam } = params;
   const admin = getSupabaseAdmin();
 
   const term = (q ?? "").trim();
   const plate = normalizeTruckNumber(term);
   const like = safeTerm(term);
 
+  const groupsPage = pageFromParam(pageParam);
+  const matchesPage = pageFromParam(matchesParam);
+
   /* --------------------------------------------------------------------- */
   /* A search runs both ways at once - the box does not ask which you meant  */
   /* --------------------------------------------------------------------- */
 
   const truckHits: TruckDirectoryRow[] = [];
-  let officerHits: OfficerOverview[] = [];
-  let officerTrucks: TruckDirectoryRow[] = [];
-  let officerLedger: CreditTransaction[] = [];
+  let accountHits: OfficerOverview[] = [];
+  let accountTotal = 0;
+  let accountTrucks = new Map<string, TruckDirectoryRow[]>();
+  let accountActivity = new Map<string, CreditActivity[]>();
 
   if (term) {
-    const [{ data: byNumber }, { data: byOfficer }] = await Promise.all([
+    const matchRange = pageRange(matchesPage, MATCHES_PAGE);
+    const [{ data: byNumber }, { data: byAccount, count }] = await Promise.all([
       plate.length >= 3
         ? admin
             .from("truck_directory")
             .select("*")
             .ilike("truck_number", `%${plate}%`)
             .order("truck_number")
-            .limit(200)
+            .limit(SEARCH_ROW_CAP)
         : Promise.resolve({ data: [] }),
       like
         ? admin
             .from("officer_overview")
-            .select("*")
+            .select("*", { count: "exact" })
             .eq("role", "officer")
             .or(
               `full_name.ilike.%${like}%,email.ilike.%${like}%,phone.ilike.%${like}%,office.ilike.%${like}%,district.ilike.%${like}%`,
             )
             .order("full_name")
-            .limit(20)
-        : Promise.resolve({ data: [] }),
+            .range(matchRange.from, matchRange.to)
+        : Promise.resolve({ data: [], count: 0 }),
     ]);
 
     truckHits.push(...((byNumber ?? []) as TruckDirectoryRow[]));
-    officerHits = (byOfficer ?? []) as OfficerOverview[];
+    accountHits = (byAccount ?? []) as OfficerOverview[];
+    accountTotal = count ?? accountHits.length;
 
-    // Both follow-ups are one query for every matched officer, never one each.
-    // Too many matches and none of it is shown, so none of it is fetched.
-    const ids =
-      officerHits.length <= FULL_PROFILE_LIMIT ? officerHits.map((row) => row.id) : [];
-    if (ids.length > 0) {
-      const [{ data: trucks }, { data: ledger }] = await Promise.all([
-        admin
-          .from("truck_directory")
-          .select("*")
-          .in("officer_id", ids)
-          .order("last_event_at", { ascending: false, nullsFirst: false })
-          .limit(400),
-        admin
-          .from("credit_transactions")
-          .select("*")
-          .in("user_id", ids)
-          .order("created_at", { ascending: false })
-          .limit(120),
-      ]);
-      officerTrucks = (trucks ?? []) as TruckDirectoryRow[];
-      officerLedger = (ledger ?? []) as CreditTransaction[];
+    /**
+     * The follow-ups are one query per matched account, and only while few
+     * enough match to be worth opening. Each is capped at a page's worth with
+     * a link to the paginated view for the rest, rather than a silent cut.
+     */
+    if (accountTotal <= FULL_PROFILE_LIMIT && accountHits.length > 0) {
+      const loaded = await Promise.all(
+        accountHits.map(async (account) => {
+          const [{ data: trucks }, { data: activity }] = await Promise.all([
+            admin
+              .from("truck_directory")
+              .select("*")
+              .eq("officer_id", account.id)
+              .order("last_event_at", { ascending: false, nullsFirst: false })
+              .limit(TRUCKS_PER_ACCOUNT),
+            // credit_activity, not the raw ledger: top-ups stay itemised and a
+            // week of half-credit checks is a handful of lines, not hundreds.
+            admin
+              .from("credit_activity")
+              .select("*")
+              .eq("user_id", account.id)
+              .order("created_at", { ascending: false })
+              .limit(ACTIVITY_PER_ACCOUNT),
+          ]);
+          return {
+            id: account.id,
+            trucks: (trucks ?? []) as TruckDirectoryRow[],
+            activity: (activity ?? []) as CreditActivity[],
+          };
+        }),
+      );
+
+      accountTrucks = new Map(loaded.map((row) => [row.id, row.trucks]));
+      accountActivity = new Map(loaded.map((row) => [row.id, row.activity]));
     }
   }
 
-  const groups = groupByNumber(truckHits).sort(
+  const allHitGroups = groupByNumber(truckHits).sort(
     (a, b) => b.rows.length - a.rows.length || a.number.localeCompare(b.number),
   );
-  const nothingFound = Boolean(term) && groups.length === 0 && officerHits.length === 0;
+  const groups = pageSlice(allHitGroups, groupsPage, GROUPS_PAGE);
+  const nothingFound = Boolean(term) && allHitGroups.length === 0 && accountTotal === 0;
 
   /* --------------------------------------------------------------------- */
   /* With an empty box, the interesting thing is the fleet as a whole        */
   /* --------------------------------------------------------------------- */
 
-  let directory: TruckDirectoryRow[] = [];
-  let officers: OfficerOverview[] = [];
+  let scan: ScanRow[] = [];
+  let scanCapped = false;
+  let trackedTotal = 0;
+  let accounts: OfficerOverview[] = [];
 
   if (!term) {
-    const [rows, { data: all }] = await Promise.all([
-      loadDirectory(admin),
+    const [scanned, { data: all }, { count: tracked }] = await Promise.all([
+      scanDirectory(admin),
       admin.from("officer_overview").select("*").eq("role", "officer"),
+      admin.from("truck_directory").select("tracked_truck_id", { count: "exact", head: true }),
     ]);
-    directory = rows;
-    officers = (all ?? []) as OfficerOverview[];
+    scan = scanned.rows;
+    scanCapped = scanned.capped;
+    accounts = (all ?? []) as OfficerOverview[];
+    trackedTotal = tracked ?? scanned.rows.length;
   }
 
-  const allGroups = groupByNumber(directory);
+  const allGroups = groupByNumber(scan);
   const sharedNumbers = allGroups
     .filter((group) => new Set(group.rows.map((row) => row.officer_id)).size > 1)
     .sort((a, b) => b.rows.length - a.rows.length);
-  const busiestNumbers = [...allGroups]
-    .sort(
-      (a, b) =>
-        b.rows.reduce((sum, row) => sum + row.event_count, 0) -
-        a.rows.reduce((sum, row) => sum + row.event_count, 0),
-    )
-    .slice(0, 10);
-  const bySpend = [...officers]
-    .sort((a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0))
-    .slice(0, 10);
+  const busiestNumbers = [...allGroups].sort(
+    (a, b) =>
+      b.rows.reduce((sum, row) => sum + row.event_count, 0) -
+      a.rows.reduce((sum, row) => sum + row.event_count, 0),
+  );
+  const bySpend = [...accounts].sort(
+    (a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0),
+  );
+
+  const sharedPage = pageFromParam(params.shared);
+  const busyPage = pageFromParam(params.busy);
+  const accountsPage = pageFromParam(params.accounts);
 
   return (
     <>
       <PageHeader
         title="Explore"
-        subtitle="One box for both questions: who is watching this truck, and what is this officer watching?"
+        subtitle="One box for both questions: who is watching this truck, and what is this account watching?"
       />
 
       <form method="get" className="mb-6 flex flex-wrap items-end gap-2">
@@ -240,7 +307,7 @@ export default async function ExplorePage({
             name="q"
             defaultValue={term}
             autoFocus
-            placeholder="Truck number, or an officer's name, email, phone or office"
+            placeholder="Truck number, or a name, email, phone or office"
             className="pl-9"
           />
         </div>
@@ -259,23 +326,23 @@ export default async function ExplorePage({
         <Panel bodyClassName="p-0">
           <EmptyState
             title={`Nothing matches "${term}"`}
-            description="Truck numbers are matched with spaces and dashes ignored. Officers are matched on name, email, phone, office and district."
+            description="Truck numbers are matched with spaces and dashes ignored. People are matched on name, email, phone, office and district."
           />
         </Panel>
       ) : null}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Truck number -> every officer watching it                           */}
+      {/* Truck number -> every account watching it                           */}
       {/* ------------------------------------------------------------------ */}
-      {groups.length > 0 ? (
+      {allHitGroups.length > 0 ? (
         <section className="mb-6 space-y-5">
           <h2 className="text-sm font-semibold text-ink">
-            {groups.length === 1
+            {allHitGroups.length === 1
               ? "1 truck number matches"
-              : `${groups.length} truck numbers match`}
+              : `${fmtNumber(allHitGroups.length)} truck numbers match`}
           </h2>
 
-          {groups.slice(0, 25).map((group) => {
+          {groups.map((group) => {
             const watchers = new Set(group.rows.map((row) => row.officer_id)).size;
             return (
               <Panel
@@ -283,8 +350,8 @@ export default async function ExplorePage({
                 title={group.number}
                 description={
                   watchers === 1
-                    ? "Watched by one officer."
-                    : `Watched by ${watchers} officers — the same number is on more than one list.`
+                    ? "Watched by one account."
+                    : `Watched by ${watchers} accounts — the same number is on more than one list.`
                 }
                 actions={
                   <Link
@@ -298,7 +365,7 @@ export default async function ExplorePage({
               >
                 <TableWrap>
                   <Thead>
-                    <th className="th">Officer</th>
+                    <th className="th">Account</th>
                     <th className="th">Contact</th>
                     <th className="th">Posting</th>
                     <th className="th">Added</th>
@@ -317,10 +384,7 @@ export default async function ExplorePage({
                             href={`/admin/officers/${row.officer_id}`}
                             className="group flex items-center gap-2.5"
                           >
-                            <Avatar
-                              size="sm"
-                              text={initials(row.officer_name, row.officer_email)}
-                            />
+                            <Avatar size="sm" text={initials(row.officer_name, row.officer_email)} />
                             <span className="min-w-0">
                               <span className="block truncate text-sm text-ink group-hover:text-brand-400">
                                 {row.officer_name ?? row.officer_email}
@@ -398,94 +462,123 @@ export default async function ExplorePage({
             );
           })}
 
-          {groups.length > 25 ? (
-            <p className="text-xs text-faint">
-              Showing the first 25 matching numbers. Type more of the number to narrow it down.
-            </p>
+          <Pager
+            page={groupsPage}
+            pageSize={GROUPS_PAGE}
+            total={allHitGroups.length}
+            noun="truck numbers"
+            href={{ path: "/admin/explore", params: { q: term, matches: matchesParam } }}
+          />
+
+          {truckHits.length === SEARCH_ROW_CAP ? (
+            <CapNote>
+              A search reads at most {fmtNumber(SEARCH_ROW_CAP)} tracked trucks, and that many were
+              found — there may be more numbers than the pages below show. Type more of the number to
+              narrow it.
+            </CapNote>
           ) : null}
         </section>
       ) : null}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Officer -> profile, trucks, credit usage                            */}
+      {/* Account -> profile, trucks, credit history                          */}
       {/* ------------------------------------------------------------------ */}
-      {officerHits.length > FULL_PROFILE_LIMIT ? (
-        <Panel
-          className="mb-6"
-          title={`${officerHits.length} officers match`}
-          description="Too many to open at once. Pick one."
-          bodyClassName="p-0"
-        >
-          <ul className="divide-y divide-divider">
-            {officerHits.map((officer) => (
-              <li key={officer.id}>
-                <Link
-                  href={`/admin/explore?q=${encodeURIComponent(officer.email)}`}
-                  className="flex items-center gap-3 px-5 py-3 transition hover:bg-raised/60"
-                >
-                  <Avatar size="sm" text={initials(officer.full_name, officer.email)} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-ink">
-                      {officer.full_name ?? officer.email}
+      {accountTotal > FULL_PROFILE_LIMIT ? (
+        <section className="mb-6">
+          <Panel
+            title={`${fmtNumber(accountTotal)} accounts match`}
+            description="Too many to open at once. Pick one."
+            bodyClassName="p-0"
+          >
+            <ul className="divide-y divide-divider">
+              {accountHits.map((account) => (
+                <li key={account.id}>
+                  <Link
+                    href={`/admin/explore?q=${encodeURIComponent(account.email)}`}
+                    className="flex items-center gap-3 px-5 py-3 transition hover:bg-raised/60"
+                  >
+                    <Avatar size="sm" text={initials(account.full_name, account.email)} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-ink">
+                        {account.full_name ?? account.email}
+                      </span>
+                      <span className="block truncate text-xs text-faint">
+                        {account.email} · {account.office ?? "no office recorded"}
+                      </span>
                     </span>
-                    <span className="block truncate text-xs text-faint">
-                      {officer.email} · {officer.office ?? "no office recorded"}
+                    <span className="shrink-0 text-xs text-muted">
+                      {fmtNumber(account.active_trucks)} trucks
                     </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-muted">
-                    {fmtNumber(officer.active_trucks)} trucks
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Panel>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+
+          <Pager
+            page={matchesPage}
+            pageSize={MATCHES_PAGE}
+            total={accountTotal}
+            noun="accounts"
+            href={{
+              path: "/admin/explore",
+              params: { q: term, page: pageParam },
+              pageKey: "matches",
+            }}
+          />
+        </section>
       ) : (
-        officerHits.map((officer) => {
-          const trucks = officerTrucks.filter((row) => row.officer_id === officer.id);
-          const movements = officerLedger.filter((row) => row.user_id === officer.id).slice(0, 8);
-          const balance = Number(officer.credits ?? 0);
+        accountHits.map((account) => {
+          const trucks = accountTrucks.get(account.id) ?? [];
+          const activity = accountActivity.get(account.id) ?? [];
+          const balance = Number(account.credits ?? 0);
 
           return (
-            <section key={officer.id} className="mb-6 space-y-5">
+            <section key={account.id} className="mb-6 space-y-5">
               <Panel
-                title={officer.full_name ?? officer.email}
-                description={officer.designation ?? "No designation recorded"}
+                title={account.full_name ?? account.email}
+                description={account.designation ?? "No designation recorded"}
                 actions={
                   <Link
-                    href={`/admin/officers/${officer.id}`}
+                    href={`/admin/officers/${account.id}`}
                     className="text-xs text-brand-400 hover:underline"
                   >
-                    Full officer page
+                    Full account page
                   </Link>
                 }
               >
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                   <span className="flex items-center gap-1.5 text-muted">
                     <Mail size={13} className="text-faint" />
-                    <a href={`mailto:${officer.email}`} className="hover:text-brand-500">
-                      {officer.email}
+                    <a href={`mailto:${account.email}`} className="hover:text-brand-500">
+                      {account.email}
                     </a>
                   </span>
                   <span className="flex items-center gap-1.5 text-muted">
                     <Phone size={13} className="text-faint" />
-                    {officer.phone ?? "--"}
+                    {account.phone ?? "--"}
                   </span>
                   <span className="flex items-center gap-1.5 text-muted">
                     <Building2 size={13} className="text-faint" />
-                    {officer.office ?? "--"}
+                    {account.office ?? "--"}
                   </span>
                   <span className="flex items-center gap-1.5 text-muted">
                     <MapPin size={13} className="text-faint" />
-                    {[officer.district, officer.state].filter(Boolean).join(", ") || "--"}
+                    {[account.district, account.state].filter(Boolean).join(", ") || "--"}
                   </span>
-                  <Badge tone={officer.status === "suspended" ? "bad" : "good"}>
-                    {officer.status === "suspended" ? "Suspended" : "Active"}
+                  <Badge tone={account.status === "suspended" ? "bad" : "good"}>
+                    {account.status === "suspended" ? "Suspended" : "Active"}
                   </Badge>
-                  <Badge tone={officer.plan_active ? "brand" : "warn"}>
-                    {officer.plan_name ?? "No plan"}
-                    {officer.plan_active ? "" : " — not live"}
-                  </Badge>
+                  {/* No plan is where a new signup starts, so it reads as a
+                      state rather than a fault. */}
+                  {account.plan_name ? (
+                    <Badge tone={account.plan_active ? "brand" : "warn"}>
+                      {account.plan_name}
+                      {account.plan_active ? "" : " — not live"}
+                    </Badge>
+                  ) : (
+                    <Badge>No plan yet</Badge>
+                  )}
                 </div>
               </Panel>
 
@@ -493,33 +586,45 @@ export default async function ExplorePage({
                 <StatCard
                   label="Credits left"
                   value={formatCredits(balance)}
-                  sub={`${formatCredits(officer.credits_purchased)} bought in total`}
+                  sub={`${formatCredits(account.credits_purchased)} bought in total`}
                   tone={balance <= 0 ? "bad" : balance < 20 ? "warn" : "brand"}
                 />
                 <StatCard
                   label="Spent this month"
-                  value={formatCredits(officer.credits_spent_month)}
-                  sub={`${formatCredits(officer.credits_spent_today)} today`}
+                  value={formatCredits(account.credits_spent_month)}
+                  sub={`${formatCredits(account.credits_spent_today)} today`}
                 />
                 <StatCard
                   label="Calls this month"
                   value={fmtNumber(
-                    officer.manual_searches_month + officer.tracking_queries_month,
+                    account.manual_searches_month + account.tracking_queries_month,
                   )}
-                  sub={`${fmtNumber(officer.manual_searches_month)} manual · ${fmtNumber(officer.tracking_queries_month)} automatic`}
+                  sub={`${fmtNumber(account.manual_searches_month)} manual · ${fmtNumber(account.tracking_queries_month)} automatic`}
                 />
                 <StatCard
                   label="Trucks tracked"
-                  value={fmtNumber(officer.active_trucks)}
-                  sub={`${fmtNumber(officer.total_trucks)} on the list in all`}
+                  value={fmtNumber(account.active_trucks)}
+                  sub={`${fmtNumber(account.total_trucks)} on the list in all`}
                   tone="brand"
                 />
               </div>
 
               <Panel
-                title={`Trucks they track (${trucks.length})`}
-                description="Every number on this officer's list, newest event first."
+                title="Trucks they track"
+                description={
+                  account.total_trucks > trucks.length
+                    ? `The ${trucks.length} with the newest events, out of ${fmtNumber(account.total_trucks)}.`
+                    : "Every number on this list, newest event first."
+                }
                 bodyClassName="p-0"
+                actions={
+                  <Link
+                    href={`/admin/trucks?officer=${account.id}`}
+                    className="text-xs text-brand-400 hover:underline"
+                  >
+                    All of them, paged
+                  </Link>
+                }
               >
                 {trucks.length === 0 ? (
                   <EmptyState title="No trucks under tracking" />
@@ -588,41 +693,50 @@ export default async function ExplorePage({
 
               <Panel
                 title="Recent credit movements"
-                description="What their balance has been spent on lately."
+                description="Top-ups one by one; usage totalled per day, so a week of checks is a few lines."
                 bodyClassName="p-0"
                 actions={
                   <Link
-                    href={`/admin/officers/${officer.id}`}
+                    href={`/admin/officers/${account.id}`}
                     className="text-xs text-brand-400 hover:underline"
                   >
                     Full history
                   </Link>
                 }
               >
-                {movements.length === 0 ? (
+                {activity.length === 0 ? (
                   <EmptyState title="Nothing charged yet" />
                 ) : (
                   <ul className="divide-y divide-divider">
-                    {movements.map((row) => (
-                      <li key={row.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                    {activity.map((row) => (
+                      <li
+                        key={`${row.activity_date}-${row.reason}-${row.created_at}`}
+                        className="flex items-center justify-between gap-3 px-5 py-2.5"
+                      >
                         <span className="min-w-0">
                           <span className="block truncate text-sm text-ink">
                             {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
                             {row.truck_number ? (
                               <span className="text-faint"> · {row.truck_number}</span>
                             ) : null}
+                            {row.is_rollup ? (
+                              <span className="text-faint">
+                                {" "}
+                                · {fmtNumber(row.entries)} charges
+                              </span>
+                            ) : null}
                           </span>
                           <span className="block text-xs text-faint">
-                            {fmtDateTime(row.created_at)}
+                            {row.is_rollup ? row.activity_date : fmtDateTime(row.created_at)}
                           </span>
                         </span>
                         <span
                           className={`shrink-0 text-sm font-medium tabular-nums ${
-                            Number(row.delta) < 0 ? "text-muted" : "text-good-500"
+                            Number(row.amount) < 0 ? "text-muted" : "text-good-500"
                           }`}
                         >
-                          {Number(row.delta) > 0 ? "+" : "-"}
-                          {formatCredits(Math.abs(Number(row.delta)))}
+                          {Number(row.amount) > 0 ? "+" : "-"}
+                          {formatCredits(Math.abs(Number(row.amount)))}
                         </span>
                       </li>
                     ))}
@@ -642,8 +756,8 @@ export default async function ExplorePage({
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard
               label="Trucks tracked"
-              value={fmtNumber(directory.length)}
-              sub="Rows across every officer's list"
+              value={fmtNumber(trackedTotal)}
+              sub="Rows across every account's list"
               tone="brand"
               icon={<TruckIcon size={15} />}
             />
@@ -657,186 +771,240 @@ export default async function ExplorePage({
               value={fmtNumber(sharedNumbers.length)}
               sub={
                 sharedNumbers.length > 0
-                  ? "Same number, different officers"
+                  ? "Same number, different accounts"
                   : "No number is on two lists"
               }
               tone={sharedNumbers.length > 0 ? "warn" : "neutral"}
             />
             <StatCard
-              label="Officers"
-              value={fmtNumber(officers.length)}
-              sub={`${officers.filter((o) => o.status === "active").length} active`}
+              label="Accounts"
+              value={fmtNumber(accounts.length)}
+              sub={`${accounts.filter((row) => row.status === "active").length} active`}
               icon={<Users size={15} />}
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <Panel
-              title="Watched by more than one officer"
-              description="The same registration number on two lists. Usually two offices working the same consignment, and worth knowing before either of them calls."
-              bodyClassName="p-0"
-            >
-              {sharedNumbers.length === 0 ? (
-                <EmptyState
-                  title="No overlap"
-                  description="Every tracked number belongs to exactly one officer."
-                />
-              ) : (
-                <ul className="divide-y divide-divider">
-                  {sharedNumbers.slice(0, 12).map((group) => (
-                    <li key={group.number} className="px-5 py-3">
-                      <Link
-                        href={`/admin/explore?q=${group.number}`}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <Mono className="font-semibold text-ink hover:text-brand-500">
-                          {group.number}
-                        </Mono>
-                        <Badge tone="warn">{group.rows.length} officers</Badge>
-                      </Link>
-                      <p className="mt-1 truncate text-xs text-faint">
-                        {group.rows
-                          .map((row) => row.officer_name ?? row.officer_email)
-                          .join(" · ")}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
+          {scanCapped ? (
+            <CapNote>
+              The three figures above and the two panels below are worked out from the first{" "}
+              {fmtNumber(SCAN_BATCH * MAX_SCAN_BATCHES)} tracked trucks, which is as far as one
+              sweep reads. Everything past that is missing from them — the fleet view has the
+              complete, paged list.
+            </CapNote>
+          ) : null}
 
-            <Panel
-              title="Most active numbers"
-              description="Ranked by toll events stored against them."
-              bodyClassName="p-0"
-            >
-              {busiestNumbers.length === 0 ? (
-                <EmptyState title="No trucks tracked yet" />
-              ) : (
-                <TableWrap>
-                  <Thead>
-                    <th className="th">Truck</th>
-                    <th className="th">Watched by</th>
-                    <th className="th">Last event</th>
-                    <th className="th text-right">Events</th>
-                  </Thead>
-                  <Tbody>
-                    {busiestNumbers.map((group) => {
-                      const events = group.rows.reduce((sum, row) => sum + row.event_count, 0);
-                      const latest = group.rows
-                        .map((row) => row.last_event_at)
-                        .filter(Boolean)
-                        .sort()
-                        .pop();
-                      return (
-                        <Tr key={group.number}>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <div>
+              <Panel
+                title="Watched by more than one account"
+                description="The same registration number on two lists. Usually two people working the same consignment, and worth knowing before either of them calls."
+                bodyClassName="p-0"
+              >
+                {sharedNumbers.length === 0 ? (
+                  <EmptyState
+                    title="No overlap"
+                    description="Every tracked number belongs to exactly one account."
+                  />
+                ) : (
+                  <ul className="divide-y divide-divider">
+                    {pageSlice(sharedNumbers, sharedPage, SHARED_PAGE).map((group) => (
+                      <li key={group.number} className="px-5 py-3">
+                        <Link
+                          href={`/admin/explore?q=${group.number}`}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <Mono className="font-semibold text-ink hover:text-brand-500">
+                            {group.number}
+                          </Mono>
+                          <Badge tone="warn">{group.rows.length} accounts</Badge>
+                        </Link>
+                        <p className="mt-1 truncate text-xs text-faint">
+                          {group.rows
+                            .map((row) => row.officer_name ?? row.officer_email)
+                            .join(" · ")}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+
+              <Pager
+                page={sharedPage}
+                pageSize={SHARED_PAGE}
+                total={sharedNumbers.length}
+                noun="numbers"
+                href={{
+                  path: "/admin/explore",
+                  params: { busy: params.busy, accounts: params.accounts },
+                  pageKey: "shared",
+                }}
+              />
+            </div>
+
+            <div>
+              <Panel
+                title="Most active numbers"
+                description="Ranked by toll events stored against them."
+                bodyClassName="p-0"
+              >
+                {busiestNumbers.length === 0 ? (
+                  <EmptyState title="No trucks tracked yet" />
+                ) : (
+                  <TableWrap>
+                    <Thead>
+                      <th className="th">Truck</th>
+                      <th className="th">Watched by</th>
+                      <th className="th">Last event</th>
+                      <th className="th text-right">Events</th>
+                    </Thead>
+                    <Tbody>
+                      {pageSlice(busiestNumbers, busyPage, BUSY_PAGE).map((group) => {
+                        const events = group.rows.reduce((sum, row) => sum + row.event_count, 0);
+                        const latest = group.rows
+                          .map((row) => row.last_event_at)
+                          .filter(Boolean)
+                          .sort()
+                          .pop();
+                        return (
+                          <Tr key={group.number}>
+                            <td className="td">
+                              <Link href={`/admin/explore?q=${group.number}`}>
+                                <Mono className="font-semibold text-ink hover:text-brand-500">
+                                  {group.number}
+                                </Mono>
+                              </Link>
+                            </td>
+                            <td className="td">
+                              <span className="block truncate text-sm text-ink">
+                                {group.rows[0].officer_name ?? group.rows[0].officer_email}
+                              </span>
+                              {group.rows.length > 1 ? (
+                                <span className="block text-xs text-faint">
+                                  and {group.rows.length - 1} more
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="td text-xs whitespace-nowrap text-muted">
+                              {fmtRelative(latest ?? null)}
+                            </td>
+                            <td className="td text-right text-sm tabular-nums text-ink">
+                              {fmtNumber(events)}
+                            </td>
+                          </Tr>
+                        );
+                      })}
+                    </Tbody>
+                  </TableWrap>
+                )}
+              </Panel>
+
+              <Pager
+                page={busyPage}
+                pageSize={BUSY_PAGE}
+                total={busiestNumbers.length}
+                noun="numbers"
+                href={{
+                  path: "/admin/explore",
+                  params: { shared: params.shared, accounts: params.accounts },
+                  pageKey: "busy",
+                }}
+              />
+            </div>
+
+            <div className="xl:col-span-2">
+              <Panel
+                title="Accounts by credits spent this month"
+                description="Who is actually working the platform. Click through for their trucks and contact details."
+                bodyClassName="p-0"
+              >
+                {bySpend.length === 0 ? (
+                  <EmptyState title="No accounts yet" />
+                ) : (
+                  <TableWrap>
+                    <Thead>
+                      <th className="th">Account</th>
+                      <th className="th">Contact</th>
+                      <th className="th">Posting</th>
+                      <th className="th text-right">Trucks</th>
+                      <th className="th text-right">Credits left</th>
+                      <th className="th text-right">Spent this month</th>
+                      <th className="th">Last event</th>
+                    </Thead>
+                    <Tbody>
+                      {pageSlice(bySpend, accountsPage, ACCOUNTS_PAGE).map((account) => (
+                        <Tr key={account.id}>
                           <td className="td">
-                            <Link href={`/admin/explore?q=${group.number}`}>
-                              <Mono className="font-semibold text-ink hover:text-brand-500">
-                                {group.number}
-                              </Mono>
+                            <Link
+                              href={`/admin/officers/${account.id}`}
+                              className="group flex items-center gap-2.5"
+                            >
+                              <Avatar size="sm" text={initials(account.full_name, account.email)} />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm text-ink group-hover:text-brand-400">
+                                  {account.full_name ?? account.email}
+                                </span>
+                                <span className="block truncate text-xs text-faint">
+                                  {account.designation ?? "--"}
+                                </span>
+                              </span>
                             </Link>
                           </td>
                           <td className="td">
-                            <span className="block truncate text-sm text-ink">
-                              {group.rows[0].officer_name ?? group.rows[0].officer_email}
+                            <span className="block truncate text-xs text-muted">
+                              {account.email}
                             </span>
-                            {group.rows.length > 1 ? (
-                              <span className="block text-xs text-faint">
-                                and {group.rows.length - 1} more
-                              </span>
-                            ) : null}
+                            <span className="block text-xs text-faint">
+                              {account.phone ?? "--"}
+                            </span>
+                          </td>
+                          <td className="td">
+                            <span className="block text-sm text-ink">{account.office ?? "--"}</span>
+                            <span className="block text-xs text-faint">
+                              {[account.district, account.state].filter(Boolean).join(", ") || "--"}
+                            </span>
+                          </td>
+                          <td className="td text-right text-sm tabular-nums text-muted">
+                            {fmtNumber(account.active_trucks)}
+                          </td>
+                          <td className="td text-right">
+                            <Badge
+                              tone={
+                                Number(account.credits ?? 0) <= 0
+                                  ? "bad"
+                                  : Number(account.credits ?? 0) < 20
+                                    ? "warn"
+                                    : "good"
+                              }
+                            >
+                              {formatCredits(account.credits)}
+                            </Badge>
+                          </td>
+                          <td className="td text-right text-sm font-medium tabular-nums text-ink">
+                            {formatCredits(account.credits_spent_month)}
                           </td>
                           <td className="td text-xs whitespace-nowrap text-muted">
-                            {fmtRelative(latest ?? null)}
-                          </td>
-                          <td className="td text-right text-sm tabular-nums text-ink">
-                            {fmtNumber(events)}
+                            {fmtRelative(account.last_event_at)}
                           </td>
                         </Tr>
-                      );
-                    })}
-                  </Tbody>
-                </TableWrap>
-              )}
-            </Panel>
+                      ))}
+                    </Tbody>
+                  </TableWrap>
+                )}
+              </Panel>
 
-            <Panel
-              className="xl:col-span-2"
-              title="Officers by credits spent this month"
-              description="Who is actually working the platform. Click through for their trucks and contact details."
-              bodyClassName="p-0"
-            >
-              {bySpend.length === 0 ? (
-                <EmptyState title="No officers yet" />
-              ) : (
-                <TableWrap>
-                  <Thead>
-                    <th className="th">Officer</th>
-                    <th className="th">Contact</th>
-                    <th className="th">Posting</th>
-                    <th className="th text-right">Trucks</th>
-                    <th className="th text-right">Credits left</th>
-                    <th className="th text-right">Spent this month</th>
-                    <th className="th">Last event</th>
-                  </Thead>
-                  <Tbody>
-                    {bySpend.map((officer) => (
-                      <Tr key={officer.id}>
-                        <td className="td">
-                          <Link
-                            href={`/admin/officers/${officer.id}`}
-                            className="group flex items-center gap-2.5"
-                          >
-                            <Avatar size="sm" text={initials(officer.full_name, officer.email)} />
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                                {officer.full_name ?? officer.email}
-                              </span>
-                              <span className="block truncate text-xs text-faint">
-                                {officer.designation ?? "--"}
-                              </span>
-                            </span>
-                          </Link>
-                        </td>
-                        <td className="td">
-                          <span className="block truncate text-xs text-muted">{officer.email}</span>
-                          <span className="block text-xs text-faint">{officer.phone ?? "--"}</span>
-                        </td>
-                        <td className="td">
-                          <span className="block text-sm text-ink">{officer.office ?? "--"}</span>
-                          <span className="block text-xs text-faint">
-                            {[officer.district, officer.state].filter(Boolean).join(", ") || "--"}
-                          </span>
-                        </td>
-                        <td className="td text-right text-sm tabular-nums text-muted">
-                          {fmtNumber(officer.active_trucks)}
-                        </td>
-                        <td className="td text-right">
-                          <Badge
-                            tone={
-                              Number(officer.credits ?? 0) <= 0
-                                ? "bad"
-                                : Number(officer.credits ?? 0) < 20
-                                  ? "warn"
-                                  : "good"
-                            }
-                          >
-                            {formatCredits(officer.credits)}
-                          </Badge>
-                        </td>
-                        <td className="td text-right text-sm font-medium tabular-nums text-ink">
-                          {formatCredits(officer.credits_spent_month)}
-                        </td>
-                        <td className="td text-xs whitespace-nowrap text-muted">
-                          {fmtRelative(officer.last_event_at)}
-                        </td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </TableWrap>
-              )}
-            </Panel>
+              <Pager
+                page={accountsPage}
+                pageSize={ACCOUNTS_PAGE}
+                total={bySpend.length}
+                noun="accounts"
+                href={{
+                  path: "/admin/explore",
+                  params: { shared: params.shared, busy: params.busy },
+                  pageKey: "accounts",
+                }}
+              />
+            </div>
           </div>
         </>
       ) : null}

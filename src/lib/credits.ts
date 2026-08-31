@@ -98,11 +98,11 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
     case "out_of_credits":
       return `Not enough credits. This needs ${formatCredits(verdict.cost ?? 0)} and you have ${formatCredits(verdict.balance ?? 0)}.`;
     case "account_suspended":
-      return "This account is suspended. Contact your administrator.";
+      return "This account has been suspended. Contact support if you think that is wrong.";
     case "unknown_action":
-      return "That action has no credit rate set. Ask your administrator.";
+      return "That is not something this account can be charged for yet. Contact support.";
     default:
-      return "Refused. Contact your administrator.";
+      return "That could not be completed. Contact support if it keeps happening.";
   }
 }
 
@@ -178,4 +178,33 @@ export async function loadCreditPacks(admin: Admin, onlyActive = true): Promise<
   if (onlyActive) query = query.eq("is_active", true);
   const { data } = await query;
   return (data ?? []) as CreditPack[];
+}
+
+/**
+ * What a given number of rupees buys on a pack.
+ *
+ * Mirrors credits_for_amount() in the database, which is the authority - the
+ * server recomputes this before charging anyone, so a tampered form cannot buy
+ * credits cheaply. This copy exists so the buyer and the admin can see the
+ * number update as they type, without a round trip per keystroke.
+ *
+ * Returns null when the amount is below an open tier's minimum, which is the
+ * one case where there is nothing to sell.
+ */
+export function creditsForAmount(
+  pack: Pick<CreditPack, "is_open_ended" | "price_inr" | "credits" | "bonus_percent">,
+  amountInr: number,
+  creditsPerRupee: number,
+): number | null {
+  if (!pack.is_open_ended) return pack.credits;
+  if (!Number.isFinite(amountInr) || amountInr < pack.price_inr) return null;
+  // Rounded down, like the database: never hand over a fraction of a credit
+  // that was not paid for.
+  return Math.floor(amountInr * (creditsPerRupee || 1) * (1 + pack.bonus_percent / 100));
+}
+
+/** "1 rupee = 1 credit, plus 25%" - the open tier stated as a sentence. */
+export function describeOpenTier(pack: CreditPack, creditsPerRupee: number): string {
+  const base = `Rs 1 = ${formatCredits(creditsPerRupee)} credit${creditsPerRupee === 1 ? "" : "s"}`;
+  return pack.bonus_percent > 0 ? `${base}, plus ${formatCredits(pack.bonus_percent)}% extra` : base;
 }

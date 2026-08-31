@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { CheckCircle2, Send } from "lucide-react";
 
 import { saveMyTelegram, testMyTelegram } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, Input } from "@/components/form";
+import { publicSettings } from "@/components/SiteFooter";
 import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel, QuotaBar } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { env } from "@/lib/env";
@@ -13,17 +15,19 @@ import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TelegramConfig } from "@/lib/types";
 
-export const metadata = { title: "Settings — Truck Watch" };
+export async function generateMetadata() {
+  const { brandName } = await publicSettings();
+  return { title: `Settings — ${brandName}` };
+}
 
 export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const { data: telegram } = await admin
-    .from("telegram_configs")
-    .select("*")
-    .eq("user_id", overview.id)
-    .maybeSingle<TelegramConfig>();
+  const [{ brandName, supportEmail }, { data: telegram }] = await Promise.all([
+    publicSettings(),
+    admin.from("telegram_configs").select("*").eq("user_id", overview.id).maybeSingle<TelegramConfig>(),
+  ]);
 
   const connected = Boolean(telegram?.chat_id) && (telegram?.is_enabled ?? false);
 
@@ -61,7 +65,7 @@ export default async function PortalSettingsPage() {
                   name="chat_id"
                   defaultValue={telegram?.chat_id ?? ""}
                   inputMode="numeric"
-                  placeholder="123456789"
+                  placeholder="e.g. 123456789"
                   className="font-mono"
                 />
               </Field>
@@ -98,23 +102,44 @@ export default async function PortalSettingsPage() {
             </div>
           </div>
 
+          {/* A missing bot token is ours to fix, not the reader's, so this says
+              what it means for them and where to ask - never who to chase. */}
           {!env.telegramBotToken ? (
-            <p className="mt-3 rounded-lg border border-line bg-raised px-3 py-2 text-xs text-muted">
-              The platform bot is not set up yet, so test messages will fail. Your administrator
-              needs to configure it.
+            <p className="mt-3 rounded-lg border border-line bg-raised px-3 py-2 text-xs leading-relaxed text-muted">
+              Telegram delivery is not switched on yet, so test messages will fail.
+              {supportEmail ? (
+                <>
+                  {" "}
+                  Let us know at{" "}
+                  <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
+                    {supportEmail}
+                  </a>{" "}
+                  if you need it.
+                </>
+              ) : null}
             </p>
           ) : null}
 
-          {/* Three steps most officers do once and never read again. */}
+          {/* Three steps most people do once and never read again. */}
           <div className="mt-3">
             <Disclosure title="How do I find my chat id?">
               <ol className="space-y-2 text-xs leading-relaxed text-muted">
                 <li className="flex gap-2">
                   <span className="font-mono text-brand-500">1.</span>
                   <span>
-                    Open Telegram, find the department bot your administrator gave you, and send{" "}
-                    <Mono className="text-ink">/start</Mono>. Telegram only lets a bot message you
-                    after you have started it.
+                    Open Telegram and send <Mono className="text-ink">/start</Mono> to the{" "}
+                    {brandName} alerts bot. Telegram only lets a bot message you after you have
+                    started it.
+                    {supportEmail ? (
+                      <>
+                        {" "}
+                        Not sure which bot? Ask{" "}
+                        <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
+                          {supportEmail}
+                        </a>
+                        .
+                      </>
+                    ) : null}
                   </span>
                 </li>
                 <li className="flex gap-2">
@@ -172,10 +197,19 @@ export default async function PortalSettingsPage() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-bad-500">
-                No plan is assigned to your account yet, so searching and tracking are blocked. Ask
-                your administrator to assign one.
-              </p>
+              /* Plans are bought, not handed out, so this is a next step with a
+                 button on it rather than a refusal in red. */
+              <>
+                <p className="text-sm leading-relaxed text-muted">
+                  You have not chosen a plan yet. A plan sets how many trucks you can keep under
+                  tracking and puts the first credits on your balance.
+                </p>
+                <div className="mt-3">
+                  <LinkButton href="/portal/plan" size="sm" variant="primary">
+                    See the plans
+                  </LinkButton>
+                </div>
+              </>
             )}
           </Panel>
 
@@ -185,12 +219,27 @@ export default async function PortalSettingsPage() {
               <DescRow label="Email">
                 <span className="break-all">{email}</span>
               </DescRow>
-              <DescRow label="Office">{profile.office ?? "—"}</DescRow>
+              {/* profile.office is the stored column; "Organisation" is simply
+                  what it is called on screen now. */}
+              <DescRow label="Organisation">{profile.office ?? "—"}</DescRow>
               <DescRow label="Account since">{fmtDateTime(profile.created_at)}</DescRow>
             </dl>
             <p className="mt-3 text-[11px] leading-relaxed text-faint">
-              These details are maintained by your administrator. To change your password or any of
-              the above, contact them.
+              To change your password, use{" "}
+              <Link href="/forgot-password" className="text-brand-500 hover:underline">
+                the reset link
+              </Link>{" "}
+              on the sign-in page.
+              {supportEmail ? (
+                <>
+                  {" "}
+                  For anything else, write to{" "}
+                  <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
+                    {supportEmail}
+                  </a>
+                  .
+                </>
+              ) : null}
             </p>
           </Panel>
         </div>

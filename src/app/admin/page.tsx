@@ -3,14 +3,16 @@ import {
   AlertTriangle,
   Bell,
   Coins,
-  Package,
+  CreditCard,
   Search,
   Truck,
+  UserPlus,
   Users,
   Wallet,
 } from "lucide-react";
 
 import { loadDailyCalls } from "./usage/ledger";
+import { ShowMore } from "@/components/Pager";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
@@ -28,39 +30,63 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtNumber, fmtRelative, initials, istToday } from "@/lib/format";
+import { fmtDateTime, fmtNumber, fmtRelative, fmtRupees, initials, istToday } from "@/lib/format";
 import { usageRatio } from "@/lib/limits";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AuditLog, OfficerOverview } from "@/lib/types";
+import type { AuditLog, OfficerOverview, Payment } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
 
 /**
- * Below this an officer is worth chasing before they stop mid-case. Roughly a
- * day of ordinary work at the seeded rates, which is enough warning to collect
+ * Below this an account is worth chasing before its work stops mid-job. Roughly
+ * a day of ordinary use at the seeded rates, which is enough warning to collect
  * a payment without the list crying wolf.
  */
 const LOW_CREDIT_BALANCE = 20;
 
-type Attention = { officer: OfficerOverview; reason: string; tone: "bad" | "warn" };
+/**
+ * A payment sits at 'created' for the few seconds between opening the checkout
+ * and the webhook settling it. Past this it is not in flight any more - either
+ * the person walked away, or money moved and nothing told us.
+ */
+const PAYMENT_STUCK_MINUTES = 30;
 
-export default async function AdminOverviewPage() {
+/** How many attention rows before "Show more". */
+const ATTENTION_STEP = 12;
+
+type Tone = "bad" | "warn" | "neutral";
+
+type Attention = { key: string; href: string; who: string; reason: string; tone: Tone };
+
+/** Worst first, so the row that stops someone working is never below the noise. */
+const TONE_RANK: Record<Tone, number> = { bad: 0, warn: 1, neutral: 2 };
+
+type PaymentRow = Payment & { profiles: { full_name: string | null; email: string } | null };
+
+export default async function AdminOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ attention?: string }>;
+}) {
   await requireSuperAdmin();
+  const { attention: attentionParam } = await searchParams;
   const admin = getSupabaseAdmin();
 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  const stuckBefore = new Date(Date.now() - PAYMENT_STUCK_MINUTES * 60_000).toISOString();
 
   const [
-    { data: officers, error: officersError },
+    { data: overview, error: overviewError },
     dailyCalls,
-    { count: planCount },
     { count: failedCalls },
     { data: audit },
     { count: alertsToday },
+    { data: stuckPayments, count: stuckCount },
+    settings,
   ] = await Promise.all([
     admin.from("officer_overview").select("*").eq("role", "officer"),
     loadDailyCalls(admin, { days: 30 }),
-    admin.from("plans").select("id", { count: "exact", head: true }).eq("is_active", true),
     admin
       .from("search_logs")
       .select("id", { count: "exact", head: true })
@@ -71,13 +97,26 @@ export default async function AdminOverviewPage() {
       .from("alert_logs")
       .select("id", { count: "exact", head: true })
       .gte("created_at", dayAgo),
+    // Only the oldest few are listed; the count says how many there really are.
+    admin
+      .from("payments")
+      .select("*, profiles(full_name, email)", { count: "exact" })
+      .eq("status", "created")
+      .lt("created_at", stuckBefore)
+      .order("created_at", { ascending: true })
+      .limit(ATTENTION_STEP),
+    loadSettings(admin),
   ]);
 
-  const rows = (officers ?? []) as OfficerOverview[];
+  const rows = (overview ?? []) as OfficerOverview[];
+  const stuck = (stuckPayments ?? []) as PaymentRow[];
 
-  const active = rows.filter((o) => o.status === "active").length;
+  const active = rows.filter((row) => row.status === "active").length;
   const suspended = rows.length - active;
-  const trucks = rows.reduce((sum, o) => sum + o.active_trucks, 0);
+  const trucks = rows.reduce((sum, row) => sum + row.active_trucks, 0);
+  // A signup with no plan is the ordinary starting state now that the
+  // default-plan trigger is gone, so it is counted, not flagged as broken.
+  const planless = rows.filter((row) => !row.plan_id).length;
 
   const today = istToday();
   const creditsOutstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
@@ -92,27 +131,42 @@ export default async function AdminOverviewPage() {
   const series = buildUsageSeries(dailyCalls, 30);
 
   const attention: Attention[] = [];
-  for (const officer of rows) {
-    if (officer.status === "suspended") {
-      attention.push({ officer, reason: "Account suspended", tone: "warn" });
+
+  for (const account of rows) {
+    const who = account.full_name ?? account.email;
+    const href = `/admin/officers/${account.id}`;
+
+    if (account.status === "suspended") {
+      attention.push({ key: `${account.id}-suspended`, href, who, reason: "Account suspended", tone: "warn" });
       continue;
     }
-    if (!officer.plan_id) {
-      attention.push({ officer, reason: "No plan assigned — every search is refused", tone: "bad" });
-      continue;
-    }
-    if (officer.plan_expires_on && officer.plan_expires_on < today) {
+    if (!account.plan_id) {
       attention.push({
-        officer,
-        reason: `Plan expired on ${officer.plan_expires_on}`,
+        key: `${account.id}-no-plan`,
+        href,
+        who,
+        reason: "No plan yet — a signup waiting to buy one, or one to assign by hand",
+        tone: "neutral",
+      });
+      continue;
+    }
+    if (account.plan_expires_on && account.plan_expires_on < today) {
+      attention.push({
+        key: `${account.id}-expired`,
+        href,
+        who,
+        reason: `Plan expired on ${account.plan_expires_on}`,
         tone: "bad",
       });
       continue;
     }
-    const credits = Number(officer.credits ?? 0);
+
+    const credits = Number(account.credits ?? 0);
     if (credits <= 0) {
       attention.push({
-        officer,
+        key: `${account.id}-empty`,
+        href,
+        who,
         reason: "Out of credits — every search and background check is refused",
         tone: "bad",
       });
@@ -120,16 +174,42 @@ export default async function AdminOverviewPage() {
     }
     if (credits < LOW_CREDIT_BALANCE) {
       attention.push({
-        officer,
+        key: `${account.id}-low`,
+        href,
+        who,
         reason: `${formatCredits(credits)} credits left — top them up before they run dry`,
         tone: "warn",
       });
       continue;
     }
-    if (usageRatio(officer.active_trucks, officer.truck_limit) >= 1) {
-      attention.push({ officer, reason: "Truck limit reached", tone: "warn" });
+    if (usageRatio(account.active_trucks, account.truck_limit) >= 1) {
+      attention.push({
+        key: `${account.id}-trucks`,
+        href,
+        who,
+        reason: "Truck limit reached — no more trucks can be added",
+        tone: "warn",
+      });
     }
   }
+
+  for (const payment of stuck) {
+    attention.push({
+      key: `payment-${payment.id}`,
+      href: `/admin/officers/${payment.user_id}`,
+      who: payment.profiles?.full_name ?? payment.profiles?.email ?? "Unknown account",
+      reason: `${fmtRupees(payment.amount_inr)} ${payment.kind === "plan" ? "plan" : "credits"} payment started ${fmtRelative(payment.created_at)} and never completed`,
+      tone: "bad",
+    });
+  }
+
+  attention.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]);
+
+  const wanted = Number.parseInt(attentionParam ?? "", 10);
+  const attentionShown =
+    Number.isFinite(wanted) && wanted > ATTENTION_STEP
+      ? Math.min(wanted, attention.length)
+      : ATTENTION_STEP;
 
   const busiest = [...rows]
     .sort((a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0))
@@ -139,23 +219,23 @@ export default async function AdminOverviewPage() {
     <>
       <PageHeader
         title="Overview"
-        subtitle="Everything running on the platform right now, across every officer."
+        subtitle={`Everything running on ${settings.brandName} right now, across every account.`}
         actions={
           <>
             <LinkButton href="/admin/explore" variant="secondary">
               <Search size={14} />
-              Search a truck or officer
+              Search a truck or account
             </LinkButton>
-            <LinkButton href="/admin/officers">Manage officers</LinkButton>
+            <LinkButton href="/admin/officers">Manage accounts</LinkButton>
           </>
         }
       />
 
-      {officersError ? (
+      {overviewError ? (
         <Panel className="mb-6 border-bad-500/40">
           <p className="text-sm text-bad-500">
             Could not read <code className="font-mono">officer_overview</code>:{" "}
-            {officersError.message}
+            {overviewError.message}
           </p>
           <p className="mt-2 text-xs text-muted">
             Run every file in <code className="font-mono">supabase/migrations</code> against your
@@ -166,28 +246,29 @@ export default async function AdminOverviewPage() {
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard
-          label="Officers"
+          label="Accounts"
           value={rows.length}
           sub={`${active} active · ${suspended} suspended`}
           icon={<Users size={15} />}
         />
         <StatCard
-          label="Active plans"
-          value={planCount ?? 0}
-          sub="Assignable right now"
-          icon={<Package size={15} />}
+          label="Waiting on a plan"
+          value={fmtNumber(planless)}
+          sub={planless > 0 ? "Signed up, nothing bought yet" : "Everyone has a plan"}
+          tone={planless > 0 ? "warn" : "neutral"}
+          icon={<UserPlus size={15} />}
         />
         <StatCard
           label="Trucks tracked"
           value={fmtNumber(trucks)}
-          sub="Across all officers"
+          sub="Across all accounts"
           tone="brand"
           icon={<Truck size={15} />}
         />
         <StatCard
           label="Credits outstanding"
           value={formatCredits(creditsOutstanding)}
-          sub="Held by officers right now"
+          sub="Held by accounts right now"
           tone="brand"
           icon={<Wallet size={15} />}
         />
@@ -220,8 +301,8 @@ export default async function AdminOverviewPage() {
           </Panel>
 
           <Panel
-            title="Busiest officers this month"
-            description="Ranked by credits spent."
+            title="Busiest accounts this month"
+            description="The top six by credits spent. The usage report has the rest."
             bodyClassName="p-0"
             actions={
               <Link href="/admin/usage" className="text-xs text-brand-400 hover:underline">
@@ -231,66 +312,63 @@ export default async function AdminOverviewPage() {
           >
             {busiest.length === 0 ? (
               <EmptyState
-                title="No officers yet"
-                description="Create an officer account to get started."
-                action={<LinkButton href="/admin/officers">Go to officers</LinkButton>}
+                title="No accounts yet"
+                description="Create an account to get started."
+                action={<LinkButton href="/admin/officers">Go to accounts</LinkButton>}
               />
             ) : (
               <TableWrap>
                 <Thead>
-                  <th className="th">Officer</th>
+                  <th className="th">Account</th>
                   <th className="th">Plan</th>
                   <th className="th">Trucks</th>
                   <th className="th text-right">Credits left</th>
                   <th className="th text-right">Spent this month</th>
                 </Thead>
                 <Tbody>
-                  {busiest.map((officer) => (
-                    <Tr key={officer.id}>
+                  {busiest.map((account) => (
+                    <Tr key={account.id}>
                       <td className="td">
                         <Link
-                          href={`/admin/officers/${officer.id}`}
+                          href={`/admin/officers/${account.id}`}
                           className="group flex items-center gap-2.5"
                         >
-                          <Avatar
-                            size="sm"
-                            text={initials(officer.full_name, officer.email)}
-                          />
+                          <Avatar size="sm" text={initials(account.full_name, account.email)} />
                           <span className="min-w-0">
                             <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                              {officer.full_name ?? officer.email}
+                              {account.full_name ?? account.email}
                             </span>
                             <span className="block truncate text-xs text-faint">
-                              {officer.office ?? officer.district ?? "--"}
+                              {account.office ?? account.district ?? "--"}
                             </span>
                           </span>
                         </Link>
                       </td>
                       <td className="td">
-                        {officer.plan_name ? (
-                          <Badge tone="brand">{officer.plan_name}</Badge>
+                        {account.plan_name ? (
+                          <Badge tone="brand">{account.plan_name}</Badge>
                         ) : (
-                          <Badge tone="bad">no plan</Badge>
+                          <Badge>no plan yet</Badge>
                         )}
                       </td>
                       <td className="td">
-                        <QuotaBar used={officer.active_trucks} limit={officer.truck_limit} />
+                        <QuotaBar used={account.active_trucks} limit={account.truck_limit} />
                       </td>
                       <td className="td text-right">
                         <Badge
                           tone={
-                            Number(officer.credits ?? 0) <= 0
+                            Number(account.credits ?? 0) <= 0
                               ? "bad"
-                              : Number(officer.credits ?? 0) < LOW_CREDIT_BALANCE
+                              : Number(account.credits ?? 0) < LOW_CREDIT_BALANCE
                                 ? "warn"
                                 : "good"
                           }
                         >
-                          {formatCredits(officer.credits)}
+                          {formatCredits(account.credits)}
                         </Badge>
                       </td>
                       <td className="td text-right text-sm tabular-nums text-muted">
-                        {formatCredits(officer.credits_spent_month)}
+                        {formatCredits(account.credits_spent_month)}
                       </td>
                     </Tr>
                   ))}
@@ -305,7 +383,7 @@ export default async function AdminOverviewPage() {
             title="Needs attention"
             description={
               attention.length === 0
-                ? "Nobody is blocked or close to running out."
+                ? "Nobody is blocked, and no payment is hanging."
                 : `${attention.length} item${attention.length === 1 ? "" : "s"} to look at.`
             }
             bodyClassName="p-0"
@@ -313,35 +391,63 @@ export default async function AdminOverviewPage() {
             {attention.length === 0 ? (
               <EmptyState
                 title="All clear"
-                description="Every officer has a live plan and credits to spend."
+                description="Every account is running, and every payment finished."
               />
             ) : (
-              <ul className="divide-y divide-divider">
-                {attention.slice(0, 12).map(({ officer, reason, tone }) => (
-                  <li key={`${officer.id}-${reason}`}>
-                    <Link
-                      href={`/admin/officers/${officer.id}`}
-                      className="flex items-start gap-3 px-5 py-3 transition hover:bg-raised/60"
-                    >
-                      <AlertTriangle
-                        size={15}
-                        className={tone === "bad" ? "mt-0.5 text-bad-500" : "mt-0.5 text-warn-500"}
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-ink">
-                          {officer.full_name ?? officer.email}
+              <>
+                <ul className="divide-y divide-divider">
+                  {attention.slice(0, attentionShown).map((item) => (
+                    <li key={item.key}>
+                      <Link
+                        href={item.href}
+                        className="flex items-start gap-3 px-5 py-3 transition hover:bg-raised/60"
+                      >
+                        {item.key.startsWith("payment-") ? (
+                          <CreditCard size={15} className="mt-0.5 shrink-0 text-bad-500" />
+                        ) : (
+                          <AlertTriangle
+                            size={15}
+                            className={
+                              item.tone === "bad"
+                                ? "mt-0.5 shrink-0 text-bad-500"
+                                : item.tone === "warn"
+                                  ? "mt-0.5 shrink-0 text-warn-500"
+                                  : "mt-0.5 shrink-0 text-faint"
+                            }
+                          />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-ink">{item.who}</span>
+                          <span className="block text-xs text-muted">{item.reason}</span>
                         </span>
-                        <span className="block text-xs text-muted">{reason}</span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {attention.length > attentionShown ? (
+                  <div className="border-t border-divider px-3 py-2">
+                    <ShowMore
+                      href={`/admin?attention=${attentionShown + ATTENTION_STEP}`}
+                      remaining={attention.length - attentionShown}
+                    />
+                  </div>
+                ) : null}
+              </>
             )}
           </Panel>
 
+          {(stuckCount ?? 0) > stuck.length ? (
+            <Panel bodyClassName="px-5 py-3">
+              <p className="text-xs text-muted">
+                {fmtNumber(stuckCount ?? 0)} payments are still at “created”. The oldest{" "}
+                {stuck.length} are listed above.
+              </p>
+            </Panel>
+          ) : null}
+
           <Panel
             title="Recent admin activity"
+            description="The last few changes made from this console."
             bodyClassName="p-0"
             actions={
               <Link href="/admin/audit" className="text-xs text-brand-400 hover:underline">

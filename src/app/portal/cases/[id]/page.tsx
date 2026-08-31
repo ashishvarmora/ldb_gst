@@ -12,30 +12,44 @@ import {
 import { Disclosure } from "@/components/Disclosure";
 import { Field, FormActions, Input, Textarea } from "@/components/form";
 import { Modal } from "@/components/Modal";
+import { Pager, pageCount, pageFromParam, pageSlice } from "@/components/Pager";
+import { publicSettings } from "@/components/SiteFooter";
 import { Timeline } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
 import { Badge, EmptyState, Mono, Panel } from "@/components/ui";
-import { fmtDate, fmtRelative } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtRelative } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TrackedTruck, TruckEvent, TruckGroup } from "@/lib/types";
 
+/** Trucks listed per page, and crossings per page of the combined timeline. */
+const TRUCKS_PER_PAGE = 25;
+const CROSSINGS_PER_PAGE = 50;
+
+/** A group with more members than this is not something a phone should render. */
+const MEMBER_CAP = 1000;
+
+type GroupQuery = { t?: string; page?: string };
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const [{ id }, { brandName }] = await Promise.all([params, publicSettings()]);
   const { data } = await getSupabaseAdmin()
     .from("truck_groups")
     .select("name")
     .eq("id", id)
     .maybeSingle();
-  return { title: `${data?.name ?? "Case"} — Truck Watch` };
+  return { title: `${data?.name ?? "Group"} — ${brandName}` };
 }
 
 export default async function CaseDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<GroupQuery>;
 }) {
   const { id } = await params;
+  const query = await searchParams;
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
@@ -48,24 +62,33 @@ export default async function CaseDetailPage({
 
   if (!group) notFound();
 
+  // Every member number is needed for the combined timeline's filter, so the
+  // list itself is paged in memory rather than in a second query.
   const { data: members } = await admin
     .from("truck_group_members")
     .select("truck_number, added_at")
     .eq("group_id", id)
-    .order("added_at");
+    .order("added_at")
+    .limit(MEMBER_CAP);
 
   const numbers = (members ?? []).map((row) => row.truck_number);
 
-  const [{ data: events }, { data: tracked }] = await Promise.all([
+  const truckPage = pageFromParam(query.t, pageCount(numbers.length, TRUCKS_PER_PAGE));
+  const shownNumbers = pageSlice(numbers, truckPage, TRUCKS_PER_PAGE);
+
+  const eventPage = pageFromParam(query.page);
+  const eventFrom = (eventPage - 1) * CROSSINGS_PER_PAGE;
+
+  const [{ data: events, count }, { data: tracked }] = await Promise.all([
     numbers.length > 0
       ? admin
           .from("truck_events")
-          .select("*")
+          .select("*", { count: "exact" })
           .eq("user_id", overview.id)
           .in("truck_number", numbers)
           .order("event_time", { ascending: false, nullsFirst: false })
-          .limit(150)
-      : Promise.resolve({ data: [] as TruckEvent[] }),
+          .range(eventFrom, eventFrom + CROSSINGS_PER_PAGE - 1)
+      : Promise.resolve({ data: [] as TruckEvent[], count: 0 }),
     numbers.length > 0
       ? admin
           .from("tracked_trucks")
@@ -76,14 +99,15 @@ export default async function CaseDetailPage({
   ]);
 
   const eventList = (events ?? []) as TruckEvent[];
+  const totalEvents = count ?? eventList.length;
   const trackedList = (tracked ?? []) as TrackedTruck[];
   const trackedByNumber = new Map(trackedList.map((truck) => [truck.truck_number, truck]));
 
-  const eventsByTruck = new Map<string, TruckEvent[]>();
+  // Latest crossing per truck, read off whichever page is open. Only a fallback
+  // for untracked trucks - a tracked one carries its own last position.
+  const latestByTruck = new Map<string, TruckEvent>();
   for (const event of eventList) {
-    const list = eventsByTruck.get(event.truck_number) ?? [];
-    list.push(event);
-    eventsByTruck.set(event.truck_number, list);
+    if (!latestByTruck.has(event.truck_number)) latestByTruck.set(event.truck_number, event);
   }
 
   const activeTracking = trackedList.filter((truck) => truck.is_active).length;
@@ -95,7 +119,7 @@ export default async function CaseDetailPage({
         className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-brand-400"
       >
         <ArrowLeft size={13} />
-        All cases
+        All groups
       </Link>
 
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
@@ -116,9 +140,11 @@ export default async function CaseDetailPage({
             triggerLabel="Add truck"
             triggerIcon={<Plus size={14} />}
             triggerSize="sm"
-            title="Add a truck to this case"
+            title="Add a truck to this group"
             width="sm"
           >
+            {/* case_id is the field name these actions have always used - the
+                copy is neutral now, the wire format is untouched. */}
             <ActionForm action={addTruckToCase} closeOnSuccess={false} resetOnSuccess>
               <input type="hidden" name="case_id" value={group.id} />
               <Field
@@ -131,12 +157,12 @@ export default async function CaseDetailPage({
                   required
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="GJ02AT8546"
+                  placeholder="e.g. MH12AB1234"
                   className="font-mono tracking-wider uppercase placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
                 />
               </Field>
               <FormActions>
-                <SubmitButton>Add to case</SubmitButton>
+                <SubmitButton>Add to group</SubmitButton>
               </FormActions>
             </ActionForm>
           </Modal>
@@ -146,13 +172,13 @@ export default async function CaseDetailPage({
             triggerIcon={<Pencil size={13} />}
             triggerVariant="secondary"
             triggerSize="sm"
-            title="Edit case"
+            title="Edit group"
             width="sm"
           >
             <ActionForm action={updateCase} closeOnSuccess={false}>
               <input type="hidden" name="case_id" value={group.id} />
               <div className="space-y-4">
-                <Field label="Case name" name="name">
+                <Field label="Group name" name="name">
                   <Input name="name" required defaultValue={group.name} />
                 </Field>
                 <Field label="Notes" name="description">
@@ -167,39 +193,51 @@ export default async function CaseDetailPage({
 
           <InlineActionForm action={deleteCase} hidden={{ case_id: group.id }}>
             <ConfirmSubmitButton
-              message={`Delete the case "${group.name}"? The trucks and their history are kept.`}
+              message={`Delete the group "${group.name}"? The trucks and their history are kept.`}
             >
               <Trash2 size={13} />
-              Delete case
+              Delete group
             </ConfirmSubmitButton>
           </InlineActionForm>
         </div>
       </div>
 
       <p className="mb-4 text-xs text-muted">
-        {numbers.length} truck{numbers.length === 1 ? "" : "s"} · {activeTracking} under tracking ·{" "}
-        {eventList.length} crossing{eventList.length === 1 ? "" : "s"} on record
+        {fmtNumber(numbers.length)} truck{numbers.length === 1 ? "" : "s"} · {activeTracking} under
+        tracking · {fmtNumber(totalEvents)} crossing{totalEvents === 1 ? "" : "s"} on record
       </p>
 
       {numbers.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            title="No trucks in this case yet"
-            description="Add the vehicles you are investigating and their movements appear together here."
+            title="No trucks in this group yet"
+            description="Add the vehicles you want to follow and their movements appear together here."
           />
         </Panel>
       ) : (
         <div className="space-y-4">
           <Panel
-            title={`Trucks (${numbers.length})`}
+            title={`Trucks (${fmtNumber(numbers.length)})`}
             description="Each truck, with its latest position."
             bodyClassName="p-0"
           >
             <ul className="divide-y divide-divider">
-              {numbers.map((number) => {
+              {shownNumbers.map((number) => {
                 const truck = trackedByNumber.get(number);
-                const latest = eventsByTruck.get(number)?.[0] ?? null;
+                const latest = latestByTruck.get(number) ?? null;
                 const status = truck ? (truck.is_active ? truck.status : "unknown") : "unknown";
+
+                /* A tracked truck carries its own last position, which is true
+                   whatever page of crossings is open. Everything else falls
+                   back to this page, and says so rather than claiming there is
+                   nothing on record. */
+                const lastSeen = truck?.last_event_at
+                  ? `${truck.last_location ?? "Unnamed plaza"} · ${fmtRelative(truck.last_event_at)}`
+                  : latest
+                    ? `${latest.loc_name ?? "Unnamed plaza"} · ${fmtRelative(latest.event_time)}`
+                    : truck
+                      ? "No crossing on record yet"
+                      : "Open to look it up";
 
                 return (
                   <li key={number} className="flex items-start justify-between gap-2 px-4 py-3">
@@ -210,11 +248,7 @@ export default async function CaseDetailPage({
                       <Mono className="block font-semibold text-ink group-hover:text-brand-500">
                         {number}
                       </Mono>
-                      <span className="mt-0.5 block truncate text-xs text-muted">
-                        {latest
-                          ? `${latest.loc_name ?? "Unnamed plaza"} · ${fmtRelative(latest.event_time)}`
-                          : "No crossings on record"}
-                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-muted">{lastSeen}</span>
                     </Link>
 
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -226,11 +260,11 @@ export default async function CaseDetailPage({
                         hidden={{ case_id: group.id, truck_number: number }}
                       >
                         <ConfirmSubmitButton
-                          message={`Remove ${number} from this case?`}
+                          message={`Remove ${number} from this group?`}
                           variant="ghost"
                         >
                           <X size={12} />
-                          <span className="sr-only">Remove from case</span>
+                          <span className="sr-only">Remove from group</span>
                         </ConfirmSubmitButton>
                       </InlineActionForm>
                     </div>
@@ -238,14 +272,32 @@ export default async function CaseDetailPage({
                 );
               })}
             </ul>
+
+            {/* Each list keeps its own page key, and carries the other one, so
+                turning the trucks over does not reset the timeline. */}
+            <Pager
+              page={truckPage}
+              total={numbers.length}
+              pageSize={TRUCKS_PER_PAGE}
+              noun="trucks"
+              href={{
+                path: `/portal/cases/${group.id}`,
+                params: { page: query.page },
+                pageKey: "t",
+              }}
+              className="border-t border-divider px-4 py-3"
+            />
           </Panel>
 
           <Disclosure
             title="Combined movement"
+            /* Paging happens inside this section, so a page other than the
+               first has to open it - otherwise Next shuts it again. */
+            defaultOpen={eventPage > 1}
             hint={
-              eventList.length === 0
+              totalEvents === 0
                 ? "No crossings on record"
-                : `${eventList.length} crossing${eventList.length === 1 ? "" : "s"} across every truck, newest first`
+                : `${fmtNumber(totalEvents)} crossing${totalEvents === 1 ? "" : "s"} across every truck, newest first`
             }
           >
             {eventList.length === 0 ? (
@@ -254,7 +306,21 @@ export default async function CaseDetailPage({
                 description="Search one of these trucks, or add it to tracking, and its movements will show up here."
               />
             ) : (
-              <CombinedTimeline events={eventList} />
+              <>
+                <CombinedTimeline events={eventList} />
+                <Pager
+                  page={eventPage}
+                  total={totalEvents}
+                  pageSize={CROSSINGS_PER_PAGE}
+                  noun="crossings"
+                  href={{
+                    path: `/portal/cases/${group.id}`,
+                    params: { t: query.t },
+                    pageKey: "page",
+                  }}
+                  className="mt-4 border-t border-divider pt-3"
+                />
+              </>
             )}
           </Disclosure>
         </div>
@@ -274,3 +340,4 @@ function CombinedTimeline({ events }: { events: TruckEvent[] }) {
   }));
   return <Timeline events={labelled} />;
 }
+

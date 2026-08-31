@@ -177,6 +177,11 @@ export type TruckAlert = {
   plaza: string | null;
   last_run_at: string | null;
   last_location: string | null;
+  /**
+   * The crossing this alert last reported. A truck can pass one plaza twice in
+   * a day, so the plaza name alone cannot say whether something is new.
+   */
+  last_event_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -284,6 +289,11 @@ export type AppSettings = {
   ldbApiUrl: string;
   trackingEnabled: boolean;
   noActivityHours: number;
+  /**
+   * How long a reading at the same plaza counts as the same crossing being
+   * re-reported. Past it, the truck has come back and that is news.
+   */
+  revisitMinutes: number;
   /** Days of history kept in the database before a backup-and-purge. */
   dataRetentionDays: number;
   /** How often the backup-and-purge runs. */
@@ -292,6 +302,17 @@ export type AppSettings = {
   backupSheetId: string;
   razorpayEnabled: boolean;
   razorpayKeyId: string;
+  /** Base money-to-credits rate: 1 rupee buys this many credits. */
+  creditsPerRupee: number;
+  /** Shown wherever the product names itself. */
+  brandName: string;
+  /** False closes public registration; existing accounts are unaffected. */
+  signupEnabled: boolean;
+  supportEmail: string;
+  supportPhone: string;
+  supportAddress: string;
+  privacyUrl: string;
+  termsUrl: string;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -306,8 +327,18 @@ export type AppSettings = {
 export type CreditPack = {
   id: string;
   name: string;
+  /** On an open-ended tier this is the minimum, not the price. */
   price_inr: number;
+  /** What a fixed rung gives. Ignored when is_open_ended. */
   credits: number;
+  /**
+   * True: the buyer names any amount at or above price_inr, and the credits
+   * are worked out from the base rate plus bonus_percent. The ladder ends in a
+   * rule rather than a wall.
+   */
+  is_open_ended: boolean;
+  /** Extra credits on an open tier, as a percentage. Ignored on a fixed rung. */
+  bonus_percent: number;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -316,10 +347,16 @@ export type CreditPack = {
 
 export type PaymentStatus = "created" | "paid" | "failed";
 
+/** A payment buys credits, or it buys a plan. */
+export type PaymentKind = "credits" | "plan";
+
 export type Payment = {
   id: string;
   user_id: string;
   pack_id: string | null;
+  kind: PaymentKind;
+  plan_id: string | null;
+  months: number;
   razorpay_order_id: string;
   razorpay_payment_id: string | null;
   amount_inr: number;
@@ -351,3 +388,24 @@ export type TruckDirectoryRow = {
   alert_count: number;
   event_count: number;
 };
+
+/**
+ * Credit history as a person reads it: money in itemised, usage rolled up per
+ * day and kind. One row of public.credit_activity.
+ */
+export type CreditActivity = {
+  user_id: string;
+  created_at: string;
+  activity_date: string;
+  reason: string;
+  amount: number;
+  balance_after: number;
+  truck_number: string | null;
+  note: string | null;
+  /** How many ledger rows this line stands for. Above 1 it is a daily total. */
+  entries: number;
+  is_rollup: boolean;
+};
+
+/** One row of the search_plazas() RPC. */
+export type PlazaMatch = { name: string; seen_count: number; score: number };

@@ -108,7 +108,7 @@ you their phone number.
 1. Open Telegram (phone or desktop) and search for **@BotFather** — the one with the
    blue verified tick.
 2. Send `/newbot`.
-3. It asks for a **name** (what people see): `GST Truck Watch`.
+3. It asks for a **name** (what people see): `Truck Watch`.
 4. It asks for a **username**, which must be unique and end in `bot`:
    `gst_truck_watch_bot`. If it is taken, try another.
 5. BotFather replies with a token like:

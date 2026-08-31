@@ -33,9 +33,9 @@ function readPlanLimits(fd: FormData): { values: Record<string, number> } | { er
 }
 
 /**
- * Credits the plan hands over when it is assigned. Deliberately not in
- * NUMERIC_LIMITS: it is a one-off grant, not a ceiling, and "unlimited" would
- * be meaningless.
+ * Credits the plan hands over when it is bought or assigned. Deliberately not
+ * in NUMERIC_LIMITS: it is a grant, not a ceiling, and "unlimited" would be
+ * meaningless.
  */
 function readIncludedCredits(fd: FormData): number | null {
   const raw = str(fd, "included_credits");
@@ -143,14 +143,20 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
     entity: "plan",
     entityId: planId,
     entityLabel: name,
-    meta: { changes: diffFields(before as Record<string, unknown> | null, patch), officers_affected: count ?? 0 },
+    meta: {
+      changes: diffFields(before as Record<string, unknown> | null, patch),
+      accounts_affected: count ?? 0,
+    },
   });
 
   revalidatePath("/admin/plans");
   revalidatePath("/admin/officers");
+  // The public plan page reads the same rows, so a price change has to show up
+  // there in the same breath.
+  revalidatePath("/portal/plan");
   return {
     ok: true,
-    message: `Plan saved. ${count ?? 0} officer${count === 1 ? "" : "s"} now on the new limits.`,
+    message: `Plan saved. ${count ?? 0} customer${count === 1 ? "" : "s"} now on the new limits.`,
   };
 }
 
@@ -178,11 +184,12 @@ export async function setPlanActive(
   });
 
   revalidatePath("/admin/plans");
+  revalidatePath("/portal/plan");
   return {
     ok: true,
     message: active
-      ? "Plan reactivated."
-      : "Plan archived. Officers already on it keep their limits; it just cannot be assigned again.",
+      ? "Plan reactivated and back on the public plan page."
+      : "Plan archived and off the public plan page. Customers already on it keep their limits; it just cannot be bought or assigned again.",
   };
 }
 
@@ -200,7 +207,7 @@ export async function deletePlan(_prev: ActionResult | null, fd: FormData): Prom
 
   if ((count ?? 0) > 0) {
     return fail(
-      `${count} officer${count === 1 ? " is" : "s are"} on this plan. Move them to another plan first, or archive this one.`,
+      `${count} customer${count === 1 ? " is" : "s are"} on this plan. Move them to another plan first, or archive this one.`,
     );
   }
 

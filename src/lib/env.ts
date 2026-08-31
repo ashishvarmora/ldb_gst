@@ -51,6 +51,27 @@ export const env = {
   get razorpayWebhookSecret() {
     return process.env.RAZORPAY_WEBHOOK_SECRET ?? "";
   },
+  /**
+   * Transactional email. The from address has to be on a domain verified with
+   * the provider, or every send is rejected.
+   */
+  get resendApiKey() {
+    return process.env.RESEND_API_KEY ?? "";
+  },
+  get emailFrom() {
+    return process.env.EMAIL_FROM ?? "";
+  },
+  /**
+   * Where a password-reset link points. Falls back to the host Vercel provides,
+   * which is right in production and harmless in a preview deployment.
+   */
+  get siteUrl() {
+    const explicit = process.env.NEXT_PUBLIC_SITE_URL;
+    if (explicit) return explicit.replace(/\/+$/, "");
+    const vercel =
+      process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+    return vercel ? `https://${vercel}` : "http://localhost:3000";
+  },
 };
 
 /** Which integrations are wired up, for the Settings page health panel. */
@@ -67,5 +88,6 @@ export function integrationHealth() {
     cron: Boolean(process.env.CRON_SECRET),
     razorpay: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
     razorpayWebhook: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET),
+    email: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
   };
 }

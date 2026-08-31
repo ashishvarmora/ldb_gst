@@ -1,316 +1,500 @@
-import { AlertTriangle, CalendarDays, ShoppingBag, Truck, Wallet } from "lucide-react";
+import { AlertTriangle, CalendarDays, Wallet } from "lucide-react";
 
-import { BuyCredits } from "@/components/BuyCredits";
-import {
-  Badge,
-  DescRow,
-  EmptyState,
-  Mono,
-  PageHeader,
-  Panel,
-  QuotaBar,
-  StatCard,
-  cx,
-} from "@/components/ui";
-import {
-  CREDIT_REASON_LABEL,
-  describeRate,
-  formatCredits,
-  loadCreditPacks,
-  loadCreditRates,
-} from "@/lib/credits";
-import { fmtDate, fmtDateTime, fmtRupees, istToday } from "@/lib/format";
+import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
+import { Disclosure } from "@/components/Disclosure";
+import { Pager, pageFromParam, pagerHref } from "@/components/Pager";
+import { Badge, EmptyState, Mono, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
+import { CREDIT_REASON_LABEL, describeRate, formatCredits, loadCreditPacks, loadCreditRates } from "@/lib/credits";
+import { fmtDate, fmtDateTime, fmtNumber, fmtRupees, istToday } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { BadgeTone } from "@/components/ui";
-import type { CreditTransaction, Payment } from "@/lib/types";
+import type { CreditActivity, CreditRate, Payment, Plan } from "@/lib/types";
 
-export const metadata = { title: "My plan — Truck Watch" };
+/** A payment with the plan it bought, when it bought one. */
+type PaymentRow = Payment & { plan: { name: string } | null };
+
+type PlanQuery = { history?: string; payments?: string };
+
+/** Short lists: this page is read on a phone, and both have a pager under them. */
+const HISTORY_SIZE = 8;
+const PAYMENTS_SIZE = 6;
+
+export async function generateMetadata() {
+  const { brandName } = await loadSettings(getSupabaseAdmin());
+  return { title: `Plan and credits — ${brandName}` };
+}
 
 /**
- * What the account may reach, what it has left to spend, and how to buy more.
+ * Where an account becomes able to use the product, and where it stays able to.
  *
- * Deliberately short. Everything chargeable comes out of one credit balance, so
- * the page is the plan, the balance, the shop, the prices and the two ledgers
- * that explain both - and nothing else.
+ * Two readers, one page. Someone with no plan needs one decision made - which
+ * plan - so that is all they get above the fold. Someone with a plan needs their
+ * balance, then a top-up, and everything else folded away.
+ *
+ * The rule that shapes the copy: a plan sets how many trucks may be watched;
+ * credits pay for the searching and checking. Running out of credits is a
+ * top-up, never a second copy of the plan.
  */
-export default async function PlanPage() {
+export default async function PlanPage({
+  searchParams,
+}: {
+  searchParams: Promise<PlanQuery>;
+}) {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
+  const params = await searchParams;
 
-  const [{ data: ledger }, { data: paymentRows }, rates, packs, settings] = await Promise.all([
+  const historyPage = pageFromParam(params.history);
+  const paymentsPage = pageFromParam(params.payments);
+  const historyFrom = (historyPage - 1) * HISTORY_SIZE;
+  const paymentsFrom = (paymentsPage - 1) * PAYMENTS_SIZE;
+
+  const [activity, paymentResult, planResult, rates, packs, settings] = await Promise.all([
+    // credit_activity, never credit_transactions: top-ups are itemised there and
+    // a day of automatic checks is one line rather than several hundred.
     admin
-      .from("credit_transactions")
-      .select("*")
+      .from("credit_activity")
+      .select("*", { count: "exact" })
       .eq("user_id", overview.id)
       .order("created_at", { ascending: false })
-      .limit(30),
+      .range(historyFrom, historyFrom + HISTORY_SIZE - 1),
     admin
       .from("payments")
-      .select("*")
+      .select("*, plan:plans(name)", { count: "exact" })
       .eq("user_id", overview.id)
       .order("created_at", { ascending: false })
-      .limit(10),
+      .range(paymentsFrom, paymentsFrom + PAYMENTS_SIZE - 1),
+    admin
+      .from("plans")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("price_per_month"),
     loadCreditRates(admin),
     loadCreditPacks(admin),
     loadSettings(admin),
   ]);
 
-  const history = (ledger ?? []) as CreditTransaction[];
-  const payments = (paymentRows ?? []) as Payment[];
+  const history = (activity.data ?? []) as CreditActivity[];
+  const historyTotal = activity.count ?? history.length;
+  const payments = (paymentResult.data ?? []) as unknown as PaymentRow[];
+  const paymentsTotal = paymentResult.count ?? payments.length;
+  const plans = (planResult.data ?? []) as Plan[];
 
   const today = istToday();
   const expiresOn = overview.plan_expires_on;
-  const daysLeft = expiresOn
-    ? Math.ceil((new Date(`${expiresOn}T23:59:59+05:30`).getTime() - Date.now()) / 86_400_000)
-    : null;
   const expired = expiresOn !== null && expiresOn < today;
+  const daysLeft = expiresOn
+    ? Math.max(0, Math.ceil((new Date(`${expiresOn}T23:59:59+05:30`).getTime() - Date.now()) / 86_400_000))
+    : null;
 
   /**
-   * Why buying is off, in the order the officer can act on: their own plan
-   * first, then the two things only an administrator can change. razorpayConfigured()
-   * reads the environment, so this has to be decided here rather than in the
-   * client component.
+   * Why buying is off. razorpayConfigured() reads the environment, so this has
+   * to be decided here rather than in the client component. Buying a plan is
+   * never blocked by not having one - that is the whole point of the page.
    */
-  const buyingBlocked = !overview.plan_active
-    ? "Credits can be bought only while a plan is active on your account. Until then you can see what each pack costs, but not buy one - ask your administrator to assign or renew your plan."
-    : !settings.razorpayEnabled
-      ? "Credits are added by your administrator. Tell them how many you need and they will top up your balance."
-      : !razorpayConfigured()
-        ? "Online payment is not available yet. Ask your administrator to add credits in the meantime."
-        : null;
+  const payBlocked = !settings.razorpayEnabled
+    ? `Online payment is switched off at the moment. Email ${settings.supportEmail || "support"} and they will set your account up.`
+    : !razorpayConfigured()
+      ? "Online payment is not available yet. Please try again later, or contact support."
+      : null;
 
-  if (!overview.plan_name) {
+  const creditsBlocked = !overview.plan_active
+    ? "Choose a plan first. Credits top up an account that already has one."
+    : payBlocked;
+
+  const historyPager = (page: number) =>
+    `${pagerHref({ path: "/portal/plan", params: { payments: paymentsPage }, pageKey: "history" }, page)}#history`;
+  const paymentsPager = (page: number) =>
+    `${pagerHref({ path: "/portal/plan", params: { history: historyPage }, pageKey: "payments" }, page)}#payments`;
+
+  /* ---------------------------------------------------------------------- */
+  /* no plan: one decision, nothing else above it                            */
+  /* ---------------------------------------------------------------------- */
+  if (!overview.plan_active) {
+    const returning = Boolean(overview.plan_id);
+
     return (
       <>
-        <PageHeader title="My plan" />
-        <Panel>
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-bad-500" />
-            <div>
-              <p className="text-sm font-medium text-ink">No plan is assigned to your account</p>
-              <p className="mt-1 text-sm text-muted">
-                Searching, tracking and buying credits are switched off until your administrator
-                assigns one. Nothing you have saved is lost.
-              </p>
-            </div>
+        <PageHeader
+          title={returning ? "Renew your plan" : "Choose a plan"}
+          subtitle="A plan sets how many trucks you can watch and comes with credits to spend. Top up credits later without buying the plan again."
+        />
+
+        {expired ? (
+          <Notice tone="bad">
+            Your plan ended on {fmtDate(expiresOn)}. Searching and automatic checks stay off until it
+            is renewed. Nothing you saved has been lost.
+          </Notice>
+        ) : null}
+
+        {overview.credits > 0 ? (
+          <Notice tone="warn">
+            You still have {formatCredits(overview.credits)} credits. They can be spent again as soon
+            as a plan is active.
+          </Notice>
+        ) : null}
+
+        <BuyPlans
+          plans={plans}
+          brandName={settings.brandName}
+          currentPlanId={overview.plan_id}
+          disabledReason={payBlocked}
+          renewing={returning}
+        />
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Step n={1} title="Pick a plan">
+            It decides how many trucks may be watched at once.
+          </Step>
+          <Step n={2} title="Spend the credits">
+            Every search and automatic check draws from one balance.
+          </Step>
+          <Step n={3} title="Top up when low">
+            Buy more credits at any time. The plan stays as it is.
+          </Step>
+        </div>
+
+        {rates.length > 0 ? (
+          <Disclosure title="What each action costs" className="mt-3">
+            <Rates rates={rates} />
+          </Disclosure>
+        ) : null}
+
+        {paymentsTotal > 0 ? (
+          <div id="payments" className="mt-3">
+            <Disclosure
+              title="Payments"
+              hint={`${fmtNumber(paymentsTotal)} on record`}
+              defaultOpen={paymentsPage > 1}
+              bodyClassName="p-0"
+            >
+              <PaymentList payments={payments} />
+              <Pager
+                page={paymentsPage}
+                total={paymentsTotal}
+                pageSize={PAYMENTS_SIZE}
+                href={paymentsPager}
+                noun="payments"
+                className="px-4 pt-1 pb-3"
+              />
+            </Disclosure>
           </div>
-        </Panel>
+        ) : null}
       </>
     );
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* has a plan: balance, top-up, then everything else folded away           */
+  /* ---------------------------------------------------------------------- */
+  const lowCredits = overview.credits <= 0;
+
   return (
     <>
       <PageHeader
-        title="My plan"
-        subtitle="Your plan, your credit balance, and where the credits went."
+        title="Plan and credits"
+        subtitle="What you have left, and how to add more."
       />
 
-      {expired ? (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-bad-500/40 bg-bad-500/10 px-4 py-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-bad-500" />
-          <p className="text-sm text-bad-500">
-            Your plan expired on {fmtDate(expiresOn)}. Searching, tracking and buying credits are
-            refused until your administrator renews it.
-          </p>
-        </div>
-      ) : daysLeft !== null && daysLeft <= 14 ? (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
-          <CalendarDays size={16} className="mt-0.5 shrink-0 text-warn-500" />
-          <p className="text-sm text-warn-500">
-            Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}.
-            Mention it to your administrator if you need it extended.
-          </p>
-        </div>
+      {daysLeft !== null && daysLeft <= 14 ? (
+        <Notice tone="warn">
+          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}. Renew
+          it below to keep watching without a gap.
+        </Notice>
       ) : null}
 
-      {/* --- 1. the plan ------------------------------------------------- */}
-      <Panel className="mb-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold text-strong">{overview.plan_name}</h2>
-          <Badge tone={expired ? "bad" : overview.plan_active ? "good" : "warn"}>
-            {expired ? "Expired" : overview.plan_active ? "Active" : "Not active"}
-          </Badge>
-          {overview.has_overrides ? <Badge tone="brand">customised for you</Badge> : null}
-        </div>
-        {overview.plan_description ? (
-          <p className="mt-1.5 max-w-xl text-sm text-muted">{overview.plan_description}</p>
-        ) : null}
+      {/* One row for the three numbers that answer "where do I stand". */}
+      <Panel className="mb-4" bodyClassName="p-0">
+        <div className="grid grid-cols-1 divide-y divide-divider sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="px-4 py-3.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+              <Wallet size={12} />
+              Credits left
+            </p>
+            <p
+              className={cx(
+                "mt-1.5 text-3xl font-semibold tabular-nums",
+                lowCredits ? "text-bad-500" : "text-brand-500",
+              )}
+            >
+              {formatCredits(overview.credits)}
+            </p>
+            <p className="mt-1 text-xs tabular-nums text-muted">
+              {formatCredits(overview.credits_spent_today)} used today ·{" "}
+              {formatCredits(overview.credits_spent_month)} this month
+            </p>
+          </div>
 
-        <dl className="mt-4 grid grid-cols-1 gap-x-8 border-t border-divider pt-3 sm:grid-cols-2">
-          <DescRow label="Price">
-            {overview.price_per_month ? `${fmtRupees(overview.price_per_month)} a month` : "--"}
-          </DescRow>
-          <DescRow label="Started">
-            {overview.plan_assigned_at ? fmtDate(overview.plan_assigned_at) : "--"}
-          </DescRow>
-          <DescRow label="Ends">
-            {expiresOn ? (
-              <span className={cx(expired && "text-bad-500")}>{fmtDate(expiresOn)}</span>
-            ) : (
-              <span className="text-good-500">No end date</span>
-            )}
-          </DescRow>
-          <DescRow label="Days remaining">
-            {daysLeft === null ? "unlimited" : expired ? "0" : `${daysLeft}`}
-          </DescRow>
-        </dl>
+          <div className="px-4 py-3.5">
+            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+              Your plan
+            </p>
+            <p className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span className="text-lg font-semibold text-strong">{overview.plan_name}</span>
+              <Badge tone="good">Active</Badge>
+              {overview.has_overrides ? <Badge tone="brand">customised</Badge> : null}
+            </p>
+            <p className="mt-1 text-xs text-muted">
+              {overview.price_per_month ? `${fmtRupees(overview.price_per_month)} a month · ` : ""}
+              {expiresOn ? (
+                <>
+                  ends {fmtDate(expiresOn)}
+                  {daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? "" : "s"} left)` : ""}
+                </>
+              ) : (
+                "no end date"
+              )}
+            </p>
+          </div>
 
-        <div className="mt-4 border-t border-divider pt-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs text-muted">
-            <Truck size={12} />
-            Trucks under automatic checking
-          </p>
-          <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
+          <div className="px-4 py-3.5">
+            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+              Trucks watched
+            </p>
+            <div className="mt-2.5">
+              <QuotaBar used={overview.active_trucks} limit={overview.truck_limit} />
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              {overview.truck_limit === -1
+                ? "No limit on this plan."
+                : overview.active_trucks >= overview.truck_limit
+                  ? "Every slot is in use. A bigger plan adds more."
+                  : `${fmtNumber(overview.truck_limit - overview.active_trucks)} more can be added.`}
+            </p>
+          </div>
         </div>
       </Panel>
 
-      {/* --- 2. the balance ---------------------------------------------- */}
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="Credits left"
-          value={formatCredits(overview.credits)}
-          sub="pays for everything"
-          tone={overview.credits <= 0 ? "bad" : "brand"}
-          icon={<Wallet size={14} />}
-        />
-        <StatCard label="Used today" value={formatCredits(overview.credits_spent_today)} />
-        <StatCard label="Used this month" value={formatCredits(overview.credits_spent_month)} />
-        <StatCard
-          label="Purchased"
-          value={formatCredits(overview.credits_purchased)}
-          sub="bought so far"
-          icon={<ShoppingBag size={14} />}
-        />
-      </div>
+      {lowCredits ? (
+        <Notice tone="bad">
+          You have run out of credits. Searching and automatic checks are refused until you top up -
+          your plan and your trucks are untouched.
+        </Notice>
+      ) : null}
 
-      {/* --- 3. the shop ------------------------------------------------- */}
-      <div className="mb-5">
-        <BuyCredits packs={packs} disabledReason={buyingBlocked} />
-      </div>
-
-      {/* --- 4. what things cost ----------------------------------------- */}
-      <Panel title="What each action costs" className="mb-5">
-        {rates.length === 0 ? (
-          <p className="text-sm text-muted">
-            No rates are set yet. Ask your administrator what an action costs.
-          </p>
-        ) : (
-          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {rates.map((rate) => (
-              <li key={rate.action}>
-                <p className="text-sm font-medium text-ink">{rate.label}</p>
-                <p className="mt-0.5 text-sm text-brand-500">{describeRate(rate)}</p>
-                {rate.description ? (
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted">{rate.description}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
+      <Panel
+        title="Top up credits"
+        description="Credits pay for every search and automatic check. Buying more never changes your plan."
+        className="mb-3"
+      >
+        <BuyCredits
+          packs={packs}
+          brandName={settings.brandName}
+          creditsPerRupee={settings.creditsPerRupee}
+          disabledReason={creditsBlocked}
+        />
       </Panel>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* --- 5. the ledger --------------------------------------------- */}
-        <div className="lg:col-span-2">
-          <Panel
+      <div className="space-y-3">
+        <div id="history">
+          <Disclosure
             title="Credit history"
-            description="Your last 30 credit movements, newest first."
+            hint="Top-ups one by one, usage totalled per day."
+            defaultOpen={historyPage > 1}
             bodyClassName="p-0"
           >
             {history.length === 0 ? (
               <EmptyState
-                title="Nothing spent yet"
-                description="Searches, automatic checks and top ups show up here as soon as they happen."
+                title="Nothing yet"
+                description="Top-ups and each day's usage appear here as soon as they happen."
               />
             ) : (
-              <ul className="divide-y divide-divider">
-                {history.map((row) => (
-                  <li key={row.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                    <span className="min-w-0">
-                      <span className="block text-sm text-ink">
-                        {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
-                      </span>
-                      <span className="block text-xs text-faint">
-                        {fmtDateTime(row.created_at)}
-                        {row.truck_number ? (
-                          <>
-                            {" · "}
-                            <Mono className="text-muted">{row.truck_number}</Mono>
-                          </>
-                        ) : null}
-                      </span>
-                      {row.note ? (
-                        <span className="mt-0.5 block text-xs text-muted">{row.note}</span>
-                      ) : null}
-                    </span>
-
-                    <span className="shrink-0 text-right">
-                      <span
-                        className={cx(
-                          "block text-sm font-medium tabular-nums",
-                          row.delta < 0 ? "text-bad-500" : "text-good-500",
-                        )}
-                      >
-                        {row.delta < 0 ? "−" : "+"}
-                        {formatCredits(Math.abs(row.delta))}
-                      </span>
-                      <span className="block text-xs tabular-nums text-faint">
-                        {formatCredits(row.balance_after)} left
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-divider">
+                  {history.map((row, index) => (
+                    <ActivityRow key={`${row.activity_date}-${row.reason}-${index}`} row={row} />
+                  ))}
+                </ul>
+                <Pager
+                  page={historyPage}
+                  total={historyTotal}
+                  pageSize={HISTORY_SIZE}
+                  href={historyPager}
+                  noun="entries"
+                  className="px-4 pt-1 pb-3"
+                />
+              </>
             )}
-          </Panel>
+          </Disclosure>
         </div>
 
-        {/* --- 6. the money ---------------------------------------------- */}
-        <Panel
-          title="Recent payments"
-          description="Your last 10 credit purchases."
-          bodyClassName="p-0"
-        >
-          {payments.length === 0 ? (
-            <EmptyState
-              title="No payments yet"
-              description="Anything you buy above is listed here with its receipt."
+        <div id="payments">
+          <Disclosure
+            title="Payments"
+            hint={paymentsTotal > 0 ? `${fmtNumber(paymentsTotal)} on record` : "Nothing bought yet"}
+            defaultOpen={paymentsPage > 1}
+            bodyClassName="p-0"
+          >
+            <PaymentList payments={payments} />
+            <Pager
+              page={paymentsPage}
+              total={paymentsTotal}
+              pageSize={PAYMENTS_SIZE}
+              href={paymentsPager}
+              noun="payments"
+              className="px-4 pt-1 pb-3"
             />
-          ) : (
-            <ul className="divide-y divide-divider">
-              {payments.map((payment) => (
-                <li key={payment.id} className="px-4 py-2.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="min-w-0">
-                      <span className="block text-sm text-ink tabular-nums">
-                        {fmtRupees(payment.amount_inr)}
-                        <span className="text-muted">
-                          {" "}
-                          for {formatCredits(payment.credits)} credits
-                        </span>
-                      </span>
-                      <span className="block text-xs text-faint">
-                        {fmtDateTime(payment.paid_at ?? payment.created_at)}
-                      </span>
-                    </span>
-                    <Badge tone={PAYMENT_TONE[payment.status]}>
-                      {PAYMENT_LABEL[payment.status]}
-                    </Badge>
-                  </div>
-                  {payment.status === "failed" && payment.failure_reason ? (
-                    <p className="mt-1 text-xs text-muted">{payment.failure_reason}</p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
+          </Disclosure>
+        </div>
+
+        <Disclosure
+          title="What each action costs"
+          hint="How far one credit goes."
+        >
+          <Rates rates={rates} />
+        </Disclosure>
+
+        <Disclosure
+          title="Renew or change plan"
+          hint="Only for more trucks or a longer term - not for more credits."
+        >
+          <BuyPlans
+            plans={plans}
+            brandName={settings.brandName}
+            currentPlanId={overview.plan_id}
+            disabledReason={payBlocked}
+            renewing
+          />
+        </Disclosure>
       </div>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* pieces                                                                      */
+/* -------------------------------------------------------------------------- */
+
+function Notice({ tone, children }: { tone: "warn" | "bad"; children: React.ReactNode }) {
+  const Icon = tone === "bad" ? AlertTriangle : CalendarDays;
+  return (
+    <p
+      className={cx(
+        "mb-3 flex items-start gap-2.5 rounded-xl border px-4 py-2.5 text-sm leading-relaxed",
+        tone === "bad"
+          ? "border-bad-500/40 bg-bad-500/10 text-bad-500"
+          : "border-warn-500/40 bg-warn-500/10 text-warn-500",
+      )}
+    >
+      <Icon size={16} className="mt-0.5 shrink-0" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div className="panel flex items-start gap-3 px-4 py-3">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-500/12 text-xs font-semibold text-brand-500">
+        {n}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-ink">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-muted">{children}</span>
+      </span>
+    </div>
+  );
+}
+
+function Rates({ rates }: { rates: CreditRate[] }) {
+  if (rates.length === 0) {
+    return <p className="text-sm text-muted">No rates are set yet. Contact support to find out what an action costs.</p>;
+  }
+  return (
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {rates.map((rate) => (
+        <li key={rate.action}>
+          <p className="text-sm font-medium text-ink">{rate.label}</p>
+          <p className="mt-0.5 text-sm text-brand-500">{describeRate(rate)}</p>
+          {rate.description ? (
+            <p className="mt-0.5 text-xs leading-relaxed text-muted">{rate.description}</p>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivityRow({ row }: { row: CreditActivity }) {
+  const added = row.amount > 0;
+  return (
+    <li className="flex items-start justify-between gap-3 px-4 py-2.5">
+      <span className="min-w-0">
+        <span className="block text-sm text-ink">{CREDIT_REASON_LABEL[row.reason] ?? row.reason}</span>
+        <span className="block text-xs text-faint">
+          {/* A rolled-up line stands for a whole day, so a clock time on it
+              would be a time nothing actually happened at. */}
+          {row.is_rollup ? fmtDate(row.activity_date) : fmtDateTime(row.created_at)}
+          {row.is_rollup && row.entries > 1 ? ` · ${fmtNumber(row.entries)} times` : ""}
+          {row.truck_number ? (
+            <>
+              {" · "}
+              <Mono className="text-muted">{row.truck_number}</Mono>
+            </>
+          ) : null}
+        </span>
+        {row.note ? <span className="mt-0.5 block text-xs text-muted">{row.note}</span> : null}
+      </span>
+
+      <span className="shrink-0 text-right">
+        <span
+          className={cx(
+            "block text-sm font-medium tabular-nums",
+            added ? "text-good-500" : "text-bad-500",
+          )}
+        >
+          {added ? "+" : "−"}
+          {formatCredits(Math.abs(row.amount))}
+        </span>
+        <span className="block text-xs tabular-nums text-faint">
+          {formatCredits(row.balance_after)} left
+        </span>
+      </span>
+    </li>
+  );
+}
+
+function PaymentList({ payments }: { payments: PaymentRow[] }) {
+  if (payments.length === 0) {
+    return (
+      <EmptyState
+        title="No payments yet"
+        description="Anything you buy is listed here with what it bought."
+      />
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-divider">
+      {payments.map((payment) => (
+        <li key={payment.id} className="px-4 py-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block text-sm tabular-nums text-ink">
+                {fmtRupees(payment.amount_inr)}
+                <span className="text-muted">
+                  {" "}
+                  {payment.kind === "plan"
+                    ? `for ${payment.plan?.name ?? "a plan"}, ${payment.months} month${payment.months === 1 ? "" : "s"}`
+                    : `for ${formatCredits(payment.credits)} credits`}
+                </span>
+              </span>
+              <span className="block text-xs text-faint">
+                {fmtDateTime(payment.paid_at ?? payment.created_at)}
+              </span>
+            </span>
+            <Badge tone={PAYMENT_TONE[payment.status]}>{PAYMENT_LABEL[payment.status]}</Badge>
+          </div>
+          {payment.status === "failed" && payment.failure_reason ? (
+            <p className="mt-1 text-xs text-muted">{payment.failure_reason}</p>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
 
