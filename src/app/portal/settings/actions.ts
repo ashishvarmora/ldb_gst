@@ -11,6 +11,84 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/types";
 
+/* -------------------------------------------------------------------------- */
+/* the customer's own details                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Longest each detail may be. Matches what the admin form accepts, so a value
+ * typed here cannot be one the console then refuses to show.
+ */
+const MAX = { full_name: 80, phone: 20, designation: 60, office: 120, district: 60, state: 60 };
+
+/**
+ * The account holder editing their own details.
+ *
+ * Six columns, and deliberately not the seventh: email is the sign-in name and
+ * changing it would change who the account is, which needs proof the new
+ * address is reachable before the old one stops working. Neither it nor the
+ * password is touched here - the page says where each of those is done.
+ *
+ * `role`, `status`, `credits`, `plan_id` and the rest are absent from the
+ * update on purpose. This runs on the service-role client, which is past Row
+ * Level Security, so the column list *is* the permission check: naming only
+ * these six is what stops a crafted post from granting itself a plan.
+ */
+export async function updateMyProfile(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+
+  const fullName = str(fd, "full_name");
+  if (!fullName) return fail("Tell us your name - it is what your account is called on screen.");
+  if (fullName.length > MAX.full_name) {
+    return fail(`That name is too long. Keep it under ${MAX.full_name} characters.`);
+  }
+
+  const phone = str(fd, "phone");
+  /*
+   * Loose on purpose. Numbers arrive with +91, with spaces, with dashes and
+   * with a leading 0, and refusing a real number somebody can be reached on is
+   * worse than storing an oddly punctuated one.
+   */
+  if (phone && !/^[+\d][\d\s()-]{5,19}$/.test(phone)) {
+    return fail("That does not look like a phone number. Digits, spaces and + are all fine.");
+  }
+
+  const fields = { full_name: fullName, phone, ...pick(fd, ["designation", "office", "district", "state"]) };
+
+  for (const [key, value] of Object.entries(fields)) {
+    const limit = MAX[key as keyof typeof MAX];
+    if (value && value.length > limit) {
+      return fail(`That ${key.replace("_", " ")} is too long. Keep it under ${limit} characters.`);
+    }
+  }
+
+  const { error } = await getSupabaseAdmin()
+    .from("profiles")
+    .update(fields)
+    .eq("id", session.id);
+
+  if (error) {
+    return fail(reportError("saving own profile", error, "Could not save those details."));
+  }
+
+  /* The header and the profile sheet both render the name, and they live in the
+     layout - so every portal page has a stale copy of it until this runs. */
+  revalidatePath("/portal", "layout");
+  return done("Saved.");
+}
+
+/** Trimmed values for the named fields, blank becoming null so a cleared box clears the column. */
+function pick(fd: FormData, names: string[]): Record<string, string | null> {
+  return Object.fromEntries(names.map((name) => [name, str(fd, name)]));
+}
+
+/* -------------------------------------------------------------------------- */
+/* alert delivery                                                              */
+/* -------------------------------------------------------------------------- */
+
 export async function saveMyTelegram(
   _prev: ActionResult | null,
   fd: FormData,

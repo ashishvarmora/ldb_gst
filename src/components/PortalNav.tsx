@@ -24,24 +24,25 @@ const NAV = [
 ] as const;
 
 /**
- * Home, Search, My trucks, Records, My plan. Five is the most a bottom bar can
- * hold before the labels stop being legible on a small phone, so Folders stays
- * in the sidebar only: a folder is set up once, where My plan is where the
- * credit balance is topped up and everything stops without it.
+ * Home, Search, My trucks, Records - then the account, which is not a route.
  *
- * Invite and earn is left out for the same reason. It is reached on a phone
- * from the card on Home, the plan page and Settings, all of which can say what
- * it is worth - which a one-word tab label never could.
+ * Five is the most a bottom bar can hold before the labels stop being legible
+ * on a small phone, and every one of these four is daily work: Records is the
+ * product, Search is how work starts, My trucks is what is being watched.
  *
- * Activity is left out too, and it was the closest call. It answers one
- * question - where did my credits go - which is asked when the balance looks
- * wrong, not several times a day like the five below. Every tab it could
- * replace is a daily job: Records is the product, Search is how work starts,
- * My plan is how the balance is refilled. So it is reached from the credits
- * block on Home, which can hand over the question in the reader's own words,
- * and from the sidebar on a large screen.
+ * The fifth slot used to be My plan and is now the profile button, because My
+ * plan was one of six account things competing for it - the settings gear was
+ * stranded in the header, Invite and earn had no route at all on a phone, and
+ * there was nowhere to change your own name. All six are behind the profile
+ * button now, with the credit balance and a top-up on top of them, so the slot
+ * carries more than the single page it used to.
+ *
+ * Groups and Activity stay off the bar as before: a folder is set up once, and
+ * "where did my credits go" is asked when the balance looks wrong rather than
+ * several times a day. Both are in the sidebar on a large screen, and reached
+ * from Home and the plan page on a phone.
  */
-const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/plan"] as const;
+const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);
 
 function isActive(pathname: string, href: string): boolean {
@@ -97,8 +98,14 @@ export function PortalSidebar({
   );
 }
 
-/** Thumb-reachable tab bar. A phone is the primary device here. */
-export function PortalBottomNav() {
+/**
+ * Thumb-reachable tab bar. A phone is the primary device here.
+ *
+ * `account` is the profile button and its sheet, built on the server so the
+ * balance inside it is already there when the sheet opens. It sits in the fifth
+ * slot and is the only item that opens something instead of going somewhere.
+ */
+export function PortalBottomNav({ account }: { account: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
@@ -134,6 +141,7 @@ export function PortalBottomNav() {
             </Link>
           );
         })}
+        {account}
       </div>
       {/* Breathing room for iOS home-indicator gestures. */}
       <div className="h-[env(safe-area-inset-bottom)]" />

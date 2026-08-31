@@ -19,9 +19,9 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-strong">{title}</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-strong sm:text-2xl">{title}</h1>
         {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -30,6 +30,7 @@ export function PageHeader({
 }
 
 export function Panel({
+  id,
   title,
   description,
   actions,
@@ -37,6 +38,8 @@ export function Panel({
   className,
   bodyClassName,
 }: {
+  /** Anchor, for a link that has to land on this panel rather than the page. */
+  id?: string;
   title?: string;
   description?: ReactNode;
   actions?: ReactNode;
@@ -45,9 +48,9 @@ export function Panel({
   bodyClassName?: string;
 }) {
   return (
-    <section className={cx("panel overflow-hidden", className)}>
+    <section id={id} className={cx("panel overflow-hidden", className)}>
       {title ? (
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-5 py-3.5">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-4 py-3.5 sm:px-5">
           <div>
             <h2 className="text-sm font-semibold text-ink">{title}</h2>
             {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
@@ -55,7 +58,7 @@ export function Panel({
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
-      <div className={cx(bodyClassName ?? "p-5")}>{children}</div>
+      <div className={cx(bodyClassName ?? "p-4 sm:p-5")}>{children}</div>
     </section>
   );
 }

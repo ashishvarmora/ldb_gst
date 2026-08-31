@@ -11,10 +11,12 @@ export function SignOutButton({
   variant = "ghost",
   size = "sm",
   label = "Sign out",
+  className,
 }: {
   variant?: ButtonVariant;
   size?: "sm" | "md";
   label?: string;
+  className?: string;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -23,7 +25,7 @@ export function SignOutButton({
     <button
       type="button"
       disabled={pending}
-      className={buttonClass(variant, size)}
+      className={buttonClass(variant, size, className)}
       onClick={async () => {
         setPending(true);
         await getSupabaseBrowser().auth.signOut();

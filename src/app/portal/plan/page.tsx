@@ -25,7 +25,12 @@ import type { CreditActivity, CreditRate, Payment, Plan } from "@/lib/types";
 /** A payment with the plan it bought, when it bought one. */
 type PaymentRow = Payment & { plan: { name: string } | null };
 
-type PlanQuery = { history?: string; payments?: string };
+/**
+ * `show` opens one folded section on arrival, so a link straight to Credit
+ * history or Payments lands on the list rather than on a shut heading. It is a
+ * name and not a page number, which is why it is separate from the two pagers.
+ */
+type PlanQuery = { history?: string; payments?: string; show?: string };
 
 /** Short lists: this page is read on a phone, and both have a pager under them. */
 const HISTORY_SIZE = 8;
@@ -58,6 +63,8 @@ export default async function PlanPage({
 
   const historyPage = pageFromParam(params.history);
   const paymentsPage = pageFromParam(params.payments);
+  const showHistory = params.show === "history";
+  const showPayments = params.show === "payments";
   const historyFrom = (historyPage - 1) * HISTORY_SIZE;
   const paymentsFrom = (paymentsPage - 1) * PAYMENTS_SIZE;
 
@@ -192,11 +199,11 @@ export default async function PlanPage({
         ) : null}
 
         {paymentsTotal > 0 ? (
-          <div id="payments" className="mt-3">
+          <div id="payments" className="mt-3 scroll-mt-20">
             <Disclosure
               title="Payments"
               hint={`${fmtNumber(paymentsTotal)} on record`}
-              defaultOpen={paymentsPage > 1}
+              defaultOpen={paymentsPage > 1 || showPayments}
               bodyClassName="p-0"
             >
               <PaymentList payments={payments} />
@@ -304,9 +311,10 @@ export default async function PlanPage({
       ) : null}
 
       <Panel
+        id="topup"
         title="Top up credits"
         description={`Credits pay for every search and automatic check. Topping up never buys the plan again — your plan, its end date and its truck limit stay exactly as they are.${openPackLine}`}
-        className="mb-3"
+        className="mb-3 scroll-mt-20"
       >
         <BuyCredits
           packs={packs}
@@ -321,7 +329,7 @@ export default async function PlanPage({
       {settings.referralEnabled ? <InviteCard className="mb-3" /> : null}
 
       <div className="space-y-3">
-        <div id="history">
+        <div id="history" className="scroll-mt-20">
           <p className="mb-2 text-xs text-muted">
             Looking for a single search or check?{" "}
             <Link href="/portal/activity" className="font-medium text-brand-500 hover:underline">
@@ -336,7 +344,7 @@ export default async function PlanPage({
           <Disclosure
             title="Credit history"
             hint="Top-ups one by one, usage totalled per day. See Activity for each charge."
-            defaultOpen={historyPage > 1}
+            defaultOpen={historyPage > 1 || showHistory}
             bodyClassName="p-0"
           >
             {history.length === 0 ? (
@@ -364,11 +372,11 @@ export default async function PlanPage({
           </Disclosure>
         </div>
 
-        <div id="payments">
+        <div id="payments" className="scroll-mt-20">
           <Disclosure
             title="Payments"
             hint={paymentsTotal > 0 ? `${fmtNumber(paymentsTotal)} on record` : "Nothing bought yet"}
-            defaultOpen={paymentsPage > 1}
+            defaultOpen={paymentsPage > 1 || showPayments}
             bodyClassName="p-0"
           >
             <PaymentList payments={payments} />
