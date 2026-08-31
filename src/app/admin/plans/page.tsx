@@ -1,3 +1,4 @@
+import { CouponsTab } from "./CouponsTab";
 import { HistoryTab } from "./HistoryTab";
 import { PlansTab } from "./PlansTab";
 import { ReferralsTab } from "./ReferralsTab";
@@ -19,9 +20,11 @@ const INTRO: Record<Tab, string> = {
   rules:
     "Two conversions, both set here, both live from the moment you save. Money becomes credits at the pack prices; credits become work at the rates below.",
   history:
-    "What has already happened: every payment, and every credit that moved. Nothing on this tab can be edited.",
+    "What has already happened, one customer per row. Open a customer for their own credit history; the payment list underneath is the platform-wide record. Nothing on this tab can be edited.",
   referrals:
     "Invite someone, earn when they pay. Set the terms here, and see who has actually earned something.",
+  coupons:
+    "Discount codes, and what each one has cost. A coupon reduces what somebody pays; it never reduces the credits they get.",
 };
 
 export default async function PlansAndCreditsPage({
@@ -42,6 +45,7 @@ export default async function PlansAndCreditsPage({
       {tab === "rules" ? <RulesTab /> : null}
       {tab === "history" ? <HistoryTab params={params} /> : null}
       {tab === "referrals" ? <ReferralsTab params={params} /> : null}
+      {tab === "coupons" ? <CouponsTab params={params} /> : null}
     </>
   );
 }

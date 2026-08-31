@@ -27,6 +27,7 @@ import { reportError } from "@/lib/errors";
 import { fmtDate, fmtNumber, fmtRelative, fmtTime, istDaysAgo, istToday } from "@/lib/format";
 import { stateFromLocation } from "@/lib/geo";
 import { requirePortalSession } from "@/lib/officer";
+import { loadRetentionRules } from "@/lib/backup";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckEvent } from "@/lib/types";
@@ -66,8 +67,13 @@ export default async function RecordsPage({
   searchParams: Promise<RecordsQuery>;
 }) {
   const { overview } = await requirePortalSession();
-  // Retention is one platform setting now, not a per-account allowance.
-  const { dataRetentionDays: retentionDays } = await loadSettings(getSupabaseAdmin());
+  // retention_rules is authoritative for how long crossings are kept. Reading
+  // it directly means this sentence cannot drift from what the purge actually
+  // does - which a mirrored copy of the number could.
+  const truckRule = (await loadRetentionRules(getSupabaseAdmin())).find(
+    (rule) => rule.entity === "truck_events",
+  );
+  const retentionDays = truckRule?.is_enabled ? truckRule.keep_days : -1;
   const params = await searchParams;
   const admin = getSupabaseAdmin();
 

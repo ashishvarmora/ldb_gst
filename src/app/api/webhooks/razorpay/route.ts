@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { releaseCoupon } from "@/lib/coupons";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { PaymentKind } from "@/lib/types";
@@ -117,16 +118,33 @@ export async function POST(request: NextRequest) {
 
       // Only a payment still waiting: a row already settled - credits granted
       // or a plan assigned - must not be reopened by a late or replayed
-      // failure event.
-      const { error } = await admin
+      // failure event. The row's own id comes back because releasing a coupon
+      // hold needs it, and because a null here says the row was already closed.
+      const { data: closed, error } = await admin
         .from("payments")
         .update({ status: "failed", failure_reason: reason })
         .eq("razorpay_order_id", orderId)
-        .eq("status", "created");
+        .eq("status", "created")
+        .select("id")
+        .maybeSingle<{ id: string }>();
 
       if (error) {
         console.error(`razorpay webhook: could not mark ${orderId} failed`, error);
       }
+
+      /**
+       * Give back any code this order was holding.
+       *
+       * Strictly belt-and-braces: a hold nobody releases is released lazily by
+       * the database after 30 minutes. But this is a failure we were actually
+       * told about, and half an hour of "that code has been fully claimed" for
+       * the next person - or for this one, trying again with a different card -
+       * is a bad half hour to have caused on purpose.
+       *
+       * Only for the row this event just closed, so a payment that already
+       * settled keeps its claim applied.
+       */
+      if (closed) await releaseCoupon(admin, closed.id);
 
       // Still a 200 - no amount of retrying makes a failed payment succeed.
       return NextResponse.json({ ok: true, marked: "failed" });

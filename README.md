@@ -77,8 +77,9 @@ reconstructed.
 
 A **plan** decides only two things: how many trucks may be watched at once, and
 how many credits the account opens with. Everything else it used to carry is
-either paid for out of the balance or set once for the platform. Plans are
-assigned automatically on sign-up.
+either paid for out of the balance or set once for the platform. A new account
+has no plan and no credits until one is bought or assigned - sign-up gives
+away nothing.
 
 ### Money in
 
@@ -117,6 +118,36 @@ before checkout returns.
 So the whole flow is three admin-set steps: **money → credits** (packs),
 **credits → usage** (rates), and **what a plan allows** (trucks).
 
+### Coupon codes
+
+A coupon reduces what someone **pays**. It never reduces what they **get** —
+credits come from the price *before* the discount, so a ₹500 pack worth 1,200
+credits with 20% off means paying ₹400 and still receiving 1,200. Computing
+credits from the discounted amount would quietly sell less than the code
+advertised.
+
+Codes support a percentage or a flat amount, an *up to* cap on a percentage, a
+minimum spend, a total claim limit, a per-person limit, an optional date
+window, and a restriction to plans or top-ups only.
+
+The hard part is not the arithmetic, it is **counting claims honestly**. An
+order is created before the money arrives and may never be paid, so a claim is
+`reserved` when the order opens and only `applied` when the payment settles:
+
+- Without the reservation, two people could spend the last claim on a
+  single-use code at the same moment.
+- Without the release, an abandoned checkout would burn that code for ever.
+
+Claims count `reserved + applied`. A failed payment releases its hold, and a
+hold nobody ever failed is released lazily by `validate_coupon` after 30
+minutes — so the next person to type a code cleans up after the last one who
+walked away, and no scheduled job is needed.
+
+`validate_coupon()` is the single authority: the buyer's preview and the
+checkout both call it, so the figure quoted and the figure charged cannot
+disagree. `reserve_coupon()` re-validates rather than trusting the preview,
+because the last claim may have gone in between. Codes are **not** readable by
+customers under RLS — they are checked one at a time, never listed.
 ### Referrals
 
 Everyone gets a referral code, and a link that carries it into sign-up.
@@ -301,21 +332,54 @@ same record without either problem.
 
 ## Data retention
 
-One Google Sheet, owned by the operator, is the long-term record. The database
-only needs enough history to answer "where has this truck been lately", so old
-rows are copied out and then deleted.
+The database is on a free tier, and several tables grow without limit — one row
+per lookup, one per crossing, one per alert. Almost none of it is read after a
+case closes. So rows are **copied to a Google Sheet and then deleted**, on a
+schedule the admin sets.
 
-- **`data_retention_days`** is one platform setting, not a per-account one.
-  `-1` keeps everything. Default 30 days.
-- **`backup_interval_days`** decides how often the copy-and-delete runs. It
-  happens at the end of a tracking sweep, and Admin → Settings has a manual
-  **Run backup now** button.
+One window for everything was too blunt: a failed lookup is worth a week, a
+toll crossing a month, and a credit movement for ever. So retention is **one
+rule per table** in `retention_rules`, keyed by the table name so the purge job
+needs no mapping and cannot drift out of step with the schema.
+
+| Table | Default | Why |
+| --- | --- | --- |
+| `search_logs` | 7 days | The biggest source of rows and the least useful once a week old |
+| `truck_events` | 30 days | What the records page reads |
+| `alert_logs` | 30 days | What was sent, and whether Telegram took it |
+| `audit_logs` | 30 days | Useful for a dispute, rarely after |
+| `credit_transactions` | **forever** | The money ledger |
+| `payments` | **forever** | A financial record |
+| `coupon_redemptions` | **forever** | Deleting frees claims on limited codes |
+
+The last three are flagged `is_protected`. They are the money record rather
+than a log: balances are reconstructed from `credit_transactions`, so trimming
+it does not free useful space, it destroys the explanation for someone's
+balance. Giving a protected rule a finite window needs a deliberate
+confirmation that says so.
+
+**Each account may name its own sheet**, and the admin's sheet is the fallback
+for anyone who has not. Both, rather than either: a customer keeps a copy of
+their own history they can actually open, and nobody's rows are deleted
+uncopied because they never set one up. (0009 consolidated these into a single
+admin sheet; 0016 restored them for exactly that reason.)
+
+Two safety properties worth knowing:
+
 - **A failed copy deletes nothing.** Losing the only record of where a truck
-  went because a sheet was misconfigured is far worse than carrying the rows
-  for another interval.
-- **No sheet configured means no backup is wanted**, and the rows are simply
-  deleted on schedule. That is a supported choice and the settings page says so
-  in red, because it is permanent.
+  went because a spreadsheet was misconfigured is far worse than carrying the
+  rows for another day.
+- **The delete never runs past the rows just read.** The cutoff is the
+  timestamp of the last exported row, not the wall clock, so a row written
+  between the read and the delete is never removed uncopied.
+
+A rule may also be set to delete **without** copying. That is supported and
+permanent, so the admin screen says so in a warning tone.
+
+Customers see their own history at **`/portal/activity`** — every search and
+every credit movement, which is what answers "where did my credits go". The
+page states its own retention window, read from the rules rather than
+hard-coded.
 
 ### What actually gets stored
 

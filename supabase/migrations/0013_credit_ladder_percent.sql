@@ -24,14 +24,28 @@
 -- not add another 100 to a column that has already been converted.
 -- ---------------------------------------------------------------------------
 do $blk$
+declare
+  v_old boolean;
+  v_new boolean;
 begin
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'credit_packs'
-      and column_name = 'bonus_percent'
-  ) then
+  select exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'credit_packs'
+                   and column_name = 'bonus_percent') into v_old;
+  select exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'credit_packs'
+                   and column_name = 'credit_percent') into v_new;
+
+  if v_old and not v_new then
+    -- The upgrade path: rename, and lift the stored number from a bonus on
+    -- top of 100% to the whole share, so 25 becomes 125.
     alter table public.credit_packs rename column bonus_percent to credit_percent;
     update public.credit_packs set credit_percent = credit_percent + 100;
+
+  elsif v_old and v_new then
+    -- Both present, which happens on every re-run: 0012 adds bonus_percent
+    -- back with `if not exists`, having no idea this file renamed it away.
+    -- The resurrected column holds nothing anyone wrote, so it just goes.
+    alter table public.credit_packs drop column bonus_percent;
   end if;
 end $blk$;
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Gift, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
+import { FolderOpen, Gift, History, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
@@ -17,6 +17,9 @@ const NAV = [
   // the label is what a customer reads, so only the label is neutral wording.
   { href: "/portal/cases", label: "Groups", icon: FolderOpen },
   { href: "/portal/plan", label: "My plan", icon: Wallet },
+  // Next to My plan on purpose: that page has the balance, this one has where
+  // it went, and the pair is read in that order.
+  { href: "/portal/activity", label: "Activity", icon: History },
   { href: "/portal/referrals", label: "Invite and earn", icon: Gift },
 ] as const;
 
@@ -29,6 +32,14 @@ const NAV = [
  * Invite and earn is left out for the same reason. It is reached on a phone
  * from the card on Home, the plan page and Settings, all of which can say what
  * it is worth - which a one-word tab label never could.
+ *
+ * Activity is left out too, and it was the closest call. It answers one
+ * question - where did my credits go - which is asked when the balance looks
+ * wrong, not several times a day like the five below. Every tab it could
+ * replace is a daily job: Records is the product, Search is how work starts,
+ * My plan is how the balance is refilled. So it is reached from the credits
+ * block on Home, which can hand over the question in the reader's own words,
+ * and from the sidebar on a large screen.
  */
 const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records", "/portal/plan"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);

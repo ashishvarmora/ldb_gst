@@ -38,12 +38,13 @@ export type AccountParams = {
   tstatus?: string;
   tsort?: string;
   tpage?: string;
-  /** Activity tab. */
+  /**
+   * Activity tab. The alerts panel there is a short preview with a link into
+   * the delivery log, so it carries no filter or page of its own.
+   */
   source?: string;
   outcome?: string;
   spage?: string;
-  delivery?: string;
-  apage?: string;
 };
 
 export function activeTab(raw: string | undefined): Tab {

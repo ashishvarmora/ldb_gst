@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { Coins, Filter, IndianRupee, TrendingDown, Users, Wallet } from "lucide-react";
+import { ArrowRight, Coins, Filter, IndianRupee, TrendingDown, Wallet } from "lucide-react";
 
 import { BASE_PATH, type SectionParams } from "./TabStrip";
+import { CapNote, pageRange } from "../pager";
+import { PaymentsTable, balanceTone, isPaymentStatus, type NameLookup } from "../tables";
 import { Select } from "@/components/form";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
+  Avatar,
   Badge,
   EmptyState,
-  LinkButton,
-  Mono,
   Panel,
   StatCard,
   TableWrap,
@@ -17,53 +18,79 @@ import {
   Tr,
   buttonClass,
 } from "@/components/ui";
-import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
-import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
+import { formatCredits } from "@/lib/credits";
+import { fmtNumber, fmtRelative, fmtRupees, initials } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type {
-  CreditActivity,
-  CreditPack,
-  OfficerOverview,
-  Payment,
-  PaymentStatus,
-  Plan,
-} from "@/lib/types";
+import type { CreditPack, OfficerOverview, Payment, Plan } from "@/lib/types";
 
 /**
- * What has already happened, and nothing that can be changed here.
+ * What has already happened, read the way the question is asked.
  *
- * The rules used to sit above these tables on one page, so an admin looking up
- * a receipt scrolled through the pricing controls to reach it and an admin
- * changing a price scrolled through a year of receipts. They are now different
- * tabs, and this one has no editable field on it at all.
+ * This tab used to be two flat lists - every payment on the platform, then every
+ * credit movement on the platform - and the second one was the same table the
+ * account page already showed, interleaved across every customer at once.
+ * Nobody reads a credit ledger that way. So the tab now leads with one row per
+ * customer, and the row links to that customer's own history rather than
+ * repeating it here.
+ *
+ * The itemised payment list stays, because "what money came in this week" is a
+ * genuinely platform-wide question and the answer is not on any one account's
+ * page. It renders through the same PaymentsTable the account page uses, so the
+ * two can never drift apart.
+ *
+ * Nothing on this tab can be edited.
  */
 
 const PAYMENTS_PER_PAGE = 25;
-const ACTIVITY_PER_PAGE = 25;
+const CUSTOMERS_PER_PAGE = 20;
 
-const PAYMENT_TONE: Record<PaymentStatus, "good" | "warn" | "bad"> = {
-  paid: "good",
-  created: "warn",
-  failed: "bad",
-};
+/**
+ * How many payments the totals and the per-customer sums are worked out from.
+ * These are a handful of rows a month; the cap is a floor under the cost if that
+ * stops being true, and it says so on screen when it bites rather than quietly
+ * under-reporting.
+ */
+const PAYMENT_SCAN_CAP = 2000;
 
-const PAYMENT_LABEL: Record<PaymentStatus, string> = {
-  paid: "Paid",
-  created: "Started, not paid",
-  failed: "Failed",
-};
+/** How the per-customer list can be ordered, and what each order really asks. */
+const SORTS = {
+  received: "most paid",
+  spent: "most spent this month",
+  balance: "lowest balance",
+  recent: "last active",
+  name: "name",
+} as const;
 
-function isPaymentStatus(value: string | undefined): value is PaymentStatus {
-  return value === "paid" || value === "created" || value === "failed";
+type SortKey = keyof typeof SORTS;
+
+function isSort(value: string | undefined): value is SortKey {
+  return value !== undefined && value in SORTS;
 }
+
+/** One customer's money, folded out of the payment scan and the overview row. */
+type CustomerMoney = {
+  account: OfficerOverview;
+  /** Rupees actually charged, so already net of any discount. */
+  received: number;
+  discount: number;
+  paidCount: number;
+  pendingCount: number;
+  lastPaymentAt: string | null;
+};
+
+type ScannedPayment = Pick<
+  Payment,
+  "user_id" | "amount_inr" | "discount_inr" | "credits" | "status" | "created_at"
+>;
 
 export async function HistoryTab({ params }: { params: SectionParams }) {
   const statusFilter = isPaymentStatus(params.status) ? params.status : null;
   const kindFilter = params.kind === "credits" || params.kind === "plan" ? params.kind : null;
-  const flowFilter = params.flow === "in" || params.flow === "out" ? params.flow : null;
+  const sort: SortKey = isSort(params.csort) ? params.csort : "received";
 
   const payPage = pageFromParam(params.pay);
-  const actPage = pageFromParam(params.act);
+  const custPage = pageFromParam(params.cust);
+  const payRange = pageRange(payPage, PAYMENTS_PER_PAGE);
 
   const admin = getSupabaseAdmin();
 
@@ -71,51 +98,40 @@ export async function HistoryTab({ params }: { params: SectionParams }) {
     .from("payments")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
-    .range((payPage - 1) * PAYMENTS_PER_PAGE, payPage * PAYMENTS_PER_PAGE - 1);
+    .range(payRange.from, payRange.to);
   if (statusFilter) paymentQuery = paymentQuery.eq("status", statusFilter);
   if (kindFilter) paymentQuery = paymentQuery.eq("kind", kindFilter);
-
-  // credit_activity, not credit_transactions: money in stays itemised while
-  // usage is rolled up per day, so a week of automatic checking is a handful of
-  // lines instead of several hundred. The exact ledger is still there for an
-  // argument about a single charge.
-  let activityQuery = admin
-    .from("credit_activity")
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range((actPage - 1) * ACTIVITY_PER_PAGE, actPage * ACTIVITY_PER_PAGE - 1);
-  if (flowFilter === "in") activityQuery = activityQuery.gt("amount", 0);
-  if (flowFilter === "out") activityQuery = activityQuery.lt("amount", 0);
 
   const [
     { data: accounts },
     { data: payments, count: paymentCount },
-    { data: activity, count: activityCount },
-    { data: money },
+    { data: scanned },
     { data: packs },
     { data: plans },
   ] = await Promise.all([
-    // One read of the overview serves two jobs: the totals above, and the name
-    // beside every payment and ledger line. Who is on what balance is the
-    // Accounts page's question, so no table of them is repeated here.
+    // One read of the overview serves three jobs: the totals above, the
+    // per-customer rows, and the name beside every payment.
     admin.from("officer_overview").select("*").eq("role", "officer"),
     paymentQuery,
-    activityQuery,
-    // Totals across every payment, not just the page listed. Summed here rather
-    // than in a view because this is a handful of rows a month; if that stops
-    // being true it becomes a view.
-    admin.from("payments").select("amount_inr, credits, status").limit(1000),
+    // Newest first, so if the cap ever bites it is the oldest history that is
+    // missing rather than an arbitrary slice.
+    admin
+      .from("payments")
+      .select("user_id, amount_inr, discount_inr, credits, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(PAYMENT_SCAN_CAP),
     admin.from("credit_packs").select("id, name"),
     admin.from("plans").select("id, name"),
   ]);
 
   const rows = (accounts ?? []) as OfficerOverview[];
   const paymentRows = (payments ?? []) as Payment[];
-  const activityRows = (activity ?? []) as CreditActivity[];
-  const allPayments = (money ?? []) as Pick<Payment, "amount_inr" | "credits" | "status">[];
+  const scan = (scanned ?? []) as ScannedPayment[];
 
-  const nameOf = new Map(rows.map((row) => [row.id, row.full_name ?? row.email]));
-  const packName = new Map(((packs ?? []) as Pick<CreditPack, "id" | "name">[]).map((p) => [p.id, p.name]));
+  const nameOf: NameLookup = new Map(rows.map((row) => [row.id, row.full_name ?? row.email]));
+  const packName = new Map(
+    ((packs ?? []) as Pick<CreditPack, "id" | "name">[]).map((p) => [p.id, p.name]),
+  );
   const planName = new Map(((plans ?? []) as Pick<Plan, "id" | "name">[]).map((p) => [p.id, p.name]));
 
   const outstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
@@ -123,26 +139,81 @@ export async function HistoryTab({ params }: { params: SectionParams }) {
   const spentMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
   const empty = rows.filter((row) => Number(row.credits ?? 0) <= 0).length;
 
-  const paid = allPayments.filter((row) => row.status === "paid");
+  const paid = scan.filter((row) => row.status === "paid");
   const received = paid.reduce((sum, row) => sum + Number(row.amount_inr ?? 0), 0);
+  const discounted = paid.reduce((sum, row) => sum + Number(row.discount_inr ?? 0), 0);
   const issued = paid.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
-  const pending = allPayments.filter((row) => row.status === "created").length;
-  const failed = allPayments.filter((row) => row.status === "failed").length;
+  const pending = scan.filter((row) => row.status === "created").length;
+  const failed = scan.filter((row) => row.status === "failed").length;
 
   // Balances are valued at what was actually charged: money received divided by
   // credits issued. Never at a pack's own rate, which would price a liability at
   // a number nobody may have paid.
   const paidRate = issued > 0 ? received / issued : 0;
 
-  // Every pager carries the whole query string - including the tab - so turning
-  // one page never drops another panel's filter or lands on the wrong tab.
-  const pagerParams = {
+  /* --------------------------------------------------------------------- */
+  /* One row per customer - the reason this tab exists                      */
+  /* --------------------------------------------------------------------- */
+
+  const money = new Map<string, CustomerMoney>(
+    rows.map((account) => [
+      account.id,
+      {
+        account,
+        received: 0,
+        discount: 0,
+        paidCount: 0,
+        pendingCount: 0,
+        lastPaymentAt: null,
+      },
+    ]),
+  );
+
+  for (const payment of scan) {
+    const row = money.get(payment.user_id);
+    if (!row) continue; // A payment from an account that is gone, or an admin's.
+    if (payment.status === "paid") {
+      row.received += Number(payment.amount_inr ?? 0);
+      row.discount += Number(payment.discount_inr ?? 0);
+      row.paidCount += 1;
+      // The scan is newest first, so the first paid row seen is the latest.
+      row.lastPaymentAt ??= payment.created_at;
+    } else if (payment.status === "created") {
+      row.pendingCount += 1;
+    }
+  }
+
+  const customers = [...money.values()].sort((a, b) => {
+    switch (sort) {
+      case "spent":
+        return (
+          Number(b.account.credits_spent_month ?? 0) - Number(a.account.credits_spent_month ?? 0)
+        );
+      case "balance":
+        return Number(a.account.credits ?? 0) - Number(b.account.credits ?? 0);
+      case "recent":
+        return (b.account.last_active_at ?? "").localeCompare(a.account.last_active_at ?? "");
+      case "name":
+        return (a.account.full_name ?? a.account.email).localeCompare(
+          b.account.full_name ?? b.account.email,
+        );
+      default:
+        return b.received - a.received;
+    }
+  });
+
+  const shownCustomers = pageSlice(customers, custPage, CUSTOMERS_PER_PAGE);
+
+  // Every pager and every filter carries the whole query string - including the
+  // tab - so turning one page never drops another panel's filter or lands on the
+  // wrong tab.
+  const carry = {
     tab: "history",
     status: statusFilter,
     kind: kindFilter,
-    flow: flowFilter,
+    csort: sort === "received" ? null : sort,
     pay: payPage,
-    act: actPage,
+    cust: custPage,
   };
 
   return (
@@ -181,9 +252,147 @@ export async function HistoryTab({ params }: { params: SectionParams }) {
       </div>
 
       <Panel
-        className="mb-6"
-        title="Payments"
-        description="Every order, newest first. A plan or a pack is handed over only when a verified payment arrives."
+        className="mb-2"
+        title="By customer"
+        description="One row each. Open a row for that customer's own credit history and payments — the movement-by-movement record lives on their page, not here."
+        bodyClassName="p-0"
+      >
+        <form
+          method="get"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-divider px-5 py-3"
+        >
+          <input type="hidden" name="tab" value="history" />
+          <input type="hidden" name="status" value={statusFilter ?? ""} />
+          <input type="hidden" name="kind" value={kindFilter ?? ""} />
+          <span className="text-xs text-muted">
+            {fmtNumber(customers.length)} customer{customers.length === 1 ? "" : "s"} ·{" "}
+            {fmtRupees(received)} received
+            {discounted > 0 ? ` · ${fmtRupees(discounted)} given away in discounts` : ""}
+          </span>
+          <span className="flex flex-wrap items-center gap-2">
+            <Select name="csort" defaultValue={sort} className="w-56 py-1.5 text-xs">
+              {(Object.keys(SORTS) as SortKey[]).map((key) => (
+                <option key={key} value={key}>
+                  Sort by {SORTS[key]}
+                </option>
+              ))}
+            </Select>
+            <button type="submit" className={buttonClass("secondary", "sm")}>
+              <Filter size={13} />
+              Apply
+            </button>
+          </span>
+        </form>
+
+        {shownCustomers.length === 0 ? (
+          <EmptyState
+            title={customers.length > 0 ? "That page is past the end of the list" : "No customers yet"}
+            description={
+              customers.length > 0
+                ? "Use the page links below to get back."
+                : "Nothing has been bought or spent because there is nobody to buy or spend it."
+            }
+          />
+        ) : (
+          <TableWrap>
+            <Thead>
+              <th className="th">Customer</th>
+              <th className="th text-right">Credits left</th>
+              <th className="th text-right">Bought</th>
+              <th className="th text-right">Spent this month</th>
+              <th className="th text-right">Paid</th>
+              <th className="th">Last active</th>
+              <th className="th" />
+            </Thead>
+            <Tbody>
+              {shownCustomers.map((row) => {
+                const { account, discount, paidCount, pendingCount, lastPaymentAt } = row;
+                const paidTotal = row.received;
+                return (
+                  <Tr key={account.id}>
+                    <td className="td">
+                      <Link
+                        href={`/admin/officers/${account.id}?tab=credits`}
+                        className="group flex items-center gap-2.5"
+                      >
+                        <Avatar size="sm" text={initials(account.full_name, account.email)} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-ink group-hover:text-brand-400">
+                            {account.full_name ?? "Unnamed"}
+                          </span>
+                          <span className="block truncate text-xs text-faint">{account.email}</span>
+                        </span>
+                      </Link>
+                    </td>
+
+                    <td className="td text-right">
+                      <Badge tone={balanceTone(account.credits)}>
+                        {formatCredits(account.credits)}
+                      </Badge>
+                    </td>
+
+                    <td className="td text-right text-sm tabular-nums text-muted">
+                      {formatCredits(account.credits_purchased)}
+                    </td>
+
+                    <td className="td text-right text-sm font-medium tabular-nums text-ink">
+                      {formatCredits(account.credits_spent_month)}
+                      <span className="mt-0.5 block text-xs font-normal text-faint">
+                        {formatCredits(account.credits_spent_today)} today
+                      </span>
+                    </td>
+
+                    <td className="td text-right">
+                      <span className="block text-sm font-medium tabular-nums text-ink">
+                        {fmtRupees(paidTotal)}
+                      </span>
+                      <span className="block text-xs text-faint">
+                        {paidCount === 0
+                          ? "never paid"
+                          : `${fmtNumber(paidCount)} payment${paidCount === 1 ? "" : "s"}`}
+                        {discount > 0 ? ` · ${fmtRupees(discount)} off` : ""}
+                        {pendingCount > 0 ? ` · ${fmtNumber(pendingCount)} unfinished` : ""}
+                      </span>
+                    </td>
+
+                    <td className="td whitespace-nowrap">
+                      <span className="block text-xs text-muted">
+                        {fmtRelative(account.last_active_at)}
+                      </span>
+                      <span className="block text-xs text-faint">
+                        {lastPaymentAt ? `last paid ${fmtRelative(lastPaymentAt)}` : "no payment yet"}
+                      </span>
+                    </td>
+
+                    <td className="td text-right">
+                      <Link
+                        href={`/admin/officers/${account.id}?tab=credits`}
+                        className="inline-flex items-center gap-1 text-xs whitespace-nowrap text-brand-500 hover:underline"
+                      >
+                        Their history
+                        <ArrowRight size={12} />
+                      </Link>
+                    </td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </TableWrap>
+        )}
+      </Panel>
+
+      <Pager
+        className="mt-3 mb-6"
+        page={custPage}
+        total={customers.length}
+        pageSize={CUSTOMERS_PER_PAGE}
+        noun="customers"
+        href={{ path: BASE_PATH, params: carry, pageKey: "cust" }}
+      />
+
+      <Panel
+        title="Every payment"
+        description="Across all customers, newest first — the one record here that no single account's page can answer. A plan or a pack is handed over only when a verified payment arrives."
         bodyClassName="p-0"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-divider px-5 py-3">
@@ -212,7 +421,7 @@ export async function HistoryTab({ params }: { params: SectionParams }) {
               looking at on page 4 is not on page 4 of a different list. */}
           <form method="get" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value="history" />
-            <input type="hidden" name="flow" value={flowFilter ?? ""} />
+            <input type="hidden" name="csort" value={sort === "received" ? "" : sort} />
             <Select name="kind" defaultValue={kindFilter ?? ""} className="w-36 py-1.5 text-xs">
               <option value="">Plans and packs</option>
               <option value="plan">Plans only</option>
@@ -231,210 +440,46 @@ export async function HistoryTab({ params }: { params: SectionParams }) {
           </form>
         </div>
 
-        {paymentRows.length === 0 ? (
-          <EmptyState
-            title={statusFilter || kindFilter ? "No payments match those filters" : "No payments yet"}
-            description={
-              statusFilter || kindFilter
+        <PaymentsTable
+          rows={paymentRows}
+          nameOf={nameOf}
+          planName={planName}
+          packName={packName}
+          emptyTitle={
+            (paymentCount ?? 0) > 0
+              ? "That page is past the end of the list"
+              : statusFilter || kindFilter
+                ? "No payments match those filters"
+                : "No payments yet"
+          }
+          emptyDescription={
+            (paymentCount ?? 0) > 0
+              ? "Use the page links below to get back."
+              : statusFilter || kindFilter
                 ? "Clear the filters to see everything."
                 : "Nobody can pay until online payment is switched on and there is a plan or a pack to buy."
-            }
+          }
+        />
+
+        {(paymentCount ?? 0) > 0 ? (
+          <Pager
+            className="border-t border-divider px-5 py-3"
+            page={payPage}
+            total={paymentCount ?? paymentRows.length}
+            pageSize={PAYMENTS_PER_PAGE}
+            noun="payments"
+            href={{ path: BASE_PATH, params: carry, pageKey: "pay" }}
           />
-        ) : (
-          <>
-            <TableWrap>
-              <Thead>
-                <th className="th">When</th>
-                <th className="th">Customer</th>
-                <th className="th">Bought</th>
-                <th className="th text-right">Amount</th>
-                <th className="th text-right">Credits</th>
-                <th className="th">Status</th>
-                <th className="th">Order</th>
-              </Thead>
-              <Tbody>
-                {paymentRows.map((row) => (
-                  <Tr key={row.id}>
-                    <td className="td whitespace-nowrap">
-                      <span className="block text-sm text-ink">{fmtRelative(row.created_at)}</span>
-                      <span className="block text-xs text-faint">{fmtDateTime(row.created_at)}</span>
-                    </td>
-                    <td className="td text-sm">
-                      <Link
-                        href={`/admin/officers/${row.user_id}`}
-                        className="transition hover:text-brand-400"
-                      >
-                        {nameOf.get(row.user_id) ?? "--"}
-                      </Link>
-                    </td>
-                    <td className="td text-sm">
-                      {row.kind === "plan" ? (
-                        <>
-                          <Badge tone="brand">plan</Badge>
-                          <span className="mt-0.5 block text-xs text-muted">
-                            {(row.plan_id ? planName.get(row.plan_id) : null) ?? "removed"}
-                            {row.months > 1 ? ` · ${row.months} months` : ""}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Badge>pack</Badge>
-                          <span className="mt-0.5 block text-xs text-muted">
-                            {(row.pack_id ? packName.get(row.pack_id) : null) ?? "removed"}
-                          </span>
-                        </>
-                      )}
-                    </td>
-                    <td className="td text-right text-sm font-medium tabular-nums text-ink">
-                      {fmtRupees(Number(row.amount_inr))}
-                    </td>
-                    <td className="td text-right text-sm tabular-nums text-muted">
-                      {formatCredits(row.credits)}
-                    </td>
-                    <td className="td">
-                      <Badge tone={PAYMENT_TONE[row.status]}>{PAYMENT_LABEL[row.status]}</Badge>
-                      {row.failure_reason ? (
-                        <span className="mt-0.5 block max-w-48 truncate text-xs text-faint">
-                          {row.failure_reason}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="td">
-                      <Mono className="text-xs text-faint">{row.razorpay_order_id}</Mono>
-                    </td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </TableWrap>
-
-            <Pager
-              className="border-t border-divider px-5 py-3"
-              page={payPage}
-              total={paymentCount ?? paymentRows.length}
-              pageSize={PAYMENTS_PER_PAGE}
-              noun="payments"
-              href={{ path: BASE_PATH, params: pagerParams, pageKey: "pay" }}
-            />
-          </>
-        )}
+        ) : null}
       </Panel>
 
-      <Panel
-        className="mb-6"
-        title="Credit ledger"
-        description="Across every account, newest first. Money in is listed one line each; usage is totalled per day so a week of automatic checking does not bury a top-up."
-        bodyClassName="p-0"
-      >
-        <form
-          method="get"
-          className="flex flex-wrap items-center justify-between gap-3 border-b border-divider px-5 py-3"
-        >
-          <input type="hidden" name="tab" value="history" />
-          <input type="hidden" name="status" value={statusFilter ?? ""} />
-          <input type="hidden" name="kind" value={kindFilter ?? ""} />
-          <span className="text-xs text-muted">
-            {fmtNumber(activityCount ?? activityRows.length)} line
-            {(activityCount ?? activityRows.length) === 1 ? "" : "s"}
-          </span>
-          <span className="flex flex-wrap items-center gap-2">
-            <Select name="flow" defaultValue={flowFilter ?? ""} className="w-40 py-1.5 text-xs">
-              <option value="">In and out</option>
-              <option value="in">Money in only</option>
-              <option value="out">Usage only</option>
-            </Select>
-            <button type="submit" className={buttonClass("secondary", "sm")}>
-              <Filter size={13} />
-              Apply
-            </button>
-          </span>
-        </form>
-
-        {activityRows.length === 0 ? (
-          <EmptyState
-            title={flowFilter ? "Nothing of that kind yet" : "No movements yet"}
-            description="Top up an account, or wait for the first search to be charged."
-          />
-        ) : (
-          <>
-            <TableWrap>
-              <Thead>
-                <th className="th">When</th>
-                <th className="th">Customer</th>
-                <th className="th">What</th>
-                <th className="th text-right">Change</th>
-                <th className="th text-right">Balance after</th>
-              </Thead>
-              <Tbody>
-                {activityRows.map((row) => (
-                  <Tr key={`${row.user_id}-${row.activity_date}-${row.reason}-${row.created_at}`}>
-                    <td className="td whitespace-nowrap">
-                      <span className="block text-sm text-ink">
-                        {row.is_rollup ? fmtDate(row.activity_date) : fmtRelative(row.created_at)}
-                      </span>
-                      <span className="block text-xs text-faint">
-                        {row.is_rollup ? "whole day" : fmtDateTime(row.created_at)}
-                      </span>
-                    </td>
-                    <td className="td text-sm">
-                      <Link
-                        href={`/admin/officers/${row.user_id}`}
-                        className="transition hover:text-brand-400"
-                      >
-                        {nameOf.get(row.user_id) ?? "--"}
-                      </Link>
-                    </td>
-                    <td className="td">
-                      <span className="block text-sm text-ink">
-                        {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
-                      </span>
-                      <span className="block max-w-xs truncate text-xs text-faint">
-                        {row.is_rollup
-                          ? `${fmtNumber(row.entries)} in the day`
-                          : (row.note ?? (row.truck_number ? row.truck_number : ""))}
-                      </span>
-                    </td>
-                    <td
-                      className={`td text-right text-sm font-medium tabular-nums ${
-                        Number(row.amount) < 0 ? "text-muted" : "text-good-500"
-                      }`}
-                    >
-                      {Number(row.amount) > 0 ? "+" : "-"}
-                      {formatCredits(Math.abs(Number(row.amount)))}
-                    </td>
-                    <td className="td text-right text-sm tabular-nums text-ink">
-                      {formatCredits(row.balance_after)}
-                    </td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </TableWrap>
-
-            <Pager
-              className="border-t border-divider px-5 py-3"
-              page={actPage}
-              total={activityCount ?? activityRows.length}
-              pageSize={ACTIVITY_PER_PAGE}
-              noun="lines"
-              href={{ path: BASE_PATH, params: pagerParams, pageKey: "act" }}
-            />
-          </>
-        )}
-      </Panel>
-
-      <Panel
-        title="Who is holding those credits"
-        description="Balance by balance, with the filters and the search, on the Accounts page. It was a second copy of that table here."
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <LinkButton href="/admin/officers?sort=balance" variant="secondary">
-            <Users size={14} />
-            Lowest balances first
-          </LinkButton>
-          <LinkButton href="/admin/officers?sort=spending" variant="ghost">
-            Biggest spenders this month
-          </LinkButton>
-        </div>
-      </Panel>
+      {scan.length >= PAYMENT_SCAN_CAP ? (
+        <CapNote>
+          The four figures at the top and the per-customer sums are worked out from the newest{" "}
+          {fmtNumber(PAYMENT_SCAN_CAP)} payments, and there are at least that many — anything older
+          is missing from them. The paged list above is complete.
+        </CapNote>
+      ) : null}
     </>
   );
 }

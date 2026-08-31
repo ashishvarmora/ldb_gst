@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AlertTriangle, CalendarDays, Wallet } from "lucide-react";
 
 import { InviteCard } from "../referrals/InviteCard";
@@ -321,9 +322,20 @@ export default async function PlanPage({
 
       <div className="space-y-3">
         <div id="history">
+          <p className="mb-2 text-xs text-muted">
+            Looking for a single search or check?{" "}
+            <Link href="/portal/activity" className="font-medium text-brand-500 hover:underline">
+              See your activity
+            </Link>
+            .
+          </p>
+          {/* This list totals usage per day on purpose - a week of automatic
+              checks would otherwise bury the top-ups. Activity is where the
+              individual charges live, so the two are linked rather than one
+              of them trying to be both. */}
           <Disclosure
             title="Credit history"
-            hint="Top-ups one by one, usage totalled per day."
+            hint="Top-ups one by one, usage totalled per day. See Activity for each charge."
             defaultOpen={historyPage > 1}
             bodyClassName="p-0"
           >
@@ -515,6 +527,12 @@ function PaymentList({ payments }: { payments: PaymentRow[] }) {
               </span>
               <span className="block text-xs text-faint">
                 {fmtDateTime(payment.paid_at ?? payment.created_at)}
+                {/* amount_inr is what was charged, so a discounted payment
+                    otherwise reads as a smaller purchase than it was. Saying
+                    what came off is what makes the credits above add up. */}
+                {payment.discount_inr > 0
+                  ? ` · ${fmtRupees(payment.discount_inr)} off with a code`
+                  : ""}
               </span>
             </span>
             <Badge tone={PAYMENT_TONE[payment.status]}>{PAYMENT_LABEL[payment.status]}</Badge>

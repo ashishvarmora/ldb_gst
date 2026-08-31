@@ -6,9 +6,10 @@ import { reportError } from "@/lib/errors";
 import { bool, done, fail, str } from "@/lib/forms";
 import { assertPortalUser } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
+import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
-import type { ActionResult, TelegramConfig } from "@/lib/types";
+import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/types";
 
 export async function saveMyTelegram(
   _prev: ActionResult | null,
@@ -84,4 +85,81 @@ export async function testMyTelegram(
           "The test message did not go through. Check the chat id and that you have started the bot.",
         ),
       );
+}
+
+/* -------------------------------------------------------------------------- */
+/* the customer's own sheet                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Names the sheet this account's history is copied into before it is cleared
+ * from the app.
+ *
+ * Blank is a real answer, not an incomplete form: it means "I have no sheet of
+ * my own", and the operator's fallback sheet keeps the copy so nothing is ever
+ * deleted uncopied.
+ */
+export async function saveMySheet(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  const raw = str(fd, "sheet_url");
+  const enabled = bool(fd, "is_enabled");
+
+  const { data: current } = await admin
+    .from("google_sheet_configs")
+    .select("spreadsheet_id, last_synced_at")
+    .eq("user_id", session.id)
+    .maybeSingle<Pick<GoogleSheetConfig, "spreadsheet_id" | "last_synced_at">>();
+
+  const spreadsheetId = raw ? spreadsheetIdFromUrl(raw) : null;
+
+  if (raw && !spreadsheetId) {
+    return fail(
+      "That does not look like a Google Sheets link. Open your sheet, copy the whole address out of the browser bar, and paste it here.",
+    );
+  }
+
+  // A new sheet has never been written to, so carrying the old timestamp over
+  // would show a copy that is not in the sheet the reader is looking at.
+  const movedSheet = (current?.spreadsheet_id ?? null) !== spreadsheetId;
+
+  const { error } = await admin.from("google_sheet_configs").upsert(
+    {
+      user_id: session.id,
+      spreadsheet_id: spreadsheetId,
+      /*
+       * Rebuilt from the id rather than stored as pasted. A link copied while
+       * scrolling carries a tab and a cell reference on the end of it, and the
+       * id is the only part that identifies the sheet.
+       */
+      sheet_url: spreadsheetId
+        ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+        : null,
+      is_enabled: enabled,
+      last_synced_at: movedSheet ? null : (current?.last_synced_at ?? null),
+      // Any earlier failure was about the sheet being replaced here.
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+
+  if (error) {
+    return fail(reportError("saving sheet settings", error, "Could not save that sheet."));
+  }
+
+  revalidatePath("/portal/settings");
+
+  if (!spreadsheetId) {
+    return done("Sheet removed. Your history is still copied out - just not to a sheet of yours.");
+  }
+  return done(
+    enabled
+      ? "Saved. Make sure the sheet is shared as Editor with the address above, or nothing can be written to it."
+      : "Saved, and switched off. Nothing will be written to your sheet until you switch it back on.",
+  );
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowRight,
   Building2,
+  Gauge,
   Mail,
   MapPin,
   Phone,
@@ -17,6 +18,7 @@ import {
   Avatar,
   Badge,
   EmptyState,
+  LinkButton,
   Mono,
   PageHeader,
   Panel,
@@ -28,7 +30,7 @@ import {
   buttonClass,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
-import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
+import { formatCredits } from "@/lib/credits";
 import {
   fmtDate,
   fmtDateTime,
@@ -38,12 +40,7 @@ import {
   normalizeTruckNumber,
 } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type {
-  CreditActivity,
-  OfficerOverview,
-  TruckDirectoryRow,
-  TruckStatus,
-} from "@/lib/types";
+import type { OfficerOverview, TruckDirectoryRow, TruckStatus } from "@/lib/types";
 
 export const metadata = { title: "Explore — Admin" };
 
@@ -70,9 +67,7 @@ const GROUPS_PAGE = 10;
 const MATCHES_PAGE = 20;
 const SHARED_PAGE = 12;
 const BUSY_PAGE = 10;
-const ACCOUNTS_PAGE = 10;
 const TRUCKS_PER_ACCOUNT = 25;
-const ACTIVITY_PER_ACCOUNT = 8;
 
 /**
  * A search groups its hits by number before showing them, so they cannot be
@@ -156,7 +151,6 @@ export default async function ExplorePage({
     matches?: string;
     shared?: string;
     busy?: string;
-    accounts?: string;
   }>;
 }) {
   await requireSuperAdmin();
@@ -179,7 +173,6 @@ export default async function ExplorePage({
   let accountHits: OfficerOverview[] = [];
   let accountTotal = 0;
   let accountTrucks = new Map<string, TruckDirectoryRow[]>();
-  let accountActivity = new Map<string, CreditActivity[]>();
 
   if (term) {
     const matchRange = pageRange(matchesPage, MATCHES_PAGE);
@@ -210,39 +203,28 @@ export default async function ExplorePage({
     accountTotal = count ?? accountHits.length;
 
     /**
-     * The follow-ups are one query per matched account, and only while few
-     * enough match to be worth opening. Each is capped at a page's worth with
-     * a link to the paginated view for the rest, rather than a silent cut.
+     * The follow-up is one query per matched account, and only while few enough
+     * match to be worth opening. It is capped at a page's worth with a link to
+     * the paginated view for the rest, rather than a silent cut.
+     *
+     * Trucks only. Their credit history used to be read here too, which made
+     * this the third screen in the console showing the same ledger - it lives on
+     * the account's own Credits tab, one link away.
      */
     if (accountTotal <= FULL_PROFILE_LIMIT && accountHits.length > 0) {
       const loaded = await Promise.all(
         accountHits.map(async (account) => {
-          const [{ data: trucks }, { data: activity }] = await Promise.all([
-            admin
-              .from("truck_directory")
-              .select("*")
-              .eq("officer_id", account.id)
-              .order("last_event_at", { ascending: false, nullsFirst: false })
-              .limit(TRUCKS_PER_ACCOUNT),
-            // credit_activity, not the raw ledger: top-ups stay itemised and a
-            // week of half-credit checks is a handful of lines, not hundreds.
-            admin
-              .from("credit_activity")
-              .select("*")
-              .eq("user_id", account.id)
-              .order("created_at", { ascending: false })
-              .limit(ACTIVITY_PER_ACCOUNT),
-          ]);
-          return {
-            id: account.id,
-            trucks: (trucks ?? []) as TruckDirectoryRow[],
-            activity: (activity ?? []) as CreditActivity[],
-          };
+          const { data: trucks } = await admin
+            .from("truck_directory")
+            .select("*")
+            .eq("officer_id", account.id)
+            .order("last_event_at", { ascending: false, nullsFirst: false })
+            .limit(TRUCKS_PER_ACCOUNT);
+          return { id: account.id, trucks: (trucks ?? []) as TruckDirectoryRow[] };
         }),
       );
 
       accountTrucks = new Map(loaded.map((row) => [row.id, row.trucks]));
-      accountActivity = new Map(loaded.map((row) => [row.id, row.activity]));
     }
   }
 
@@ -282,13 +264,8 @@ export default async function ExplorePage({
       b.rows.reduce((sum, row) => sum + row.event_count, 0) -
       a.rows.reduce((sum, row) => sum + row.event_count, 0),
   );
-  const bySpend = [...accounts].sort(
-    (a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0),
-  );
-
   const sharedPage = pageFromParam(params.shared);
   const busyPage = pageFromParam(params.busy);
-  const accountsPage = pageFromParam(params.accounts);
 
   return (
     <>
@@ -530,7 +507,6 @@ export default async function ExplorePage({
       ) : (
         accountHits.map((account) => {
           const trucks = accountTrucks.get(account.id) ?? [];
-          const activity = accountActivity.get(account.id) ?? [];
           const balance = Number(account.credits ?? 0);
 
           return (
@@ -691,58 +667,6 @@ export default async function ExplorePage({
                 )}
               </Panel>
 
-              <Panel
-                title="Recent credit movements"
-                description="Top-ups one by one; usage totalled per day, so a week of checks is a few lines."
-                bodyClassName="p-0"
-                actions={
-                  <Link
-                    href={`/admin/officers/${account.id}`}
-                    className="text-xs text-brand-400 hover:underline"
-                  >
-                    Full history
-                  </Link>
-                }
-              >
-                {activity.length === 0 ? (
-                  <EmptyState title="Nothing charged yet" />
-                ) : (
-                  <ul className="divide-y divide-divider">
-                    {activity.map((row) => (
-                      <li
-                        key={`${row.activity_date}-${row.reason}-${row.created_at}`}
-                        className="flex items-center justify-between gap-3 px-5 py-2.5"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-ink">
-                            {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
-                            {row.truck_number ? (
-                              <span className="text-faint"> · {row.truck_number}</span>
-                            ) : null}
-                            {row.is_rollup ? (
-                              <span className="text-faint">
-                                {" "}
-                                · {fmtNumber(row.entries)} charges
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="block text-xs text-faint">
-                            {row.is_rollup ? row.activity_date : fmtDateTime(row.created_at)}
-                          </span>
-                        </span>
-                        <span
-                          className={`shrink-0 text-sm font-medium tabular-nums ${
-                            Number(row.amount) < 0 ? "text-muted" : "text-good-500"
-                          }`}
-                        >
-                          {Number(row.amount) > 0 ? "+" : "-"}
-                          {formatCredits(Math.abs(Number(row.amount)))}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Panel>
             </section>
           );
         })
@@ -836,7 +760,7 @@ export default async function ExplorePage({
                 noun="numbers"
                 href={{
                   path: "/admin/explore",
-                  params: { busy: params.busy, accounts: params.accounts },
+                  params: { busy: params.busy },
                   pageKey: "shared",
                 }}
               />
@@ -906,104 +830,31 @@ export default async function ExplorePage({
                 noun="numbers"
                 href={{
                   path: "/admin/explore",
-                  params: { shared: params.shared, accounts: params.accounts },
+                  params: { shared: params.shared },
                   pageKey: "busy",
                 }}
               />
             </div>
 
+            {/* Ranking accounts by what they have spent is the usage report's
+                job, and everything about who they are is the Accounts page's.
+                A third copy of that table lived here; two links do the work. */}
             <div className="xl:col-span-2">
               <Panel
-                title="Accounts by credits spent this month"
-                description="Who is actually working the platform. Click through for their trucks and contact details."
-                bodyClassName="p-0"
+                title="Looking for an account rather than a truck?"
+                description="This page ranks numbers. Accounts are ranked, filtered and searched elsewhere."
               >
-                {bySpend.length === 0 ? (
-                  <EmptyState title="No accounts yet" />
-                ) : (
-                  <TableWrap>
-                    <Thead>
-                      <th className="th">Account</th>
-                      <th className="th">Contact</th>
-                      <th className="th">Posting</th>
-                      <th className="th text-right">Trucks</th>
-                      <th className="th text-right">Credits left</th>
-                      <th className="th text-right">Spent this month</th>
-                      <th className="th">Last event</th>
-                    </Thead>
-                    <Tbody>
-                      {pageSlice(bySpend, accountsPage, ACCOUNTS_PAGE).map((account) => (
-                        <Tr key={account.id}>
-                          <td className="td">
-                            <Link
-                              href={`/admin/officers/${account.id}`}
-                              className="group flex items-center gap-2.5"
-                            >
-                              <Avatar size="sm" text={initials(account.full_name, account.email)} />
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                                  {account.full_name ?? account.email}
-                                </span>
-                                <span className="block truncate text-xs text-faint">
-                                  {account.designation ?? "--"}
-                                </span>
-                              </span>
-                            </Link>
-                          </td>
-                          <td className="td">
-                            <span className="block truncate text-xs text-muted">
-                              {account.email}
-                            </span>
-                            <span className="block text-xs text-faint">
-                              {account.phone ?? "--"}
-                            </span>
-                          </td>
-                          <td className="td">
-                            <span className="block text-sm text-ink">{account.office ?? "--"}</span>
-                            <span className="block text-xs text-faint">
-                              {[account.district, account.state].filter(Boolean).join(", ") || "--"}
-                            </span>
-                          </td>
-                          <td className="td text-right text-sm tabular-nums text-muted">
-                            {fmtNumber(account.active_trucks)}
-                          </td>
-                          <td className="td text-right">
-                            <Badge
-                              tone={
-                                Number(account.credits ?? 0) <= 0
-                                  ? "bad"
-                                  : Number(account.credits ?? 0) < 20
-                                    ? "warn"
-                                    : "good"
-                              }
-                            >
-                              {formatCredits(account.credits)}
-                            </Badge>
-                          </td>
-                          <td className="td text-right text-sm font-medium tabular-nums text-ink">
-                            {formatCredits(account.credits_spent_month)}
-                          </td>
-                          <td className="td text-xs whitespace-nowrap text-muted">
-                            {fmtRelative(account.last_event_at)}
-                          </td>
-                        </Tr>
-                      ))}
-                    </Tbody>
-                  </TableWrap>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <LinkButton href="/admin/usage" variant="secondary">
+                    <Gauge size={14} />
+                    Per-account consumption
+                  </LinkButton>
+                  <LinkButton href="/admin/officers?sort=spending" variant="ghost">
+                    <Users size={14} />
+                    Every customer, biggest spenders first
+                  </LinkButton>
+                </div>
               </Panel>
-
-              <Pager
-                page={accountsPage}
-                pageSize={ACCOUNTS_PAGE}
-                total={bySpend.length}
-                noun="accounts"
-                href={{
-                  path: "/admin/explore",
-                  params: { shared: params.shared, busy: params.busy },
-                  pageKey: "accounts",
-                }}
-              />
             </div>
           </div>
         </>

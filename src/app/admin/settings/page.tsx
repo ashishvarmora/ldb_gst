@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  DatabaseBackup,
+  Database,
   Globe,
   PlayCircle,
   ShieldCheck,
@@ -11,17 +11,17 @@ import {
 } from "lucide-react";
 
 import {
-  runBackupNow,
   runTrackingNow,
   saveBackupSettings,
   savePaymentSettings,
   saveSettings,
   saveSiteSettings,
 } from "./actions";
-import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
+import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/components/form";
-import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
+import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { loadRetentionRules } from "@/lib/backup";
 import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
@@ -48,10 +48,13 @@ export default async function SettingsPage() {
 
   // Raw rows for the panels that still need to tell "absent" from "off", and the
   // resolved object for the Site panel, whose defaults live in loadSettings().
-  const [{ data: rows }, { data: plans }, site, headerList] = await Promise.all([
+  const [{ data: rows }, { data: plans }, site, rules, headerList] = await Promise.all([
     admin.from("app_settings").select("key, value"),
     admin.from("plans").select("*").eq("is_active", true).order("sort_order"),
     loadSettings(admin),
+    // Only counted here. The rules themselves are edited on /admin/storage, and
+    // this page shows enough to tell whether anything is being deleted at all.
+    loadRetentionRules(admin),
     headers(),
   ]);
 
@@ -66,13 +69,17 @@ export default async function SettingsPage() {
   const razorpayKeyId = text(settings, "razorpay_key_id", "");
 
   const backupSheetId = text(settings, "backup_sheet_id", "");
-  const retentionDays = num(settings, "data_retention_days", 30);
-  const backupEvery = num(settings, "backup_interval_days", 7);
+  const exportEvery = num(settings, "sheet_export_interval_days", 1);
   const purgeEnabled = settings.purge_enabled !== false;
-  const keepForEver = retentionDays === -1;
-  // The one combination that loses data on purpose, and the reason the panel
-  // below shouts rather than hints.
-  const deletingWithNoCopy = purgeEnabled && !keepForEver && !backupSheetId;
+
+  // Retention is per table now, so "is anything being deleted" is a question
+  // about the rules rather than about one number on this page.
+  const trimming = rules.filter((rule) => rule.is_enabled && rule.keep_days !== -1);
+  const noCopy = trimming.filter((rule) => !rule.backup_before_delete);
+  const protectedTrimmed = rules.filter((rule) => rule.is_protected && rule.keep_days !== -1);
+  // A rule that wants a copy and has nowhere to put it keeps its rows, so this
+  // is a warning about an export that is not happening, not about data loss.
+  const noFallbackSheet = purgeEnabled && trimming.length > noCopy.length && !backupSheetId;
 
   // Read straight from the environment. Only this yes/no reaches the page - the
   // secret itself must never be rendered anywhere.
@@ -273,50 +280,42 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
-            title="Backup and retention"
-            description="One sheet you own, written on a schedule, holding the crossings the database no longer keeps."
+            title="Sheets and exporting"
+            description="Where old rows are copied before they leave the database, and how often. How long each table is kept is per table, on the Storage page."
+            actions={
+              <LinkButton href="/admin/storage" variant="secondary" size="sm">
+                <Database size={13} />
+                Retention rules
+              </LinkButton>
+            }
           >
             <ActionForm action={saveBackupSettings} closeOnSuccess={false}>
               <div className="space-y-4">
-                <Field
-                  label="Backup sheet"
-                  name="backup_sheet_id"
-                  hint="Paste the whole Google Sheets address; only the id is stored. Leave empty if you do not want a backup."
-                >
-                  <Input
-                    name="backup_sheet_id"
-                    defaultValue={backupSheetId}
-                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                    autoComplete="off"
-                  />
-                </Field>
-
                 <FormGrid cols={2}>
                   <Field
-                    label="Back up every (days)"
-                    name="backup_interval_days"
-                    hint="Checked at the end of a tracking sweep, so it runs on the next sweep after it falls due."
+                    label="Fallback sheet"
+                    name="backup_sheet_id"
+                    hint="Used for any account that has not named a sheet of its own. Paste the whole Google Sheets address; only the id is stored."
                   >
                     <Input
-                      name="backup_interval_days"
-                      type="number"
-                      min={1}
-                      max={365}
-                      defaultValue={backupEvery}
+                      name="backup_sheet_id"
+                      defaultValue={backupSheetId}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      autoComplete="off"
                     />
                   </Field>
 
                   <Field
-                    label="Keep history for (days)"
-                    name="data_retention_days"
-                    hint="Anything older than this is removed from the database. -1 keeps everything for ever."
+                    label="Export every (days)"
+                    name="sheet_export_interval_days"
+                    hint="Checked at the end of a tracking sweep, so it runs on the next sweep after it falls due."
                   >
                     <Input
-                      name="data_retention_days"
+                      name="sheet_export_interval_days"
                       type="number"
-                      min={-1}
-                      max={3650}
-                      defaultValue={retentionDays}
+                      min={1}
+                      max={365}
+                      defaultValue={exportEvery}
                     />
                   </Field>
                 </FormGrid>
@@ -324,45 +323,49 @@ export default async function SettingsPage() {
                 <Checkbox
                   name="purge_enabled"
                   label="Do this automatically"
-                  hint="Off means old rows stay in the database until you press Run backup now."
+                  hint="Off means nothing is exported or deleted until you press the button on the Storage page."
                   defaultChecked={purgeEnabled}
                 />
 
                 <div
                   className={
-                    deletingWithNoCopy
+                    noCopy.length > 0
                       ? "rounded-lg border border-bad-500/50 bg-bad-500/10 p-4"
                       : "rounded-lg border border-line/70 bg-panel/50 p-4"
                   }
                 >
                   <p
                     className={
-                      deletingWithNoCopy
+                      noCopy.length > 0
                         ? "flex items-center gap-2 text-sm font-medium text-bad-500"
                         : "flex items-center gap-2 text-sm font-medium text-ink"
                     }
                   >
-                    {deletingWithNoCopy ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}
-                    {deletingWithNoCopy
-                      ? "Old crossings are being deleted with no copy kept"
+                    {noCopy.length > 0 ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}
+                    {noCopy.length > 0
+                      ? `${noCopy.map((rule) => rule.label).join(", ")} — deleted with no copy kept`
                       : "What actually happens"}
                   </p>
                   <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                    Every {backupEvery} day{backupEvery === 1 ? "" : "s"}, crossings older than{" "}
-                    {keepForEver ? "the retention window" : `${retentionDays} days`} are copied to
-                    the sheet above and then deleted from the database. Search logs and alert logs
-                    older than the same window are deleted too — they are never copied.
+                    Every {exportEvery} day{exportEvery === 1 ? "" : "s"}, each account&apos;s rows
+                    older than that table&apos;s window are copied into that account&apos;s own
+                    sheet — or into the fallback sheet above if it has none — and then deleted.{" "}
+                    {trimming.length === 0
+                      ? "No table has a finite window at the moment, so nothing is being deleted at all."
+                      : `${trimming.length} table(s) are being trimmed.`}
                   </p>
                   <p className="mt-2 text-xs leading-relaxed text-muted">
-                    <span className={deletingWithNoCopy ? "text-bad-500" : "text-ink"}>
-                      If no sheet is set, nothing is backed up and the old rows are simply deleted.
+                    <span className="text-ink">
+                      If a sheet is set but cannot be written, nothing is deleted at all.
                     </span>{" "}
-                    There is no other copy and it cannot be undone. If the sheet is set but cannot be
-                    written, nothing is deleted at all — a broken backup never turns into a deletion.
+                    A broken sheet never turns into a deletion. A rule with copying switched off is
+                    the exception: those rows are deleted with no copy anywhere, and that cannot be
+                    undone.
                   </p>
                   {health.googleSheets ? (
                     <p className="mt-2 text-xs leading-relaxed text-muted">
-                      Share the sheet as <strong>Editor</strong> with{" "}
+                      Every sheet — yours and each account&apos;s — has to be shared as{" "}
+                      <strong>Editor</strong> with{" "}
                       <Mono className="text-xs break-all text-ink">
                         {env.googleServiceAccountEmail}
                       </Mono>{" "}
@@ -374,11 +377,18 @@ export default async function SettingsPage() {
                       GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY first.
                     </p>
                   )}
+                  {noFallbackSheet ? (
+                    <p className="mt-2 text-xs leading-relaxed text-warn-500">
+                      No fallback sheet is set, so an account that has not named one has nowhere to
+                      copy to. Its rows are kept rather than deleted uncopied, which means the
+                      database will not shrink for those accounts.
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
               <FormActions>
-                <SubmitButton>Save backup settings</SubmitButton>
+                <SubmitButton>Save sheet settings</SubmitButton>
               </FormActions>
             </ActionForm>
           </Panel>
@@ -555,41 +565,37 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
-            title="Run backup now"
-            description="Copies old crossings to the sheet, then deletes them. Ignores the interval and the automatic switch."
+            title="Storage and retention"
+            description="How long each table is kept, what it costs on disk, and the button that exports and trims on demand."
           >
             <div className="flex items-start gap-2.5">
-              <DatabaseBackup size={16} className="mt-0.5 shrink-0 text-brand-500" />
+              <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
               <p className="text-xs leading-relaxed text-muted">
-                {keepForEver
-                  ? "History is set to be kept for ever, so this will do nothing."
-                  : backupSheetId
-                    ? `Crossings older than ${retentionDays} days are written to the sheet and then removed, along with search and alert logs of the same age.`
-                    : `No sheet is set, so crossings older than ${retentionDays} days are deleted with no copy kept.`}
+                {rules.length === 0
+                  ? "No retention rules are set up, so nothing is ever deleted. Run 0016_retention_rules_and_sheets.sql against the project."
+                  : trimming.length === 0
+                    ? `All ${rules.length} tables are kept for ever, so the database only grows. Set a window on the logs to hold it down.`
+                    : `${trimming.length} of ${rules.length} tables are trimmed${
+                        noCopy.length > 0 ? `, ${noCopy.length} with no copy kept` : ""
+                      }.`}
+                {protectedTrimmed.length > 0
+                  ? ` ${protectedTrimmed.length} money record(s) have a finite window — worth checking.`
+                  : ""}
               </p>
             </div>
 
-            <ActionForm action={runBackupNow} closeOnSuccess={false}>
-              <FormActions>
-                <ConfirmSubmitButton
-                  message={
-                    backupSheetId
-                      ? "Copy old records to the backup sheet and then delete them from the database?"
-                      : "No backup sheet is set. Old records will be deleted with no copy kept. Continue?"
-                  }
-                  size="md"
-                >
-                  <DatabaseBackup size={14} />
-                  Back up and clear
-                </ConfirmSubmitButton>
-              </FormActions>
-            </ActionForm>
+            <FormActions>
+              <LinkButton href="/admin/storage">
+                <Database size={14} />
+                Open Storage
+              </LinkButton>
+            </FormActions>
 
             <p className="mt-3 flex items-center gap-1.5 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
               <Clock size={12} className="shrink-0" />
-              Last run:{" "}
-              {typeof settings.last_backup_at === "string"
-                ? fmtRelative(settings.last_backup_at)
+              Last export:{" "}
+              {typeof settings.last_sheet_export_at === "string"
+                ? fmtRelative(settings.last_sheet_export_at)
                 : "never"}
             </p>
           </Panel>
@@ -626,14 +632,18 @@ export default async function SettingsPage() {
                 {num(settings, "revisit_minutes", 90)} min
               </DescRow>
               <DescRow label="Retention">
-                {keepForEver ? "kept for ever" : `${retentionDays} days`}
+                {rules.length === 0
+                  ? "no rules"
+                  : trimming.length === 0
+                    ? "every table kept for ever"
+                    : `${trimming.length} of ${rules.length} tables trimmed`}
               </DescRow>
-              <DescRow label="Backup every">{backupEvery} days</DescRow>
-              <DescRow label="Backup sheet">
+              <DescRow label="Export every">{exportEvery} days</DescRow>
+              <DescRow label="Fallback sheet">
                 {backupSheetId ? (
                   <Mono className="text-xs break-all">{backupSheetId}</Mono>
                 ) : (
-                  <Badge tone={deletingWithNoCopy ? "bad" : "neutral"}>none — no copy kept</Badge>
+                  <Badge tone={noFallbackSheet ? "warn" : "neutral"}>none set</Badge>
                 )}
               </DescRow>
               <DescRow label="Automatic">

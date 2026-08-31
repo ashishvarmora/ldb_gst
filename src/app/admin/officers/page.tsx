@@ -3,6 +3,7 @@ import { Filter, MessageCircle, Phone, Plus, Search, UserPlus } from "lucide-rea
 
 import { AccountFields } from "./AccountFields";
 import { createAccount } from "./actions";
+import { balanceTone } from "../tables";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { FormActions, Input, Select } from "@/components/form";
 import { Modal } from "@/components/Modal";
@@ -30,9 +31,6 @@ import type { OfficerOverview, Plan } from "@/lib/types";
 export const metadata = { title: "Customers — Admin" };
 
 const PER_PAGE = 25;
-
-/** Below this a balance is worth chasing before the customer stops mid-job. */
-const LOW_BALANCE = 20;
 
 /**
  * The orders worth offering, and the column each one is really asking for.
@@ -216,101 +214,96 @@ export default async function AccountsPage({
               <th className="th">Last active</th>
             </Thead>
             <Tbody>
-              {rows.map((account) => {
-                const balance = Number(account.credits ?? 0);
-                return (
-                  <Tr key={account.id}>
-                    <td className="td">
-                      <Link
-                        href={`/admin/officers/${account.id}`}
-                        className="group flex items-center gap-3"
-                      >
-                        <Avatar text={initials(account.full_name, account.email)} />
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-2">
-                            <span className="truncate font-medium text-ink group-hover:text-brand-400">
-                              {account.full_name ?? "Unnamed"}
-                            </span>
-                            {account.status === "suspended" ? (
-                              <Badge tone="bad">Suspended</Badge>
-                            ) : null}
+              {rows.map((account) => (
+                <Tr key={account.id}>
+                  <td className="td">
+                    <Link
+                      href={`/admin/officers/${account.id}`}
+                      className="group flex items-center gap-3"
+                    >
+                      <Avatar text={initials(account.full_name, account.email)} />
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate font-medium text-ink group-hover:text-brand-400">
+                            {account.full_name ?? "Unnamed"}
                           </span>
-                          <span className="block truncate text-xs text-faint">{account.email}</span>
+                          {account.status === "suspended" ? (
+                            <Badge tone="bad">Suspended</Badge>
+                          ) : null}
                         </span>
-                      </Link>
-                    </td>
-
-                    <td className="td">
-                      <span className="block text-sm text-ink">{account.office ?? "--"}</span>
-                      <span className="block text-xs text-faint">
-                        {[account.district, account.state].filter(Boolean).join(", ") || "--"}
+                        <span className="block truncate text-xs text-faint">{account.email}</span>
                       </span>
-                    </td>
+                    </Link>
+                  </td>
 
-                    <td className="td">
-                      {account.plan_name ? (
-                        <span className="flex flex-wrap items-center gap-1.5">
-                          <Badge tone={account.plan_active ? "brand" : "warn"}>
-                            {account.plan_name}
-                          </Badge>
-                          {account.has_overrides ? <Badge tone="warn">custom</Badge> : null}
-                        </span>
-                      ) : (
-                        <Badge tone="bad">no plan</Badge>
-                      )}
-                      {account.plan_expires_on ? (
-                        <span className="mt-1 block text-xs text-faint">
-                          expires {fmtDate(account.plan_expires_on)}
-                        </span>
-                      ) : null}
-                    </td>
+                  <td className="td">
+                    <span className="block text-sm text-ink">{account.office ?? "--"}</span>
+                    <span className="block text-xs text-faint">
+                      {[account.district, account.state].filter(Boolean).join(", ") || "--"}
+                    </span>
+                  </td>
 
-                    <td className="td">
-                      <QuotaBar used={account.active_trucks} limit={account.truck_limit} />
-                    </td>
-
-                    <td className="td text-right">
-                      <Badge
-                        tone={balance <= 0 ? "bad" : balance < LOW_BALANCE ? "warn" : "good"}
-                      >
-                        {formatCredits(balance)}
-                      </Badge>
-                    </td>
-
-                    <td className="td text-right text-sm tabular-nums text-muted">
-                      {formatCredits(account.credits_spent_month)}
-                    </td>
-
-                    <td className="td">
-                      <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-ink">
-                        <Phone size={13} className="shrink-0 text-faint" />
-                        {account.phone ?? "--"}
+                  <td className="td">
+                    {account.plan_name ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={account.plan_active ? "brand" : "warn"}>
+                          {account.plan_name}
+                        </Badge>
+                        {account.has_overrides ? <Badge tone="warn">custom</Badge> : null}
                       </span>
-                      <span
-                        className="mt-1 flex items-center gap-1.5 text-xs text-faint"
-                        title={
-                          account.telegram_connected ? "Telegram connected" : "No Telegram chat id"
-                        }
-                      >
-                        <MessageCircle
-                          size={13}
-                          className={account.telegram_connected ? "text-good-500" : "text-faint"}
-                        />
-                        {account.telegram_connected ? "Telegram" : "no Telegram"}
+                    ) : (
+                      <Badge tone="bad">no plan</Badge>
+                    )}
+                    {account.plan_expires_on ? (
+                      <span className="mt-1 block text-xs text-faint">
+                        expires {fmtDate(account.plan_expires_on)}
                       </span>
-                    </td>
+                    ) : null}
+                  </td>
 
-                    <td className="td whitespace-nowrap">
-                      <span className="block text-xs text-muted">
-                        {fmtRelative(account.last_active_at)}
-                      </span>
-                      <span className="block text-xs text-faint">
-                        last crossing {fmtRelative(account.last_event_at)}
-                      </span>
-                    </td>
-                  </Tr>
-                );
-              })}
+                  <td className="td">
+                    <QuotaBar used={account.active_trucks} limit={account.truck_limit} />
+                  </td>
+
+                  <td className="td text-right">
+                    <Badge tone={balanceTone(account.credits)}>
+                      {formatCredits(account.credits)}
+                    </Badge>
+                  </td>
+
+                  <td className="td text-right text-sm tabular-nums text-muted">
+                    {formatCredits(account.credits_spent_month)}
+                  </td>
+
+                  <td className="td">
+                    <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-ink">
+                      <Phone size={13} className="shrink-0 text-faint" />
+                      {account.phone ?? "--"}
+                    </span>
+                    <span
+                      className="mt-1 flex items-center gap-1.5 text-xs text-faint"
+                      title={
+                        account.telegram_connected ? "Telegram connected" : "No Telegram chat id"
+                      }
+                    >
+                      <MessageCircle
+                        size={13}
+                        className={account.telegram_connected ? "text-good-500" : "text-faint"}
+                      />
+                      {account.telegram_connected ? "Telegram" : "no Telegram"}
+                    </span>
+                  </td>
+
+                  <td className="td whitespace-nowrap">
+                    <span className="block text-xs text-muted">
+                      {fmtRelative(account.last_active_at)}
+                    </span>
+                    <span className="block text-xs text-faint">
+                      last crossing {fmtRelative(account.last_event_at)}
+                    </span>
+                  </td>
+                </Tr>
+              ))}
             </Tbody>
           </TableWrap>
         )}

@@ -301,6 +301,8 @@ export type AppSettings = {
   dataRetentionDays: number;
   /** How often the backup-and-purge runs. */
   backupIntervalDays: number;
+  /** How often rows are exported to sheets and then trimmed. */
+  sheetExportIntervalDays: number;
   /** Where the backup is written. Empty means no backup is wanted. */
   backupSheetId: string;
   razorpayEnabled: boolean;
@@ -369,6 +371,9 @@ export type Payment = {
   kind: PaymentKind;
   plan_id: string | null;
   months: number;
+  /** Set when a code was used. amount_inr is already net of the discount. */
+  coupon_id: string | null;
+  discount_inr: number;
   razorpay_order_id: string;
   razorpay_payment_id: string | null;
   amount_inr: number;
@@ -453,4 +458,137 @@ export type ReferralSummary = {
   paid: number;
   waiting: number;
   credits_earned: number;
+};
+
+/* -------------------------------------------------------------------------- */
+/* coupons                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export type CouponKind = "percent" | "flat";
+/** Which purchases a code is good for. */
+export type CouponScope = "all" | "credits" | "plan";
+
+export type Coupon = {
+  id: string;
+  code: string;
+  description: string | null;
+  kind: CouponKind;
+  /** A percentage when kind is percent, rupees when flat. */
+  value: number;
+  /** The "up to" cap on a percentage. Null is uncapped. */
+  max_discount_inr: number | null;
+  min_spend_inr: number;
+  /** Claims across everyone. Null is unlimited. */
+  max_claims: number | null;
+  max_per_user: number;
+  applies_to: CouponScope;
+  starts_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One row of public.coupon_usage - a coupon with how it is doing. */
+export type CouponUsage = Coupon & {
+  used: number;
+  /** Reserved by a checkout that has not settled yet. */
+  holding: number;
+  discount_given: number;
+  list_total: number;
+  claims_left: number | null;
+};
+
+export type CouponRedemption = {
+  id: string;
+  coupon_id: string;
+  user_id: string;
+  payment_id: string | null;
+  status: "reserved" | "applied" | "released";
+  amount_inr: number;
+  discount_inr: number;
+  created_at: string;
+  settled_at: string | null;
+};
+
+/**
+ * What validate_coupon() answers. A refusal is an ordinary result with a
+ * message worth showing, not an error - so both halves are always present.
+ */
+export type CouponVerdict =
+  | {
+      ok: true;
+      coupon_id: string;
+      code: string;
+      kind: CouponKind;
+      discount_inr: number;
+      payable_inr: number;
+      message: string;
+    }
+  | {
+      ok: false;
+      reason:
+        | "empty"
+        | "unknown"
+        | "inactive"
+        | "not_started"
+        | "expired"
+        | "wrong_kind"
+        | "min_spend"
+        | "exhausted"
+        | "already_used"
+        | "no_discount";
+      message: string;
+      min_spend_inr?: number;
+    };
+
+/* -------------------------------------------------------------------------- */
+/* retention                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How long one table is kept. `entity` is the table name, so the purge job
+ * needs no mapping and cannot drift out of step with the schema.
+ */
+export type RetentionRule = {
+  entity: string;
+  label: string;
+  description: string | null;
+  /** -1 keeps everything. */
+  keep_days: number;
+  backup_before_delete: boolean;
+  is_enabled: boolean;
+  /**
+   * The money record rather than a log. Balances are reconstructed from these,
+   * so trimming them destroys the explanation for a balance instead of freeing
+   * useful space.
+   */
+  is_protected: boolean;
+  sort_order: number;
+  updated_at: string;
+};
+
+export type GoogleSheetConfig = {
+  user_id: string;
+  spreadsheet_id: string | null;
+  sheet_url: string | null;
+  is_enabled: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+  updated_at: string;
+};
+
+/** One row of public.my_activity - a customer's own searches and charges. */
+export type MyActivity = {
+  user_id: string;
+  created_at: string;
+  kind: "search" | "credit";
+  detail: string;
+  truck_number: string | null;
+  ok: boolean;
+  new_events: number | null;
+  response_ms: number | null;
+  error: string | null;
+  /** Negative when spent, positive when added. Null on a search row. */
+  credits: number | null;
 };

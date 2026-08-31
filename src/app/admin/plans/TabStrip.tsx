@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Coins, Gift, History, Package } from "lucide-react";
+import { Coins, Gift, History, Package, Ticket } from "lucide-react";
 
 import { cx } from "@/components/ui";
 
@@ -9,8 +9,12 @@ import { cx } from "@/components/ui";
  * They were two pages that could not be read apart: a plan hands over credits,
  * credits are what the plan is spent on, and the rules for both were mixed in
  * with the record of what had already happened. So one destination, and inside
- * it a hard line - the first three tabs are things you SET, the History tab is
- * things that HAPPENED. Nothing appears in both.
+ * it a hard line - Plans and Credit rules are things you SET, History is things
+ * that HAPPENED, and nothing appears in both.
+ *
+ * Referrals and Coupons come after those three because each one is both: terms
+ * at the top, and what those terms have actually cost underneath. Keeping them
+ * last leaves the first three reading as one straight line.
  *
  * The tab lives in the query string rather than in client state, the same way
  * the account page does it: every tab is server-rendered from its own queries,
@@ -24,23 +28,35 @@ export const TABS = [
   { key: "rules", label: "Credit rules", icon: Coins },
   { key: "history", label: "History", icon: History },
   { key: "referrals", label: "Referrals", icon: Gift },
+  { key: "coupons", label: "Coupons", icon: Ticket },
 ] as const;
 
 export type Tab = (typeof TABS)[number]["key"];
 
 export const BASE_PATH = "/admin/plans";
 
-/** Every query parameter this section reads, across all four tabs. */
+/** Every query parameter this section reads, across all five tabs. */
 export type SectionParams = {
   tab?: string;
-  /** History tab: payment filters, ledger filter, and the two page numbers. */
+  /**
+   * History tab: the payment filters, how the per-customer list is ordered, and
+   * a page number for each of the two lists.
+   */
   status?: string;
   kind?: string;
-  flow?: string;
+  csort?: string;
   pay?: string;
-  act?: string;
+  cust?: string;
   /** Referrals tab. */
   ref?: string;
+  /**
+   * Coupons tab: the page of the code list, the code whose redemptions are
+   * open, and the page of those. The code itself rather than its id, so the
+   * link to "who used SAVE20" reads as what it is.
+   */
+  cp?: string;
+  code?: string;
+  red?: string;
 };
 
 export function activeTab(raw: string | undefined): Tab {

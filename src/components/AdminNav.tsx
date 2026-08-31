@@ -7,6 +7,7 @@ import {
   Bell,
   ClipboardList,
   Coins,
+  Database,
   LayoutDashboard,
   Menu,
   Search,
@@ -31,6 +32,11 @@ import { cx } from "@/components/ui";
  * The route is still /admin/officers - renaming a path breaks every bookmark
  * and every link already written against it. Only the word a reader sees
  * changed.
+ *
+ * Storage is its own entry rather than a panel in Settings. Retention is one
+ * rule per table now, each wanting its current size and its own copy-first
+ * answer beside it, and Settings was already long enough that a money table's
+ * window would have been edited below the fold.
  */
 const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
@@ -41,6 +47,7 @@ const NAV = [
   { href: "/admin/usage", label: "Usage", icon: Gauge },
   { href: "/admin/alerts", label: "Alert rules", icon: Bell },
   { href: "/admin/audit", label: "Audit log", icon: ClipboardList },
+  { href: "/admin/storage", label: "Storage", icon: Database },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
 

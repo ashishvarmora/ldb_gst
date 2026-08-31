@@ -4,8 +4,6 @@ import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin, type SessionUser } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
-import { maybeBackupAndPurge } from "@/lib/backup";
-import { friendlyError } from "@/lib/errors";
 import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { runTrackingSweep } from "@/lib/tracking";
@@ -21,7 +19,6 @@ type SettingSpec = { key: string; label: string } & (
   | { kind: "bool" }
   | { kind: "key_id" }
   | { kind: "sheet" }
-  | { kind: "retention" }
   | { kind: "int"; min: number; max: number }
   // Site panel. "optional_*" kinds accept blank, which the public pages read as
   // "do not show this at all" - see loadSettings().
@@ -39,11 +36,16 @@ const ENGINE_SPECS: SettingSpec[] = [
   { key: "revisit_minutes", label: "Same-plaza window", kind: "int", min: 5, max: 1440 },
 ];
 
+/*
+ * Sheets and the export schedule only. How long each table is kept moved to one
+ * row per table in retention_rules, edited on /admin/storage - a single
+ * data_retention_days for crossings, searches, alerts and the money ledger
+ * alike was too blunt to be safe.
+ */
 const BACKUP_SPECS: SettingSpec[] = [
-  { key: "backup_sheet_id", label: "Backup sheet", kind: "sheet" },
-  { key: "backup_interval_days", label: "Backup every", kind: "int", min: 1, max: 365 },
-  { key: "data_retention_days", label: "Keep history for", kind: "retention" },
-  { key: "purge_enabled", label: "Automatic backup", kind: "bool" },
+  { key: "backup_sheet_id", label: "Fallback sheet", kind: "sheet" },
+  { key: "sheet_export_interval_days", label: "Export every", kind: "int", min: 1, max: 365 },
+  { key: "purge_enabled", label: "Automatic export", kind: "bool" },
 ];
 
 const PAYMENT_SPECS: SettingSpec[] = [
@@ -154,21 +156,6 @@ function readSpecs(
         values[spec.key] = text;
         break;
 
-      case "retention": {
-        const days = Number(text);
-        if (days === -1) {
-          values[spec.key] = -1;
-          break;
-        }
-        if (!Number.isInteger(days) || days < 1 || days > 3650) {
-          return {
-            error: `${spec.label} must be a whole number of days between 1 and 3650, or -1 to keep everything for ever.`,
-          };
-        }
-        values[spec.key] = days;
-        break;
-      }
-
       default: {
         const n = Number(text);
         if (!Number.isInteger(n) || n < spec.min || n > spec.max) {
@@ -261,9 +248,12 @@ export async function saveSiteSettings(
 }
 
 /**
- * Backup and retention. The message says what will now happen to old rows,
- * because the difference between "copied then deleted" and "just deleted" is
- * one empty box and is not recoverable afterwards.
+ * Where copies go and how often. What is copied, and how old it has to be, is
+ * per table on the Storage page.
+ *
+ * The message names the fallback nature of this sheet on purpose: an admin who
+ * thinks this is the only sheet will assume clearing it stops every export,
+ * when in fact each account may have named its own.
  */
 export async function saveBackupSettings(
   _prev: ActionResult | null,
@@ -278,22 +268,23 @@ export async function saveBackupSettings(
   if (!result.ok) return result;
 
   revalidatePath("/admin");
+  revalidatePath("/admin/storage");
 
-  const days = Number(parsed.values.data_retention_days);
-  const every = Number(parsed.values.backup_interval_days);
+  const every = Number(parsed.values.sheet_export_interval_days);
   const sheet = String(parsed.values.backup_sheet_id ?? "");
 
   if (parsed.values.purge_enabled !== true) {
-    return { ok: true, message: "Saved. Nothing is deleted automatically while this is switched off." };
-  }
-  if (days === -1) {
-    return { ok: true, message: "Saved. Everything is kept for ever and nothing is deleted." };
+    return {
+      ok: true,
+      message:
+        "Saved. Nothing is exported or deleted automatically while this is switched off — only the button on the Storage page will do it.",
+    };
   }
   return {
     ok: true,
     message: sheet
-      ? `Saved. Every ${every} day(s), crossings older than ${days} days are copied to the sheet and then deleted.`
-      : `Saved. No backup sheet is set, so every ${every} day(s) crossings older than ${days} days are deleted with no copy kept.`,
+      ? `Saved. Every ${every} day(s), each account's old rows are copied to its own sheet, or to this fallback sheet if it has none, and then deleted. The per-table windows are on the Storage page.`
+      : `Saved. No fallback sheet is set, so an account with no sheet of its own has nowhere to copy to. Any rule set to copy first will keep its rows rather than delete them uncopied; a rule with copying switched off deletes them anyway.`,
   };
 }
 
@@ -391,62 +382,9 @@ export async function runTrackingNow(
   return { ok: true, message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.` };
 }
 
-/**
- * Backs up and clears old history on demand, ignoring both the interval and the
- * automatic switch - the admin pressing this button is the decision.
- *
- * Nothing is deleted when a sheet is configured but could not be written, so a
- * broken backup can never quietly turn into a deletion.
+/*
+ * "Run the export now" used to live here as runBackupNow(). It moved to
+ * src/app/admin/storage/actions.ts, next to the rules it applies: the summary
+ * is now one outcome per table, and a button that reports "1,200 rows deleted"
+ * without saying which tables kept theirs is worse than no button.
  */
-export async function runBackupNow(
-  _prev: ActionResult | null,
-  _fd: FormData,
-): Promise<ActionResult> {
-  const actor = await assertSuperAdmin();
-
-  const summary = await maybeBackupAndPurge(true);
-  const deleted =
-    summary.purged.truckEvents + summary.purged.searchLogs + summary.purged.alertLogs;
-
-  await writeAudit(actor, {
-    action: "data.backup",
-    entity: "settings",
-    meta: {
-      ran: summary.ran,
-      reason: summary.reason ?? null,
-      backedUp: summary.backedUp,
-      purged: summary.purged,
-      sheetError: summary.sheetError ?? null,
-    },
-  });
-
-  revalidatePath("/admin/settings");
-  revalidatePath("/admin");
-
-  if (summary.sheetError) {
-    return {
-      ok: false,
-      error: `Nothing was deleted: the backup sheet could not be written. ${friendlyError(summary.sheetError)}`,
-    };
-  }
-
-  if (!summary.ran) {
-    return {
-      ok: true,
-      message:
-        summary.reason === "keep_forever"
-          ? "Nothing to do — history is set to be kept for ever."
-          : "Nothing to do right now.",
-    };
-  }
-
-  const copied =
-    summary.backedUp > 0
-      ? `${summary.backedUp.toLocaleString("en-IN")} crossing(s) copied to the sheet`
-      : "nothing to copy";
-
-  return {
-    ok: true,
-    message: `${copied}, ${deleted.toLocaleString("en-IN")} row(s) deleted (${summary.purged.truckEvents} crossings, ${summary.purged.searchLogs} searches, ${summary.purged.alertLogs} alerts).`,
-  };
-}

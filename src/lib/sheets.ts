@@ -5,10 +5,10 @@ import { env } from "@/lib/env";
 /**
  * Minimal Google Sheets client using one platform service account.
  *
- * There is one backup sheet, owned by the admin, shared with the service
- * account as Editor - so no officer credential is ever handled. Written
- * against the REST API directly: the googleapis package is ~10 MB for the
- * three calls actually made here.
+ * Each account may share its own sheet with the service account as Editor, and
+ * the admin's sheet is the fallback for anyone who has not - so no customer
+ * credential is ever handled. Written against the REST API directly: the
+ * googleapis package is ~10 MB for the three calls actually made here.
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -19,26 +19,52 @@ const TIMEOUT_MS = 15_000;
 export type SheetResult = { ok: true } | { ok: false; error: string };
 
 /**
- * The sheet is the long-term copy of where trucks have been, kept for after
- * retention trims the database. It holds crossings and nothing else - alerts,
- * searches and usage all live in the app, where they can be filtered, and
- * mirroring them here only made the sheet harder to read as a location log.
+ * The sheet is the long-term copy of everything the database does not keep.
+ *
+ * One tab per table, because that is what makes it readable afterwards: a
+ * single sheet holding crossings, searches and money would need a filter
+ * before it could answer anything. The keys are the table names, so the
+ * retention rules and these tabs cannot drift apart.
  */
-export const SHEET_TABS = {
-  events: "Truck Events",
-} as const;
+export const SHEET_TABS: Record<string, string> = {
+  truck_events: "Toll Crossings",
+  search_logs: "Search Activity",
+  alert_logs: "Alerts Sent",
+  audit_logs: "Account Activity",
+  credit_transactions: "Credit Movements",
+  payments: "Payments",
+  coupon_redemptions: "Coupon Claims",
+};
 
-const TAB_HEADERS: Record<string, string[]> = {
-  [SHEET_TABS.events]: [
-    "Event Time (IST)",
-    "Truck",
-    "Location",
-    "Latitude",
-    "Longitude",
-    "Direction",
-    "Event",
-    "SeqNo",
-    "Logged At (IST)",
+/**
+ * Header row per tab. A tab with no header here still works - it is created
+ * and appended to - but a reader would have to guess the columns, so every
+ * entity that is exported should have one.
+ */
+export const TAB_HEADERS: Record<string, string[]> = {
+  [SHEET_TABS.truck_events]: [
+    "Crossed At (IST)", "Truck", "Toll Plaza", "Latitude", "Longitude",
+    "Direction", "Event", "SeqNo", "Recorded At (IST)",
+  ],
+  [SHEET_TABS.search_logs]: [
+    "At (IST)", "Truck", "Kind", "Worked", "Crossings Found", "New",
+    "Took (ms)", "Problem",
+  ],
+  [SHEET_TABS.alert_logs]: [
+    "At (IST)", "Truck", "Alert", "Title", "Message", "Delivered", "Problem",
+  ],
+  [SHEET_TABS.audit_logs]: [
+    "At (IST)", "Who", "Role", "Action", "Thing", "Which", "Detail",
+  ],
+  [SHEET_TABS.credit_transactions]: [
+    "At (IST)", "Change", "Balance After", "Reason", "Truck", "Note",
+  ],
+  [SHEET_TABS.payments]: [
+    "At (IST)", "Kind", "Charged (Rs)", "Discount (Rs)", "Credits", "Status",
+    "Order", "Paid At (IST)",
+  ],
+  [SHEET_TABS.coupon_redemptions]: [
+    "At (IST)", "Status", "Order Value (Rs)", "Discount (Rs)", "Settled At (IST)",
   ],
 };
 
@@ -243,9 +269,13 @@ async function append(
 /* public API                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export type SheetPayload = {
-  events?: (string | number | null)[][];
-};
+export type SheetRows = (string | number | null)[][];
+
+/**
+ * Keyed by TABLE name, not tab name - the caller works in tables and this
+ * module owns what each one is called in the sheet.
+ */
+export type SheetPayload = Record<string, SheetRows>;
 
 /**
  * One round trip per non-empty section. Never throws: a broken sheet must not
@@ -255,15 +285,29 @@ export async function syncToSheet(
   spreadsheetId: string,
   payload: SheetPayload,
 ): Promise<SheetResult> {
+  const wanted = Object.entries(payload).filter(([, rows]) => rows.length > 0);
+  if (wanted.length === 0) return { ok: true };
+
   const auth = await getAccessToken();
   if (!auth.ok) return auth;
 
-  if (!payload.events?.length) return { ok: true };
-
-  const tabs = await ensureTabs(auth.token, spreadsheetId, [SHEET_TABS.events]);
+  // Every tab is created up front in one round trip, rather than one call per
+  // tab as rows are appended.
+  const tabs = await ensureTabs(
+    auth.token,
+    spreadsheetId,
+    wanted.map(([entity]) => SHEET_TABS[entity] ?? entity),
+  );
   if (!tabs.ok) return tabs;
 
-  return append(auth.token, spreadsheetId, SHEET_TABS.events, payload.events);
+  for (const [entity, rows] of wanted) {
+    const result = await append(auth.token, spreadsheetId, SHEET_TABS[entity] ?? entity, rows);
+    // Stop on the first failure. Carrying on would delete rows for the tabs
+    // that happened to succeed while the caller thinks the whole export failed.
+    if (!result.ok) return result;
+  }
+
+  return { ok: true };
 }
 
 export function spreadsheetIdFromUrl(url: string | null | undefined): string | null {

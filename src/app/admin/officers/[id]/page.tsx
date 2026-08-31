@@ -19,6 +19,7 @@ import { SettingsTab } from "./SettingsTab";
 import { TabStrip, activeTab, type AccountParams } from "./TabStrip";
 import { TrucksTab } from "./TrucksTab";
 import { resetAccountPassword, setAccountStatus } from "../actions";
+import { LOW_BALANCE, balanceTone } from "../../tables";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -39,9 +40,6 @@ import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtRelative, initials } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview } from "@/lib/types";
-
-/** Below this the customer is worth chasing before they stop mid-job. */
-const LOW_BALANCE = 20;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -192,7 +190,9 @@ export default async function AccountDetailPage({
               ? "Out of credits — every search is refused"
               : `${formatCredits(overview.credits_purchased)} bought in total`
           }
-          tone={balance <= 0 ? "bad" : balance < LOW_BALANCE ? "warn" : "brand"}
+          // Brand once the balance is comfortable, and the shared warn/bad rule
+          // below that - so this card and every list agree on what "low" is.
+          tone={balance >= LOW_BALANCE ? "brand" : balanceTone(balance)}
           icon={<Wallet size={15} />}
         />
         <StatCard

@@ -12,21 +12,23 @@ import {
 } from "lucide-react";
 
 import { loadDailyCalls } from "./usage/ledger";
+import { LOW_BALANCE, balanceTone } from "./tables";
 import { ShowMore } from "@/components/Pager";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
   Badge,
   EmptyState,
+  LinkButton,
   PageHeader,
   Panel,
+  PanelAction,
   QuotaBar,
   StatCard,
   TableWrap,
   Tbody,
   Thead,
   Tr,
-  LinkButton,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
@@ -37,13 +39,6 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AuditLog, OfficerOverview, Payment } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
-
-/**
- * Below this an account is worth chasing before its work stops mid-job. Roughly
- * a day of ordinary use at the seeded rates, which is enough warning to collect
- * a payment without the list crying wolf.
- */
-const LOW_CREDIT_BALANCE = 20;
 
 /**
  * A payment sits at 'created' for the few seconds between opening the checkout
@@ -172,7 +167,7 @@ export default async function AdminOverviewPage({
       });
       continue;
     }
-    if (credits < LOW_CREDIT_BALANCE) {
+    if (credits < LOW_BALANCE) {
       attention.push({
         key: `${account.id}-low`,
         href,
@@ -296,19 +291,16 @@ export default async function AdminOverviewPage({
           <Panel
             title="Platform usage, last 30 days"
             description={`Every charged LDB call, split by manual and automatic. ${fmtNumber(callsMonth)} so far this month.`}
+            actions={<PanelAction href="/admin/usage">Call by call</PanelAction>}
           >
             <UsageChart series={series} />
           </Panel>
 
           <Panel
             title="Busiest accounts this month"
-            description="The top six by credits spent. The usage report has the rest."
+            description="The top six by credits spent. The usage report has the rest, and their plans and contact details are on the Accounts page."
             bodyClassName="p-0"
-            actions={
-              <Link href="/admin/usage" className="text-xs text-brand-400 hover:underline">
-                Full usage report
-              </Link>
-            }
+            actions={<PanelAction href="/admin/usage">Full usage report</PanelAction>}
           >
             {busiest.length === 0 ? (
               <EmptyState
@@ -320,7 +312,6 @@ export default async function AdminOverviewPage({
               <TableWrap>
                 <Thead>
                   <th className="th">Account</th>
-                  <th className="th">Plan</th>
                   <th className="th">Trucks</th>
                   <th className="th text-right">Credits left</th>
                   <th className="th text-right">Spent this month</th>
@@ -345,25 +336,10 @@ export default async function AdminOverviewPage({
                         </Link>
                       </td>
                       <td className="td">
-                        {account.plan_name ? (
-                          <Badge tone="brand">{account.plan_name}</Badge>
-                        ) : (
-                          <Badge>no plan yet</Badge>
-                        )}
-                      </td>
-                      <td className="td">
                         <QuotaBar used={account.active_trucks} limit={account.truck_limit} />
                       </td>
                       <td className="td text-right">
-                        <Badge
-                          tone={
-                            Number(account.credits ?? 0) <= 0
-                              ? "bad"
-                              : Number(account.credits ?? 0) < LOW_CREDIT_BALANCE
-                                ? "warn"
-                                : "good"
-                          }
-                        >
+                        <Badge tone={balanceTone(account.credits)}>
                           {formatCredits(account.credits)}
                         </Badge>
                       </td>
@@ -449,11 +425,7 @@ export default async function AdminOverviewPage({
             title="Recent admin activity"
             description="The last few changes made from this console."
             bodyClassName="p-0"
-            actions={
-              <Link href="/admin/audit" className="text-xs text-brand-400 hover:underline">
-                Full log
-              </Link>
-            }
+            actions={<PanelAction href="/admin/audit">Full log</PanelAction>}
           >
             {(audit ?? []).length === 0 ? (
               <EmptyState title="No activity yet" />

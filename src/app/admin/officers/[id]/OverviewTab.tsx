@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, Search as SearchIcon, Truck } from "lucide-react";
+import { Bell, ClipboardList, Search as SearchIcon, Truck } from "lucide-react";
 
 import { DescRow, LinkButton, Panel } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
@@ -170,6 +170,15 @@ export async function OverviewTab({
               >
                 <Bell size={14} className="text-faint" />
                 Every alert sent to this account
+              </Link>
+            </li>
+            <li>
+              <Link
+                href={`/admin/audit?actor=${id}`}
+                className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
+              >
+                <ClipboardList size={14} className="text-faint" />
+                Everything they did, in the audit log
               </Link>
             </li>
           </ul>

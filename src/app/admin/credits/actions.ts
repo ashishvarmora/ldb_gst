@@ -4,12 +4,22 @@ import { revalidatePath } from "next/cache";
 
 import { diffFields, writeAudit } from "@/lib/audit";
 import { assertSuperAdmin } from "@/lib/auth";
+import { describeCoupon, normaliseCode } from "@/lib/coupons";
 import { creditsForAmount, describeRate, formatCredits, grantCredits } from "@/lib/credits";
+import { reportError } from "@/lib/errors";
 import { bool, fail, str } from "@/lib/forms";
 import { describeReferralReward } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ActionResult, CreditPack, CreditRate } from "@/lib/types";
+import type {
+  ActionResult,
+  Coupon,
+  CouponKind,
+  CouponScope,
+  CouponUsage,
+  CreditPack,
+  CreditRate,
+} from "@/lib/types";
 
 /** Reasons an admin may pick when moving a balance by hand. */
 const MANUAL_REASONS = new Set(["admin_topup", "admin_adjust", "purchase"]);
@@ -493,6 +503,375 @@ export async function saveReferralSettings(
     message: enabled
       ? `Saved. ${describeReferralReward(Math.round(percent * 100) / 100, milestoneCount, milestoneBonus)} Referrals already rewarded keep what they earned.`
       : "Saved. Referrals are switched off, so no new one earns anything. Anything already earned stays.",
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* coupon codes                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Discount codes: the four ways an admin changes one.
+ *
+ * Nothing here decides what a code is worth to a buyer. validate_coupon() does
+ * that, and it is the only thing that does, so these actions write columns and
+ * nothing else. What they do owe the admin is a refusal in words: every check
+ * below is one the table would make anyway, made early enough to say which box
+ * is wrong instead of quoting a constraint name.
+ */
+
+type CouponValues = {
+  code: string;
+  description: string | null;
+  kind: CouponKind;
+  value: number;
+  max_discount_inr: number | null;
+  min_spend_inr: number;
+  max_claims: number | null;
+  max_per_user: number;
+  applies_to: CouponScope;
+  starts_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+};
+
+/**
+ * The characters that survive a poster, a WhatsApp forward and a phone call.
+ * upper(btrim()) only takes the spaces off the ends, so a code with one in the
+ * middle would be stored, handed out, and then typed wrong for ever.
+ */
+const CODE_SHAPE = /^[A-Z0-9][A-Z0-9_-]*$/;
+
+const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Rupees to two decimal places, matching the numeric(10, 2) columns. */
+function rupees(raw: string): number | null {
+  const value = Math.round(Number(raw) * 100) / 100;
+  if (!Number.isFinite(value) || value < 0 || value > 10_000_000) return null;
+  return value;
+}
+
+/**
+ * A window is typed as two days, not two instants: a promotion runs "the 1st to
+ * the 30th", and nobody means half past five in the morning because the server
+ * keeps UTC. The offset is written in rather than left to whichever clock parses
+ * it - the start of the opening day, and the last second of the closing one, so
+ * a code is good for the whole of the day it expires on.
+ */
+function istDay(raw: string, edge: "start" | "end"): string {
+  return `${raw}T${edge === "start" ? "00:00:00" : "23:59:59"}+05:30`;
+}
+
+/**
+ * describeCoupon() already writes the sentence a coupon makes, off five of its
+ * columns. Those five are exactly what was just typed, so the identity fields
+ * are filled in to satisfy the type rather than the sentence being written a
+ * second time here - two descriptions of one coupon are two chances to say
+ * something checkout does not agree with.
+ */
+function describeValues(values: CouponValues): string {
+  const row: Coupon = { id: "", created_at: "", updated_at: "", ...values };
+  return describeCoupon(row);
+}
+
+function readCoupon(fd: FormData): { values: CouponValues } | { error: string } {
+  const code = normaliseCode(str(fd, "code"));
+  if (!code) return { error: "Give the code something to type. SAVE20, for instance." };
+  if (code.length > 40) {
+    return { error: "A code that long gets mistyped. Keep it under 40 characters." };
+  }
+  if (!CODE_SHAPE.test(code)) {
+    return {
+      error: "A code can only use letters, numbers, dashes and underscores — no spaces.",
+    };
+  }
+
+  const kind: CouponKind = str(fd, "kind") === "flat" ? "flat" : "percent";
+
+  const valueRaw = str(fd, "value");
+  const value = valueRaw === null ? null : rupees(valueRaw);
+  if (value === null || value <= 0) {
+    return {
+      error:
+        kind === "percent"
+          ? "Enter the percentage that comes off. It has to be above zero."
+          : "Enter how many rupees come off. It has to be above zero.",
+    };
+  }
+  if (kind === "percent" && value > 100) {
+    return { error: "A percentage over 100 would pay the buyer to shop. Keep it at 100 or less." };
+  }
+
+  // Only a percentage has an "up to". On a flat code the column is cleared
+  // rather than kept, so the row cannot say something the discount does not do.
+  let cap: number | null = null;
+  const capRaw = str(fd, "max_discount_inr");
+  if (kind === "percent" && capRaw !== null) {
+    cap = rupees(capRaw);
+    if (cap === null || cap <= 0) {
+      return { error: 'The "up to" ceiling must be above zero rupees, or blank for no ceiling.' };
+    }
+  }
+
+  const minSpendRaw = str(fd, "min_spend_inr");
+  const minSpend = minSpendRaw === null ? 0 : rupees(minSpendRaw);
+  if (minSpend === null) return { error: "The minimum spend must be zero rupees or more." };
+
+  // Blank is the unlimited code, and null is how the column stores that. Zero
+  // is not "no limit", it is a code nobody can use, which is why the table
+  // refuses it and so does this.
+  let maxClaims: number | null = null;
+  const claimsRaw = str(fd, "max_claims");
+  if (claimsRaw !== null) {
+    const parsed = Number(claimsRaw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1_000_000) {
+      return { error: "Total claims must be a whole number of 1 or more, or blank for no limit." };
+    }
+    maxClaims = parsed;
+  }
+
+  const perUserRaw = str(fd, "max_per_user");
+  const perUser = perUserRaw === null ? 1 : Number(perUserRaw);
+  if (!Number.isInteger(perUser) || perUser < 1 || perUser > 1_000) {
+    return { error: "Uses per person must be a whole number of 1 or more." };
+  }
+
+  const scope = str(fd, "applies_to");
+  const appliesTo: CouponScope = scope === "credits" || scope === "plan" ? scope : "all";
+
+  const startsOn = str(fd, "starts_on");
+  const endsOn = str(fd, "expires_on");
+  for (const [label, raw] of [
+    ["First day", startsOn],
+    ["Last day", endsOn],
+  ] as const) {
+    if (raw !== null && !DATE_SHAPE.test(raw)) {
+      return { error: `"${label}": pick a date, or leave it blank.` };
+    }
+  }
+
+  const startsAt = startsOn === null ? null : istDay(startsOn, "start");
+  const expiresAt = endsOn === null ? null : istDay(endsOn, "end");
+  if (startsAt && expiresAt && new Date(expiresAt) < new Date(startsAt)) {
+    return { error: "A code cannot stop working before it starts." };
+  }
+
+  return {
+    values: {
+      code,
+      description: str(fd, "description"),
+      kind,
+      value,
+      max_discount_inr: cap,
+      min_spend_inr: minSpend,
+      max_claims: maxClaims,
+      max_per_user: perUser,
+      applies_to: appliesTo,
+      starts_at: startsAt,
+      expires_at: expiresAt,
+      is_active: bool(fd, "is_active"),
+    },
+  };
+}
+
+/**
+ * Asks whether the code is taken before writing it.
+ *
+ * The column is unique, so the insert would refuse it anyway - but "duplicate
+ * key value violates unique constraint coupons_code_key" tells an admin nothing
+ * about what to do next, and the answer is always the same: that code already
+ * exists, go and edit it. The constraint is still the authority; two admins
+ * typing the same code at the same moment fall through to the catch below.
+ */
+async function codeTaken(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  code: string,
+  exceptId: string | null,
+): Promise<string | null> {
+  const { data } = await admin
+    .from("coupons")
+    .select("id")
+    .eq("code", code)
+    .maybeSingle<{ id: string }>();
+
+  if (!data || data.id === exceptId) return null;
+  return `The code ${code} already exists. Edit that one instead, or pick another code.`;
+}
+
+/** The message a clash gets whichever way it was caught. */
+function clashOrError(code: string, error: unknown, context: string): string {
+  const message = (error as { message?: string })?.message ?? "";
+  if (/duplicate key|unique constraint/i.test(message)) {
+    return `The code ${code} already exists. Edit that one instead, or pick another code.`;
+  }
+  return reportError(context, error, `The code ${code} could not be saved.`);
+}
+
+export async function createCoupon(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const parsed = readCoupon(fd);
+  if ("error" in parsed) return fail(parsed.error);
+
+  const taken = await codeTaken(admin, parsed.values.code, null);
+  if (taken) return fail(taken);
+
+  const { data, error } = await admin
+    .from("coupons")
+    .insert(parsed.values)
+    .select("id")
+    .single();
+  if (error) return fail(clashOrError(parsed.values.code, error, "coupon insert failed"));
+
+  await writeAudit(actor, {
+    action: "coupon.create",
+    entity: "coupon",
+    entityId: data.id,
+    entityLabel: parsed.values.code,
+    meta: { ...parsed.values },
+  });
+
+  // Only the admin section lists codes. Customers never see one until they type
+  // it, so there is no public page to revalidate.
+  revalidatePath("/admin/plans");
+  return {
+    ok: true,
+    message: `Code ${parsed.values.code} created: ${describeValues(parsed.values)}.`,
+  };
+}
+
+export async function saveCoupon(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const couponId = str(fd, "coupon_id");
+  if (!couponId) return fail("Missing coupon id.");
+
+  const parsed = readCoupon(fd);
+  if ("error" in parsed) return fail(parsed.error);
+
+  const { data: before } = await admin
+    .from("coupons")
+    .select("*")
+    .eq("id", couponId)
+    .maybeSingle<Coupon>();
+  if (!before) return fail("That code no longer exists.");
+
+  const taken = await codeTaken(admin, parsed.values.code, couponId);
+  if (taken) return fail(taken);
+
+  const { error } = await admin.from("coupons").update(parsed.values).eq("id", couponId);
+  if (error) return fail(clashOrError(parsed.values.code, error, "coupon update failed"));
+
+  await writeAudit(actor, {
+    action: "coupon.update",
+    entity: "coupon",
+    entityId: couponId,
+    entityLabel: parsed.values.code,
+    meta: {
+      changes: diffFields(before as unknown as Record<string, unknown>, parsed.values),
+    },
+  });
+
+  revalidatePath("/admin/plans");
+  return {
+    ok: true,
+    // Claims already made keep the amount they were given, because a redemption
+    // stores its own discount. Worth saying, since the arithmetic on screen has
+    // just changed under a row of history.
+    message: `Saved. ${describeValues(parsed.values)} — from the next order onwards. Discounts already given are unchanged.`,
+  };
+}
+
+export async function setCouponActive(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const couponId = str(fd, "coupon_id");
+  if (!couponId) return fail("Missing coupon id.");
+  const active = fd.get("is_active") === "true";
+
+  const { data: coupon } = await admin
+    .from("coupons")
+    .select("code")
+    .eq("id", couponId)
+    .maybeSingle<{ code: string }>();
+  if (!coupon) return fail("That code no longer exists.");
+
+  const { error } = await admin.from("coupons").update({ is_active: active }).eq("id", couponId);
+  if (error) {
+    return fail(reportError("coupon switch failed", error, "That code could not be switched."));
+  }
+
+  await writeAudit(actor, {
+    action: active ? "coupon.activate" : "coupon.deactivate",
+    entity: "coupon",
+    entityId: couponId,
+    entityLabel: coupon.code,
+    meta: {},
+  });
+
+  revalidatePath("/admin/plans");
+  return {
+    ok: true,
+    message: active
+      ? `Code ${coupon.code} is live again.`
+      : `Code ${coupon.code} is switched off. Nobody can use it, and everything it has already given stays on the record.`,
+  };
+}
+
+/**
+ * Deletes the code and, with it, every redemption of it - coupon_redemptions
+ * cascades off the coupon. The payments survive: payments.coupon_id is set to
+ * null and each row keeps the amount it charged and the discount it recorded,
+ * so the money is still accounted for. What is lost is the answer to "who used
+ * this code, and what did we give away", which is why the audit row below
+ * carries the totals it is about to destroy.
+ */
+export async function deleteCoupon(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const couponId = str(fd, "coupon_id");
+  if (!couponId) return fail("Missing coupon id.");
+
+  const { data: usage } = await admin
+    .from("coupon_usage")
+    .select("*")
+    .eq("id", couponId)
+    .maybeSingle<CouponUsage>();
+  if (!usage) return fail("That code no longer exists.");
+
+  const { error } = await admin.from("coupons").delete().eq("id", couponId);
+  if (error) {
+    return fail(reportError("coupon delete failed", error, "That code could not be deleted."));
+  }
+
+  await writeAudit(actor, {
+    action: "coupon.delete",
+    entity: "coupon",
+    entityId: couponId,
+    entityLabel: usage.code,
+    meta: {
+      rule: describeCoupon(usage),
+      claims_used: usage.used,
+      claims_held: usage.holding,
+      discount_given: usage.discount_given,
+      list_total: usage.list_total,
+    },
+  });
+
+  revalidatePath("/admin/plans");
+  return {
+    ok: true,
+    message:
+      usage.used > 0
+        ? `Code ${usage.code} deleted, along with the record of ${usage.used} discount${usage.used === 1 ? "" : "s"} already given. The payments themselves are untouched.`
+        : `Code ${usage.code} deleted. Nobody had used it.`,
   };
 }
 

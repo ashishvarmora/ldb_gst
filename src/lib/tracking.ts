@@ -8,7 +8,7 @@ import {
 } from "@/lib/alerts";
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
-import { maybeBackupAndPurge, type BackupSummary } from "@/lib/backup";
+import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
@@ -69,7 +69,7 @@ export type SweepSummary = {
   /** Anything that went wrong outside a single truck's own check. */
   errors: string[];
   outcomes: PollOutcome[];
-  /** Set when this sweep also ran the backup-and-purge. */
+  /** Set when this sweep also ran the export-and-purge. */
   backup?: BackupSummary | null;
 };
 
@@ -429,7 +429,7 @@ export async function checkTruck({
   // 6. Roll the truck forward.
   //
   //    Nothing is written to a sheet here any more. Crossings are copied out
-  //    in bulk before they are purged - see maybeBackupAndPurge - so a check
+  //    in bulk before they are purged - see maybeExportAndPurge - so a check
   //    is one upstream call and one row update rather than a third-party
   //    write on the hot path.
   await admin
@@ -581,15 +581,20 @@ export async function runTrackingSweep(
   const errors: string[] = [];
 
   // Housekeeping runs after the useful work and never blocks it: a failed
-  // backup must not cost the sweep the checks it already paid for.
+  // export must not cost the sweep the checks it already paid for.
   let backup: BackupSummary | null = null;
   try {
-    const result = await maybeBackupAndPurge();
+    const result = await maybeExportAndPurge();
     if (result.ran) backup = result;
-    if (result.sheetError) errors.push(`Backup sheet: ${result.sheetError}`);
+    // Surfaced per table rather than as one line, because "nothing was
+    // deleted" is only true of the tables whose copy actually failed.
+    for (const entity of result.entities) {
+      if (entity.error) errors.push(`${entity.entity}: ${entity.error}`);
+    }
+    errors.push(...result.errors);
   } catch (error) {
-    console.error("backup and purge failed", error);
-    errors.push("The backup could not run. Nothing was deleted.");
+    console.error("export and purge failed", error);
+    errors.push("The export could not run, so nothing was deleted.");
   }
 
   return finish({

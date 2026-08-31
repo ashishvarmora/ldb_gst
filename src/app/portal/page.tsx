@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { BellRing, Coins, Search, Send, Wallet } from "lucide-react";
+import { ArrowRight, BellRing, Coins, History, Search, Send, Wallet } from "lucide-react";
 
 import { InviteCard } from "./referrals/InviteCard";
 import { SkeletonPanel } from "@/components/Skeleton";
@@ -130,6 +130,20 @@ export default async function PortalHome() {
           <Figure label="Searches today" value={fmtNumber(overview.manual_searches_today)} />
           <Figure label="Checks today" value={fmtNumber(overview.tracking_queries_today)} />
         </dl>
+
+        {/* The dashboard stays four totals. Anyone who wants the entries behind
+            them is asking a different question, and it has its own page - so
+            this is the question, in the words it is asked in, as the link. */}
+        <div className="mt-4 border-t border-divider pt-3">
+          <Link
+            href="/portal/activity"
+            className="-mx-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-brand-500 transition hover:bg-brand-500/8 hover:text-brand-600"
+          >
+            <History size={14} />
+            Where did my credits go?
+            <ArrowRight size={14} />
+          </Link>
+        </div>
       </Panel>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
