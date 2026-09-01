@@ -34,6 +34,13 @@ const ENGINE_SPECS: SettingSpec[] = [
   { key: "tracking_enabled", label: "Background tracking", kind: "bool" },
   { key: "no_activity_hours", label: "No-activity threshold", kind: "int", min: 1, max: 168 },
   { key: "revisit_minutes", label: "Same-plaza window", kind: "int", min: 5, max: 1440 },
+  {
+    key: "tracking_failure_cutoff",
+    label: "Pause a truck after this many failed checks",
+    kind: "int",
+    min: 1,
+    max: 1000,
+  },
 ];
 
 /*

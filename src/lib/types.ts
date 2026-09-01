@@ -309,6 +309,12 @@ export type AppSettings = {
   trackingEnabled: boolean;
   noActivityHours: number;
   /**
+   * How many checks in a row may fail before a truck is paused, for trucks
+   * whose officer has not set their own number. The admin's floor, not a
+   * per-truck one - see tracked_trucks.max_consecutive_failures.
+   */
+  trackingFailureCutoff: number;
+  /**
    * How long a reading at the same plaza counts as the same crossing being
    * re-reported. Past it, the truck has come back and that is news.
    */

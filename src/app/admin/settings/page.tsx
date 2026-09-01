@@ -263,6 +263,21 @@ export default async function SettingsPage() {
                 </Field>
 
                 <Field
+                  label="Pause a truck after this many failed checks"
+                  name="tracking_failure_cutoff"
+                  hint="A check fails when the toll network cannot answer for that number - usually a typo or a lorry it has stopped reporting. After five failures in a row the officer is messaged; at this number the truck is paused so it stops spending credits on a question with no answer. Nothing is deleted. This is the fallback: an officer who set their own number for a truck keeps it."
+                >
+                  <Input
+                    name="tracking_failure_cutoff"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    defaultValue={num(settings, "tracking_failure_cutoff", 10)}
+                    className="max-w-40"
+                  />
+                </Field>
+
+                <Field
                   label="Same plaza counts as the same crossing for (minutes)"
                   name="revisit_minutes"
                   hint="A toll plaza reports one crossing several times over. Inside this window a repeat is ignored; past it, the truck has come back and that is a new crossing worth alerting on. Raise it if return trips are being reported twice; lower it if a same-day round trip is being missed."
@@ -656,6 +671,9 @@ export default async function SettingsPage() {
                 </Badge>
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
+              <DescRow label="Pause after">
+                {num(settings, "tracking_failure_cutoff", 10)} failed checks
+              </DescRow>
               <DescRow label="Same-plaza window">
                 {num(settings, "revisit_minutes", 90)} min
               </DescRow>

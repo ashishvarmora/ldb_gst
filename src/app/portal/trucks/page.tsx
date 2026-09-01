@@ -7,6 +7,7 @@ import { TruckCard, isWatching } from "@/components/TruckCard";
 import { HelpNote } from "@/components/Disclosure";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
+import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertRuleTemplate, TrackedTruck, TruckAlertWithTemplate } from "@/lib/types";
 
@@ -55,7 +56,7 @@ export default async function TrucksPage({
 
   const filter = parseFilter(params.filter);
 
-  const [{ data: trucks }, { data: alerts }, { data: templates }] = await Promise.all([
+  const [{ data: trucks }, { data: alerts }, { data: templates }, settings] = await Promise.all([
     admin
       .from("tracked_trucks")
       .select("*")
@@ -70,6 +71,7 @@ export default async function TrucksPage({
       .select("*")
       .eq("is_active", true)
       .order("sort_order", { ascending: true }),
+    loadSettings(admin),
   ]);
 
   const all = (trucks ?? []) as TrackedTruck[];
@@ -134,7 +136,10 @@ export default async function TrucksPage({
             }
             width="md"
           >
-            <AddTruckForm templates={templateList} />
+            <AddTruckForm
+              templates={templateList}
+              defaultFailureCutoff={settings.trackingFailureCutoff}
+            />
           </Modal>
         }
       />

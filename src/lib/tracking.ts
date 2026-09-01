@@ -9,7 +9,7 @@ import {
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
-import { loadSettings } from "@/lib/settings";
+import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
 import { fmtDateTime } from "@/lib/format";
@@ -41,24 +41,6 @@ export type EventLike = {
  */
 const FAILURE_WARN_AT = 5;
 
-/**
- * When the officer has not set a budget, give the truck about a day of failing
- * before pausing it.
- *
- * A flat count cannot work here: the old hard-coded 20 was two hours for a
- * truck checked every five minutes and nearly three weeks for one checked
- * daily. A day is the same amount of patience either way.
- */
-const FAILURE_BUDGET_MINUTES = 24 * 60;
-
-/**
- * Floor and ceiling on the derived budget. The floor stops a truck checked
- * once a week from being paused by a single failure; the ceiling stops a
- * five-minute truck from burning 288 upstream calls a day going nowhere.
- */
-const FAILURE_BUDGET_MIN = 3;
-const FAILURE_BUDGET_MAX = 120;
-
 /** Trucks handled per sweep, and how many at a time. */
 const DEFAULT_BATCH = 60;
 const CONCURRENCY = 4;
@@ -66,29 +48,26 @@ const CONCURRENCY = 4;
 /**
  * How many failures in a row this truck is allowed before it is paused.
  *
- * The officer's own number wins. Otherwise it is worked out from how often the
- * truck is actually checked, which is its fastest enabled alert - that is what
- * decides the cadence, since the truck is polled the moment any one alert is
- * due.
+ * Two levels, and only two. The officer's own number, chosen when they added
+ * the truck, wins - they are the one who knows whether this lorry is worth
+ * being patient with. Anything they left blank falls back to the admin's
+ * setting, which is one number for the whole platform and can be changed in
+ * the console without touching a single truck.
+ *
+ * A per-truck null is deliberately NOT resolved at write time. Storing the
+ * admin's number on the row would freeze it there, and every truck already
+ * added would go on using whatever the default happened to be that day.
  */
 export function resolveFailureBudget(
   truck: Pick<TrackedTruck, "max_consecutive_failures">,
-  alerts: TruckAlertWithTemplate[],
+  settings: Pick<AppSettings, "trackingFailureCutoff">,
 ): number {
-  if (truck.max_consecutive_failures !== null) return truck.max_consecutive_failures;
-
-  const intervals = alerts
-    .filter((alert) => alert.is_enabled)
-    .map((alert) => alert.interval_minutes)
-    .filter((minutes) => Number.isFinite(minutes) && minutes > 0);
-
-  // No enabled alert means nothing is checking it, so the budget is academic;
-  // the floor keeps the arithmetic below safe either way.
-  if (intervals.length === 0) return FAILURE_BUDGET_MIN;
-
-  const fastest = Math.min(...intervals);
-  const budget = Math.ceil(FAILURE_BUDGET_MINUTES / fastest);
-  return Math.min(FAILURE_BUDGET_MAX, Math.max(FAILURE_BUDGET_MIN, budget));
+  if (truck.max_consecutive_failures !== null && truck.max_consecutive_failures !== undefined) {
+    return truck.max_consecutive_failures;
+  }
+  // A misconfigured setting must not mean "pause on the first hiccup".
+  const cutoff = settings.trackingFailureCutoff;
+  return Number.isInteger(cutoff) && cutoff >= 1 ? cutoff : SETTINGS_FALLBACK.trackingFailureCutoff;
 }
 
 export type PollOutcome = {
@@ -441,7 +420,7 @@ export async function checkTruck({
      * a truck that mysteriously stopped.
      */
     const errors = truck.consecutive_errors + 1;
-    const budget = resolveFailureBudget(truck, alerts);
+    const budget = resolveFailureBudget(truck, settings);
     const exhausted = errors >= budget;
     const warnNow = !exhausted && errors >= FAILURE_WARN_AT && truck.failure_warned_at === null;
 

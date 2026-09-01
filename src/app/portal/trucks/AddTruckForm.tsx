@@ -23,7 +23,14 @@ import type { AlertRuleTemplate } from "@/lib/types";
  * what to be told, then how often. Everything a first-time reader does not
  * need is behind the (i) or behind "More settings".
  */
-export function AddTruckForm({ templates }: { templates: AlertRuleTemplate[] }) {
+export function AddTruckForm({
+  templates,
+  defaultFailureCutoff,
+}: {
+  templates: AlertRuleTemplate[];
+  /** The admin's number, used for any truck the officer leaves blank. */
+  defaultFailureCutoff: number;
+}) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
@@ -82,8 +89,9 @@ export function AddTruckForm({ templates }: { templates: AlertRuleTemplate[] }) 
                     credits on a question with no answer; nothing is deleted and its recorded
                     crossings stay.
                     <span className="mt-1.5 block text-faint">
-                      Leave this empty and we work it out from how often this truck is checked,
-                      which comes to about a day of failing either way.
+                      Leave it empty to use the platform default, currently {defaultFailureCutoff}{" "}
+                      failed checks. Change it here only for a truck you want more or less patience
+                      with.
                     </span>
                   </>
                 }
@@ -96,7 +104,7 @@ export function AddTruckForm({ templates }: { templates: AlertRuleTemplate[] }) 
                 min={1}
                 max={1000}
                 step={1}
-                placeholder="Automatic"
+                placeholder={`Default (${defaultFailureCutoff})`}
                 className="mt-1.5"
               />
             </div>
