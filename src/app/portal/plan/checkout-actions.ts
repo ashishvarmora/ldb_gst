@@ -684,3 +684,79 @@ export async function confirmCheckout(
     return fail(reportError("confirmCheckout crashed", error));
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* bonus codes                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Redeeming a code that is worth credits rather than a discount.
+ *
+ * Nothing is bought here, so this does not go near a payment: the whole
+ * exchange is a code for a balance. All the deciding happens inside
+ * redeem_bonus_coupon(), under a row lock, because the eligibility checks and
+ * the grant have to be one transaction - two people entering the last claim of
+ * a code at the same moment must not both get it, and a redemption recorded
+ * without its credits would be worse than a refusal.
+ *
+ * A discount code entered here is told where it belongs rather than called
+ * invalid. "Your code is wrong" sends somebody to support; "use this one at
+ * checkout" solves it.
+ */
+export async function redeemBonusCode(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+
+  const code = (str(fd, "code") ?? "").toUpperCase();
+  if (!code) return fail("Enter the code you were given.");
+
+  const { data, error } = await getSupabaseAdmin().rpc("redeem_bonus_coupon", {
+    p_user: session.id,
+    p_code: code,
+  });
+
+  if (error) {
+    return fail(reportError("redeeming a bonus code", error, "Could not check that code."));
+  }
+
+  const verdict = (data ?? {}) as {
+    ok?: boolean;
+    reason?: string;
+    credits?: number;
+    balance?: number;
+  };
+
+  if (!verdict.ok) {
+    switch (verdict.reason) {
+      case "unknown_code":
+        return fail(`We have no code called "${code}". Check the spelling.`);
+      case "is_discount":
+        return fail(
+          `"${code}" is a discount code, not a credit code. Enter it on the payment screen when you buy credits or a plan.`,
+        );
+      case "inactive":
+        return fail(`"${code}" has been switched off.`);
+      case "not_started":
+        return fail(`"${code}" is not usable yet.`);
+      case "expired":
+        return fail(`"${code}" has expired.`);
+      case "all_claimed":
+        return fail(`"${code}" has been fully claimed.`);
+      case "already_used":
+        return fail(`You have already used "${code}".`);
+      default:
+        return fail("That code could not be used.");
+    }
+  }
+
+  revalidatePath("/portal", "layout");
+  revalidatePath("/portal/plan");
+  revalidatePath("/portal/activity");
+
+  return done(
+    `${formatCredits(verdict.credits ?? 0)} credits added. Your balance is now ${formatCredits(verdict.balance ?? 0)}.`,
+  );
+}

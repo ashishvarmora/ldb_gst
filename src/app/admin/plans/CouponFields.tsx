@@ -124,6 +124,10 @@ export function CouponFields({ coupon }: { coupon?: Coupon }) {
 
   const edit = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }));
   const percent = draft.kind === "percent";
+  /* A bonus is not a discount: nothing is being bought, so the ceiling, the
+     minimum spend and "what it applies to" all stop meaning anything. The
+     database enforces that too - see coupons_bonus_shape in 0022. */
+  const bonus = draft.kind === "credit_bonus";
 
   return (
     <div className="space-y-5">
@@ -174,19 +178,30 @@ export function CouponFields({ coupon }: { coupon?: Coupon }) {
         <legend className="field-label">What comes off</legend>
 
         <FormGrid cols={2}>
-          <Field label="Kind of discount" name="kind">
+          <Field label="What the code does" name="kind">
             <Select
               name="kind"
               value={draft.kind}
-              onChange={(e) => edit({ kind: e.target.value === "flat" ? "flat" : "percent" })}
+              onChange={(e) => {
+                const next = e.target.value as Draft["kind"];
+                // Clearing the discount-only boxes as the kind changes stops a
+                // stale minimum spend being posted with a bonus and refused by
+                // the constraint after the form looked fine.
+                edit(
+                  next === "credit_bonus"
+                    ? { kind: next, cap: "", minSpend: "" }
+                    : { kind: next },
+                );
+              }}
             >
-              <option value="percent">A percentage of the order</option>
-              <option value="flat">A fixed number of rupees</option>
+              <option value="percent">A percentage off the order</option>
+              <option value="flat">A fixed number of rupees off</option>
+              <option value="credit_bonus">Free credits — no purchase needed</option>
             </Select>
           </Field>
 
           <Field
-            label={percent ? "Percent off (%)" : "Rupees off (Rs)"}
+            label={bonus ? "Credits given" : percent ? "Percent off (%)" : "Rupees off (Rs)"}
             name="value"
             hint={
               percent
@@ -203,7 +218,7 @@ export function CouponFields({ coupon }: { coupon?: Coupon }) {
               step="any"
               value={draft.value}
               onChange={(e) => edit({ value: e.target.value })}
-              placeholder={percent ? "20" : "200"}
+              placeholder={bonus ? "500" : percent ? "20" : "200"}
             />
           </Field>
         </FormGrid>

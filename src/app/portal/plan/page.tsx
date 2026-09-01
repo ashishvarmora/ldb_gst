@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, CalendarDays, ChevronRight, History, Wallet } from "lucide-react";
 
+import { RedeemBonusCode } from "./RedeemBonusCode";
 import { InviteCard } from "../referrals/InviteCard";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
@@ -313,6 +314,8 @@ export default async function PlanPage({
 
       {/* The other way to get credits, right where someone is deciding how
           much to spend on them. */}
+      <RedeemBonusCode className="mb-3" />
+
       {settings.referralEnabled ? <InviteCard className="mb-3" /> : null}
 
       <div className="space-y-3">

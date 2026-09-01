@@ -586,14 +586,22 @@ function readCoupon(fd: FormData): { values: CouponValues } | { error: string } 
     };
   }
 
-  const kind: CouponKind = str(fd, "kind") === "flat" ? "flat" : "percent";
+  const rawKind = str(fd, "kind");
+  const kind: CouponKind =
+    rawKind === "flat" ? "flat" : rawKind === "credit_bonus" ? "credit_bonus" : "percent";
+  /* A bonus is not a discount: nothing is bought, so a ceiling, a minimum spend
+     and a scope have nothing to act on. Forced rather than trusted from the
+     form, because coupons_bonus_shape in 0022 refuses the row otherwise and a
+     constraint violation is a worse message than none. */
+  const bonus = kind === "credit_bonus";
 
   const valueRaw = str(fd, "value");
   const value = valueRaw === null ? null : rupees(valueRaw);
   if (value === null || value <= 0) {
     return {
-      error:
-        kind === "percent"
+      error: bonus
+        ? "Enter how many credits the code is worth. It has to be above zero."
+        : kind === "percent"
           ? "Enter the percentage that comes off. It has to be above zero."
           : "Enter how many rupees come off. It has to be above zero.",
     };
@@ -602,8 +610,8 @@ function readCoupon(fd: FormData): { values: CouponValues } | { error: string } 
     return { error: "A percentage over 100 would pay the buyer to shop. Keep it at 100 or less." };
   }
 
-  // Only a percentage has an "up to". On a flat code the column is cleared
-  // rather than kept, so the row cannot say something the discount does not do.
+  // Only a percentage has an "up to". On a flat or bonus code the column is
+  // cleared rather than kept, so the row cannot say something the code does not do.
   let cap: number | null = null;
   const capRaw = str(fd, "max_discount_inr");
   if (kind === "percent" && capRaw !== null) {
@@ -614,7 +622,7 @@ function readCoupon(fd: FormData): { values: CouponValues } | { error: string } 
   }
 
   const minSpendRaw = str(fd, "min_spend_inr");
-  const minSpend = minSpendRaw === null ? 0 : rupees(minSpendRaw);
+  const minSpend = bonus ? 0 : minSpendRaw === null ? 0 : rupees(minSpendRaw);
   if (minSpend === null) return { error: "The minimum spend must be zero rupees or more." };
 
   // Blank is the unlimited code, and null is how the column stores that. Zero
@@ -637,7 +645,11 @@ function readCoupon(fd: FormData): { values: CouponValues } | { error: string } 
   }
 
   const scope = str(fd, "applies_to");
-  const appliesTo: CouponScope = scope === "credits" || scope === "plan" ? scope : "all";
+  const appliesTo: CouponScope = bonus
+    ? "all"
+    : scope === "credits" || scope === "plan"
+      ? scope
+      : "all";
 
   const startsOn = str(fd, "starts_on");
   const endsOn = str(fd, "expires_on");

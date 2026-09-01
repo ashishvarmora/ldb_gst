@@ -88,6 +88,7 @@ export default async function AdminOverviewPage({
     dailyCalls,
     { count: failedCalls },
     { data: revenueRows },
+    { data: sourceRows },
     { count: alertsToday },
     { data: stuckPayments, count: stuckCount },
     settings,
@@ -106,6 +107,9 @@ export default async function AdminOverviewPage({
       .select("amount_inr, credits, created_at")
       .eq("status", "captured")
       .gte("created_at", monthStart),
+    // Where every credit ever issued came from, bucketed once in the database
+    // so no screen re-classifies ten reasons by hand.
+    admin.from("credit_source_totals").select("source, reason, credits, entries, accounts"),
     admin
       .from("alert_logs")
       .select("id", { count: "exact", head: true })
@@ -139,6 +143,32 @@ export default async function AdminOverviewPage({
       },
       { month: 0, today: 0, creditsSold: 0, payments: 0 },
     );
+
+  /*
+   * X credits exist. Who paid for them?
+   *
+   *   paid   money taken through the gateway, plus the plans that followed one
+   *   admin  credits an operator handed over directly, gateway not involved
+   *   free   the signup tier, referral rewards and bonus coupon codes
+   *
+   * The mapping is credit_source() in the database, so this screen and the
+   * customer's own ledger cannot disagree about which bucket a row is in.
+   */
+  const bySource = ((sourceRows ?? []) as {
+    source: string;
+    reason: string;
+    credits: number;
+    entries: number;
+  }[]).reduce<Record<string, { credits: number; entries: number }>>((acc, row) => {
+    const bucket = (acc[row.source] ??= { credits: 0, entries: 0 });
+    bucket.credits += Number(row.credits) || 0;
+    bucket.entries += Number(row.entries) || 0;
+    return acc;
+  }, {});
+
+  const issued =
+    (bySource.paid?.credits ?? 0) + (bySource.admin?.credits ?? 0) + (bySource.free?.credits ?? 0);
+  const spent = Math.abs(bySource.spend?.credits ?? 0);
 
   const rows = (overview ?? []) as OfficerOverview[];
   const stuck = (stuckPayments ?? []) as PaymentRow[];
@@ -474,6 +504,45 @@ export default async function AdminOverviewPage({
               <DescRow label="Payments this month">{fmtNumber(revenue.payments)}</DescRow>
               <DescRow label="Credits sold">{fmtNumber(revenue.creditsSold)}</DescRow>
               <DescRow label="Credits held by accounts">{fmtNumber(creditsOutstanding)}</DescRow>
+            </dl>
+          </Panel>
+
+          {/*
+            Where the credits came from, which is a different question from how
+            much money arrived: an admin top-up and a bonus code both add credits
+            and neither is revenue. Percentages of what has been issued, because
+            "4,300 free" means nothing without the total beside it.
+          */}
+          <Panel
+            title="Where the credits came from"
+            description="Every credit ever issued, by source. Spending is shown against the total issued."
+          >
+            <dl className="space-y-0">
+              {[
+                { key: "paid", label: "Bought through the gateway" },
+                { key: "admin", label: "Added by an administrator" },
+                { key: "free", label: "Given free — signup, referrals, coupons" },
+                { key: "other", label: "Unclassified" },
+              ].map(({ key, label }) => {
+                const credits = bySource[key]?.credits ?? 0;
+                // Unclassified is only worth a line when it is not empty: a zero
+                // there is the normal case and reads as a problem.
+                if (key === "other" && credits === 0) return null;
+                const share = issued > 0 ? Math.round((credits / issued) * 100) : 0;
+                return (
+                  <DescRow key={key} label={label}>
+                    {fmtNumber(credits)}
+                    <span className="ml-1.5 text-xs text-faint tabular-nums">{share}%</span>
+                  </DescRow>
+                );
+              })}
+              <DescRow label="Total issued">{fmtNumber(issued)}</DescRow>
+              <DescRow label="Spent so far">
+                {fmtNumber(spent)}
+                <span className="ml-1.5 text-xs text-faint tabular-nums">
+                  {issued > 0 ? Math.round((spent / issued) * 100) : 0}%
+                </span>
+              </DescRow>
             </dl>
           </Panel>
 

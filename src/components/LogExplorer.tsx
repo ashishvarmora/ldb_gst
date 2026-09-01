@@ -2,9 +2,10 @@ import Link from "next/link";
 import { ArrowLeft, Bell, ClipboardList, Search } from "lucide-react";
 
 import { Badge, EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import { fmtDateTime } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertLog, AuditLog, SearchLog } from "@/lib/types";
+import type { AlertLog, AuditLog } from "@/lib/types";
 
 /**
  * Every log the platform keeps, in one place.
@@ -44,7 +45,23 @@ const PAGE_SIZE = 50;
 const WINDOW_DAYS = 90;
 
 const TYPES: { key: LogType; label: string; icon: typeof Search; hint: string }[] = [
-  { key: "searches", label: "Searches & checks", icon: Search, hint: "Every lookup, manual or automatic" },
+  {
+    key: "searches",
+    label: "Searches & checks",
+    icon: Search,
+    /*
+     * Read from credit_transactions, not search_logs.
+     *
+     * search_logs keeps seven days and is only written when a tracking check
+     * finds a new crossing, so it held 16 rows against 90 charges - it could
+     * never be the audit trail it was being used as. credit_transactions is
+     * retention-protected (kept for ever) and has exactly one row per charged
+     * action, which makes it the complete record. search_logs stays where it
+     * belongs: seven days of diagnostics - response times and error text - for
+     * whatever is going wrong right now.
+     */
+    hint: "Every charged lookup, manual or automatic — the complete record",
+  },
   { key: "alerts", label: "Alerts sent", icon: Bell, hint: "What went out, and what failed to" },
   { key: "admin", label: "Admin actions", icon: ClipboardList, hint: "Who changed what in the console" },
 ];
@@ -152,11 +169,11 @@ export async function LogExplorer({
           <FilterForm basePath={basePath} query={query} type={type} people={people ?? []} />
 
           {type === "searches" ? (
-            <ChipRow label="Result">
+            <ChipRow label="Kind">
               {[
-                { value: undefined, label: "Any" },
-                { value: "ok", label: "Succeeded" },
-                { value: "failed", label: "Failed" },
+                { value: undefined, label: "All lookups" },
+                { value: "manual", label: "Typed by hand" },
+                { value: "automatic", label: "Background checks" },
               ].map((option) => (
                 <Chip
                   key={option.label}
@@ -248,62 +265,125 @@ type ListProps = {
 };
 
 async function SearchRows({ basePath, query, page, since, bounds, nameOf }: ListProps) {
-  let request = getSupabaseAdmin()
-    .from("search_logs")
-    .select("*", { count: "exact" })
+  const admin = getSupabaseAdmin();
+
+  /*
+   * The complete record, from credit_transactions.
+   *
+   * This read search_logs, which keeps seven days and is written only when a
+   * tracking check finds a new crossing - so it showed a fraction of what had
+   * actually been charged, and a fraction is not an audit trail.
+   * credit_transactions is retention-protected and holds exactly one row per
+   * charged action, which makes it the only honest answer to "every lookup".
+   */
+  let request = admin
+    .from("credit_transactions")
+    .select("id,created_at,user_id,reason,delta,truck_number,note", { count: "exact" })
+    .lt("delta", 0)
     .gte("created_at", since)
     .order("created_at", { ascending: false });
 
   if (query.officer) request = request.eq("user_id", query.officer);
   if (query.truck) request = request.ilike("truck_number", `%${query.truck}%`);
-  if (query.status === "ok") request = request.eq("ok", true);
-  if (query.status === "failed") request = request.eq("ok", false);
+  if (query.status === "manual") request = request.eq("reason", "manual_search");
+  if (query.status === "automatic") request = request.eq("reason", "auto_check");
   if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
 
   const from = (page - 1) * PAGE_SIZE;
   const { data, count } = await request.range(from, from + PAGE_SIZE - 1);
-  const rows = (data ?? []) as SearchLog[];
+  const rows = (data ?? []) as {
+    id: number;
+    created_at: string;
+    user_id: string;
+    reason: string;
+    delta: number;
+    truck_number: string | null;
+    note: string | null;
+  }[];
 
   if (rows.length === 0) return <NoRows />;
+
+  /*
+   * Seven days of diagnostics, joined in memory by truck and minute.
+   *
+   * A failure and a response time are only in search_logs, and only while it
+   * still holds the row. So the complete list is the ledger and this decorates
+   * whatever part of it is recent enough to have detail - rather than the list
+   * itself being cut down to what happens to have diagnostics.
+   */
+  const oldest = rows[rows.length - 1]?.created_at ?? since;
+  const { data: diagnostics } = await admin
+    .from("search_logs")
+    .select("truck_number,created_at,ok,response_ms,error,new_events")
+    .gte("created_at", oldest)
+    .limit(1000);
+
+  const detailFor = new Map<string, { ok: boolean; response_ms: number | null; error: string | null; new_events: number }>();
+  for (const row of (diagnostics ?? []) as {
+    truck_number: string;
+    created_at: string;
+    ok: boolean;
+    response_ms: number | null;
+    error: string | null;
+    new_events: number;
+  }[]) {
+    detailFor.set(`${row.truck_number}|${row.created_at.slice(0, 16)}`, row);
+  }
 
   return (
     <>
       <ul className="divide-y divide-divider">
-        {rows.map((row) => (
-          <li key={row.id} className="flex items-start gap-3 px-4 py-2.5">
-            <span className="min-w-0 flex-1">
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <Link
-                  href={href(basePath, query, { truck: row.truck_number })}
-                  className="font-mono text-xs font-medium text-ink hover:text-brand-500"
-                >
-                  {row.truck_number}
-                </Link>
-                <Badge tone={row.source === "tracking" ? "neutral" : "brand"}>
-                  {row.source === "tracking" ? "automatic" : "manual"}
-                </Badge>
-                {row.ok ? null : <Badge tone="bad">failed</Badge>}
+        {rows.map((row) => {
+          const detail = row.truck_number
+            ? detailFor.get(`${row.truck_number}|${row.created_at.slice(0, 16)}`)
+            : undefined;
+          const automatic = row.reason === "auto_check";
+
+          return (
+            <li key={row.id} className="flex items-start gap-3 px-4 py-2.5">
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {row.truck_number ? (
+                    <Link
+                      href={href(basePath, query, { truck: row.truck_number })}
+                      className="font-mono text-xs font-medium text-ink hover:text-brand-500"
+                    >
+                      {row.truck_number}
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-muted">no truck recorded</span>
+                  )}
+                  <Badge tone={automatic ? "neutral" : "brand"}>
+                    {automatic ? "automatic" : "manual"}
+                  </Badge>
+                  {detail && !detail.ok ? <Badge tone="bad">failed</Badge> : null}
+                </span>
+                <span className="mt-0.5 block text-[11px] text-faint">
+                  {fmtDateTime(row.created_at)}
+                  {" · "}
+                  <Link
+                    href={href(basePath, query, { officer: row.user_id })}
+                    className="hover:text-brand-500"
+                  >
+                    {nameOf.get(row.user_id) ?? "Unknown account"}
+                  </Link>
+                  {detail?.error ? ` · ${detail.error}` : ""}
+                </span>
               </span>
-              <span className="mt-0.5 block text-[11px] text-faint">
-                {fmtDateTime(row.created_at)}
-                {" · "}
-                <Link
-                  href={href(basePath, query, { officer: row.user_id })}
-                  className="hover:text-brand-500"
-                >
-                  {nameOf.get(row.user_id) ?? "Unknown account"}
-                </Link>
-                {row.error ? ` · ${row.error}` : ""}
+
+              <span className="shrink-0 text-right text-[11px] tabular-nums">
+                <span className="block font-semibold text-ink">
+                  {formatCredits(Math.abs(Number(row.delta)))} cr
+                </span>
+                {detail ? (
+                  <span className="block text-faint">
+                    {detail.new_events > 0 ? `${detail.new_events} new` : "nothing new"}
+                  </span>
+                ) : null}
               </span>
-            </span>
-            <span className="shrink-0 text-right text-[11px] text-faint tabular-nums">
-              <span className="block">
-                {row.new_events > 0 ? `${row.new_events} new` : "nothing new"}
-              </span>
-              {row.response_ms === null ? null : <span className="block">{row.response_ms} ms</span>}
-            </span>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
       <Pager basePath={basePath} query={query} page={page} count={count ?? rows.length} />
     </>

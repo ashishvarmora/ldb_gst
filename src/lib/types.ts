@@ -474,7 +474,14 @@ export type ReferralSummary = {
 /* coupons                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export type CouponKind = "percent" | "flat";
+/**
+ * What a coupon does.
+ *
+ * percent / flat reduce a price and are entered at a checkout. credit_bonus
+ * reduces nothing - it is worth credits and is entered on its own, so `value`
+ * means credits rather than rupees or a percentage.
+ */
+export type CouponKind = "percent" | "flat" | "credit_bonus";
 /** Which purchases a code is good for. */
 export type CouponScope = "all" | "credits" | "plan";
 
