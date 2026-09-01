@@ -35,6 +35,13 @@ const ENGINE_SPECS: SettingSpec[] = [
   { key: "no_activity_hours", label: "No-activity threshold", kind: "int", min: 1, max: 168 },
   { key: "revisit_minutes", label: "Same-plaza window", kind: "int", min: 5, max: 1440 },
   {
+    key: "signup_free_credits",
+    label: "Free credits for a new account",
+    kind: "int",
+    min: 0,
+    max: 100000,
+  },
+  {
     key: "tracking_failure_cutoff",
     label: "Pause a truck after this many failed checks",
     kind: "int",

@@ -8,6 +8,8 @@ import { sendEmail, welcomeEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { fail, str } from "@/lib/forms";
+import { PHONE_ERROR, normaliseIndianMobile } from "@/lib/phone";
+import { grantCredits } from "@/lib/credits";
 import { attachReferral, resolveReferralCode } from "@/lib/referrals";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getSupabaseServer } from "@/lib/supabase/server";
@@ -17,6 +19,18 @@ const schema = z.object({
   full_name: z.string().min(2, "Enter your full name."),
   email: z.string().email("Enter a valid email address."),
   password: z.string().min(8, "Choose a password of at least 8 characters."),
+  /*
+   * Required, and validated as an Indian mobile rather than as "some text".
+   * This is the number an officer is actually reached on when their account is
+   * locked or a payment fails - an email address alone has already proved not
+   * to be enough, because this deployment's outbound mail can be
+   * misconfigured while the account looks fine.
+   */
+  phone: z
+    .string()
+    .min(1, "Enter your mobile number.")
+    .transform((value) => normaliseIndianMobile(value))
+    .refine((value): value is string => value !== null, PHONE_ERROR),
 });
 
 export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -39,10 +53,11 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
     full_name: str(fd, "full_name") ?? "",
     email: str(fd, "email")?.toLowerCase() ?? "",
     password: raw("password"),
+    phone: str(fd, "phone") ?? "",
   });
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Please check the form.");
 
-  const { full_name, email, password } = parsed.data;
+  const { full_name, email, password, phone } = parsed.data;
   if (password !== raw("confirm_password")) {
     return fail("The two passwords do not match.");
   }
@@ -61,7 +76,7 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name },
+    user_metadata: { full_name, phone },
   });
 
   if (createError) {
@@ -89,6 +104,26 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
    * payment reads to decide whether anyone is owed, so throwing it away now
    * would silently punish everyone who was invited during a pause.
    */
+  /*
+   * The free tier, granted before the first redirect so the new account can try
+   * a search on its very first screen instead of hitting a wall.
+   *
+   * Read from settings at signup rather than baked in, and a failure here is a
+   * log line only - somebody who registered successfully must not be shown an
+   * error because a bonus could not be applied. grant_credits writes the ledger
+   * row, so the officer can see where it came from.
+   */
+  if (settings.signupFreeCredits > 0 && created?.user?.id) {
+    const granted = await grantCredits({
+      admin,
+      userId: created.user.id,
+      amount: settings.signupFreeCredits,
+      reason: "signup_bonus",
+      note: "Free credits for a new account",
+    });
+    if (!granted.ok) console.error("Sign-up: free credits not granted:", granted.error);
+  }
+
   const referrerId = await resolveReferralCode(admin, str(fd, "ref"));
   if (referrerId && created?.user?.id) {
     await attachReferral(admin, referrerId, created.user.id);

@@ -37,6 +37,7 @@ import { alertSentence } from "@/lib/alerts";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
+import { getSessionUser } from "@/lib/auth";
 import { loadSettings } from "@/lib/settings";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -58,11 +59,27 @@ const ROUTE_LIMIT = 400;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+
+  /*
+   * Scoped to the reader, exactly as the page body is.
+   *
+   * This ran on the service-role client with only .eq("id", …), so a signed-in
+   * account that knew another account's truck id got that registration number
+   * back in the document title while the body itself 404'd. A small leak, and
+   * a whole registration number is not a small thing to leak. The session is
+   * read here rather than trusted from the page, because metadata is generated
+   * independently of it.
+   */
+  const session = await getSessionUser();
+  if (!session) return { title: "Truck — Rahdari" };
+
   const { data } = await getSupabaseAdmin()
     .from("tracked_trucks")
     .select("truck_number")
     .eq("id", id)
+    .eq("user_id", session.id)
     .maybeSingle();
+
   return { title: `${data?.truck_number ?? "Truck"} — Rahdari` };
 }
 

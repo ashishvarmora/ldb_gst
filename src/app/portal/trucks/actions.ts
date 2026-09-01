@@ -435,9 +435,27 @@ export async function setTruckPaused(
     }
   }
 
+  /*
+   * This is the Pause/Resume button on the truck page - the one an officer
+   * actually presses. updateTruck already cleared the failure run on resume;
+   * this did not, so a truck the worker had paused at its budget came straight
+   * back with the counter still at the limit and was paused again by its very
+   * next failure. Both paths have to agree, because the officer cannot tell
+   * which one they used.
+   */
   const { error } = await admin
     .from("tracked_trucks")
-    .update({ is_active: active })
+    .update({
+      is_active: active,
+      ...(active
+        ? {
+            consecutive_errors: 0,
+            failure_warned_at: null,
+            paused_reason: null,
+            paused_at: null,
+          }
+        : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
+    })
     .eq("id", truckId)
     .eq("user_id", session.id);
 

@@ -52,6 +52,46 @@ export function SignupForm({
         />
       </Field>
 
+      {/*
+        The +91 is furniture, not a field. Every officer here is on an Indian
+        number, so asking for a country code is a box that can only be typed
+        wrong - and a number typed with one anyway ("+91 98765 43210") still
+        normalises cleanly on the server, so pasting is safe.
+
+        type="tel" rather than "number": a number spinner on a phone number is
+        nonsense, and inputMode="numeric" already brings up the digit keypad.
+      */}
+      <Field
+        label="Mobile number"
+        name="phone"
+        hint="We use this if something goes wrong with your account. 10 digits."
+        required
+      >
+        <div className="flex">
+          <span
+            aria-hidden
+            className="inline-flex shrink-0 items-center rounded-l-lg border border-r-0 border-line bg-raised px-3 font-mono text-sm text-muted"
+          >
+            +91
+          </span>
+          <Input
+            name="phone"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            required
+            maxLength={10}
+            pattern="[6-9][0-9]{9}"
+            placeholder="9876543210"
+            aria-describedby="phone-country"
+            className="rounded-l-none font-mono tracking-wider placeholder:font-sans placeholder:tracking-normal"
+          />
+        </div>
+        <span id="phone-country" className="sr-only">
+          Indian mobile number, country code plus 91
+        </span>
+      </Field>
+
       <Field label="Password" name="password">
         <Input
           name="password"

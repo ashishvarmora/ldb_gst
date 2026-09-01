@@ -315,6 +315,11 @@ export type AppSettings = {
    */
   trackingFailureCutoff: number;
   /**
+   * Credits handed to a brand-new account so it can try a search before paying.
+   * 0 switches the free tier off entirely.
+   */
+  signupFreeCredits: number;
+  /**
    * How long a reading at the same plaza counts as the same crossing being
    * re-reported. Past it, the truck has come back and that is news.
    */

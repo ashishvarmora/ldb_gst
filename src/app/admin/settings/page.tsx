@@ -133,6 +133,21 @@ export default async function SettingsPage() {
                   defaultChecked={site.signupEnabled}
                 />
 
+                <Field
+                  label="Free credits for a new account"
+                  name="signup_free_credits"
+                  hint="Handed over the moment someone registers, so they can try a search before paying. 0 switches the free tier off. It shows in their credit history as a signup bonus, and it does not give them a plan — a plan is still needed before they can watch a truck."
+                >
+                  <Input
+                    name="signup_free_credits"
+                    type="number"
+                    min={0}
+                    max={100000}
+                    defaultValue={num(settings, "signup_free_credits", 0)}
+                    className="max-w-40"
+                  />
+                </Field>
+
                 <FormGrid cols={2}>
                   <Field
                     label="Support email"
