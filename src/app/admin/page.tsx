@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   AlertTriangle,
+  ClipboardList,
   Bell,
   Coins,
   CreditCard,
@@ -18,8 +19,10 @@ import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
   Badge,
+  DescRow,
   EmptyState,
   LinkButton,
+  LinkCard,
   PageHeader,
   Panel,
   PanelAction,
@@ -32,11 +35,11 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtNumber, fmtRelative, fmtRupees, initials, istToday } from "@/lib/format";
+import { fmtNumber, fmtRelative, fmtRupees, initials, istToday } from "@/lib/format";
 import { usageRatio } from "@/lib/limits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AuditLog, OfficerOverview, Payment } from "@/lib/types";
+import type { OfficerOverview, Payment } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
 
@@ -70,12 +73,21 @@ export default async function AdminOverviewPage({
 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
   const stuckBefore = new Date(Date.now() - PAYMENT_STUCK_MINUTES * 60_000).toISOString();
+  /* IST boundaries, so "today" and "this month" mean what they mean in the
+     office rather than in UTC - a payment at 3am IST belongs to that day. */
+  const istNow = new Date(Date.now() + 5.5 * 3_600_000);
+  const todayStart = new Date(
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - 5.5 * 3_600_000,
+  ).toISOString();
+  const monthStart = new Date(
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - 5.5 * 3_600_000,
+  ).toISOString();
 
   const [
     { data: overview, error: overviewError },
     dailyCalls,
     { count: failedCalls },
-    { data: audit },
+    { data: revenueRows },
     { count: alertsToday },
     { data: stuckPayments, count: stuckCount },
     settings,
@@ -87,7 +99,13 @@ export default async function AdminOverviewPage({
       .select("id", { count: "exact", head: true })
       .eq("ok", false)
       .gte("created_at", dayAgo),
-    admin.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(8),
+    // Money. Captured payments only - a "created" row is an intention, not
+    // revenue, and counting it would overstate every figure on the dashboard.
+    admin
+      .from("payments")
+      .select("amount_inr, credits, created_at")
+      .eq("status", "captured")
+      .gte("created_at", monthStart),
     admin
       .from("alert_logs")
       .select("id", { count: "exact", head: true })
@@ -102,6 +120,25 @@ export default async function AdminOverviewPage({
       .limit(ATTENTION_STEP),
     loadSettings(admin),
   ]);
+
+  /*
+   * The financial picture, worked out from captured payments in one pass. Kept
+   * here rather than in a view: it is three sums over a month of rows, and
+   * another aggregate is another thing that can disagree with the payments
+   * table it came from.
+   */
+  const revenue = ((revenueRows ?? []) as { amount_inr: number; credits: number; created_at: string }[])
+    .reduce(
+      (acc, row) => {
+        const amount = Number(row.amount_inr) || 0;
+        acc.month += amount;
+        acc.creditsSold += Number(row.credits) || 0;
+        acc.payments += 1;
+        if (row.created_at >= todayStart) acc.today += amount;
+        return acc;
+      },
+      { month: 0, today: 0, creditsSold: 0, payments: 0 },
+    );
 
   const rows = (overview ?? []) as OfficerOverview[];
   const stuck = (stuckPayments ?? []) as PaymentRow[];
@@ -421,32 +458,31 @@ export default async function AdminOverviewPage({
             </Panel>
           ) : null}
 
+          {/*
+            The last eight audit entries used to sit here. A dashboard is for
+            deciding whether to look closer, not for reading a log eight lines
+            at a time - so this names the log and links to it, and the space
+            goes to the money instead.
+          */}
           <Panel
-            title="Recent admin activity"
-            description="The last few changes made from this console."
-            bodyClassName="p-0"
-            actions={<PanelAction href="/admin/audit">Full log</PanelAction>}
+            title="Money this month"
+            description="Captured payments only. A payment still at “created” is an intention, not revenue."
           >
-            {(audit ?? []).length === 0 ? (
-              <EmptyState title="No activity yet" />
-            ) : (
-              <ul className="divide-y divide-divider">
-                {((audit ?? []) as AuditLog[]).map((entry) => (
-                  <li key={entry.id} className="px-5 py-2.5">
-                    <p className="text-sm text-ink">
-                      <span className="font-mono text-xs text-brand-400">{entry.action}</span>
-                      {entry.entity_label ? (
-                        <span className="text-muted"> · {entry.entity_label}</span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-faint">
-                      {fmtRelative(entry.created_at)} · {fmtDateTime(entry.created_at)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <dl className="space-y-0">
+              <DescRow label="Received today">{fmtRupees(revenue.today)}</DescRow>
+              <DescRow label="Received this month">{fmtRupees(revenue.month)}</DescRow>
+              <DescRow label="Payments this month">{fmtNumber(revenue.payments)}</DescRow>
+              <DescRow label="Credits sold">{fmtNumber(revenue.creditsSold)}</DescRow>
+              <DescRow label="Credits held by accounts">{fmtNumber(creditsOutstanding)}</DescRow>
+            </dl>
           </Panel>
+
+          <LinkCard
+            href="/admin/logs"
+            icon={<ClipboardList size={16} />}
+            title="Logs"
+            description="Every search, alert and console change — filter by account, truck or day."
+          />
         </div>
       </div>
     </>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -318,6 +319,72 @@ export function PanelAction({ href, children }: { href: string; children: ReactN
       className="-mr-2 inline-flex min-h-9 items-center rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-brand-500/8 hover:text-brand-600"
     >
       {children}
+    </Link>
+  );
+}
+
+/**
+ * A tappable card that sends the reader somewhere else.
+ *
+ * The workhorse of the consolidation: wherever a screen used to embed a second
+ * copy of a list it does not own, it now names that list, says what is in it,
+ * and links to the one place it lives. A count on the card is what makes the
+ * link worth following - "Alerts sent · 1,204, 3 undelivered" answers the
+ * glance, and the list answers the follow-up.
+ */
+export function LinkCard({
+  href,
+  icon,
+  title,
+  description,
+  value,
+  tone = "neutral",
+}: {
+  href: string;
+  icon?: ReactNode;
+  title: string;
+  description?: ReactNode;
+  /** The figure worth seeing without following the link. */
+  value?: ReactNode;
+  tone?: "neutral" | "warn";
+}) {
+  return (
+    <Link
+      href={href}
+      className={cx(
+        "flex items-center gap-3 rounded-xl border px-4 py-3.5 transition",
+        tone === "warn"
+          ? "border-warn-500/40 bg-warn-500/8 hover:border-warn-500/70"
+          : "border-line bg-panel hover:border-brand-500/50 hover:bg-sunken",
+      )}
+    >
+      {icon ? (
+        <span
+          className={cx(
+            "inline-flex size-9 shrink-0 items-center justify-center rounded-xl border",
+            tone === "warn"
+              ? "border-warn-500/30 bg-warn-500/12 text-warn-500"
+              : "border-brand-500/30 bg-brand-500/12 text-brand-500",
+          )}
+        >
+          {icon}
+        </span>
+      ) : null}
+
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-ink">{title}</span>
+        {description ? (
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted">{description}</span>
+        ) : null}
+      </span>
+
+      {value !== undefined ? (
+        <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-strong">
+          {value}
+        </span>
+      ) : null}
+
+      <ChevronRight size={16} className="shrink-0 text-faint" />
     </Link>
   );
 }

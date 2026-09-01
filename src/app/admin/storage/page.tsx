@@ -195,7 +195,7 @@ export default async function StoragePage() {
         <StatCard
           label="Under a retention rule"
           value={prettyBytes(bytesUnderRules)}
-          sub={`≈ ${fmtNumber(rowsUnderRules)} rows across ${covered.length} table(s)`}
+          sub={`${fmtNumber(rowsUnderRules)} rows across ${covered.length} table(s)`}
           icon={<Database size={15} />}
         />
         <StatCard
@@ -227,7 +227,7 @@ export default async function StoragePage() {
           </p>
           <p className="mt-2 text-xs text-muted">
             The <Mono>table_sizes()</Mono> function comes with{" "}
-            <Mono>0016_retention_rules_and_sheets.sql</Mono>. The rules below still work without it;
+            <Mono>0020_exact_table_sizes.sql</Mono>. The rules below still work without it;
             only the sizes beside them are missing.
           </p>
         </Panel>
@@ -547,7 +547,7 @@ export default async function StoragePage() {
                             </span>
                           </td>
                           <td className="td text-right tabular-nums">
-                            ≈ {fmtNumber(row.rows)}
+                            {fmtNumber(row.rows)}
                           </td>
                           <td className="td text-right tabular-nums">{row.pretty}</td>
                         </Tr>

@@ -46,7 +46,7 @@ const NAV = [
   { href: "/admin/trucks", label: "Trucks", icon: Truck },
   { href: "/admin/usage", label: "Usage", icon: Gauge },
   { href: "/admin/alerts", label: "Alert rules", icon: Bell },
-  { href: "/admin/audit", label: "Audit log", icon: ClipboardList },
+  { href: "/admin/logs", label: "Logs", icon: ClipboardList },
   { href: "/admin/storage", label: "Storage", icon: Database },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
