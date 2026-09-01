@@ -36,11 +36,13 @@ export type AccountParams = {
    * payments pager is this tab's own now.
    */
   ppage?: string;
-  view?: string;
+  by?: string;
   kind?: string;
   reason?: string;
   truck?: string;
-  date?: string;
+  from?: string;
+  to?: string;
+  sort?: string;
   page?: string;
   /** Trucks tab. */
   tq?: string;

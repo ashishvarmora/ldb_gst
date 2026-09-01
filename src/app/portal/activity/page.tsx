@@ -42,12 +42,25 @@ export default async function ActivityPage({
 
         {/* The one thing about this page that surprises people, and the reason
             a bill can look wrong when it is not. */}
-        <HelpNote title="Why does one truck cost so much in a day?">
-          A truck is checked on the beat you set for it. At every 15 minutes that is
-          ninety-odd checks a day, and each one is charged at the rate on the plan page. Slowing a
-          truck down is the single biggest lever on what it costs — a truck checked hourly costs a
-          quarter of the same truck checked every fifteen minutes, and still records every crossing.
-        </HelpNote>
+        {/* Two folds, not two paragraphs. The first is the question support is
+            actually asked; the second is the one that stops somebody thinking
+            the list is missing rows. */}
+        <div className="space-y-2">
+          <HelpNote title="Why does one truck cost so much in a day?">
+            A truck is checked on the beat you set for it. At every 15 minutes that is ninety-odd
+            checks a day, and each one is charged at the rate on the plan page. Slowing a truck down
+            is the single biggest lever on what it costs — a truck checked hourly costs a quarter of
+            the same truck checked every fifteen minutes, and still records every crossing.
+          </HelpNote>
+
+          <HelpNote title="How do I find one particular charge?">
+            Turn the <strong>Group by</strong> toggles off and you get every individual charge,
+            newest first. Leave them on to fold the same charges up — by day, by truck, or both.
+            Tapping any folded row opens the charges behind it. The date boxes take a range, and the
+            three figures above the list always describe everything the filters match, not just the
+            page you are looking at.
+          </HelpNote>
+        </div>
 
         <CreditLedger userId={overview.id} basePath="/portal/activity" query={query} />
       </div>

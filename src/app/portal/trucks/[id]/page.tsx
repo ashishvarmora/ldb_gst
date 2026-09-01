@@ -6,6 +6,9 @@ import {
   BellOff,
   BellPlus,
   CheckCircle2,
+  ChevronDown,
+  History,
+  Info,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -32,8 +35,9 @@ import { Checkbox, Field, FormActions, Input } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
 import { TruckAlertForm } from "@/components/TruckAlertForm";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE, lastCheckedLabel } from "@/components/TruckCard";
-import { Badge, EmptyState, Panel } from "@/components/ui";
+import { Badge, EmptyState, LinkCard, Panel } from "@/components/ui";
 import { alertSentence } from "@/lib/alerts";
+import { intervalLabel } from "@/lib/intervals";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
@@ -51,11 +55,21 @@ import type {
 } from "@/lib/types";
 
 /**
- * How much of the route is loaded onto the page. Beyond this the whole history
- * is still on record and reachable from the Records page - loading a year of
- * crossings into one phone screen helps nobody.
+ * How much of the route is loaded onto the page.
+ *
+ * Was 400. RouteHistory shows the newest few and folds the rest behind one tap,
+ * so that fold could open onto 375 rows in a single burst - honest, since the
+ * summary counts them, but unusable on a phone and pointless when the Records
+ * page owns the full history and pages through it properly. Sixty keeps a
+ * fortnight of a busy lorry on the page and hands the rest over.
  */
-const ROUTE_LIMIT = 400;
+const ROUTE_LIMIT = 60;
+
+/**
+ * Crossings before the fold. Ten is about a phone screen, which is the point at
+ * which somebody either has what they came for or wants the whole journey.
+ */
+const ROUTE_VISIBLE = 10;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -245,7 +259,7 @@ export default async function TruckDetailPage({
 
       <Panel
         title="Alerts on this truck"
-        description="This truck is checked only when one of these is due, and each check costs credits."
+        description="Checked only when one of these is due. Each check costs credits."
       >
         {ruleList.length === 0 ? (
           <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
@@ -270,17 +284,43 @@ export default async function TruckDetailPage({
               */
               <li key={rule.id} className="px-3 py-2.5">
                 <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap sm:items-center">
+                  {/*
+                    The full sentence - "we look every 15 minutes and message
+                    you only when..." - is three lines on a phone, and three of
+                    those stacked buried the controls. It moves behind the (i),
+                    so a row is one line saying what the alert is and how often,
+                    and the promise is one tap away for whoever wants it.
+                  */}
                   <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <p className="text-sm font-medium text-ink">{rule.template.name}</p>
                       {rule.is_enabled ? null : <Badge>off</Badge>}
                       {rule.template.is_active ? null : <Badge tone="warn">withdrawn</Badge>}
                     </div>
-                    {/* The rule name alone was read as a category rather than a
-                        promise, so each row says what it will do in full. */}
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                      {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
+                    <p className="mt-0.5 text-[11px] text-faint">
+                      every {intervalLabel(rule.interval_minutes)}
+                      {rule.plaza ? ` · ${rule.plaza}` : ""}
                     </p>
+                    {/*
+                      A native <details> rather than the (i) component, for two
+                      reasons: it needs no client component, and its panel opens
+                      in normal flow INSIDE the text column - so it cannot
+                      overlap the Turn off and delete controls the way a popover
+                      anchored in a flex row would.
+                    */}
+                    <details className="group/why mt-1">
+                      <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-brand-500">
+                        <Info size={11} className="shrink-0" />
+                        What this does
+                        <ChevronDown
+                          size={11}
+                          className="shrink-0 transition group-open/why:rotate-180"
+                        />
+                      </summary>
+                      <p className="mt-1 text-xs leading-relaxed text-muted">
+                        {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
+                      </p>
+                    </details>
                   </div>
 
                   <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -338,7 +378,7 @@ export default async function TruckDetailPage({
             : `${totalCrossings} toll crossing${totalCrossings === 1 ? "" : "s"}, newest first`
         }
       >
-        <RouteHistory events={eventList} total={totalCrossings} />
+        <RouteHistory events={eventList} total={totalCrossings} recent={ROUTE_VISIBLE} />
       </Disclosure>
 
       <Disclosure
@@ -370,37 +410,22 @@ export default async function TruckDetailPage({
         )}
       </Disclosure>
 
-      <Disclosure
-        title="Checks"
-        hint="Checks that found a movement, or failed. Quiet checks are not listed."
-        bodyClassName="p-0"
-      >
-        {checkList.length === 0 ? (
-          <EmptyState title="No checks yet" />
-        ) : (
-          <ul className="divide-y divide-divider">
-            {checkList.map((check) => (
-              <li key={check.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
-                <span className="text-xs text-muted">{fmtDateTime(check.created_at)}</span>
-                <span className="flex items-center gap-2">
-                  <Badge tone={check.source === "manual" ? "brand" : "neutral"}>
-                    {check.source === "manual" ? "by you" : "automatic"}
-                  </Badge>
-                  {check.ok ? (
-                    <span className="text-xs text-muted">
-                      {check.new_events > 0 ? `${check.new_events} new` : "no change"}
-                    </span>
-                  ) : (
-                    <span title={friendlyError(check.error)}>
-                      <Badge tone="bad">did not go through</Badge>
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Disclosure>
+      {/*
+        The check list used to live here, from search_logs - which keeps seven
+        days and is only written when a check FINDS something. So it showed a
+        fraction of what had been charged and labelled the rest invisible, which
+        is the opposite of what somebody checking their bill needs.
+
+        Every check is a charge, and every charge is on the ledger for ever. So
+        the complete list is one tap away on the activity page, already narrowed
+        to this lorry, instead of an incomplete one being repeated here.
+      */}
+      <LinkCard
+        href={`/portal/activity?truck=${encodeURIComponent(truck.truck_number)}&by=none`}
+        icon={<History size={16} />}
+        title="Every check on this truck"
+        description="All of them, with what each one cost — not just the ones that found a movement."
+      />
 
       {/* Not folded away like the sections above it. There are only two fields
           and a remove button, and hiding them behind a dropdown made people
