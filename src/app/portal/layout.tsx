@@ -97,6 +97,9 @@ export default async function PortalLayout({ children }: { children: React.React
       .from("alert_logs")
       .select("id,title,truck_number,delivered,read_at,created_at")
       .eq("user_id", overview.id)
+      // Cleared rows are kept in the table for the admin log and the account's
+      // own history; the bell is the one surface that stops listing them.
+      .is("cleared_at", null)
       .order("created_at", { ascending: false })
       .limit(BELL_LIMIT),
   ]);

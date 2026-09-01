@@ -32,11 +32,64 @@ export type EventLike = {
   direction: string | null;
 };
 
-/** Give up on a truck after this many consecutive failed checks. */
-const ERROR_CUTOFF = 20;
+/**
+ * Say something after this many failures in a row - long before giving up.
+ *
+ * The officer can only fix a wrong number or a truck the network has stopped
+ * reporting if somebody tells them. Five is far enough in to rule out one bad
+ * afternoon upstream, and early enough that the budget below has not run out.
+ */
+const FAILURE_WARN_AT = 5;
+
+/**
+ * When the officer has not set a budget, give the truck about a day of failing
+ * before pausing it.
+ *
+ * A flat count cannot work here: the old hard-coded 20 was two hours for a
+ * truck checked every five minutes and nearly three weeks for one checked
+ * daily. A day is the same amount of patience either way.
+ */
+const FAILURE_BUDGET_MINUTES = 24 * 60;
+
+/**
+ * Floor and ceiling on the derived budget. The floor stops a truck checked
+ * once a week from being paused by a single failure; the ceiling stops a
+ * five-minute truck from burning 288 upstream calls a day going nowhere.
+ */
+const FAILURE_BUDGET_MIN = 3;
+const FAILURE_BUDGET_MAX = 120;
+
 /** Trucks handled per sweep, and how many at a time. */
 const DEFAULT_BATCH = 60;
 const CONCURRENCY = 4;
+
+/**
+ * How many failures in a row this truck is allowed before it is paused.
+ *
+ * The officer's own number wins. Otherwise it is worked out from how often the
+ * truck is actually checked, which is its fastest enabled alert - that is what
+ * decides the cadence, since the truck is polled the moment any one alert is
+ * due.
+ */
+export function resolveFailureBudget(
+  truck: Pick<TrackedTruck, "max_consecutive_failures">,
+  alerts: TruckAlertWithTemplate[],
+): number {
+  if (truck.max_consecutive_failures !== null) return truck.max_consecutive_failures;
+
+  const intervals = alerts
+    .filter((alert) => alert.is_enabled)
+    .map((alert) => alert.interval_minutes)
+    .filter((minutes) => Number.isFinite(minutes) && minutes > 0);
+
+  // No enabled alert means nothing is checking it, so the budget is academic;
+  // the floor keeps the arithmetic below safe either way.
+  if (intervals.length === 0) return FAILURE_BUDGET_MIN;
+
+  const fastest = Math.min(...intervals);
+  const budget = Math.ceil(FAILURE_BUDGET_MINUTES / fastest);
+  return Math.min(FAILURE_BUDGET_MAX, Math.max(FAILURE_BUDGET_MIN, budget));
+}
 
 export type PollOutcome = {
   truckId: string;
@@ -205,6 +258,81 @@ async function dispatchAlerts({
   return { created: drafts.length, delivered };
 }
 
+/**
+ * An alert about the watching itself rather than about a truck's movement.
+ *
+ * deliverAlerts() cannot carry these: it formats a position, and the whole
+ * point of "this truck keeps failing" is that there is no position to report.
+ * The row still lands in alert_logs, so the bell shows it even for an account
+ * that has never connected Telegram - which is exactly the account most likely
+ * to be missing the news.
+ */
+async function sendSystemAlert({
+  admin,
+  context,
+  truckNumber,
+  kind,
+  title,
+  message,
+}: {
+  admin: Admin;
+  context: OfficerContext;
+  truckNumber: string | null;
+  kind: string;
+  title: string;
+  message: string;
+}): Promise<void> {
+  const telegramAllowed =
+    (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
+
+  let delivered = false;
+  let deliveryError: string | null = "No Telegram chat id saved. Add it in Settings to receive alerts.";
+
+  if (telegramAllowed) {
+    const heading = truckNumber ? `${title}\n${truckNumber}` : title;
+    const result = await sendTelegramMessage({
+      chatId: context.telegram!.chat_id!,
+      botToken: context.telegram!.bot_token,
+      text: `${heading}\n\n${message}`,
+    });
+    delivered = result.ok;
+    deliveryError = result.ok ? null : result.error;
+  }
+
+  const { error } = await admin.from("alert_logs").insert({
+    user_id: context.userId,
+    truck_number: truckNumber,
+    kind,
+    title,
+    message,
+    delivered,
+    delivery_error: deliveryError,
+  });
+  if (error) console.error("alert_logs insert failed", error.message);
+}
+
+/**
+ * True when this account has not already been told about `kind` today.
+ *
+ * Running out of credits is discovered once per truck per sweep, so without
+ * this an account with forty trucks would be told forty times an hour that its
+ * balance is empty. The news is the same all day, so it is worth saying once.
+ */
+async function notToldToday(admin: Admin, userId: string, kind: string): Promise<boolean> {
+  const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const { data, error } = await admin
+    .from("alert_logs")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("kind", kind)
+    .gte("created_at", since)
+    .limit(1);
+
+  // A failed lookup must not become silence about something this important.
+  if (error) return true;
+  return (data ?? []).length === 0;
+}
+
 /* -------------------------------------------------------------------------- */
 /* one truck                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -254,7 +382,34 @@ export async function checkTruck({
     // Out of credits is not a failure of the truck, and it fixes itself the
     // moment the officer tops up, so tracking is left switched on.
     if (verdict.reason === "account_suspended") {
-      await admin.from("tracked_trucks").update({ is_active: false }).eq("id", truck.id);
+      await admin
+        .from("tracked_trucks")
+        .update({
+          is_active: false,
+          paused_reason: "account_suspended",
+          paused_at: now.toISOString(),
+        })
+        .eq("id", truck.id);
+    } else if (
+      verdict.reason === "out_of_credits" &&
+      (await notToldToday(admin, truck.user_id, "out_of_credits"))
+    ) {
+      /*
+       * The quietest way for this product to fail: the balance empties, every
+       * automatic check stops, and nothing on the phone changes. Said once a
+       * day, naming a truck that is actually going unchecked.
+       */
+      await sendSystemAlert({
+        admin,
+        context,
+        truckNumber: truck.truck_number,
+        kind: "out_of_credits",
+        title: "Automatic checks have stopped",
+        message:
+          "Your credit balance is empty, so no truck is being checked right now. " +
+          "Nothing has been lost and every truck stays on your list - top up and " +
+          "checking carries on from where it left off.",
+      });
     }
     return { ...outcome, reason: verdict.reason ?? "not_allowed" };
   }
@@ -275,22 +430,66 @@ export async function checkTruck({
       error: result.error,
     });
 
+    /*
+     * A failing truck gets told about twice and then stopped.
+     *
+     * At FAILURE_WARN_AT the officer hears that it is failing, once, because
+     * the usual cause is something only they can fix - a mistyped number, or a
+     * lorry the toll network no longer reports. At the budget it is paused
+     * rather than deleted: their crossings stay, the truck stays on the list,
+     * and the reason is on the row so the page can say why instead of showing
+     * a truck that mysteriously stopped.
+     */
     const errors = truck.consecutive_errors + 1;
+    const budget = resolveFailureBudget(truck, alerts);
+    const exhausted = errors >= budget;
+    const warnNow = !exhausted && errors >= FAILURE_WARN_AT && truck.failure_warned_at === null;
+
     await admin
       .from("tracked_trucks")
       .update({
         last_polled_at: now.toISOString(),
         consecutive_errors: errors,
-        is_active: errors >= ERROR_CUTOFF ? false : truck.is_active,
+        is_active: exhausted ? false : truck.is_active,
+        ...(exhausted
+          ? { paused_reason: "repeated_failures" as const, paused_at: now.toISOString() }
+          : {}),
+        ...(warnNow ? { failure_warned_at: now.toISOString() } : {}),
       })
       .eq("id", truck.id);
+
+    if (exhausted) {
+      await sendSystemAlert({
+        admin,
+        context,
+        truckNumber: truck.truck_number,
+        kind: "tracking_paused",
+        title: "Checking paused after repeated failures",
+        message:
+          `The last ${errors} checks in a row could not be completed, so this truck has been ` +
+          "paused and is no longer costing credits. Its recorded crossings are untouched. " +
+          "Check the number is right, then switch it back on from My trucks.",
+      });
+    } else if (warnNow) {
+      await sendSystemAlert({
+        admin,
+        context,
+        truckNumber: truck.truck_number,
+        kind: "tracking_failing",
+        title: "This truck is not answering",
+        message:
+          `${errors} checks in a row have failed. That is usually a number that does not ` +
+          "match any lorry, or one the toll network has stopped reporting. " +
+          `If it keeps failing it will be paused after ${budget} in a row.`,
+      });
+    }
 
     return {
       ...outcome,
       status: "failed",
       error: result.error,
       responseMs: result.ms,
-      reason: errors >= ERROR_CUTOFF ? "paused_after_repeated_errors" : undefined,
+      reason: exhausted ? "paused_after_repeated_errors" : undefined,
     };
   }
 
@@ -441,6 +640,9 @@ export async function checkTruck({
       last_direction: position.direction,
       status: deriveStatus(latestEventAt, now, settings.noActivityHours),
       consecutive_errors: 0,
+      // Cleared with the counter, so a truck that fails again later is warned
+      // again rather than sliding silently towards its budget a second time.
+      failure_warned_at: null,
     })
     .eq("id", truck.id);
 

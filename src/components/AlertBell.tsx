@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell } from "lucide-react";
+import { Bell, CheckCheck } from "lucide-react";
 
-import { markAlertsRead } from "@/app/portal/notifications/actions";
+import { clearAlerts, markAlertsRead } from "@/app/portal/notifications/actions";
 import { Badge, EmptyState, Mono, cx } from "@/components/ui";
 import { fmtRelative } from "@/lib/format";
 
@@ -28,7 +28,7 @@ export type AlertBellItem = {
  * a round trip.
  */
 export function AlertBell({
-  alerts,
+  alerts: allAlerts,
   unreadCount,
 }: {
   alerts: AlertBellItem[];
@@ -44,9 +44,12 @@ export function AlertBell({
    * new.
    */
   const [fresh, setFresh] = useState<number[]>([]);
+  /** Optimistic empty, held until the server's own empty list arrives. */
+  const [cleared, setCleared] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const badge = seen ? 0 : unreadCount;
+  const badge = seen || cleared ? 0 : unreadCount;
+  const alerts = cleared ? [] : allAlerts;
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
@@ -55,6 +58,12 @@ export function AlertBell({
     // would never light up again for the rest of the session.
     if (unreadCount === 0) setSeen(false);
   }, [unreadCount]);
+
+  useEffect(() => {
+    // Same bargain as `seen`: the layout outlives navigations, so once the
+    // server hands back rows again the local empty must let go of them.
+    if (allAlerts.length > 0) setCleared(false);
+  }, [allAlerts]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,7 +89,7 @@ export function AlertBell({
       return;
     }
 
-    setFresh(alerts.filter((alert) => alert.read_at === null).map((alert) => alert.id));
+    setFresh(allAlerts.filter((alert) => alert.read_at === null).map((alert) => alert.id));
     setOpen(true);
 
     if (unreadCount > 0 && !seen) {
@@ -126,10 +135,26 @@ export function AlertBell({
              Wider: a normal dropdown hanging off the bell. */
           className="animate-in absolute top-full right-4 left-4 z-50 mt-2 overflow-hidden rounded-xl border border-line bg-panel [box-shadow:var(--shadow-pop)] sm:right-0 sm:left-auto sm:w-88"
         >
-          <header className="flex items-baseline justify-between gap-2 border-b border-line/70 px-4 py-2.5">
+          <header className="flex items-center justify-between gap-2 border-b border-line/70 px-4 py-2">
             <h2 className="text-sm font-semibold text-ink">Alerts</h2>
             {alerts.length > 0 ? (
-              <span className="text-[11px] text-faint">newest {alerts.length}</span>
+              /* Clearing hides these rows rather than deleting them - see
+                 clearAlerts. Emptied optimistically because waiting on the
+                 write would leave the reader tapping a list that is still
+                 there; a failure puts it back on the next load. */
+              <button
+                type="button"
+                onClick={() => {
+                  setCleared(true);
+                  clearAlerts()
+                    .then(() => router.refresh())
+                    .catch(() => setCleared(false));
+                }}
+                className="-mr-1.5 inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 text-[11px] font-medium text-muted transition hover:bg-sunken hover:text-ink"
+              >
+                <CheckCheck size={12} />
+                Clear all
+              </button>
             ) : null}
           </header>
 

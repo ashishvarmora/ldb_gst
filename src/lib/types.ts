@@ -105,8 +105,22 @@ export type TrackedTruck = {
   last_direction: string | null;
   status: TruckStatus;
   consecutive_errors: number;
+  /**
+   * How many checks in a row may fail before this truck is paused. null means
+   * the officer has not chosen, so the worker derives one from the truck's own
+   * check interval - see resolveFailureBudget().
+   */
+  max_consecutive_failures: number | null;
+  /** Why is_active went false. null while it is running. */
+  paused_reason: PausedReason | null;
+  paused_at: string | null;
+  /** Set when the "this truck keeps failing" warning went out, so it goes once. */
+  failure_warned_at: string | null;
   created_at: string;
 };
+
+/** Why a truck stopped being checked. Mirrors the check on tracked_trucks. */
+export type PausedReason = "manual" | "repeated_failures" | "account_suspended";
 
 /* -------------------------------------------------------------------------- */
 /* credits                                                                     */
@@ -209,6 +223,8 @@ export type AlertLog = {
   delivered: boolean;
   delivery_error: string | null;
   read_at: string | null;
+  /** Set when the officer cleared the bell. The row stays; it is only hidden. */
+  cleared_at: string | null;
   created_at: string;
 };
 
