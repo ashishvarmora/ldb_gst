@@ -18,6 +18,7 @@ import {
   saveSiteSettings,
 } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { SectionTabs, activeSection, type Section } from "@/components/SectionTabs";
 import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/components/form";
 import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
@@ -43,7 +44,20 @@ function text(settings: SettingsMap, key: string, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-export default async function SettingsPage() {
+const SETTINGS_SECTIONS: Section[] = [
+  { key: "site", label: "Brand & site", hint: "Name, registration, support and legal links" },
+  { key: "tracking", label: "Tracking", hint: "The engine, its schedule, and running it by hand" },
+  { key: "payments", label: "Payments", hint: "Taking money, and what a customer must provide" },
+  { key: "data", label: "Data & exports", hint: "Sheets, exporting and how long rows are kept" },
+  { key: "health", label: "Health", hint: "Whether it is wired up, and the values in force" },
+];
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ section?: string }>;
+}) {
+  const section = activeSection(SETTINGS_SECTIONS, (await searchParams).section);
   await requireSuperAdmin();
   const admin = getSupabaseAdmin();
 
@@ -103,8 +117,16 @@ export default async function SettingsPage() {
         subtitle={`Platform-wide. Everything here applies to ${site.brandName} as a whole — there is nothing per customer on this page.`}
       />
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="space-y-5 xl:col-span-2">
+      {/*
+        Five groups rather than ten stacked panels. Nothing was removed and no
+        field changed forms - these are the same panels, shown a group at a
+        time, because a 746-line scroll meant reaching one setting by passing
+        nine you were not looking for.
+      */}
+      <SectionTabs sections={SETTINGS_SECTIONS} active={section} basePath="/admin/settings" />
+
+      {section === "site" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
             title="Site"
             description="What the product calls itself, whether anyone may register, and how to reach you. All of it is shown to people who are not signed in."
@@ -237,7 +259,11 @@ export default async function SettingsPage() {
               </FormActions>
             </ActionForm>
           </Panel>
+        </div>
+      ) : null}
 
+      {section === "tracking" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
             title="Tracking engine"
             description="Applies to the background worker, which checks a truck whenever one of its alerts falls due."
@@ -314,6 +340,152 @@ export default async function SettingsPage() {
             </ActionForm>
           </Panel>
 
+          <Panel
+            title="Scheduling the worker"
+            description="Nothing in this project schedules itself. An outside scheduler has to call the worker."
+          >
+            <div className="space-y-3 text-xs leading-relaxed text-muted">
+              <p>
+                Set up a job at <strong>cron-job.org</strong> (or any scheduler) that calls this
+                address every 5 minutes. There is no Vercel cron and no GitHub Action any more — if
+                nothing calls this, no truck is ever checked.
+              </p>
+
+              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+                <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">URL</p>
+                <Mono className="mt-1 block text-xs break-all text-ink">{cronUrl}</Mono>
+
+                <p className="mt-3 text-[11px] font-semibold tracking-wider text-muted uppercase">
+                  Request header
+                </p>
+                <Mono className="mt-1 block text-xs break-all text-ink">
+                  Authorization: Bearer &lt;CRON_SECRET&gt;
+                </Mono>
+
+                <p className="mt-3 text-xs text-muted">
+                  <Mono>CRON_SECRET</Mono> is the value in your environment.{" "}
+                  {health.cron
+                    ? "It is set here, so the worker will accept the call."
+                    : "It is not set here, so the worker refuses every call until it is."}{" "}
+                  A GET or a POST both work.
+                </p>
+              </div>
+
+              <p>
+                The scheduler needs no other setting. Add <Mono>?batch=50</Mono> to the address only
+                if a run is timing out and you want smaller bites.
+              </p>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Run the worker now"
+            description="Polls every truck that is due, right now, instead of waiting for the scheduled call."
+          >
+            <ActionForm action={runTrackingNow} closeOnSuccess={false}>
+              <Field
+                label="Trucks to check"
+                name="batch"
+                hint="Keep it small the first time so a portal problem does not burn everyone's credits."
+              >
+                <Input
+                  name="batch"
+                  type="number"
+                  min={1}
+                  max={300}
+                  defaultValue={20}
+                  className="max-w-32"
+                />
+              </Field>
+              <FormActions>
+                <SubmitButton variant="secondary" pendingLabel="Running...">
+                  <PlayCircle size={14} />
+                  Run tracking sweep
+                </SubmitButton>
+              </FormActions>
+            </ActionForm>
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
+              Exactly the code path <Mono>/api/cron/track</Mono> runs.
+            </p>
+          </Panel>
+        </div>
+      ) : null}
+
+      {section === "payments" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+          <Panel
+            title="Customer payments"
+            description="Razorpay, so customers can buy a plan and top up their credits themselves instead of settling with you offline."
+          >
+            <ActionForm action={savePaymentSettings} closeOnSuccess={false}>
+              <div className="space-y-4">
+                <Checkbox
+                  name="razorpay_enabled"
+                  label="Customers may pay online"
+                  hint="Off means there is no online payment at all — plans and credits arrive only when you assign or add them by hand."
+                  defaultChecked={razorpayEnabled}
+                />
+
+                <Field
+                  label="Razorpay key id"
+                  name="razorpay_key_id"
+                  hint="Starts with rzp_. This is the public half of the pair and is safe to store."
+                >
+                  <Input
+                    name="razorpay_key_id"
+                    autoComplete="off"
+                    defaultValue={razorpayKeyId}
+                    placeholder="rzp_live_XXXXXXXXXXXX"
+                  />
+                </Field>
+
+                <div className="rounded-lg border border-warn-500/40 bg-warn-500/10 p-4">
+                  <p className="text-sm font-medium text-warn-500">
+                    The key secret never goes in this form
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    It belongs in the environment as <Mono>RAZORPAY_KEY_SECRET</Mono>, alongside the
+                    other server keys. Anything typed into a settings box is stored in the database
+                    and read back by this page — fine for the key id, never for the secret.{" "}
+                    {razorpaySecretSet
+                      ? "RAZORPAY_KEY_SECRET is set in this environment."
+                      : "RAZORPAY_KEY_SECRET is not set in this environment."}
+                  </p>
+                </div>
+
+                <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
+                  <span className="text-ink">What a payment buys is not set here.</span> Plans carry
+                  their own monthly price, and the credit packs on the Credits page are the top-up
+                  price list. This panel only decides whether anyone may pay in the app at all.
+                </p>
+              </div>
+
+              <FormActions>
+                <SubmitButton>Save payment settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
+          <Panel
+            title="What a customer has to give you"
+            description="Nothing sensitive. You hold the credentials; the customer supplies one thing."
+          >
+            <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
+              <p className="text-sm font-medium text-ink">Telegram chat id</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                You run one bot for the whole platform. The customer sends it <Mono>/start</Mono> —
+                Telegram only allows a bot to message someone who has started it. Then read their
+                numeric chat id with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them
+                fetch it from <Mono>@userinfobot</Mono>. Paste it on their account page. Never ask
+                for a phone number — Telegram alerts do not use it.
+              </p>
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+
+      {section === "data" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
             title="Sheets and exporting"
             description="Where old rows are copied before they leave the database, and how often. How long each table is kept is per table, on the Storage page."
@@ -429,114 +601,45 @@ export default async function SettingsPage() {
           </Panel>
 
           <Panel
-            title="Scheduling the worker"
-            description="Nothing in this project schedules itself. An outside scheduler has to call the worker."
+            title="Storage and retention"
+            description="How long each table is kept, what it costs on disk, and the button that exports and trims on demand."
           >
-            <div className="space-y-3 text-xs leading-relaxed text-muted">
-              <p>
-                Set up a job at <strong>cron-job.org</strong> (or any scheduler) that calls this
-                address every 5 minutes. There is no Vercel cron and no GitHub Action any more — if
-                nothing calls this, no truck is ever checked.
-              </p>
-
-              <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-                <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">URL</p>
-                <Mono className="mt-1 block text-xs break-all text-ink">{cronUrl}</Mono>
-
-                <p className="mt-3 text-[11px] font-semibold tracking-wider text-muted uppercase">
-                  Request header
-                </p>
-                <Mono className="mt-1 block text-xs break-all text-ink">
-                  Authorization: Bearer &lt;CRON_SECRET&gt;
-                </Mono>
-
-                <p className="mt-3 text-xs text-muted">
-                  <Mono>CRON_SECRET</Mono> is the value in your environment.{" "}
-                  {health.cron
-                    ? "It is set here, so the worker will accept the call."
-                    : "It is not set here, so the worker refuses every call until it is."}{" "}
-                  A GET or a POST both work.
-                </p>
-              </div>
-
-              <p>
-                The scheduler needs no other setting. Add <Mono>?batch=50</Mono> to the address only
-                if a run is timing out and you want smaller bites.
+            <div className="flex items-start gap-2.5">
+              <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
+              <p className="text-xs leading-relaxed text-muted">
+                {rules.length === 0
+                  ? "No retention rules are set up, so nothing is ever deleted. Run 0016_retention_rules_and_sheets.sql against the project."
+                  : trimming.length === 0
+                    ? `All ${rules.length} tables are kept for ever, so the database only grows. Set a window on the logs to hold it down.`
+                    : `${trimming.length} of ${rules.length} tables are trimmed${
+                        noCopy.length > 0 ? `, ${noCopy.length} with no copy kept` : ""
+                      }.`}
+                {protectedTrimmed.length > 0
+                  ? ` ${protectedTrimmed.length} money record(s) have a finite window — worth checking.`
+                  : ""}
               </p>
             </div>
-          </Panel>
 
-          <Panel
-            title="Customer payments"
-            description="Razorpay, so customers can buy a plan and top up their credits themselves instead of settling with you offline."
-          >
-            <ActionForm action={savePaymentSettings} closeOnSuccess={false}>
-              <div className="space-y-4">
-                <Checkbox
-                  name="razorpay_enabled"
-                  label="Customers may pay online"
-                  hint="Off means there is no online payment at all — plans and credits arrive only when you assign or add them by hand."
-                  defaultChecked={razorpayEnabled}
-                />
+            <FormActions>
+              <LinkButton href="/admin/storage">
+                <Database size={14} />
+                Open Storage
+              </LinkButton>
+            </FormActions>
 
-                <Field
-                  label="Razorpay key id"
-                  name="razorpay_key_id"
-                  hint="Starts with rzp_. This is the public half of the pair and is safe to store."
-                >
-                  <Input
-                    name="razorpay_key_id"
-                    autoComplete="off"
-                    defaultValue={razorpayKeyId}
-                    placeholder="rzp_live_XXXXXXXXXXXX"
-                  />
-                </Field>
-
-                <div className="rounded-lg border border-warn-500/40 bg-warn-500/10 p-4">
-                  <p className="text-sm font-medium text-warn-500">
-                    The key secret never goes in this form
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted">
-                    It belongs in the environment as <Mono>RAZORPAY_KEY_SECRET</Mono>, alongside the
-                    other server keys. Anything typed into a settings box is stored in the database
-                    and read back by this page — fine for the key id, never for the secret.{" "}
-                    {razorpaySecretSet
-                      ? "RAZORPAY_KEY_SECRET is set in this environment."
-                      : "RAZORPAY_KEY_SECRET is not set in this environment."}
-                  </p>
-                </div>
-
-                <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
-                  <span className="text-ink">What a payment buys is not set here.</span> Plans carry
-                  their own monthly price, and the credit packs on the Credits page are the top-up
-                  price list. This panel only decides whether anyone may pay in the app at all.
-                </p>
-              </div>
-
-              <FormActions>
-                <SubmitButton>Save payment settings</SubmitButton>
-              </FormActions>
-            </ActionForm>
-          </Panel>
-
-          <Panel
-            title="What a customer has to give you"
-            description="Nothing sensitive. You hold the credentials; the customer supplies one thing."
-          >
-            <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-              <p className="text-sm font-medium text-ink">Telegram chat id</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                You run one bot for the whole platform. The customer sends it <Mono>/start</Mono> —
-                Telegram only allows a bot to message someone who has started it. Then read their
-                numeric chat id with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them
-                fetch it from <Mono>@userinfobot</Mono>. Paste it on their account page. Never ask
-                for a phone number — Telegram alerts do not use it.
-              </p>
-            </div>
+            <p className="mt-3 flex items-center gap-1.5 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
+              <Clock size={12} className="shrink-0" />
+              Last export:{" "}
+              {typeof settings.last_sheet_export_at === "string"
+                ? fmtRelative(settings.last_sheet_export_at)
+                : "never"}
+            </p>
           </Panel>
         </div>
+      ) : null}
 
-        <div className="space-y-5">
+      {section === "health" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel title="Connection health" description="Read from environment variables at runtime.">
             <ul className="space-y-2.5">
               <HealthRow ok={health.supabase} label="Supabase project" detail="URL + anon key" />
@@ -588,73 +691,6 @@ export default async function SettingsPage() {
               <Mono className="text-xs">NEXT_PUBLIC_SITE_URL</Mono> if that is not your public
               address, and add <Mono className="text-xs break-all">{env.siteUrl}/reset-password</Mono>{" "}
               to the redirect allow-list in Supabase under Authentication → URL Configuration.
-            </p>
-          </Panel>
-
-          <Panel
-            title="Run the worker now"
-            description="Polls every truck that is due, right now, instead of waiting for the scheduled call."
-          >
-            <ActionForm action={runTrackingNow} closeOnSuccess={false}>
-              <Field
-                label="Trucks to check"
-                name="batch"
-                hint="Keep it small the first time so a portal problem does not burn everyone's credits."
-              >
-                <Input
-                  name="batch"
-                  type="number"
-                  min={1}
-                  max={300}
-                  defaultValue={20}
-                  className="max-w-32"
-                />
-              </Field>
-              <FormActions>
-                <SubmitButton variant="secondary" pendingLabel="Running...">
-                  <PlayCircle size={14} />
-                  Run tracking sweep
-                </SubmitButton>
-              </FormActions>
-            </ActionForm>
-            <p className="mt-3 text-[11px] leading-relaxed text-faint">
-              Exactly the code path <Mono>/api/cron/track</Mono> runs.
-            </p>
-          </Panel>
-
-          <Panel
-            title="Storage and retention"
-            description="How long each table is kept, what it costs on disk, and the button that exports and trims on demand."
-          >
-            <div className="flex items-start gap-2.5">
-              <Database size={16} className="mt-0.5 shrink-0 text-brand-500" />
-              <p className="text-xs leading-relaxed text-muted">
-                {rules.length === 0
-                  ? "No retention rules are set up, so nothing is ever deleted. Run 0016_retention_rules_and_sheets.sql against the project."
-                  : trimming.length === 0
-                    ? `All ${rules.length} tables are kept for ever, so the database only grows. Set a window on the logs to hold it down.`
-                    : `${trimming.length} of ${rules.length} tables are trimmed${
-                        noCopy.length > 0 ? `, ${noCopy.length} with no copy kept` : ""
-                      }.`}
-                {protectedTrimmed.length > 0
-                  ? ` ${protectedTrimmed.length} money record(s) have a finite window — worth checking.`
-                  : ""}
-              </p>
-            </div>
-
-            <FormActions>
-              <LinkButton href="/admin/storage">
-                <Database size={14} />
-                Open Storage
-              </LinkButton>
-            </FormActions>
-
-            <p className="mt-3 flex items-center gap-1.5 border-t border-divider pt-3 text-[11px] leading-relaxed text-faint">
-              <Clock size={12} className="shrink-0" />
-              Last export:{" "}
-              {typeof settings.last_sheet_export_at === "string"
-                ? fmtRelative(settings.last_sheet_export_at)
-                : "never"}
             </p>
           </Panel>
 
@@ -724,7 +760,7 @@ export default async function SettingsPage() {
             </dl>
           </Panel>
         </div>
-      </div>
+      ) : null}
     </>
   );
 }
