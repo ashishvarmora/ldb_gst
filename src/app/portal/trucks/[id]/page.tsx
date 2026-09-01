@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   BellOff,
   BellPlus,
@@ -26,6 +27,7 @@ import {
   SubmitButton,
 } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
+import { LabelWithInfo } from "@/components/InfoTip";
 import { Checkbox, Field, FormActions, Input } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
 import { TruckAlertForm } from "@/components/TruckAlertForm";
@@ -35,6 +37,7 @@ import { alertSentence } from "@/lib/alerts";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
+import { loadSettings } from "@/lib/settings";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
@@ -100,6 +103,7 @@ export default async function TruckDetailPage({
     { data: rules },
     { data: templates },
     manualRate,
+    settings,
   ] = await Promise.all([
     admin
       .from("truck_events")
@@ -134,7 +138,12 @@ export default async function TruckDetailPage({
       .eq("is_active", true)
       .order("sort_order", { ascending: true }),
     loadRate(admin, CREDIT_ACTIONS.manualSearch),
+    loadSettings(admin),
   ]);
+
+  /* Shown in the failure field so the officer can see what "empty" actually
+     means today, rather than being asked to trust a word. */
+  const defaultFailureCutoff = settings.trackingFailureCutoff;
 
   const eventList = (events ?? []) as TruckEvent[];
   const alertList = (alerts ?? []) as AlertLog[];
@@ -370,7 +379,21 @@ export default async function TruckDetailPage({
       {/* Not folded away like the sections above it. There are only two fields
           and a remove button, and hiding them behind a dropdown made people
           hunt for the pause switch. */}
-      <Panel title="Settings" description="Label, pause, and removing this truck.">
+      <Panel title="Settings" description="Label, pause, failure limit, and removing this truck.">
+        {/* A truck the worker stopped says so here, where the switch to restart
+            it is - not only on the card in the list the officer may not revisit. */}
+        {!truck.is_active && truck.paused_reason === "repeated_failures" ? (
+          <p className="mb-4 flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-warn-500">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Checking stopped by itself after {truck.consecutive_errors} failed checks in a row.
+              That usually means the number does not match any lorry the toll network reports.
+              Check the number, then tick <strong>Tracking active</strong> to start again — the
+              failure count is cleared when you do.
+            </span>
+          </p>
+        ) : null}
+
         <ActionForm action={updateTruck} closeOnSuccess={false}>
           <input type="hidden" name="truck_id" value={truck.id} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
@@ -389,6 +412,38 @@ export default async function TruckDetailPage({
               defaultChecked={truck.is_active}
             />
           </div>
+
+          <div className="mt-4 max-w-xs">
+            <LabelWithInfo
+              label="Stop checking after this many failures"
+              htmlFor="max_consecutive_failures"
+              info={
+                <>
+                  A check fails when the toll network cannot answer for this number. After five
+                  failures in a row we message you; at this number the truck is paused so it stops
+                  spending credits on a question with no answer. Nothing is deleted.
+                  <span className="mt-1.5 block text-faint">
+                    Leave it empty to follow the platform default, currently {defaultFailureCutoff}.
+                    Setting your own here fixes it for this truck only, and it will not move when
+                    the default does.
+                  </span>
+                </>
+              }
+            />
+            <Input
+              id="max_consecutive_failures"
+              name="max_consecutive_failures"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={1000}
+              step={1}
+              defaultValue={truck.max_consecutive_failures ?? ""}
+              placeholder={`Default (${defaultFailureCutoff})`}
+              className="mt-1.5"
+            />
+          </div>
+
           <FormActions>
             <SubmitButton>Save</SubmitButton>
           </FormActions>

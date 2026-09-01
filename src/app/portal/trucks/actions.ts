@@ -245,9 +245,45 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
     }
   }
 
+  /*
+   * Same rule as adding: blank means "use the admin's number", which is null in
+   * the column rather than a figure copied in here. Storing today's default
+   * would quietly opt this truck out of every future change to it.
+   */
+  const failuresRaw = str(fd, "max_consecutive_failures");
+  let maxFailures: number | null = null;
+  if (failuresRaw) {
+    const parsed = Number(failuresRaw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
+      return fail("Stop after how many failures? Enter a whole number from 1 to 1000, or leave it empty.");
+    }
+    maxFailures = parsed;
+  }
+
+  /*
+   * Switching a truck back on by hand is a fresh start, exactly as re-adding
+   * one is. Without this, a truck paused at its budget would resume with the
+   * counter still at the limit and be paused again by its very next failure -
+   * and the officer would have no way to clear it from any screen.
+   */
+  const resuming = activating && !truck.is_active;
+
   const { error } = await admin
     .from("tracked_trucks")
-    .update({ label: str(fd, "label"), is_active: activating })
+    .update({
+      label: str(fd, "label"),
+      is_active: activating,
+      max_consecutive_failures: maxFailures,
+      ...(resuming
+        ? {
+            consecutive_errors: 0,
+            failure_warned_at: null,
+            paused_reason: null,
+            paused_at: null,
+          }
+        : {}),
+      ...(activating ? {} : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
+    })
     .eq("id", truckId)
     .eq("user_id", session.id);
 
