@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Bell,
   ClipboardList,
+  Gift,
   Coins,
   Database,
   LayoutDashboard,
@@ -43,6 +44,7 @@ const NAV = [
   { href: "/admin/explore", label: "Explore", icon: Search },
   { href: "/admin/officers", label: "Accounts", icon: Users },
   { href: "/admin/plans", label: "Plans & credits", icon: Coins },
+  { href: "/admin/rewards", label: "Rewards", icon: Gift },
   { href: "/admin/trucks", label: "Trucks", icon: Truck },
   { href: "/admin/usage", label: "Usage", icon: Gauge },
   { href: "/admin/alerts", label: "Alert rules", icon: Bell },

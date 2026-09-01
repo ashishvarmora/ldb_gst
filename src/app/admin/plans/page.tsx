@@ -1,10 +1,10 @@
-import { CouponsTab } from "./CouponsTab";
 import { HistoryTab } from "./HistoryTab";
 import { PlansTab } from "./PlansTab";
-import { ReferralsTab } from "./ReferralsTab";
 import { RulesTab } from "./RulesTab";
 import { TabStrip, activeTab, type SectionParams, type Tab } from "./TabStrip";
-import { PageHeader } from "@/components/ui";
+import { redirect } from "next/navigation";
+import { Gift } from "lucide-react";
+import { LinkCard, PageHeader } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 
 export const metadata = { title: "Plans & credits — Admin" };
@@ -21,10 +21,6 @@ const INTRO: Record<Tab, string> = {
     "Two conversions, both set here, both live from the moment you save. Money becomes credits at the pack prices; credits become work at the rates below.",
   history:
     "What has already happened, one customer per row. Open a customer for their own credit history; the payment list underneath is the platform-wide record. Nothing on this tab can be edited.",
-  referrals:
-    "Invite someone, earn when they pay. Set the terms here, and see who has actually earned something.",
-  coupons:
-    "Discount codes, and what each one has cost. A coupon reduces what somebody pays; it never reduces the credits they get.",
 };
 
 export default async function PlansAndCreditsPage({
@@ -34,6 +30,13 @@ export default async function PlansAndCreditsPage({
 }) {
   await requireSuperAdmin();
   const params = await searchParams;
+
+  /* Referrals and coupons moved to their own section. Old links and bookmarks
+     land there rather than on a tab that silently became Plans. */
+  if (params.tab === "referrals" || params.tab === "coupons") {
+    redirect(`/admin/rewards?section=${params.tab}`);
+  }
+
   const tab = activeTab(params.tab);
 
   return (
@@ -44,8 +47,17 @@ export default async function PlansAndCreditsPage({
       {tab === "plans" ? <PlansTab /> : null}
       {tab === "rules" ? <RulesTab /> : null}
       {tab === "history" ? <HistoryTab params={params} /> : null}
-      {tab === "referrals" ? <ReferralsTab params={params} /> : null}
-      {tab === "coupons" ? <CouponsTab params={params} /> : null}
+
+      {/* Named and linked rather than embedded: they are a different job, and
+          somebody who came here looking for them should find the way. */}
+      <div className="mt-5">
+        <LinkCard
+          href="/admin/rewards"
+          icon={<Gift size={16} />}
+          title="Referrals and coupons"
+          description="Invite-and-earn terms, discount codes, and what each has cost — in their own section."
+        />
+      </div>
     </>
   );
 }

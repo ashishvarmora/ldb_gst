@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Coins, Gift, History, Package, Ticket } from "lucide-react";
+import { Coins, History, Package } from "lucide-react";
 
 import { cx } from "@/components/ui";
 
@@ -12,9 +12,11 @@ import { cx } from "@/components/ui";
  * it a hard line - Plans and Credit rules are things you SET, History is things
  * that HAPPENED, and nothing appears in both.
  *
- * Referrals and Coupons come after those three because each one is both: terms
- * at the top, and what those terms have actually cost underneath. Keeping them
- * last leaves the first three reading as one straight line.
+ * Referrals and Coupons used to be tabs four and five here. They are their own
+ * section now - /admin/rewards - because they are levers for getting customers
+ * rather than for pricing the product, and mixing them in made this heading
+ * cover two unrelated jobs. What is left reads as one straight line: set the
+ * plans, set the rules, read what happened.
  *
  * The tab lives in the query string rather than in client state, the same way
  * the account page does it: every tab is server-rendered from its own queries,
@@ -27,8 +29,6 @@ export const TABS = [
   { key: "plans", label: "Plans", icon: Package },
   { key: "rules", label: "Credit rules", icon: Coins },
   { key: "history", label: "History", icon: History },
-  { key: "referrals", label: "Referrals", icon: Gift },
-  { key: "coupons", label: "Coupons", icon: Ticket },
 ] as const;
 
 export type Tab = (typeof TABS)[number]["key"];
