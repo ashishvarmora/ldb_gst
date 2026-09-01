@@ -258,43 +258,52 @@ export default async function TruckDetailPage({
         ) : (
           <ul className="divide-y divide-divider overflow-hidden rounded-lg border border-line">
             {ruleList.map((rule) => (
-              <li key={rule.id} className="flex items-center gap-2 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-ink">{rule.template.name}</p>
-                    {rule.is_enabled ? null : <Badge>off</Badge>}
-                    {rule.template.is_active ? null : <Badge tone="warn">withdrawn</Badge>}
+              /*
+                Stacked on a phone, side by side from sm up.
+                The row was one flex line at every width: the sentence wrapped to
+                three lines and the two controls sat vertically centred beside
+                it, so a narrow screen showed a tall block of text with two
+                buttons floating in the middle of its right-hand edge. Giving
+                the text the full width and putting the controls on their own
+                right-aligned line underneath costs one row of height and reads
+                as a list again.
+              */
+              <li key={rule.id} className="px-3 py-2.5">
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap sm:items-center">
+                  <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-ink">{rule.template.name}</p>
+                      {rule.is_enabled ? null : <Badge>off</Badge>}
+                      {rule.template.is_active ? null : <Badge tone="warn">withdrawn</Badge>}
+                    </div>
+                    {/* The rule name alone was read as a category rather than a
+                        promise, so each row says what it will do in full. */}
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                      {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
+                    </p>
                   </div>
-                  {/* The rule name alone was read as a category rather than a
-                      promise, so each row says what it will do in full. */}
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                    {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
-                  </p>
+
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <InlineActionForm
+                      action={setTruckAlertEnabled}
+                      hidden={{ alert_id: rule.id, is_enabled: rule.is_enabled ? "false" : "true" }}
+                    >
+                      <SubmitButton variant={rule.is_enabled ? "ghost" : "secondary"} size="sm">
+                        {rule.is_enabled ? "Turn off" : "Turn on"}
+                      </SubmitButton>
+                    </InlineActionForm>
+
+                    <InlineActionForm action={deleteTruckAlert} hidden={{ alert_id: rule.id }}>
+                      <ConfirmSubmitButton
+                        message={`Remove the "${rule.template.name}" alert from ${truck.truck_number}?`}
+                        variant="ghost"
+                      >
+                        <Trash2 size={13} />
+                        <span className="sr-only">Remove alert</span>
+                      </ConfirmSubmitButton>
+                    </InlineActionForm>
+                  </div>
                 </div>
-
-                <InlineActionForm
-                  className="shrink-0"
-                  action={setTruckAlertEnabled}
-                  hidden={{ alert_id: rule.id, is_enabled: rule.is_enabled ? "false" : "true" }}
-                >
-                  <SubmitButton variant={rule.is_enabled ? "ghost" : "secondary"} size="sm">
-                    {rule.is_enabled ? "Turn off" : "Turn on"}
-                  </SubmitButton>
-                </InlineActionForm>
-
-                <InlineActionForm
-                  className="shrink-0"
-                  action={deleteTruckAlert}
-                  hidden={{ alert_id: rule.id }}
-                >
-                  <ConfirmSubmitButton
-                    message={`Remove the "${rule.template.name}" alert from ${truck.truck_number}?`}
-                    variant="ghost"
-                  >
-                    <Trash2 size={13} />
-                    <span className="sr-only">Remove alert</span>
-                  </ConfirmSubmitButton>
-                </InlineActionForm>
               </li>
             ))}
           </ul>
