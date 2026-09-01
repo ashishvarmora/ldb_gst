@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BellRing, Check, Loader2, MapPin, Plus, Search } from "lucide-react";
+import { Check, Loader2, MapPin, Plus, Search } from "lucide-react";
 
 import { addTruckAlert, findPlazas } from "@/app/portal/trucks/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, Input, Select } from "@/components/form";
+import { LabelWithInfo } from "@/components/InfoTip";
 import { cx } from "@/components/ui";
 import {
   ALERT_KIND_EXAMPLE,
@@ -80,50 +81,68 @@ export function AlertChooser({
 
   return (
     <div className={cx("space-y-5", className)}>
-      <fieldset>
-        <legend className="field-label">What should we tell you?</legend>
-        <div className="mt-1 space-y-2">
-          {templates.map((template) => (
-            <label
-              key={template.id}
-              className={cx(
-                "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition",
-                template.id === templateId
-                  ? "border-brand-500 bg-brand-500/8"
-                  : "border-line bg-panel hover:border-line-strong",
-              )}
-            >
-              <input
-                type="radio"
-                name="template_id"
-                value={template.id}
-                checked={template.id === templateId}
-                onChange={() => pickTemplate(template)}
-                className="mt-0.5 size-4 shrink-0 accent-[color:var(--color-brand-500)]"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-ink">{template.name}</span>
-                <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                  {template.description ?? ALERT_KIND_HINT[template.kind]}
-                </span>
-                {/* An example of the message beats any description of it. */}
-                <span className="mt-1.5 flex items-start gap-1.5 text-[11px] text-faint">
-                  <BellRing size={12} className="mt-px shrink-0" />
-                  <span>
-                    Example message: &ldquo;{ALERT_KIND_EXAMPLE[template.kind]}&rdquo;
-                  </span>
-                </span>
+      {/*
+        A dropdown, not a stack of radio cards.
+        Every rule used to be drawn as a full card carrying its name, its
+        description and an example message. With three rules that was most of a
+        phone screen before the first question was answered, and the admin can
+        add rules from the console - at ten it would be unusable. A <select> is
+        the one control that costs the same whether there are three or thirty,
+        and it is the native picker on a phone, so it opens as a proper wheel.
+        The detail did not disappear; it moved behind the (i).
+      */}
+      <div>
+        <LabelWithInfo
+          label="What should we tell you?"
+          htmlFor="template_id"
+          required
+          info={
+            <>
+              <strong className="font-medium text-ink">{chosen.name}.</strong>{" "}
+              {chosen.description ?? ALERT_KIND_HINT[chosen.kind]}
+              <span className="mt-1.5 block text-faint">
+                You would get: &ldquo;{ALERT_KIND_EXAMPLE[chosen.kind]}&rdquo;
               </span>
-            </label>
+            </>
+          }
+        />
+        <Select
+          id="template_id"
+          name="template_id"
+          required
+          value={templateId}
+          onChange={(event) => {
+            const next = templates.find((t) => t.id === event.target.value);
+            if (next) pickTemplate(next);
+          }}
+          className="mt-1.5"
+        >
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name}
+            </option>
           ))}
-        </div>
-      </fieldset>
+        </Select>
+        {/* One line, always on: enough to know the right rule is picked
+            without opening anything. */}
+        <p className="field-hint">{chosen.description ?? ALERT_KIND_HINT[chosen.kind]}</p>
+      </div>
 
       <div>
-        <label className="field-label" htmlFor="interval_value">
-          How often should we check?
-        </label>
-        <div className="flex gap-2">
+        <LabelWithInfo
+          label="How often should we check?"
+          htmlFor="interval_value"
+          required
+          info={
+            <>
+              Each check spends credits, so this is the dial between how fresh the answer is and
+              what it costs. A slower beat still records every crossing the toll network reports -
+              it only means you hear about them later. This rule may run every{" "}
+              {intervalLabel(floor)} at the fastest.
+            </>
+          }
+        />
+        <div className="mt-1.5 flex gap-2">
           <Input
             id="interval_value"
             name="interval_value"

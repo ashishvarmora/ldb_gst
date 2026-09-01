@@ -15,17 +15,25 @@ export const metadata = { title: "My trucks — Truck Watch" };
 /** Enough to fill a phone screen a few times over without scrolling for ever. */
 const PAGE_SIZE = 12;
 
-type Filter = "all" | "watching" | "silent" | "paused";
+/**
+ * A truck is live or it is paused. There is no third thing.
+ *
+ * There were four tabs: All, Watching, Needs an alert, Paused. "Watching" and
+ * "Needs an alert" were both live trucks - the split was really "has an
+ * enabled alert", which is a property of one truck rather than a place to
+ * keep it. It reads better as a badge on the row that needs it than as a tab
+ * somebody has to visit to discover the row exists.
+ */
+type Filter = "all" | "live" | "paused";
 
 const FILTER_LABEL: Record<Filter, string> = {
   all: "All",
-  watching: "Watching",
-  silent: "Needs an alert",
+  live: "Live",
   paused: "Paused",
 };
 
 function parseFilter(raw: string | undefined): Filter {
-  return raw === "watching" || raw === "silent" || raw === "paused" ? raw : "all";
+  return raw === "live" || raw === "paused" ? raw : "all";
 }
 
 function hrefFor(filter: Filter, page: number): string {
@@ -85,17 +93,20 @@ export default async function TrucksPage({
 
   const counts: Record<Filter, number> = {
     all: all.length,
-    watching: watching.size,
-    silent: all.filter((truck) => truck.is_active && !watching.has(truck.id)).length,
+    live: all.filter((truck) => truck.is_active).length,
     paused: all.filter((truck) => !truck.is_active).length,
   };
 
   const matching = all.filter((truck) => {
-    if (filter === "watching") return watching.has(truck.id);
-    if (filter === "silent") return truck.is_active && !watching.has(truck.id);
+    if (filter === "live") return truck.is_active;
     if (filter === "paused") return !truck.is_active;
     return true;
   });
+
+  /* A live truck with no enabled alert is never checked. That used to be its
+     own tab; it is a line under the tabs now, so it is seen without going
+     looking for it. */
+  const silentCount = all.filter((truck) => truck.is_active && !watching.has(truck.id)).length;
 
   const pageCount = Math.max(Math.ceil(matching.length / PAGE_SIZE), 1);
   const page = Math.min(Math.max(Number(params.page) || 1, 1), pageCount);
@@ -166,32 +177,29 @@ export default async function TrucksPage({
             ))}
           </div>
 
-          {filter === "all" && counts.silent > 0 ? (
-            <Link
-              href={hrefFor("silent", 1)}
-              className="flex items-start gap-2 rounded-xl border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-warn-500 transition hover:border-warn-500/70"
-            >
+          {/* Not a link any more: there is no tab to send anyone to, and there
+              does not need to be - the cards below carry the badge, so the
+              count says how many to look for rather than hiding them behind a
+              fourth place to visit. */}
+          {filter !== "paused" && silentCount > 0 ? (
+            <p className="flex items-start gap-2 rounded-xl border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-warn-500">
               <BellOff size={14} className="mt-px shrink-0" />
               <span>
-                {counts.silent === 1
-                  ? "1 truck has no alert switched on, so it is never checked."
-                  : `${counts.silent} trucks have no alert switched on, so they are never checked.`}{" "}
-                Show them.
+                {silentCount === 1
+                  ? "1 live truck has no alert switched on, so it is never checked."
+                  : `${silentCount} live trucks have no alert switched on, so they are never checked.`}{" "}
+                Open one to add an alert.
               </span>
-            </Link>
+            </p>
           ) : null}
 
           {shown.length === 0 ? (
             <Panel bodyClassName="p-0">
               <EmptyState
-                title={
-                  filter === "silent"
-                    ? "Every truck has an alert on it"
-                    : `No trucks under "${FILTER_LABEL[filter]}"`
-                }
+                title={`No ${FILTER_LABEL[filter].toLowerCase()} trucks`}
                 description={
-                  filter === "silent"
-                    ? "Nothing is sitting silent. Anything the trucks do will reach you."
+                  filter === "paused"
+                    ? "Every truck on your list is being checked."
                     : undefined
                 }
               />

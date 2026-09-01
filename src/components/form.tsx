@@ -7,12 +7,19 @@ export function Field({
   label,
   name,
   hint,
+  required,
   children,
   className,
 }: {
   label: string;
   name?: string;
   hint?: ReactNode;
+  /**
+   * Marks the label, nothing more - the input keeps its own `required`, which
+   * is what the browser and the Server Action actually enforce. This is only
+   * so a reader can see which boxes they cannot skip before they try to submit.
+   */
+  required?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -20,6 +27,11 @@ export function Field({
     <div className={className}>
       <label className="field-label" htmlFor={name}>
         {label}
+        {required ? (
+          <span className="ml-0.5 text-bad-500" aria-hidden>
+            *
+          </span>
+        ) : null}
       </label>
       {children}
       {hint ? <p className="field-hint">{hint}</p> : null}

@@ -90,7 +90,8 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await requirePortalSession();
   const { overview } = session;
 
-  const [{ brandName, referralEnabled }, { data: alertRows }] = await Promise.all([
+  const [{ brandName, referralEnabled, supportEmail, supportPhone }, { data: alertRows }] =
+    await Promise.all([
     publicSettings(),
     // Loaded here rather than inside the bell so the panel opens with no wait.
     getSupabaseAdmin()
@@ -128,6 +129,8 @@ export default async function PortalLayout({ children }: { children: React.React
     planActive: overview.plan_active,
     isSuperAdmin: session.profile.role === "super_admin",
     referralsEnabled: referralEnabled,
+    supportEmail,
+    supportPhone,
   };
 
   return (

@@ -9,6 +9,9 @@ import {
   Coins,
   Gift,
   History,
+  LifeBuoy,
+  Mail,
+  Phone,
   Receipt,
   Settings,
   ShieldCheck,
@@ -52,6 +55,9 @@ export type AccountMenuProps = {
   planActive: boolean;
   isSuperAdmin: boolean;
   referralsEnabled: boolean;
+  /** Whoever the owner told us to send people to. Either may be blank. */
+  supportEmail: string;
+  supportPhone: string;
   /** Bottom-bar profile button on a phone, header avatar on a desktop. */
   variant: "tab" | "avatar";
 };
@@ -130,6 +136,8 @@ export function AccountMenu(props: AccountMenuProps) {
     truckLimit,
     planName,
     planActive,
+    supportEmail,
+    supportPhone,
     variant,
   } = props;
 
@@ -304,6 +312,41 @@ export function AccountMenu(props: AccountMenuProps) {
             ))}
           </div>
         ))}
+
+        {/*
+          Support sits here rather than only in the footer because this is where
+          somebody goes when something is wrong with THEIR account, and it is
+          the one screen they can reach from every page. mailto and tel, so a
+          phone dials or composes instead of handing over a string to copy.
+        */}
+        {supportEmail || supportPhone ? (
+          <div className="border-t border-divider px-4 py-3">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+              <LifeBuoy size={11} />
+              Need help?
+            </p>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {supportEmail ? (
+                <a
+                  href={`mailto:${supportEmail}`}
+                  className="inline-flex min-h-9 items-center gap-2 text-sm text-brand-500 transition hover:underline"
+                >
+                  <Mail size={14} className="shrink-0" />
+                  <span className="truncate">{supportEmail}</span>
+                </a>
+              ) : null}
+              {supportPhone ? (
+                <a
+                  href={`tel:${supportPhone.replace(/[^\d+]/g, "")}`}
+                  className="inline-flex min-h-9 items-center gap-2 text-sm text-brand-500 transition hover:underline"
+                >
+                  <Phone size={14} className="shrink-0" />
+                  <span className="truncate">{supportPhone}</span>
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="border-t border-divider px-4 py-3">
           <SignOutButton variant="secondary" size="sm" className="w-full" />

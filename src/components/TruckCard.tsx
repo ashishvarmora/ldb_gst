@@ -51,10 +51,21 @@ export function isWatching(alerts: Pick<TruckAlertWithTemplate, "is_enabled">[])
  * "never" there sends people hunting for a problem that is not one.
  */
 export function lastCheckedLabel(
-  truck: Pick<TrackedTruck, "is_active" | "last_polled_at">,
+  truck: Pick<TrackedTruck, "is_active" | "last_polled_at" | "paused_reason">,
   alerts: Pick<TruckAlertWithTemplate, "is_enabled">[],
 ): string {
-  if (!truck.is_active) return "Paused — not being checked";
+  /* A truck the worker paused looks exactly like one the officer paused, and
+     the difference is the whole story: one was a decision, the other is a
+     number that needs fixing. */
+  if (!truck.is_active) {
+    if (truck.paused_reason === "repeated_failures") {
+      return "Paused — the toll network kept failing on this number";
+    }
+    if (truck.paused_reason === "account_suspended") {
+      return "Paused — this account is suspended";
+    }
+    return "Paused — not being checked";
+  }
   if (truck.last_polled_at) return `Last checked ${fmtRelative(truck.last_polled_at)}`;
   if (alerts.length === 0) return "Never checked — it has no alert yet";
   if (!isWatching(alerts)) return "Every alert is off — nothing is checked";
@@ -158,7 +169,11 @@ export function TruckCard({
               <Mono className="text-[15px] font-semibold tracking-wide text-strong">
                 {truck.truck_number}
               </Mono>
-              {!truck.is_active ? <Badge>paused</Badge> : null}
+              {!truck.is_active ? (
+                <Badge tone={truck.paused_reason === "repeated_failures" ? "warn" : "neutral"}>
+                  {truck.paused_reason === "repeated_failures" ? "not answering" : "paused"}
+                </Badge>
+              ) : null}
             </div>
             {truck.label ? (
               <span className="mt-0.5 block truncate text-xs text-muted">{truck.label}</span>

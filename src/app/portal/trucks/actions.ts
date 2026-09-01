@@ -151,11 +151,34 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     clampedFrom = interval.clampedFrom;
   }
 
+  /*
+   * Blank means "work it out from the check interval", which is null in the
+   * column - not zero, and not a number picked here. A typed value is bounded
+   * to the same range the database checks, so a bad one is refused in words
+   * rather than as a constraint violation.
+   */
+  const failuresRaw = str(fd, "max_consecutive_failures");
+  let maxFailures: number | null = null;
+  if (failuresRaw) {
+    const parsed = Number(failuresRaw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
+      return fail("Stop after how many failures? Enter a whole number from 1 to 1000, or leave it empty.");
+    }
+    maxFailures = parsed;
+  }
+
   const payload = {
     user_id: session.id,
     truck_number: truckNumber,
     label: str(fd, "label"),
     is_active: true,
+    max_consecutive_failures: maxFailures,
+    /* Re-adding a paused truck is a fresh start: the old failure run and the
+       reason it stopped must not follow it back onto the list. */
+    consecutive_errors: 0,
+    failure_warned_at: null,
+    paused_reason: null,
+    paused_at: null,
   };
 
   // Re-activating a paused truck keeps its history instead of duplicating it.
