@@ -21,7 +21,7 @@ export const SETTINGS_FALLBACK: AppSettings = {
   referralPercent: 10,
   referralMilestoneCount: 5,
   referralMilestoneBonus: 500,
-  brandName: "Truck Watch",
+  brandName: "Rahdari",
   signupEnabled: true,
   supportEmail: "",
   supportPhone: "",

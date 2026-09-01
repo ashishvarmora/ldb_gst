@@ -93,7 +93,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
  * component and cannot read app_settings itself, so the server layout passes it
  * down; until it does, the fallback keeps the sidebar from naming a customer.
  */
-const DEFAULT_BRAND = "Truck Watch";
+const DEFAULT_BRAND = "Rahdari";
 
 export function AdminSidebar({ brandName }: { brandName?: string }) {
   return (

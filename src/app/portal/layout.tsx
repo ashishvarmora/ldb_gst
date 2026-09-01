@@ -3,6 +3,7 @@ import { Coins, ShieldCheck, Truck } from "lucide-react";
 
 import { AccountMenu, type AccountMenuProps } from "@/components/AccountMenu";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
+import { LogoBadge } from "@/components/Logo";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
@@ -150,9 +151,7 @@ export default async function PortalLayout({ children }: { children: React.React
               href="/portal"
               className="-ml-1 flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-1 lg:hidden"
             >
-              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
-                <Truck size={16} />
-              </span>
+              <LogoBadge size="sm" />
               <span className="truncate text-sm font-semibold text-strong">{brandName}</span>
             </Link>
 

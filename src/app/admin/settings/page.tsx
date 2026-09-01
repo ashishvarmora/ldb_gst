@@ -121,7 +121,7 @@ export default async function SettingsPage() {
                     required
                     maxLength={60}
                     defaultValue={site.brandName}
-                    placeholder="Truck Watch"
+                    placeholder="Rahdari"
                     autoComplete="off"
                   />
                 </Field>

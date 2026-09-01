@@ -60,7 +60,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     .select("truck_number")
     .eq("id", id)
     .maybeSingle();
-  return { title: `${data?.truck_number ?? "Truck"} — Truck Watch` };
+  return { title: `${data?.truck_number ?? "Truck"} — Rahdari` };
 }
 
 /**

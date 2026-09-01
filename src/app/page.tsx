@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, BellRing, MapPin, Search, Truck, Wallet } from "lucide-react";
 
+import { LogoBadge } from "@/components/Logo";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
@@ -62,9 +63,7 @@ export default async function Home() {
       {/* ------------------------------- hero ------------------------------ */}
       <section className="px-4 pt-12 pb-10 text-center sm:pt-16">
         <div className="mx-auto max-w-2xl">
-          <span className="inline-flex size-12 items-center justify-center rounded-2xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
-            <Truck size={22} />
-          </span>
+          <LogoBadge size="lg" />
 
           <h1 className="mt-5 text-3xl leading-tight font-semibold tracking-tight text-strong sm:text-4xl">
             Follow a lorry by its registration number

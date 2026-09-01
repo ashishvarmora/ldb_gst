@@ -11,7 +11,7 @@ import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertRuleTemplate, TrackedTruck, TruckAlertWithTemplate } from "@/lib/types";
 
-export const metadata = { title: "My trucks — Truck Watch" };
+export const metadata = { title: "My trucks — Rahdari" };
 
 /** Enough to fill a phone screen a few times over without scrolling for ever. */
 const PAGE_SIZE = 12;
