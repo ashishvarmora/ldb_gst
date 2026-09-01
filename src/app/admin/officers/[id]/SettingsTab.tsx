@@ -42,8 +42,8 @@ export async function SettingsTab({
   const currentPlan = planList.find((plan) => plan.id === overview.plan_id) ?? null;
 
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-      <div className="space-y-5 xl:col-span-2">
+    <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+      <div className="space-y-5">
         <Panel
           title="Account details"
           description="Name, contact and your own notes. None of it is shown to anyone else."

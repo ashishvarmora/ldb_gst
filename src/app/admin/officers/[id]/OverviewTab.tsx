@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Bell, ClipboardList, Search as SearchIcon, Truck } from "lucide-react";
 
-import { DescRow, LinkButton, Panel } from "@/components/ui";
+import { DescRow, LinkButton, LinkCard, Panel } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
@@ -143,46 +143,48 @@ export async function OverviewTab({
           </dl>
         </Panel>
 
-        <Panel title="Elsewhere in the console" bodyClassName="p-0">
-          <ul className="divide-y divide-divider text-sm">
-            <li>
-              <Link
-                href={`/admin/trucks?officer=${id}`}
-                className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
-              >
-                <Truck size={14} className="text-faint" />
-                Their trucks in the fleet view
-              </Link>
-            </li>
-            <li>
-              <Link
-                href={`/admin/explore?q=${encodeURIComponent(overview.email)}`}
-                className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
-              >
-                <SearchIcon size={14} className="text-faint" />
-                Cross-reference their trucks with other customers
-              </Link>
-            </li>
-            <li>
-              <Link
-                href={`/admin/alerts/log?officer=${id}`}
-                className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
-              >
-                <Bell size={14} className="text-faint" />
-                Every alert sent to this account
-              </Link>
-            </li>
-            <li>
-              <Link
-                href={`/admin/audit?actor=${id}`}
-                className="flex items-center gap-2.5 px-5 py-3 text-ink transition hover:bg-raised/60"
-              >
-                <ClipboardList size={14} className="text-faint" />
-                Everything they did, in the audit log
-              </Link>
-            </li>
-          </ul>
-        </Panel>
+        {/*
+          Where to go next, as cards rather than a list of bare link text - each
+          one can then say what is behind it, which is the difference between a
+          link somebody follows and one they scroll past.
+
+          Two of these used to point at /admin/alerts/log and /admin/audit. Both
+          are redirects into the one log screen now, so they go there directly
+          rather than taking a hop through a route that only exists for
+          bookmarks.
+        */}
+        <div className="space-y-2">
+          <LinkCard
+            href={`/admin/logs?officer=${id}&type=searches`}
+            icon={<SearchIcon size={16} />}
+            title="Everything they have looked up"
+            description="Manual searches and background checks, filterable by truck or day."
+          />
+          <LinkCard
+            href={`/admin/logs?officer=${id}&type=alerts`}
+            icon={<Bell size={16} />}
+            title="Every alert sent to this account"
+            description="Including anything that failed to reach them."
+          />
+          <LinkCard
+            href={`/admin/logs?officer=${id}&type=admin`}
+            icon={<ClipboardList size={16} />}
+            title="Console changes affecting them"
+            description="What was changed on this account, and by whom."
+          />
+          <LinkCard
+            href={`/admin/trucks?officer=${id}`}
+            icon={<Truck size={16} />}
+            title="Their trucks in the fleet view"
+            description="Alongside every other account's, for comparison."
+          />
+          <LinkCard
+            href={`/admin/explore?q=${encodeURIComponent(overview.email)}`}
+            icon={<SearchIcon size={16} />}
+            title="Cross-reference with other customers"
+            description="Which of their lorries other accounts have also looked up."
+          />
+        </div>
       </div>
     </div>
   );
