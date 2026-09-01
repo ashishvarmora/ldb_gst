@@ -43,8 +43,22 @@ export type LedgerQuery = {
   reason?: string;
   truck?: string;
   date?: string;
+  /** Newest first by default; oldest or largest-first when asked. */
+  sort?: string;
   page?: string;
 };
+
+export type LedgerSort = "newest" | "oldest" | "largest";
+
+const SORT_LABEL: Record<LedgerSort, string> = {
+  newest: "Newest first",
+  oldest: "Oldest first",
+  largest: "Biggest first",
+};
+
+function parseSort(raw: string | undefined): LedgerSort {
+  return raw === "oldest" || raw === "largest" ? raw : "newest";
+}
 
 /** How many days back the rollups look. Long enough for a monthly bill. */
 const WINDOW_DAYS = 60;
@@ -133,6 +147,7 @@ export async function CreditLedger({
   const admin = getSupabaseAdmin();
   const view = parseView(query.view);
   const kind = parseKind(query.kind);
+  const sort = parseSort(query.sort);
   const page = Math.max(Number(query.page) || 1, 1);
 
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
@@ -193,6 +208,48 @@ export async function CreditLedger({
             </ChipRow>
           ) : null}
 
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+              Order
+            </span>
+            {(Object.keys(SORT_LABEL) as LedgerSort[]).map((value) => (
+              <Chip
+                key={value}
+                href={href(basePath, query, { sort: value }, keep)}
+                active={sort === value}
+              >
+                {SORT_LABEL[value]}
+              </Chip>
+            ))}
+          </div>
+
+          {/*
+            A date field as well as the drill-down. Clicking through rollups only
+            reaches days that have rows, so "what happened on the 14th" was not
+            answerable if the 14th was quiet - and a quiet day is exactly the
+            thing somebody checks when a bill looks wrong.
+          */}
+          <form method="get" action={basePath} className="flex flex-wrap items-center gap-2">
+            {Object.entries({ ...keep, ...query }).map(([k, v]) =>
+              v && k !== "date" && k !== "page" ? (
+                <input key={k} type="hidden" name={k} value={String(v)} />
+              ) : null,
+            )}
+            <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+              One day
+            </span>
+            <input
+              type="date"
+              name="date"
+              defaultValue={query.date ?? ""}
+              aria-label="Show one day only"
+              className="field w-auto py-1.5 text-xs"
+            />
+            <button type="submit" className={buttonClass("secondary", "sm")}>
+              Show
+            </button>
+          </form>
+
           {/* A drill-down is a filter, so it is shown and cleared like one. */}
           {query.truck || query.date ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-divider pt-3">
@@ -219,6 +276,7 @@ export async function CreditLedger({
             query={query}
             keep={keep}
             kind={kind}
+            sort={sort}
             page={page}
             since={since}
           />
@@ -230,6 +288,7 @@ export async function CreditLedger({
             keep={keep}
             view={view}
             kind={kind}
+            sort={sort}
             page={page}
             since={since}
           />
@@ -250,6 +309,7 @@ async function RollupList({
   keep,
   view,
   kind,
+  sort,
   page,
   since,
 }: {
@@ -259,6 +319,7 @@ async function RollupList({
   keep: Record<string, string>;
   view: Exclude<LedgerView, "entries">;
   kind: LedgerKind;
+  sort: LedgerSort;
   page: number;
   since: string;
 }) {
@@ -267,7 +328,9 @@ async function RollupList({
     .select("ist_date,reason,truck_number,entries,credits,last_at,balance_after")
     .eq("user_id", userId)
     .gte("last_at", since)
-    .order("ist_date", { ascending: false })
+    /* Biggest first means the largest SPEND, and spends are negative - so
+       ascending on a signed column is what puts them at the top. */
+    .order(sort === "largest" ? "credits" : "ist_date", { ascending: sort !== "newest" })
     .order("credits", { ascending: true });
 
   if (query.reason) request = request.eq("reason", query.reason);
@@ -302,7 +365,19 @@ async function RollupList({
             }
             return acc;
           }, {}),
-        ).sort((a, b) => b.ist_date.localeCompare(a.ist_date))
+        ).sort((a, b) =>
+          /*
+           * Only the per-day view sorts here. Per-truck rows arrive already
+           * ordered by the database, so reversing them again would undo it -
+           * which is why this is inside the day branch rather than a reverse()
+           * applied to whichever list came out.
+           */
+          sort === "largest"
+            ? Math.abs(Number(b.credits)) - Math.abs(Number(a.credits))
+            : sort === "oldest"
+              ? a.ist_date.localeCompare(b.ist_date)
+              : b.ist_date.localeCompare(a.ist_date),
+        )
       : rows;
 
   const pageCount = Math.max(Math.ceil(grouped.length / ROLLUP_PAGE), 1);
@@ -404,6 +479,7 @@ async function EntryList({
   query,
   keep,
   kind,
+  sort,
   page,
   since,
 }: {
@@ -412,6 +488,7 @@ async function EntryList({
   query: LedgerQuery;
   keep: Record<string, string>;
   kind: LedgerKind;
+  sort: LedgerSort;
   page: number;
   since: string;
 }) {
@@ -420,7 +497,7 @@ async function EntryList({
     .select("id,created_at,reason,delta,balance_after,truck_number,note", { count: "exact" })
     .eq("user_id", userId)
     .gte("created_at", since)
-    .order("created_at", { ascending: false });
+    .order(sort === "largest" ? "delta" : "created_at", { ascending: sort !== "newest" });
 
   if (query.reason) request = request.eq("reason", query.reason);
   if (query.truck) request = request.eq("truck_number", query.truck);

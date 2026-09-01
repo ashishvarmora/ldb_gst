@@ -44,16 +44,31 @@ const STATUS_LABEL = {
 export default async function TrucksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; officer?: string; status?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    officer?: string;
+    status?: string;
+    /** Live or paused - is_active, which is a different thing from movement. */
+    tracking?: string;
+    page?: string;
+  }>;
 }) {
   await requireSuperAdmin();
   // `officer` stays the parameter name: the account page already links here
   // with it, and renaming it would break every one of those links.
-  const { q, officer, status, page: pageParam } = await searchParams;
+  const { q, officer, status, tracking, page: pageParam } = await searchParams;
   const admin = getSupabaseAdmin();
 
   const plate = q ? normalizeTruckNumber(q) : "";
   const statusFilter = status && status in STATUS_LABEL ? (status as TruckStatus) : "";
+  /*
+   * Two different questions that were being conflated. "status" is how the
+   * lorry is MOVING - moving, idle, no activity - and is derived from its last
+   * crossing. "tracking" is whether the platform is CHECKING it at all. A
+   * paused truck reports a movement status of unknown for ever, so filtering by
+   * status could never answer "which of these are switched off".
+   */
+  const trackingFilter = tracking === "live" || tracking === "paused" ? tracking : "";
   const requested = pageFromParam(pageParam);
   const { from, to } = pageRange(requested, PAGE_SIZE);
 
@@ -68,6 +83,7 @@ export default async function TrucksPage({
 
   if (officer) query = query.eq("officer_id", officer);
   if (statusFilter) query = query.eq("status", statusFilter);
+  if (trackingFilter) query = query.eq("is_active", trackingFilter === "live");
   if (plate) query = query.ilike("truck_number", `%${plate}%`);
 
   /**
@@ -81,6 +97,7 @@ export default async function TrucksPage({
       .select("tracked_truck_id", { count: "exact", head: true })
       .eq("status", value);
     if (officer) counter = counter.eq("officer_id", officer);
+    if (trackingFilter) counter = counter.eq("is_active", trackingFilter === "live");
     if (plate) counter = counter.ilike("truck_number", `%${plate}%`);
     return counter;
   };
@@ -129,7 +146,7 @@ export default async function TrucksPage({
     for (const [number, set] of seen) watchers.set(number, set.size);
   }
 
-  const filtered = Boolean(q || officer || statusFilter);
+  const filtered = Boolean(q || officer || statusFilter || trackingFilter);
 
   return (
     <>
@@ -177,6 +194,14 @@ export default async function TrucksPage({
               {row.full_name ?? row.email}
             </option>
           ))}
+        </Select>
+
+        {/* Before the movement status, because "is it even being checked" comes
+            first: a paused truck's movement status is meaningless. */}
+        <Select name="tracking" defaultValue={trackingFilter} className="w-40">
+          <option value="">Live and paused</option>
+          <option value="live">Live only</option>
+          <option value="paused">Paused only</option>
         </Select>
 
         <Select name="status" defaultValue={statusFilter} className="w-40">
@@ -321,7 +346,7 @@ export default async function TrucksPage({
         pageSize={PAGE_SIZE}
         total={total}
         noun="trucks"
-        href={{ path: "/admin/trucks", params: { q, officer, status: statusFilter } }}
+        href={{ path: "/admin/trucks", params: { q, officer, status: statusFilter, tracking: trackingFilter } }}
       />
 
       {total > PAGE_SIZE ? (
