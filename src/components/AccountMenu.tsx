@@ -85,10 +85,10 @@ function itemGroups({
   const money: Item[] = [
     { href: "/portal/plan", label: "My plan", icon: Wallet, hint: "Balance, renewals and truck limit" },
     {
-      href: "/portal/plan?show=history#history",
-      label: "Credit history",
+      href: "/portal/activity",
+      label: "Credits and activity",
       icon: History,
-      hint: "Top-ups, and what each day used",
+      hint: "Per truck per day, or charge by charge",
     },
     {
       href: "/portal/plan?show=payments#payments",

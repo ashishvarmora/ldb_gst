@@ -1,20 +1,18 @@
 import Link from "next/link";
-import { Filter } from "lucide-react";
 
 import type { AccountParams } from "./TabStrip";
 import { GrantCreditsForm } from "../../credits/GrantCreditsForm";
 import { pageRange } from "../../pager";
-import { CreditLedgerTable, PaymentsTable, balanceTone } from "../../tables";
-import { Select } from "@/components/form";
+import { PaymentsTable, balanceTone } from "../../tables";
+import { CreditLedger } from "@/components/CreditLedger";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { Badge, DescRow, Panel, buttonClass } from "@/components/ui";
 import { describeRate, formatCredits, loadCreditRates } from "@/lib/credits";
 import { fmtNumber } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditActivity, CreditPack, OfficerOverview, Payment, Plan } from "@/lib/types";
+import type { CreditPack, OfficerOverview, Payment, Plan } from "@/lib/types";
 
-const HISTORY_PER_PAGE = 20;
 const PAYMENTS_PER_PAGE = 10;
 
 /**
@@ -38,30 +36,16 @@ export async function CreditsTab({
 }) {
   const admin = getSupabaseAdmin();
 
-  const flow = params.flow === "in" || params.flow === "out" ? params.flow : null;
-  const historyPage = pageFromParam(params.cpage);
   const paymentsPage = pageFromParam(params.ppage);
-  const historyRange = pageRange(historyPage, HISTORY_PER_PAGE);
   const paymentsRange = pageRange(paymentsPage, PAYMENTS_PER_PAGE);
 
-  let historyQuery = admin
-    .from("credit_activity")
-    .select("*", { count: "exact" })
-    .eq("user_id", id)
-    .order("created_at", { ascending: false })
-    .range(historyRange.from, historyRange.to);
-  if (flow === "in") historyQuery = historyQuery.gt("amount", 0);
-  if (flow === "out") historyQuery = historyQuery.lt("amount", 0);
-
   const [
-    { data: history, count: historyCount },
     { data: payments, count: paymentCount },
     { data: plans },
     { data: packs },
     rates,
     settings,
   ] = await Promise.all([
-    historyQuery,
     admin
       .from("payments")
       .select("*", { count: "exact" })
@@ -74,7 +58,6 @@ export async function CreditsTab({
     loadSettings(admin),
   ]);
 
-  const historyRows = (history ?? []) as CreditActivity[];
   const paymentRows = (payments ?? []) as Payment[];
   const planName = new Map(
     ((plans ?? []) as Pick<Plan, "id" | "name">[]).map((plan) => [plan.id, plan.name]),
@@ -84,69 +67,26 @@ export async function CreditsTab({
   );
 
   const balance = Number(overview.credits ?? 0);
-  const lines = historyCount ?? historyRows.length;
 
   const base = `/admin/officers/${id}`;
-  const carry = { tab: "credits", flow, cpage: historyPage, ppage: paymentsPage };
+  const carry = { tab: "credits", ppage: paymentsPage };
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
       <div className="space-y-5 xl:col-span-2">
-        <Panel
-          title="Credit history"
-          description="Money in is one line each. Usage is totalled per day, so a fortnight of tracking is a fortnight of lines."
-          bodyClassName="p-0"
-        >
-          <form
-            method="get"
-            className="flex flex-wrap items-center justify-between gap-3 border-b border-divider px-5 py-3"
-          >
-            <input type="hidden" name="tab" value="credits" />
-            <span className="text-xs text-muted">
-              {fmtNumber(lines)} line{lines === 1 ? "" : "s"}
-            </span>
-            <span className="flex flex-wrap items-center gap-2">
-              <Select name="flow" defaultValue={flow ?? ""} className="w-40 py-1.5 text-xs">
-                <option value="">In and out</option>
-                <option value="in">Money in only</option>
-                <option value="out">Usage only</option>
-              </Select>
-              <button type="submit" className={buttonClass("secondary", "sm")}>
-                <Filter size={13} />
-                Apply
-              </button>
-            </span>
-          </form>
-
-          {/* `lines` is the count AFTER the filter, so a filter that matches
-              nothing and a page past the end of the matches read differently. */}
-          <CreditLedgerTable
-            rows={historyRows}
-            emptyTitle={
-              lines > 0
-                ? "That page is past the end of the history"
-                : flow
-                  ? "Nothing of that kind yet"
-                  : "No movements yet"
-            }
-            emptyDescription={
-              lines > 0
-                ? "Use the page links below to get back."
-                : "Add credits on the right, or wait for their first search to be charged."
-            }
-          />
-
-          {lines > 0 ? (
-            <Pager
-              className="border-t border-divider px-5 py-3"
-              page={historyPage}
-              total={lines}
-              pageSize={HISTORY_PER_PAGE}
-              noun="lines"
-              href={{ path: base, params: carry, pageKey: "cpage" }}
-            />
-          ) : null}
-        </Panel>
+        {/*
+          The same ledger the customer sees, for this account. It used to be a
+          second implementation over credit_activity - a view that rolled the
+          truck away - so the admin and the officer could look at one day and
+          read different stories. One component now; only the id differs.
+        */}
+        <CreditLedger
+          userId={id}
+          basePath={base}
+          query={params}
+          keep={{ tab: "credits" }}
+          title="Credits and activity"
+        />
 
         <Panel
           title="Payments"

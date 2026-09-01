@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, CalendarDays, Wallet } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, History, Wallet } from "lucide-react";
 
 import { InviteCard } from "../referrals/InviteCard";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
@@ -20,7 +20,7 @@ import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { BadgeTone } from "@/components/ui";
-import type { CreditActivity, CreditRate, Payment, Plan } from "@/lib/types";
+import type { CreditRate, Payment, Plan } from "@/lib/types";
 
 /** A payment with the plan it bought, when it bought one. */
 type PaymentRow = Payment & { plan: { name: string } | null };
@@ -30,7 +30,7 @@ type PaymentRow = Payment & { plan: { name: string } | null };
  * history or Payments lands on the list rather than on a shut heading. It is a
  * name and not a page number, which is why it is separate from the two pagers.
  */
-type PlanQuery = { history?: string; payments?: string; show?: string };
+type PlanQuery = { payments?: string; show?: string };
 
 /** Short lists: this page is read on a phone, and both have a pager under them. */
 const HISTORY_SIZE = 8;
@@ -61,22 +61,11 @@ export default async function PlanPage({
   const admin = getSupabaseAdmin();
   const params = await searchParams;
 
-  const historyPage = pageFromParam(params.history);
   const paymentsPage = pageFromParam(params.payments);
-  const showHistory = params.show === "history";
   const showPayments = params.show === "payments";
-  const historyFrom = (historyPage - 1) * HISTORY_SIZE;
   const paymentsFrom = (paymentsPage - 1) * PAYMENTS_SIZE;
 
-  const [activity, paymentResult, planResult, rates, packs, settings] = await Promise.all([
-    // credit_activity, never credit_transactions: top-ups are itemised there and
-    // a day of automatic checks is one line rather than several hundred.
-    admin
-      .from("credit_activity")
-      .select("*", { count: "exact" })
-      .eq("user_id", overview.id)
-      .order("created_at", { ascending: false })
-      .range(historyFrom, historyFrom + HISTORY_SIZE - 1),
+  const [paymentResult, planResult, rates, packs, settings] = await Promise.all([
     admin
       .from("payments")
       .select("*, plan:plans(name)", { count: "exact" })
@@ -94,8 +83,6 @@ export default async function PlanPage({
     loadSettings(admin),
   ]);
 
-  const history = (activity.data ?? []) as CreditActivity[];
-  const historyTotal = activity.count ?? history.length;
   const payments = (paymentResult.data ?? []) as unknown as PaymentRow[];
   const paymentsTotal = paymentResult.count ?? payments.length;
   const plans = (planResult.data ?? []) as Plan[];
@@ -138,10 +125,8 @@ export default async function PlanPage({
         ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more, and you name the amount.`
         : "";
 
-  const historyPager = (page: number) =>
-    `${pagerHref({ path: "/portal/plan", params: { payments: paymentsPage }, pageKey: "history" }, page)}#history`;
   const paymentsPager = (page: number) =>
-    `${pagerHref({ path: "/portal/plan", params: { history: historyPage }, pageKey: "payments" }, page)}#payments`;
+    `${pagerHref({ path: "/portal/plan", params: {}, pageKey: "payments" }, page)}#payments`;
 
   /* ---------------------------------------------------------------------- */
   /* no plan: one decision, nothing else above it                            */
@@ -331,47 +316,28 @@ export default async function PlanPage({
       {settings.referralEnabled ? <InviteCard className="mb-3" /> : null}
 
       <div className="space-y-3">
+        {/*
+          The credit history used to be rendered here as well, from a view that
+          had rolled the truck away - two screens showing one account's spending
+          and neither able to say which lorry caused it. It lives in one place
+          now and this links to it. The anchor stays so older links still land.
+        */}
         <div id="history" className="scroll-mt-20">
-          <p className="mb-2 text-xs text-muted">
-            Looking for a single search or check?{" "}
-            <Link href="/portal/activity" className="font-medium text-brand-500 hover:underline">
-              See your activity
-            </Link>
-            .
-          </p>
-          {/* This list totals usage per day on purpose - a week of automatic
-              checks would otherwise bury the top-ups. Activity is where the
-              individual charges live, so the two are linked rather than one
-              of them trying to be both. */}
-          <Disclosure
-            title="Credit history"
-            hint="Top-ups one by one, usage totalled per day. See Activity for each charge."
-            defaultOpen={historyPage > 1 || showHistory}
-            bodyClassName="p-0"
+          <Link
+            href="/portal/activity"
+            className="flex items-center gap-3 rounded-xl border border-line bg-panel px-4 py-3.5 transition hover:border-brand-500/50 hover:bg-sunken"
           >
-            {history.length === 0 ? (
-              <EmptyState
-                title="Nothing yet"
-                description="Top-ups and each day's usage appear here as soon as they happen."
-              />
-            ) : (
-              <>
-                <ul className="divide-y divide-divider">
-                  {history.map((row, index) => (
-                    <ActivityRow key={`${row.activity_date}-${row.reason}-${index}`} row={row} />
-                  ))}
-                </ul>
-                <Pager
-                  page={historyPage}
-                  total={historyTotal}
-                  pageSize={HISTORY_SIZE}
-                  href={historyPager}
-                  noun="entries"
-                  className="px-4 pt-1 pb-3"
-                />
-              </>
-            )}
-          </Disclosure>
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-500">
+              <History size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-ink">Credits and activity</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                Every credit added and spent — per truck per day, per day, or charge by charge.
+              </span>
+            </span>
+            <ChevronRight size={16} className="shrink-0 text-faint" />
+          </Link>
         </div>
 
         <div id="payments" className="scroll-mt-20">
@@ -471,44 +437,6 @@ function Rates({ rates }: { rates: CreditRate[] }) {
   );
 }
 
-function ActivityRow({ row }: { row: CreditActivity }) {
-  const added = row.amount > 0;
-  return (
-    <li className="flex items-start justify-between gap-3 px-4 py-2.5">
-      <span className="min-w-0">
-        <span className="block text-sm text-ink">{CREDIT_REASON_LABEL[row.reason] ?? row.reason}</span>
-        <span className="block text-xs text-faint">
-          {/* A rolled-up line stands for a whole day, so a clock time on it
-              would be a time nothing actually happened at. */}
-          {row.is_rollup ? fmtDate(row.activity_date) : fmtDateTime(row.created_at)}
-          {row.is_rollup && row.entries > 1 ? ` · ${fmtNumber(row.entries)} times` : ""}
-          {row.truck_number ? (
-            <>
-              {" · "}
-              <Mono className="text-muted">{row.truck_number}</Mono>
-            </>
-          ) : null}
-        </span>
-        {row.note ? <span className="mt-0.5 block text-xs text-muted">{row.note}</span> : null}
-      </span>
-
-      <span className="shrink-0 text-right">
-        <span
-          className={cx(
-            "block text-sm font-medium tabular-nums",
-            added ? "text-good-500" : "text-bad-500",
-          )}
-        >
-          {added ? "+" : "−"}
-          {formatCredits(Math.abs(row.amount))}
-        </span>
-        <span className="block text-xs tabular-nums text-faint">
-          {formatCredits(row.balance_after)} left
-        </span>
-      </span>
-    </li>
-  );
-}
 
 function PaymentList({ payments }: { payments: PaymentRow[] }) {
   if (payments.length === 0) {

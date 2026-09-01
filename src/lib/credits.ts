@@ -144,6 +144,7 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   admin_topup: "Added by administrator",
   admin_adjust: "Adjusted by administrator",
   purchase: "Purchased",
+  signup_bonus: "Free credits on sign-up",
   plan_grant: "Included with plan",
   // Written by reward_referral(). Without these two the credit history shows a
   // column value to a customer, which is the one place a raw reason leaks out.

@@ -29,10 +29,19 @@ export type Tab = (typeof TABS)[number]["key"];
 /** Every query parameter the account page reads, across all five tabs. */
 export type AccountParams = {
   tab?: string;
-  /** Credits tab: money in / usage, and the two page numbers. */
-  flow?: string;
-  cpage?: string;
+  /**
+   * Credits tab. The ledger's own params (view/kind/reason/truck/date/page)
+   * are LedgerQuery's, shared verbatim with the customer's page so one
+   * component reads both - see src/components/CreditLedger.tsx. Only the
+   * payments pager is this tab's own now.
+   */
   ppage?: string;
+  view?: string;
+  kind?: string;
+  reason?: string;
+  truck?: string;
+  date?: string;
+  page?: string;
   /** Trucks tab. */
   tq?: string;
   tstatus?: string;

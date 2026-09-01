@@ -433,23 +433,6 @@ export type TruckDirectoryRow = {
   event_count: number;
 };
 
-/**
- * Credit history as a person reads it: money in itemised, usage rolled up per
- * day and kind. One row of public.credit_activity.
- */
-export type CreditActivity = {
-  user_id: string;
-  created_at: string;
-  activity_date: string;
-  reason: string;
-  amount: number;
-  balance_after: number;
-  truck_number: string | null;
-  note: string | null;
-  /** How many ledger rows this line stands for. Above 1 it is a daily total. */
-  entries: number;
-  is_rollup: boolean;
-};
 
 /** One row of the search_plazas() RPC. */
 export type PlazaMatch = { name: string; seen_count: number; score: number };
@@ -605,17 +588,3 @@ export type GoogleSheetConfig = {
   updated_at: string;
 };
 
-/** One row of public.my_activity - a customer's own searches and charges. */
-export type MyActivity = {
-  user_id: string;
-  created_at: string;
-  kind: "search" | "credit";
-  detail: string;
-  truck_number: string | null;
-  ok: boolean;
-  new_events: number | null;
-  response_ms: number | null;
-  error: string | null;
-  /** Negative when spent, positive when added. Null on a search row. */
-  credits: number | null;
-};

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui";
 import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
-import type { CreditActivity, Payment, PaymentStatus, SearchLog } from "@/lib/types";
+import type { Payment, PaymentStatus, SearchLog } from "@/lib/types";
 
 /**
  * The three lists this console shows in more than one place, owned once.
@@ -184,81 +184,6 @@ export function PaymentsTable({
 /* Credit movements                                                            */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Reads credit_activity, never credit_transactions: money in stays itemised
- * while usage is totalled per IST day, so a fortnight of automatic checking is
- * a fortnight of lines instead of several hundred half-credit rows. The exact
- * ledger is still there for an argument about a single charge.
- */
-export function CreditLedgerTable({
-  rows,
-  nameOf,
-  emptyTitle,
-  emptyDescription,
-}: {
-  rows: CreditActivity[];
-  nameOf?: NameLookup;
-  emptyTitle: string;
-  emptyDescription?: string;
-}) {
-  if (rows.length === 0) {
-    return <EmptyState title={emptyTitle} description={emptyDescription} />;
-  }
-
-  return (
-    <TableWrap>
-      <Thead>
-        <th className="th">When</th>
-        {nameOf ? <th className="th">Customer</th> : null}
-        <th className="th">What</th>
-        <th className="th">Detail</th>
-        <th className="th text-right">Change</th>
-        <th className="th text-right">Balance after</th>
-      </Thead>
-      <Tbody>
-        {rows.map((row) => {
-          const amount = Number(row.amount);
-          return (
-            <Tr key={`${row.user_id}-${row.activity_date}-${row.reason}-${row.created_at}-${amount}`}>
-              {row.is_rollup ? (
-                <td className="td whitespace-nowrap">
-                  <span className="block text-sm text-ink">{fmtDate(row.activity_date)}</span>
-                  <span className="block text-xs text-faint">whole day</span>
-                </td>
-              ) : (
-                <WhenCell at={row.created_at} />
-              )}
-              {nameOf ? <AccountCell id={row.user_id} nameOf={nameOf} /> : null}
-              <td className="td text-sm text-ink">
-                {CREDIT_REASON_LABEL[row.reason] ?? row.reason}
-              </td>
-              <td className="td max-w-xs truncate text-xs text-faint">
-                {row.is_rollup ? (
-                  `${fmtNumber(row.entries)} charges in the day`
-                ) : row.truck_number ? (
-                  <Mono className="text-muted">{row.truck_number}</Mono>
-                ) : (
-                  (row.note ?? "--")
-                )}
-              </td>
-              <td
-                className={`td text-right text-sm font-medium tabular-nums ${
-                  amount < 0 ? "text-muted" : "text-good-500"
-                }`}
-              >
-                {amount > 0 ? "+" : "-"}
-                {formatCredits(Math.abs(amount))}
-              </td>
-              <td className="td text-right text-sm tabular-nums text-ink">
-                {formatCredits(row.balance_after)}
-              </td>
-            </Tr>
-          );
-        })}
-      </Tbody>
-    </TableWrap>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /* Upstream calls                                                              */
