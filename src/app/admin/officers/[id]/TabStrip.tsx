@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Activity, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
+import { CreditCard, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
 
 import { cx } from "@/components/ui";
 
@@ -16,11 +16,24 @@ import { cx } from "@/components/ui";
  * inside a tab are just more query parameters, with nothing to keep in sync.
  */
 
+/*
+ * Credits, then Payments, then Trucks. The Activity tab that used to sit here is
+ * gone: its usage chart belongs on the overview, and its three link cards
+ * pointed at the log, the ledger and the account - all of which the other tabs
+ * or the overview already reach. A tab whose whole job was to link elsewhere was
+ * a stop on the way to somewhere.
+ *
+ * Credits and Payments are split because they answer different questions.
+ * Credits is what the balance did - every credit in and out, admin grants and
+ * bonuses included. Payments is money: what actually changed hands, through the
+ * gateway or recorded by hand. A credit grant with no money and a payment with
+ * no credits both exist, so conflating them hid one behind the other.
+ */
 export const TABS = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
   { key: "credits", label: "Credits", icon: Wallet },
+  { key: "payments", label: "Payments", icon: CreditCard },
   { key: "trucks", label: "Trucks", icon: Truck },
-  { key: "activity", label: "Activity", icon: Activity },
   { key: "settings", label: "Settings", icon: Settings },
 ] as const;
 

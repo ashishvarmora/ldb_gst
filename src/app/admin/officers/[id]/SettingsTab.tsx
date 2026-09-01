@@ -10,7 +10,14 @@ import { Badge, DescRow, Panel } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { LimitOverrides, OfficerOverview, Plan, Profile, TelegramConfig } from "@/lib/types";
+import type {
+  GoogleSheetConfig,
+  LimitOverrides,
+  OfficerOverview,
+  Plan,
+  Profile,
+  TelegramConfig,
+} from "@/lib/types";
 
 /**
  * Everything that changes the account, in one place. Splitting the forms out of
@@ -26,7 +33,7 @@ export async function SettingsTab({
 }) {
   const admin = getSupabaseAdmin();
 
-  const [{ data: profile }, { data: plans }, { data: overrides }, { data: telegram }] =
+  const [{ data: profile }, { data: plans }, { data: overrides }, { data: telegram }, { data: sheet }] =
     await Promise.all([
       admin.from("profiles").select("*").eq("id", id).maybeSingle<Profile>(),
       admin.from("plans").select("*").order("sort_order"),
@@ -36,6 +43,11 @@ export async function SettingsTab({
         .eq("user_id", id)
         .maybeSingle<LimitOverrides>(),
       admin.from("telegram_configs").select("*").eq("user_id", id).maybeSingle<TelegramConfig>(),
+      admin
+        .from("google_sheet_configs")
+        .select("*")
+        .eq("user_id", id)
+        .maybeSingle<GoogleSheetConfig>(),
     ]);
 
   const planList = (plans ?? []) as Plan[];
@@ -60,8 +72,8 @@ export async function SettingsTab({
         <OverridesPanel account={overview} plan={currentPlan} overrides={overrides ?? null} />
 
         <Panel
-          title="Telegram"
-          description="Where this account's alerts are delivered. You can fill it in for them, or let them do it from their own dashboard."
+          title="Alerts & backup"
+          description="Where this account's alerts go, and where its history is copied. Fill either in for them, or let them do it from their own dashboard."
         >
           <ActionForm action={saveAccountIntegrations} closeOnSuccess={false}>
             <input type="hidden" name="user_id" value={id} />
@@ -95,17 +107,53 @@ export async function SettingsTab({
                 label="Send Telegram alerts"
                 defaultChecked={telegram?.is_enabled ?? true}
               />
+
+              {/*
+                The per-account backup sheet. Its absence is the reason this is
+                here: an account that skipped it at signup had nowhere to be
+                given one except the platform-wide fallback, where every
+                account's rows pile into a single file.
+              */}
+              <div className="border-t border-divider pt-4">
+                <Field
+                  label="Backup Google Sheet"
+                  name="sheet_url"
+                  hint="Paste the whole share link. Their exported history is copied here before old rows are purged."
+                >
+                  <Input
+                    name="sheet_url"
+                    defaultValue={sheet?.sheet_url ?? ""}
+                    placeholder="https://docs.google.com/spreadsheets/d/…"
+                  />
+                </Field>
+
+                <div className="mt-3">
+                  <Checkbox
+                    name="sheet_is_enabled"
+                    label="Copy this account's history to the sheet"
+                    defaultChecked={sheet?.is_enabled ?? true}
+                  />
+                </div>
+              </div>
             </div>
             <FormActions>
-              <SubmitButton>Save Telegram</SubmitButton>
+              <SubmitButton>Save alerts & backup</SubmitButton>
             </FormActions>
           </ActionForm>
 
           <dl className="mt-4 border-t border-divider pt-3">
-            <DescRow label="Verified">{fmtRelative(telegram?.verified_at)}</DescRow>
+            <DescRow label="Telegram verified">{fmtRelative(telegram?.verified_at)}</DescRow>
             {telegram?.last_error ? (
-              <DescRow label="Last error">
+              <DescRow label="Telegram error">
                 <span className="text-bad-500">{telegram.last_error}</span>
+              </DescRow>
+            ) : null}
+            <DescRow label="Sheet last copied">
+              {sheet?.spreadsheet_id ? fmtRelative(sheet.last_synced_at) : "no sheet set"}
+            </DescRow>
+            {sheet?.last_error ? (
+              <DescRow label="Sheet error">
+                <span className="text-bad-500">{sheet.last_error}</span>
               </DescRow>
             ) : null}
           </dl>

@@ -74,8 +74,37 @@ export function AccountFields({
             placeholder="Patel Roadlines"
           />
         </Field>
-        <Field label="Phone" name="phone" hint="For your records. Alerts go over Telegram.">
-          <Input name="phone" defaultValue={account?.phone ?? ""} placeholder="+91 98250 00000" />
+        {/*
+          Required, and the +91 is furniture rather than a field - every account
+          is on an Indian mobile, so a country-code box only invites a wrong one.
+          A number already stored with the prefix loses it here so the input
+          shows the ten digits it expects; the server puts it back.
+        */}
+        <Field
+          label="Mobile number"
+          name="phone"
+          hint="How you reach them if their account is locked. 10 digits."
+          required
+        >
+          <div className="flex">
+            <span
+              aria-hidden
+              className="inline-flex shrink-0 items-center rounded-l-lg border border-r-0 border-line bg-raised px-3 font-mono text-sm text-muted"
+            >
+              +91
+            </span>
+            <Input
+              name="phone"
+              type="tel"
+              inputMode="numeric"
+              required
+              maxLength={10}
+              pattern="[6-9][0-9]{9}"
+              defaultValue={(account?.phone ?? "").replace(/^\+?91/, "")}
+              placeholder="9825000000"
+              className="rounded-l-none font-mono tracking-wider placeholder:font-sans placeholder:tracking-normal"
+            />
+          </div>
         </Field>
       </FormGrid>
 

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Bell, ClipboardList, Search as SearchIcon, Truck } from "lucide-react";
 
+import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import { DescRow, LinkButton, LinkCard, Panel } from "@/components/ui";
+import { loadDailyCalls } from "../../usage/ledger";
 import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
@@ -22,11 +24,11 @@ export async function OverviewTab({
 }) {
   const admin = getSupabaseAdmin();
 
-  const { data: overrides } = await admin
-    .from("user_limit_overrides")
-    .select("*")
-    .eq("user_id", id)
-    .maybeSingle<LimitOverrides>();
+  const [{ data: overrides }, dailyCalls] = await Promise.all([
+    admin.from("user_limit_overrides").select("*").eq("user_id", id).maybeSingle<LimitOverrides>(),
+    loadDailyCalls(admin, { days: 30, userId: id }),
+  ]);
+  const series = buildUsageSeries(dailyCalls, 30);
 
   const place = [overview.district, overview.state].filter(Boolean).join(", ");
 
@@ -100,6 +102,13 @@ export async function OverviewTab({
               <DescRow label="Last crossing">{fmtDateTime(overview.last_event_at)}</DescRow>
             </dl>
           </div>
+        </Panel>
+
+        <Panel
+          title="Lookups per day"
+          description="Manual searches and background checks together, over the last 30 days."
+        >
+          <UsageChart series={series} />
         </Panel>
       </div>
 

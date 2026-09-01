@@ -12,8 +12,8 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { ActivityTab } from "./ActivityTab";
 import { CreditsTab } from "./CreditsTab";
+import { PaymentsTab } from "./PaymentsTab";
 import { OverviewTab } from "./OverviewTab";
 import { SettingsTab } from "./SettingsTab";
 import { TabStrip, activeTab, type AccountParams } from "./TabStrip";
@@ -226,8 +226,8 @@ export default async function AccountDetailPage({
 
       {tab === "overview" ? <OverviewTab id={id} overview={overview} /> : null}
       {tab === "credits" ? <CreditsTab id={id} overview={overview} params={search} /> : null}
+      {tab === "payments" ? <PaymentsTab id={id} overview={overview} params={search} /> : null}
       {tab === "trucks" ? <TrucksTab id={id} overview={overview} params={search} /> : null}
-      {tab === "activity" ? <ActivityTab id={id} params={search} /> : null}
       {tab === "settings" ? <SettingsTab id={id} overview={overview} /> : null}
     </>
   );

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Filter, MapPin, Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 
 import type { AccountParams } from "./TabStrip";
 import { Input, Select } from "@/components/form";
@@ -16,7 +16,8 @@ import {
   Tr,
   buttonClass,
 } from "@/components/ui";
-import { fmtDate, fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
+import { formatCredits } from "@/lib/credits";
+import { fmtDate, fmtNumber, fmtRelative } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { BadgeTone } from "@/components/ui";
@@ -96,9 +97,27 @@ export async function TrucksTab({
   else if (status === "unwatched") query = query.eq("alert_count", 0);
   if (q) query = query.ilike("truck_number", `%${q.toUpperCase().replace(/[^A-Z0-9]/g, "")}%`);
 
-  const { data, count } = await query;
+  const [{ data, count }, { data: spendRows }] = await Promise.all([
+    query,
+    admin
+      .from("credit_ledger_daily")
+      .select("truck_number, credits")
+      .eq("user_id", id)
+      .lt("credits", 0),
+  ]);
   const trucks = (data ?? []) as TruckDirectoryRow[];
   const filtered = Boolean(q || status);
+
+  /* Credits spent per truck, across the whole ledger - the admin's question is
+     "what has this lorry cost", not "what did it cost this page". */
+  const spentByTruck = new Map<string, number>();
+  for (const row of (spendRows ?? []) as { truck_number: string | null; credits: number }[]) {
+    if (!row.truck_number) continue;
+    spentByTruck.set(
+      row.truck_number,
+      (spentByTruck.get(row.truck_number) ?? 0) + Math.abs(Number(row.credits) || 0),
+    );
+  }
 
   return (
     <Panel
@@ -180,11 +199,10 @@ export async function TrucksTab({
           <TableWrap>
             <Thead>
               <th className="th">Truck</th>
-              <th className="th">State</th>
-              <th className="th">Last toll plaza</th>
-              <th className="th">Last crossing</th>
+              <th className="th">Tracking</th>
+              <th className="th text-right">Credits used</th>
+              <th className="th text-right">Alerts on</th>
               <th className="th">Last checked</th>
-              <th className="th text-right">Alerts</th>
               <th className="th text-right">Crossings</th>
               <th className="th">Added</th>
             </Thead>
@@ -206,30 +224,26 @@ export async function TrucksTab({
                     ) : null}
                   </td>
                   <td className="td">
-                    <Badge tone={STATUS_TONE[truck.status]}>{STATUS_LABEL[truck.status]}</Badge>
-                  </td>
-                  <td className="td">
-                    {truck.last_location ? (
-                      <span className="flex items-center gap-1.5 text-sm">
-                        <MapPin size={13} className="shrink-0 text-faint" />
-                        {truck.last_location}
-                      </span>
+                    {truck.is_active ? (
+                      <Badge tone={STATUS_TONE[truck.status]}>{STATUS_LABEL[truck.status]}</Badge>
                     ) : (
-                      "--"
+                      <Badge>paused</Badge>
                     )}
                   </td>
-                  <td className="td text-xs whitespace-nowrap text-muted">
-                    {fmtDateTime(truck.last_event_at)}
-                  </td>
-                  <td className="td text-xs whitespace-nowrap text-muted">
-                    {fmtRelative(truck.last_polled_at)}
+                  <td className="td text-right text-sm tabular-nums text-ink">
+                    {spentByTruck.get(truck.truck_number)
+                      ? formatCredits(spentByTruck.get(truck.truck_number)!)
+                      : <span className="text-faint">0</span>}
                   </td>
                   <td className="td text-right">
                     {truck.alert_count === 0 ? (
-                      <Badge tone="warn">never checked</Badge>
+                      <Badge tone="warn">none</Badge>
                     ) : (
                       <span className="text-sm tabular-nums text-ink">{truck.alert_count}</span>
                     )}
+                  </td>
+                  <td className="td text-xs whitespace-nowrap text-muted">
+                    {fmtRelative(truck.last_polled_at)}
                   </td>
                   <td className="td text-right text-sm tabular-nums text-muted">
                     {fmtNumber(truck.event_count)}

@@ -8,6 +8,8 @@ import { assertSuperAdmin } from "@/lib/auth";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { formatCredits, grantCredits } from "@/lib/credits";
 import { NUMERIC_LIMITS, parseLimitInput } from "@/lib/limits";
+import { PHONE_ERROR, normaliseIndianMobile } from "@/lib/phone";
+import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
@@ -57,10 +59,17 @@ function generatePassword(): string {
 const profileSchema = z.object({
   email: z.string().email("Enter a valid email address."),
   full_name: z.string().min(2, "Enter the customer's name.").nullable(),
+  /*
+   * Required, and normalised to +91 then ten digits - the same shape signup
+   * stores, so support can look one number up and find it whoever created the
+   * account. An old account without a number is asked for one the next time it
+   * is edited, which backfills the gap rather than leaving it.
+   */
   phone: z
     .string()
-    .regex(/^[0-9+\-\s()]{6,20}$/, "Phone number looks wrong.")
-    .nullable(),
+    .min(1, "Enter their mobile number.")
+    .transform((value) => normaliseIndianMobile(value))
+    .refine((value): value is string => value !== null, PHONE_ERROR),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -515,15 +524,56 @@ export async function saveAccountIntegrations(
   );
   if (tgError) return fail(tgError.message);
 
+  /*
+   * The backup sheet, settable here as well as on the customer's own settings.
+   * The customer sets it at signup, but plenty forget, and the only fallback
+   * until now was the ONE platform-wide sheet in admin settings - every
+   * account's rows landing in one file. This lets an admin paste the link for
+   * an account that skipped it, from the same place they manage the account.
+   *
+   * Same rules as the customer's own form: a link is reduced to its sheet id,
+   * and moving to a new sheet clears the last-synced stamp so it does not claim
+   * a copy that is in the old file, not the new one.
+   */
+  const sheetRaw = str(fd, "sheet_url");
+  const spreadsheetId = sheetRaw ? spreadsheetIdFromUrl(sheetRaw) : null;
+  if (sheetRaw && !spreadsheetId) {
+    return fail("That does not look like a Google Sheets link. Paste the whole address from the browser bar.");
+  }
+
+  const { data: currentSheet } = await admin
+    .from("google_sheet_configs")
+    .select("spreadsheet_id, last_synced_at")
+    .eq("user_id", userId)
+    .maybeSingle<{ spreadsheet_id: string | null; last_synced_at: string | null }>();
+
+  const movedSheet = (currentSheet?.spreadsheet_id ?? null) !== spreadsheetId;
+
+  const { error: sheetError } = await admin.from("google_sheet_configs").upsert(
+    {
+      user_id: userId,
+      spreadsheet_id: spreadsheetId,
+      sheet_url: spreadsheetId
+        ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+        : null,
+      is_enabled: bool(fd, "sheet_is_enabled"),
+      last_synced_at: movedSheet ? null : (currentSheet?.last_synced_at ?? null),
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (sheetError) return fail(sheetError.message);
+
   await writeAudit(actor, {
     action: "officer.update_integrations",
     entity: "profile",
     entityId: userId,
-    meta: { telegram: Boolean(chatId), enabled: telegramEnabled },
+    meta: { telegram: Boolean(chatId), enabled: telegramEnabled, sheet: Boolean(spreadsheetId) },
   });
 
   revalidatePath(`/admin/officers/${userId}`);
-  return { ok: true, message: "Telegram settings saved." };
+  return { ok: true, message: "Telegram and backup settings saved." };
 }
 
 export async function deleteAccount(

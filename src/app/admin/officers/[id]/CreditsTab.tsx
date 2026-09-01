@@ -2,18 +2,14 @@ import Link from "next/link";
 
 import type { AccountParams } from "./TabStrip";
 import { GrantCreditsForm } from "../../credits/GrantCreditsForm";
-import { pageRange } from "../../pager";
-import { PaymentsTable, balanceTone } from "../../tables";
+import { balanceTone } from "../../tables";
 import { CreditLedger } from "@/components/CreditLedger";
-import { Pager, pageFromParam } from "@/components/Pager";
 import { Badge, DescRow, Panel, buttonClass } from "@/components/ui";
 import { describeRate, formatCredits, loadCreditRates } from "@/lib/credits";
 import { fmtNumber } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditPack, OfficerOverview, Payment, Plan } from "@/lib/types";
-
-const PAYMENTS_PER_PAGE = 10;
+import type { OfficerOverview } from "@/lib/types";
 
 /**
  * The money side of one account: what is left, how to move it, where it went,
@@ -36,40 +32,10 @@ export async function CreditsTab({
 }) {
   const admin = getSupabaseAdmin();
 
-  const paymentsPage = pageFromParam(params.ppage);
-  const paymentsRange = pageRange(paymentsPage, PAYMENTS_PER_PAGE);
-
-  const [
-    { data: payments, count: paymentCount },
-    { data: plans },
-    { data: packs },
-    rates,
-    settings,
-  ] = await Promise.all([
-    admin
-      .from("payments")
-      .select("*", { count: "exact" })
-      .eq("user_id", id)
-      .order("created_at", { ascending: false })
-      .range(paymentsRange.from, paymentsRange.to),
-    admin.from("plans").select("id, name"),
-    admin.from("credit_packs").select("id, name"),
-    loadCreditRates(admin),
-    loadSettings(admin),
-  ]);
-
-  const paymentRows = (payments ?? []) as Payment[];
-  const planName = new Map(
-    ((plans ?? []) as Pick<Plan, "id" | "name">[]).map((plan) => [plan.id, plan.name]),
-  );
-  const packName = new Map(
-    ((packs ?? []) as Pick<CreditPack, "id" | "name">[]).map((pack) => [pack.id, pack.name]),
-  );
+  const [rates, settings] = await Promise.all([loadCreditRates(admin), loadSettings(admin)]);
 
   const balance = Number(overview.credits ?? 0);
-
   const base = `/admin/officers/${id}`;
-  const carry = { tab: "credits", ppage: paymentsPage };
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -80,6 +46,8 @@ export async function CreditsTab({
           truck away - so the admin and the officer could look at one day and
           read different stories. One component now; only the id differs.
         */}
+        {/* The ledger the customer sees, for this account. Money paid is a
+            different question and lives on its own Payments tab now. */}
         <CreditLedger
           userId={id}
           basePath={base}
@@ -87,39 +55,6 @@ export async function CreditsTab({
           keep={{ tab: "credits" }}
           title="Credits and activity"
         />
-
-        <Panel
-          title="Payments"
-          description="What this account has paid for, newest first."
-          bodyClassName="p-0"
-        >
-          <PaymentsTable
-            rows={paymentRows}
-            planName={planName}
-            packName={packName}
-            emptyTitle={
-              (paymentCount ?? 0) > 0 ? "That page is past the end of the list" : "No payments yet"
-            }
-            emptyDescription={
-              (paymentCount ?? 0) > 0
-                ? "Use the page links below to get back."
-                : settings.razorpayEnabled
-                  ? "Anything they buy in the app shows up here with its order id."
-                  : "Online payment is switched off, so everything arrives through Add credits."
-            }
-          />
-
-          {(paymentCount ?? 0) > 0 ? (
-            <Pager
-              className="border-t border-divider px-5 py-3"
-              page={paymentsPage}
-              total={paymentCount ?? paymentRows.length}
-              pageSize={PAYMENTS_PER_PAGE}
-              noun="payments"
-              href={{ path: base, params: carry, pageKey: "ppage" }}
-            />
-          ) : null}
-        </Panel>
       </div>
 
       <div className="space-y-5">
