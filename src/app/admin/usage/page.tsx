@@ -1,16 +1,15 @@
 import Link from "next/link";
-import { Download, Filter } from "lucide-react";
+import { AlertTriangle, Download, Search } from "lucide-react";
 
 import { loadDailyCalls } from "./ledger";
-import { pageRange } from "../pager";
-import { SearchLogTable, balanceTone, type SearchLogRow } from "../tables";
-import { Select } from "@/components/form";
+import { balanceTone } from "../tables";
 import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
   Avatar,
   Badge,
   EmptyState,
+  LinkCard,
   PageHeader,
   Panel,
   PanelAction,
@@ -20,6 +19,7 @@ import {
   Thead,
   Tr,
   buttonClass,
+  cx,
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
@@ -29,9 +29,8 @@ import type { OfficerOverview } from "@/lib/types";
 
 export const metadata = { title: "Usage — Admin" };
 
-/** Two lists on one page, so each carries its own page number. */
+/** One list on this page now; the call log lives on the log screen. */
 const ACCOUNTS_PAGE = 25;
-const CALLS_PAGE = 25;
 
 /**
  * Consumption, per account and then call by call.
@@ -43,10 +42,24 @@ const CALLS_PAGE = 25;
  */
 type UsageSearchParams = {
   accounts?: string;
-  calls?: string;
-  source?: string;
-  outcome?: string;
+  sort?: string;
 };
+
+/**
+ * Four ways to rank the same accounts.
+ *
+ * Credits spent is the default because it is the money question, but "who has
+ * nearly run out" and "who has gone quiet" are the two that lead to action, and
+ * neither is visible when the list is only ever sorted by spending.
+ */
+const USAGE_SORTS = [
+  { key: "spent", label: "Spent this month" },
+  { key: "today", label: "Spent today" },
+  { key: "low", label: "Lowest balance" },
+  { key: "quiet", label: "Least active" },
+] as const;
+
+type UsageSort = (typeof USAGE_SORTS)[number]["key"];
 
 export default async function UsagePage({
   searchParams,
@@ -57,31 +70,18 @@ export default async function UsagePage({
   const params = await searchParams;
   const admin = getSupabaseAdmin();
 
-  const source = params.source === "manual" || params.source === "tracking" ? params.source : null;
-  const outcome = params.outcome === "ok" || params.outcome === "failed" ? params.outcome : null;
+  const sort: UsageSort =
+    (USAGE_SORTS.find((option) => option.key === params.sort)?.key ?? "spent") as UsageSort;
 
   const accountsPage = pageFromParam(params.accounts);
-  const callsPage = pageFromParam(params.calls);
-  const { from, to } = pageRange(callsPage, CALLS_PAGE);
-
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
-  let callQuery = admin
-    .from("search_logs")
-    .select("*, profiles(full_name, email)", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(from, to);
-  if (source) callQuery = callQuery.eq("source", source);
-  if (outcome) callQuery = callQuery.eq("ok", outcome === "ok");
-
-  const [{ data: overview }, dailyCalls, { data: recent, count: callCount }, { count: failedDay }] =
+  const [{ data: overview }, dailyCalls, { count: failedDay }] =
     await Promise.all([
       // Every account, because the totals below are sums of these rows and a
       // page of them would not add up. The table itself is still paged.
       admin.from("officer_overview").select("*").eq("role", "officer"),
       loadDailyCalls(admin, { days: 30 }),
-      callQuery,
       // Counted over a day rather than over the page on screen: "failures on
       // this page" changed meaning every time somebody turned a page.
       admin
@@ -92,8 +92,6 @@ export default async function UsagePage({
     ]);
 
   const rows = (overview ?? []) as OfficerOverview[];
-  const calls = (recent ?? []) as SearchLogRow[];
-  const callTotal = callCount ?? calls.length;
   const failures = failedDay ?? 0;
 
   const monthStart = istMonthStart();
@@ -115,12 +113,20 @@ export default async function UsagePage({
 
   const series = buildUsageSeries(dailyCalls, 30);
 
-  const ranked = [...rows].sort(
-    (a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0),
-  );
+  const num = (value: unknown) => Number(value ?? 0);
+  const ranked = [...rows].sort((a, b) => {
+    if (sort === "today") return num(b.credits_spent_today) - num(a.credits_spent_today);
+    if (sort === "low") return num(a.credits) - num(b.credits);
+    if (sort === "quiet") {
+      // Never-active accounts first: they are the ones worth a phone call.
+      const at = a.last_active_at ? Date.parse(a.last_active_at) : 0;
+      const bt = b.last_active_at ? Date.parse(b.last_active_at) : 0;
+      return at - bt;
+    }
+    return num(b.credits_spent_month) - num(a.credits_spent_month);
+  });
   const shown = pageSlice(ranked, accountsPage, ACCOUNTS_PAGE);
 
-  const filtered = Boolean(source || outcome);
 
   return (
     <>
@@ -172,10 +178,32 @@ export default async function UsagePage({
       <Panel
         className="mb-2"
         title="Per-account consumption"
-        description="Sorted by credits spent this month. Plans, contact details and truck limits are on the Accounts page; top an account up from its own page."
+        description="Plans, contact details and truck limits are on the Accounts page; top an account up from its own page."
         bodyClassName="p-0"
         actions={<PanelAction href="/admin/officers?sort=spending">Accounts page</PanelAction>}
       >
+        {/* Four ways to rank the same accounts. Which one matters depends on
+            the question - who owes attention, who is busiest, who has stopped. */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-divider px-4 py-2.5">
+          <span className="mr-0.5 text-[11px] font-semibold tracking-wider text-faint uppercase">
+            Rank by
+          </span>
+          {USAGE_SORTS.map(({ key, label }) => (
+            <Link
+              key={key}
+              href={`/admin/usage?sort=${key}`}
+              className={cx(
+                "inline-flex min-h-8 items-center rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition",
+                sort === key
+                  ? "border-brand-500 bg-brand-500/10 text-brand-500"
+                  : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink",
+              )}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+
         {shown.length === 0 ? (
           <EmptyState
             title={ranked.length > 0 ? "That page is past the end of the list" : "No accounts yet"}
@@ -244,76 +272,33 @@ export default async function UsagePage({
         noun="accounts"
         // Two lists on one page, so each keeps the other's page number and the
         // call filters.
-        href={{
-          path: "/admin/usage",
-          params: { calls: params.calls, source, outcome },
-          pageKey: "accounts",
-        }}
+        href={{ path: "/admin/usage", params: { sort }, pageKey: "accounts" }}
       />
 
-      <Panel
-        title="Every LDB call"
-        description="Newest first, across all accounts. Every manual search, plus the background checks that found a movement or failed — a quiet check that changed nothing is charged but not listed."
-        bodyClassName="p-0"
-      >
-        <form
-          method="get"
-          className="flex flex-wrap items-center gap-2 border-b border-divider px-5 py-3"
-        >
-          {/* No page number carried: a new filter starts at page 1, because the
-              row you were looking at is not on page 4 of a different list. */}
-          <Select name="source" defaultValue={source ?? ""} className="w-36 py-1.5 text-xs">
-            <option value="">Any kind</option>
-            <option value="manual">Manual</option>
-            <option value="tracking">Automatic</option>
-          </Select>
-          <Select name="outcome" defaultValue={outcome ?? ""} className="w-36 py-1.5 text-xs">
-            <option value="">Any outcome</option>
-            <option value="ok">Worked</option>
-            <option value="failed">Failed</option>
-          </Select>
-          <button type="submit" className={buttonClass("secondary", "sm")}>
-            <Filter size={13} />
-            Apply
-          </button>
-          {filtered ? (
-            <Link href="/admin/usage" className={buttonClass("ghost", "sm")}>
-              Clear
-            </Link>
-          ) : null}
-        </form>
-
-        <SearchLogTable
-          rows={calls}
-          showAccount
-          emptyTitle={
-            callTotal > 0
-              ? "That page is past the end of the log"
-              : filtered
-                ? "No calls match those filters"
-                : "No calls logged yet"
-          }
-          emptyDescription={
-            callTotal > 0
-              ? "Use the page links below to get back."
-              : filtered
-                ? "Clear the filters to see everything."
-                : undefined
-          }
+      {/*
+        "Every LDB call" was here as a filtered search_logs list with its own
+        source and outcome dropdowns - a fourth copy of a list that now has one
+        home. Naming it and carrying the number that would make somebody look is
+        more use than the list itself in a page about consumption.
+      */}
+      <div className="space-y-2">
+        <LinkCard
+          href="/admin/logs?type=searches"
+          icon={<Search size={16} />}
+          title="Every search and background check"
+          description="Across all accounts, filterable by account, truck or day."
         />
-      </Panel>
-
-      <Pager
-        page={callsPage}
-        pageSize={CALLS_PAGE}
-        total={callTotal}
-        noun="calls"
-        href={{
-          path: "/admin/usage",
-          params: { accounts: params.accounts, source, outcome },
-          pageKey: "calls",
-        }}
-      />
+        {failures > 0 ? (
+          <LinkCard
+            href="/admin/logs?type=searches&status=failed"
+            icon={<AlertTriangle size={16} />}
+            title="Failed calls in the last day"
+            description="Usually a registration number the toll network cannot answer for."
+            value={fmtNumber(failures)}
+            tone="warn"
+          />
+        ) : null}
+      </div>
     </>
   );
 }
