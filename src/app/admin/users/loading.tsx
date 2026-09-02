@@ -1,11 +1,21 @@
-import { Skeleton, SkeletonPageHeader, SkeletonPanel, SkeletonStatCards } from "@/components/Skeleton";
+import {
+  Skeleton,
+  SkeletonPageHeader,
+  SkeletonPanel,
+  SkeletonStatCards,
+} from "@/components/Skeleton";
 
 /**
- * A report's shape while it loads: header, the section tabs, the date bar, a
- * row of headline figures, then a chart beside a breakdown. Close enough to
- * the real layout that nothing jumps when the queries land.
+ * The Users report's shape while it loads: header, the date bar, six headline
+ * figures, the sign-up table beside the lifecycle breakdown and its link cards,
+ * then the full-width accounts table.
+ *
+ * The accounts table gets its own full-width panel here because that is where
+ * it now sits. The previous skeleton stopped at the two-column grid, so the
+ * longest thing on the page - twenty-five rows of accounts - appeared out of
+ * nowhere and shoved the footer down as it arrived.
  */
-export default function ReportLoading() {
+export default function UsersLoading() {
   return (
     <>
       <SkeletonPageHeader actions={1} />
@@ -18,16 +28,17 @@ export default function ReportLoading() {
 
       <SkeletonStatCards count={6} />
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="space-y-5 xl:col-span-2">
-          <SkeletonPanel rows={5} />
+      <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="xl:col-span-2">
           <SkeletonPanel rows={6} />
         </div>
         <div className="space-y-5">
           <SkeletonPanel rows={4} />
-          <SkeletonPanel rows={4} />
+          <SkeletonPanel rows={2} title={false} />
         </div>
       </div>
+
+      <SkeletonPanel rows={8} />
     </>
   );
 }

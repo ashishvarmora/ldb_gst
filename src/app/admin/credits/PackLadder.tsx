@@ -68,7 +68,11 @@ export function PackLadder({
   creditsPerRupee,
 }: {
   packs: CreditPack[];
-  /** The base rate an open tier multiplies. Edited just above this ladder. */
+  /**
+   * The base rate an open tier multiplies. Edited in the folded panel below
+   * this ladder - it used to sit above it, which read as the rule the whole
+   * product runs on when it only prices the open tier.
+   */
   creditsPerRupee: number;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
@@ -180,7 +184,7 @@ export function PackLadder({
             {open ? (
               <div className="border-b border-divider bg-sunken/50 px-4 py-3">
                 <p className="text-xs text-muted">
-                  What that comes to, at the base rate above and this tier&apos;s percentage:
+                  What that comes to, at the base rate and this tier&apos;s percentage:
                 </p>
                 <ul className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
                   {examples.map((example) => (

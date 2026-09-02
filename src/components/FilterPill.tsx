@@ -29,12 +29,23 @@ import { cx } from "@/components/ui";
  * still linkable, still survives a refresh, and the back button still steps
  * through filter changes. The only thing this component knows is whether its own
  * sheet is open.
+ *
+ * THE SORT VARIANT IS THE SAME SHEET IN A DIFFERENT SKIN, because sorting is
+ * not filtering. Order used to be a pill in this row like the rest, which said
+ * it narrowed the list when it only rearranges it - and it took the brand
+ * colour off its default, so "Biggest first" read as a filter in force on a
+ * page where a filter in force is why a bill looks wrong. The sort control is
+ * square-cornered, lives on the row with the grouping toggles it belongs beside,
+ * prints its own direction, and never goes brand. Sharing the sheet
+ * rather than growing a second one keeps the escape key, the scroll lock and
+ * the close-on-navigate in one place.
  */
 export function FilterPill({
   label,
   value,
-  active,
+  active = false,
   icon,
+  variant = "filter",
   children,
 }: {
   /** What this pill controls. Read out only inside the sheet and to screen readers. */
@@ -42,8 +53,10 @@ export function FilterPill({
   /** The current selection - the pill shows this, not the label. */
   value: string;
   /** True when the filter is doing something, i.e. is off its default. */
-  active: boolean;
+  active?: boolean;
   icon?: ReactNode;
+  /** "sort" for a control that reorders rather than narrows. */
+  variant?: "filter" | "sort";
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -78,21 +91,43 @@ export function FilterPill({
      * their charges went. Flex order rather than reordering the markup, so the
      * DOM keeps the one fixed sequence that keyboard and screen-reader users
      * move through, and nothing shuffles at all until a filter is actually set.
+     *
+     * The sort control never jumps the queue: it is not in the scrolling row,
+     * and a control that moved because of what it is set to would be the one
+     * thing on this screen that changes place without narrowing anything.
      */
-    <div className={cx("shrink-0", active && "order-first")}>
+    <div className={cx("shrink-0", variant === "filter" && active && "order-first")}>
       <button
         type="button"
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
         aria-haspopup="dialog"
         className={cx(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium whitespace-nowrap transition",
-          active
-            ? "border-brand-500 bg-brand-500/10 text-brand-500"
-            : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink",
+          "inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap border text-xs font-medium transition",
+          variant === "sort"
+            ? /* Square corners and the raised surface, so it reads as a tool
+                 rather than as one more round filter chip. Neutral whatever it
+                 is set to: the value is printed on it, and going brand is this
+                 row's word for "this is narrowing your ledger". */
+              "rounded-lg border-line bg-raised px-2.5 text-ink hover:border-line-strong"
+            : "rounded-full px-3",
+          variant === "filter" &&
+            (active
+              ? "border-brand-500 bg-brand-500/10 text-brand-500"
+              : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink"),
         )}
       >
         {icon}
+        {/* The sort control prints its own name where there is room for it,
+            because "Newest" on its own does not say it is the order rather than
+            another filter. The spoken label below is what carries it on a
+            phone, where the printed one is display:none and therefore not read
+            out at all. */}
+        {variant === "sort" ? (
+          <span aria-hidden className="hidden text-faint sm:inline">
+            {label}
+          </span>
+        ) : null}
         <span className="sr-only">{label}: </span>
         {/* Capped and clipped, because one long value would otherwise push every
             other pill off the right-hand edge on its own - "Added by

@@ -1,101 +1,82 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import {
+  ACCOUNTS_MEASURE,
+  CREDITS_MEASURE,
+  ENTRIES_MEASURE,
+  TRUCKS_MEASURE,
+  type Measure,
+} from "@/components/PivotTable";
+import { csvFile, parseDims, parseList, pivotCsv } from "@/components/report";
 import { getSessionUser } from "@/lib/auth";
-import { istToday } from "@/lib/format";
+import { loadPivot, loadPivotTotals, resolveRange, type PivotDimension } from "@/lib/analytics";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { OfficerOverview } from "@/lib/types";
-
-function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 /**
- * One row per account for the current month, credits and all. This is the sheet
- * you would use to work out what to collect from each customer.
+ * The slice currently on screen, as a spreadsheet.
  *
- * Deliberately not paged: a spreadsheet is the one place where the whole list
- * is the point, and the screen is where paging belongs.
+ * It used to be a fixed dump of one row per account for the current month,
+ * which had nothing to do with whatever the reader was looking at - so somebody
+ * who had spent five minutes narrowing a report to one truck's spending over
+ * one week clicked Export and got a list of customers.
+ *
+ * It now takes the SAME query parameters as the page, parses them with the same
+ * helpers, and calls the same pivot function - so what downloads is what was on
+ * screen, grouped and filtered identically. Only two things differ, both
+ * deliberately: every measure is included rather than the subset the table had
+ * room for, and nothing is capped. A spreadsheet is the one place where the
+ * whole result is the point, and the screen is where paging belongs.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSessionUser();
-  if (!session || session.profile.role !== "super_admin") {
+  /* Checked as "still allowed" rather than "signed in at some point": a session
+     cookie outlives a suspension, and this exports every customer's spending. */
+  if (!session || session.profile.role !== "super_admin" || session.profile.status !== "active") {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  const params = request.nextUrl.searchParams;
+  const get = (name: string) => params.get(name) ?? undefined;
+
+  const range = resolveRange({
+    range: get("range"),
+    from: get("from"),
+    to: get("to"),
+    bucket: get("bucket"),
+  });
+
+  const offered: PivotDimension[] = ["bucket", "account", "truck", "reason"];
+  const dims = parseDims(get("dims"), ["bucket"]).filter((dim) => offered.includes(dim));
+
+  const query = {
+    from: range.from,
+    to: range.to,
+    kind: "spend" as const,
+    users: parseList(get("account")),
+    trucks: parseList(get("truck")),
+    reasons: parseList(get("reason")),
+  };
+
   const admin = getSupabaseAdmin();
-  const { data, error } = await admin
-    .from("officer_overview")
-    .select("*")
-    .eq("role", "officer")
-    .order("full_name");
+  const [rows, totals] = await Promise.all([
+    loadPivot(admin, { ...query, dims, bucket: range.bucket }),
+    loadPivotTotals(admin, query),
+  ]);
 
-  if (error) return new NextResponse(error.message, { status: 500 });
-
-  const header = [
-    "Account",
-    "Email",
-    "Phone",
-    "Designation",
-    "Office",
-    "District",
-    "State",
-    "Status",
-    "Plan",
-    "Plan live",
-    "Monthly charge",
-    "Plan expires",
-    "Credits included with plan",
-    "Credits left",
-    "Credits purchased",
-    "Credits spent today",
-    "Credits spent this month",
-    "Tracked trucks",
-    "Truck limit",
-    "Manual searches this month",
-    "Automatic checks this month",
-    "Telegram linked",
+  /* Every measure, whatever the table had room for. A column the reader has to
+     go back and re-export to get is a column that should have been there. */
+  const measures: Measure[] = [
+    { ...CREDITS_MEASURE, label: "Credits spent" },
+    { ...ENTRIES_MEASURE, label: "Calls" },
+    ACCOUNTS_MEASURE,
+    TRUCKS_MEASURE,
   ];
 
-  const lines = [header.join(",")];
+  const body = pivotCsv({ rows, dims, measures, totals, bucket: range.bucket });
+  const slice = dims.length > 0 ? dims.join("-") : "totals";
 
-  for (const row of (data ?? []) as OfficerOverview[]) {
-    lines.push(
-      [
-        row.full_name,
-        row.email,
-        row.phone,
-        row.designation,
-        row.office,
-        row.district,
-        row.state,
-        row.status,
-        row.plan_name ?? "none",
-        row.plan_active ? "yes" : "no",
-        row.price_per_month ?? 0,
-        row.plan_expires_on ?? "",
-        row.included_credits ?? 0,
-        row.credits ?? 0,
-        row.credits_purchased ?? 0,
-        row.credits_spent_today ?? 0,
-        row.credits_spent_month ?? 0,
-        row.active_trucks,
-        row.truck_limit === -1 ? "unlimited" : row.truck_limit,
-        row.manual_searches_month,
-        row.tracking_queries_month,
-        row.telegram_connected ? "yes" : "no",
-      ]
-        .map(csvCell)
-        .join(","),
-    );
-  }
-
-  const month = istToday().slice(0, 7);
-
-  return new NextResponse(lines.join("\n"), {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="truck-usage-${month}.csv"`,
-    },
-  });
+  /* The slice and the dates are in the filename, so three exports taken while
+     narrowing a report do not all land in Downloads under one name. */
+  return csvFile(`usage-${slice}-${range.from}-to-${range.to}.csv`, body);
 }

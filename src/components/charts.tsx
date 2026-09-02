@@ -1,42 +1,50 @@
 import Link from "next/link";
+import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { cx } from "@/components/ui";
+import { TableWrap, Tbody, Thead, Tr, cx } from "@/components/ui";
 import { fmtNumber } from "@/lib/format";
 
 /**
- * The charts the reports are made of.
+ * The tables the reports are made of, and the one share bar that survived.
  *
- * All Server Components, all plain HTML and CSS. There is no charting library
- * here on purpose: every one of these is a stacked bar or a share bar, the data
- * is already grouped by the database, and a client-side chart library would
- * ship far more JavaScript than the whole console to redraw rectangles the
- * server can render as rectangles.
+ * This file used to lead with a stacked bar chart, and the owner's verdict on
+ * the Analyse section was that it was "visual only, not for a data scientist".
+ * They were right, and the chart was worse than merely decorative: over a
+ * one-day range it drew a single full-width stub that read as a flat line -
+ * least readable exactly when the range was most specific - and at no range
+ * could it be sorted, totalled, drilled into or exported.
  *
- * Hover is CSS, not script - a tooltip that is a sibling revealed by
- * group-hover works on a mouse, and the same content is read out by the title
- * attribute for touch and for a screen reader.
+ * So DataTable is the primary thing here now. Every column sorts, a dimension
+ * cell is a link to the rows behind it, and there is a totals footer, because
+ * the questions actually asked of these screens ("which month grew", "who
+ * claimed those free credits") want an orderable column and a link, not a
+ * rectangle. ShareBreakdown stayed because a parts-of-a-whole bar does one
+ * thing a table does not - it shows a share as a length, and it is honest at
+ * any range, since a single category is a full bar rather than a stub.
+ *
+ * All Server Components, all plain HTML and CSS. No charting library: the data
+ * is already grouped by the database, and a client-side library would ship more
+ * JavaScript than the whole console to draw rectangles the server can draw.
  *
  * The rules these follow, and why they are not up for taste:
  *
- *   - Identity is never colour alone. Two or more series always get a legend,
- *     and every chart carries a table underneath it that says the same numbers
- *     in text. Someone who cannot separate two hues can still read the report.
+ *   - Identity is never colour alone. Every share bar prints its own label and
+ *     figure in text beside the swatch, so a reader who cannot separate two
+ *     hues loses nothing.
  *
  *   - Series colours come from the --color-series-* tokens, which were checked
  *     for colour-vision separation against the surface they are drawn on. They
  *     are deliberately not good/warn/bad: a red segment means "this category",
  *     and a reader who has learned that red means trouble should never have to
- *     unlearn it inside a chart.
+ *     unlearn it inside a report.
  *
- *   - A 2px gap between stacked segments and between neighbouring bars, so two
- *     touching fills read as two values rather than one longer one.
+ *   - A 2px gap between neighbouring segments, so two touching fills read as
+ *     two values rather than one longer one.
  *
- *   - Text never wears the series colour. The swatch beside a label carries the
- *     identity; the label itself stays in the ordinary ink tokens, where it is
- *     readable.
+ *   - Text never wears the series colour. The swatch carries the identity; the
+ *     label stays in the ordinary ink tokens, where it is readable.
  */
-
 /** The four identity slots, in fixed order. A fifth series folds into "rest". */
 const SERIES_CLASS = [
   "bg-series-1",
@@ -48,199 +56,27 @@ const SERIES_CLASS = [
 const REST_CLASS = "bg-series-rest";
 
 /** The fill for slot n. Never cycles: past the fourth, everything is the residual grey. */
-export function seriesClass(index: number): string {
+function seriesClass(index: number): string {
   return SERIES_CLASS[index] ?? REST_CLASS;
 }
 
-export type Series = {
+
+export type Slice = {
   key: string;
   label: string;
-  /** Values, one per bucket, in the same order as `buckets`. */
-  values: number[];
+  value: number;
+  hint?: string;
+  /**
+   * Where this slice's rows live. Given, the whole row becomes a link.
+   *
+   * A share bar answers "how much" and immediately raises "which ones" - the
+   * owner's complaint was a card reading "given free 500" with no way to find
+   * out who claimed it. Every slice that has a list behind it says so here, and
+   * one that genuinely has nowhere to go stays plain text rather than being
+   * given a link that lands on an unfiltered screen.
+   */
+  href?: string;
 };
-
-/* -------------------------------------------------------------------------- */
-/* Legend                                                                      */
-/* -------------------------------------------------------------------------- */
-
-export function Legend({
-  series,
-  totals,
-  format = fmtNumber,
-}: {
-  series: Series[];
-  /** The series total, shown beside its name so the legend is also a summary. */
-  totals?: number[];
-  format?: (value: number) => string;
-}) {
-  if (series.length < 2) return null;
-
-  return (
-    <ul className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-      {series.map((item, index) => (
-        <li key={item.key} className="flex items-center gap-1.5 text-muted">
-          <span className={cx("inline-block size-2.5 shrink-0 rounded-sm", seriesClass(index))} />
-          {item.label}
-          {totals ? (
-            <span className="font-medium tabular-nums text-ink">{format(totals[index] ?? 0)}</span>
-          ) : null}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Stacked bars over time                                                      */
-/* -------------------------------------------------------------------------- */
-
-/**
- * One bar per bucket, segments stacked in series order.
- *
- * Empty buckets keep their slot and draw a 2px baseline stub rather than
- * disappearing: a fortnight with no sales has to look like a gap, and a chart
- * drawn only from the buckets that have rows silently closes it.
- */
-export function StackedBars({
-  buckets,
-  series,
-  format = fmtNumber,
-  height = "h-40",
-  emptyLabel = "Nothing in this range",
-}: {
-  /** Axis labels, already formatted for the grain. */
-  buckets: string[];
-  series: Series[];
-  format?: (value: number) => string;
-  height?: string;
-  emptyLabel?: string;
-}) {
-  const totals = buckets.map((_, i) => series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0));
-  const peak = Math.max(...totals, 0);
-  const seriesTotals = series.map((s) => s.values.reduce((sum, v) => sum + (v ?? 0), 0));
-  const grandTotal = seriesTotals.reduce((sum, v) => sum + v, 0);
-
-  if (grandTotal === 0) {
-    return (
-      <div>
-        <Legend series={series} totals={seriesTotals} format={format} />
-        <div
-          className={cx(
-            "flex items-center justify-center rounded-lg border border-dashed border-line",
-            height,
-          )}
-        >
-          <p className="text-xs text-faint">{emptyLabel}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <Legend series={series} totals={seriesTotals} format={format} />
-
-      {/* Scrolls sideways rather than squeezing 90 bars into 300px on a phone.
-          min-w keeps each bar wide enough to be a hit target when it does. */}
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div
-          className={cx("flex items-end gap-[2px]", height)}
-          style={{ minWidth: `${Math.max(buckets.length * 9, 120)}px` }}
-        >
-          {buckets.map((label, i) => {
-            const total = totals[i];
-            // A tenth of a percent still gets a visible sliver, so a day with
-            // one sale beside a day with a thousand is not drawn as zero.
-            const fill = peak === 0 ? 0 : Math.max((total / peak) * 100, total > 0 ? 2.5 : 0);
-            const tip = [
-              label,
-              ...series.map((s) => `${s.label}: ${format(s.values[i] ?? 0)}`),
-              `Total: ${format(total)}`,
-            ].join("\n");
-
-            return (
-              <div key={label + i} className="group relative flex flex-1 flex-col justify-end">
-                {total === 0 ? (
-                  <div className="h-0.5 w-full rounded-full bg-sunken" title={`${label}\nNothing`} />
-                ) : (
-                  <div
-                    title={tip}
-                    className="flex w-full flex-col-reverse gap-[2px]"
-                    style={{ height: `${fill}%` }}
-                  >
-                    {series.map((s, si) => {
-                      const value = s.values[i] ?? 0;
-                      if (value <= 0) return null;
-                      return (
-                        <div
-                          key={s.key}
-                          className={cx(
-                            "w-full min-h-[3px] first:rounded-t-[3px] last:rounded-b-[1px]",
-                            seriesClass(si),
-                          )}
-                          style={{ height: `${(value / total) * 100}%` }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* The hover card. Pointer-events-none so it never eats the
-                    hover that summoned it and flickers. */}
-                <div
-                  role="presentation"
-                  className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 hidden -translate-x-1/2 rounded-lg border border-line bg-panel px-2.5 py-2 text-left shadow-[var(--shadow-pop)] group-hover:block"
-                >
-                  <p className="mb-1 text-[11px] font-semibold whitespace-nowrap text-strong">
-                    {label}
-                  </p>
-                  {series.map((s, si) => (
-                    <p
-                      key={s.key}
-                      className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-muted"
-                    >
-                      <span
-                        className={cx("inline-block size-2 shrink-0 rounded-sm", seriesClass(si))}
-                      />
-                      {s.label}
-                      <span className="ml-auto pl-2 font-medium tabular-nums text-ink">
-                        {format(s.values[i] ?? 0)}
-                      </span>
-                    </p>
-                  ))}
-                  {series.length > 1 ? (
-                    <p className="mt-1 border-t border-divider pt-1 text-[11px] whitespace-nowrap text-muted">
-                      Total
-                      <span className="ml-2 font-semibold tabular-nums text-strong">
-                        {format(total)}
-                      </span>
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Only the ends are labelled. A tick under every bar is unreadable at
-          this width, and the hover card names the bucket you are looking at. */}
-      <div className="mt-1.5 flex justify-between text-[11px] text-faint">
-        <span>{buckets[0]}</span>
-        <span className="font-medium text-muted tabular-nums">
-          Peak {format(peak)}
-        </span>
-        <span>{buckets[buckets.length - 1]}</span>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Share of a whole                                                            */
-/* -------------------------------------------------------------------------- */
-
-export type Slice = { key: string; label: string; value: number; hint?: string };
 
 /**
  * A breakdown: one horizontal bar showing the split, then the same numbers as
@@ -284,15 +120,39 @@ export function ShareBreakdown({
 
       <dl className="space-y-0">
         {shown.map((slice, index) => (
+          /*
+           * A linked slice stays a <div> holding <dt>/<dd> and grows the hit
+           * area from the inside, rather than becoming an <a> around them: an
+           * anchor is not permitted content for a <dl>, and wrapping the row in
+           * one would make the whole breakdown invalid markup that a screen
+           * reader stops announcing as a term-and-value list.
+           *
+           * So the anchor sits on the label and stretches over the row with
+           * after:inset-0. min-h-9 is what makes that stretch worth having: two
+           * lines of 11px text is about 34px tall, and a row a thumb misses is
+           * a drill-down nobody discovers.
+           */
           <div
             key={slice.key}
-            className="flex items-baseline gap-2 border-b border-divider py-2 last:border-0"
+            className={cx(
+              "relative flex items-baseline gap-2 border-b border-divider py-2 last:border-0",
+              slice.href && "min-h-9 transition hover:bg-raised/50",
+            )}
           >
             <span
               className={cx("mt-1 inline-block size-2.5 shrink-0 rounded-sm", seriesClass(index))}
             />
             <dt className="min-w-0 flex-1">
-              <span className="block truncate text-sm text-ink">{slice.label}</span>
+              {slice.href ? (
+                <Link
+                  href={slice.href}
+                  className="block truncate text-sm text-ink transition after:absolute after:inset-0 after:content-[''] hover:text-brand-500"
+                >
+                  {slice.label}
+                </Link>
+              ) : (
+                <span className="block truncate text-sm text-ink">{slice.label}</span>
+              )}
               {slice.hint ? (
                 <span className="block truncate text-[11px] text-faint">{slice.hint}</span>
               ) : null}
@@ -315,62 +175,188 @@ export function ShareBreakdown({
 /* -------------------------------------------------------------------------- */
 
 /**
- * Collapsed by default, one click from any chart.
+ * One column of a sortable report table.
  *
- * This is what makes a chart accessible rather than decorative: whatever a
- * reader cannot get from the picture - because of colour vision, a screen
- * reader, or simply wanting the exact figure - is here as text, from the same
- * arrays the bars were drawn from, so the two cannot disagree.
+ * `cell` renders and `sortBy` compares, deliberately separated: a period column
+ * shows "12 Mar" and has to sort as a date, a money column shows "Rs 1,20,000"
+ * and has to sort as a number, and a column that sorted by its own rendered
+ * string would put Rs 9 above Rs 80,000 for ever.
  */
-export function ChartTable({
-  buckets,
-  series,
-  format = fmtNumber,
-  label = "the numbers",
-}: {
-  buckets: string[];
-  series: Series[];
-  format?: (value: number) => string;
-  label?: string;
-}) {
-  return (
-    <details className="mt-3 border-t border-divider pt-2">
-      <summary className="inline-flex min-h-8 cursor-pointer list-none items-center text-xs font-medium text-brand-500 transition hover:text-brand-600">
-        Show {label}
-      </summary>
-      <div className="mt-2 max-h-72 overflow-auto">
-        <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 bg-panel">
-            <tr>
-              <th className="px-2 py-1.5 text-left font-medium text-muted">Period</th>
-              {series.map((s) => (
-                <th key={s.key} className="px-2 py-1.5 text-right font-medium text-muted">
-                  {s.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-divider">
-            {buckets.map((bucket, i) => (
-              <tr key={bucket + i}>
-                <td className="px-2 py-1.5 whitespace-nowrap text-muted">{bucket}</td>
-                {series.map((s) => (
-                  <td key={s.key} className="px-2 py-1.5 text-right tabular-nums text-ink">
-                    {format(s.values[i] ?? 0)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
-  );
+export type Column<T> = {
+  key: string;
+  label: string;
+  /** Numbers right, names left. Right is not the default because the first column is usually a name. */
+  align?: "left" | "right";
+  cell: (row: T) => ReactNode;
+  /** What the sort compares. Absent, the column's header is not clickable. */
+  sortBy?: (row: T) => number | string;
+  /**
+   * This column's figure in the footer, over whatever set the caller says the
+   * total is of. Absent leaves the footer cell blank, which is the honest thing
+   * for a column that cannot be summed - a name, or a distinct count.
+   */
+  total?: (rows: T[]) => ReactNode;
+  /** Given and non-null, the cell becomes a link to the rows behind it. */
+  href?: (row: T) => string | null;
+  /** Extra classes on the cell, e.g. `whitespace-nowrap` for a date. */
+  className?: string;
+};
+
+export type Sort = { key: string; desc: boolean };
+
+/**
+ * Reorder rows by a column's own comparator.
+ *
+ * Lives out here rather than inside the table because the caller usually has to
+ * page the sorted array, and a table that sorted its own rows privately would
+ * page a differently-ordered list than the one it displays.
+ *
+ * A blank or unknown sort key leaves the order alone: these arrays arrive
+ * ordered by the database, and refusing to render a report because a query
+ * string carried a stale column name helps nobody.
+ */
+export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort | undefined): T[] {
+  const column = columns.find((c) => c.key === sort?.key && c.sortBy);
+  if (!column?.sortBy || !sort) return rows;
+
+  const pick = column.sortBy;
+  const direction = sort.desc ? -1 : 1;
+
+  return [...rows].sort((a, b) => {
+    const left = pick(a);
+    const right = pick(b);
+    if (typeof left === "number" && typeof right === "number") {
+      return (left - right) * direction;
+    }
+    return String(left).localeCompare(String(right)) * direction;
+  });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Headline figures                                                            */
-/* -------------------------------------------------------------------------- */
+/**
+ * A report as rows, sortable by its own headers, with a totals line.
+ *
+ * This is what the Analyse screens lead with now. They used to lead with a
+ * stacked bar chart per panel and keep the figures folded away behind a "Show
+ * the numbers" toggle - which is backwards for the person the owner described:
+ * somebody who wants to group, sort, total and export, and for whom a picture
+ * is at best a sanity check. Over a one-day range the chart was worse than
+ * useless, drawing one stub that reads as a broken control.
+ *
+ * Sorting is a link, not a click handler, so the whole thing stays a Server
+ * Component: a sorted report is a URL that can be pasted into a message,
+ * survives a refresh, and steps back through the back button.
+ */
+export function DataTable<T>({
+  rows,
+  columns,
+  sort,
+  sortHref,
+  rowKey,
+  totalsOver,
+  totalsLabel = "Total",
+  emptyLabel = "Nothing in this range",
+}: {
+  /** The rows to draw - already sorted, and already paged if the caller pages. */
+  rows: T[];
+  columns: Column<T>[];
+  sort?: Sort;
+  /** Where a header click goes. Absent, no header sorts. */
+  sortHref?: (key: string) => string;
+  rowKey: (row: T, index: number) => string;
+  /**
+   * What the footer is a total OF. Pass the whole filtered set when `rows` is
+   * one page of it - a footer that silently totals the visible page instead is
+   * how a report comes to disagree with the figure printed above it.
+   */
+  totalsOver?: T[];
+  totalsLabel?: string;
+  emptyLabel?: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-line px-3 py-8 text-center text-xs text-faint">
+        {emptyLabel}
+      </p>
+    );
+  }
+
+  const totalRows = totalsOver ?? rows;
+  const hasTotals = columns.some((column) => column.total);
+
+  return (
+    <TableWrap>
+      <Thead>
+        {columns.map((column) => (
+          <th
+            key={column.key}
+            className={cx("th whitespace-nowrap", column.align === "right" && "text-right")}
+          >
+            {sortHref && column.sortBy ? (
+              <SortHeader
+                label={column.label}
+                sortKey={column.key}
+                sort={sort}
+                href={sortHref}
+                align={column.align}
+              />
+            ) : (
+              column.label
+            )}
+          </th>
+        ))}
+      </Thead>
+
+      <Tbody>
+        {rows.map((row, index) => (
+          <Tr key={rowKey(row, index)}>
+            {columns.map((column) => {
+              const href = column.href?.(row) ?? null;
+              const body = column.cell(row);
+              return (
+                <td
+                  key={column.key}
+                  className={cx(
+                    "td",
+                    column.align === "right" && "text-right tabular-nums",
+                    column.className,
+                  )}
+                >
+                  {href ? (
+                    <Link href={href} className="text-ink transition hover:text-brand-500">
+                      {body}
+                    </Link>
+                  ) : (
+                    body
+                  )}
+                </td>
+              );
+            })}
+          </Tr>
+        ))}
+      </Tbody>
+
+      {hasTotals ? (
+        <tfoot className="border-t-2 border-line-strong bg-raised/60">
+          <tr>
+            {columns.map((column, index) => (
+              <td
+                key={column.key}
+                className={cx(
+                  "td text-sm font-semibold text-strong",
+                  column.align === "right" && "text-right tabular-nums",
+                )}
+              >
+                {/* The first column carries the label, so the footer reads as a
+                    sentence rather than as a row of orphaned figures. */}
+                {column.total ? column.total(totalRows) : index === 0 ? totalsLabel : null}
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      ) : null}
+    </TableWrap>
+  );
+}
 
 /**
  * A number with what it is measured against.
@@ -453,3 +439,61 @@ export function MetricCard({
 
   return <div className="panel px-4 py-3.5">{body}</div>;
 }
+
+/**
+ * A column header that sorts.
+ *
+ * The arrow appears only on the column actually in force. Every other header
+ * shows its dash on hover alone, so the row says "these are sortable" when a
+ * reader goes looking without four arrows competing for attention when they
+ * are not.
+ */
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  href,
+  align = "left",
+}: {
+  label: string;
+  sortKey: string;
+  sort?: Sort;
+  href: (key: string) => string;
+  align?: "left" | "right";
+}) {
+  const on = sort?.key === sortKey;
+
+  return (
+    <Link
+      href={href(sortKey)}
+      aria-label={
+        on
+          ? `Sorted by ${label}, ${sort?.desc ? "highest first" : "lowest first"}. Reverse it.`
+          : `Sort by ${label}`
+      }
+      className={cx(
+        "group inline-flex min-h-8 items-center gap-1 rounded transition",
+        align === "right" && "flex-row-reverse",
+        on ? "text-brand-500" : "text-muted hover:text-ink",
+      )}
+    >
+      {label}
+      {on ? (
+        sort?.desc ? (
+          <ArrowDown size={12} className="shrink-0" />
+        ) : (
+          <ArrowUp size={12} className="shrink-0" />
+        )
+      ) : (
+        <Minus
+          size={12}
+          className="shrink-0 text-faint opacity-0 transition group-hover:opacity-100"
+        />
+      )}
+    </Link>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Headline figures                                                            */
+/* -------------------------------------------------------------------------- */

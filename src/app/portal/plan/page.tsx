@@ -1,14 +1,21 @@
 import Link from "next/link";
-import { AlertTriangle, CalendarDays, ChevronRight, History, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarDays,
+  ChevronRight,
+  History,
+  Truck,
+  Wallet,
+} from "lucide-react";
 
 import { RedeemBonusCode } from "./RedeemBonusCode";
 import { InviteCard } from "../referrals/InviteCard";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
 import { Pager, pageFromParam, pagerHref } from "@/components/Pager";
-import { Badge, EmptyState, Mono, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
+import { Badge, EmptyState, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import {
-  CREDIT_REASON_LABEL,
   creditsForAmount,
   describeRate,
   formatCredits,
@@ -88,6 +95,14 @@ export default async function PlanPage({
   const paymentsTotal = paymentResult.count ?? payments.length;
   const plans = (planResult.data ?? []) as Plan[];
 
+  /**
+   * The plan row they are on, when it is still on sale. Archived plans are not
+   * in `plans` - somebody can be on one and go on being on one - so this is
+   * undefined often enough to matter, and every use of it below has to survive
+   * that rather than assume a match.
+   */
+  const currentPlan = plans.find((plan) => plan.id === overview.plan_id) ?? null;
+
   const today = istToday();
   const expiresOn = overview.plan_expires_on;
   const expired = expiresOn !== null && expiresOn < today;
@@ -162,6 +177,7 @@ export default async function PlanPage({
           plans={plans}
           brandName={settings.brandName}
           currentPlanId={overview.plan_id}
+          currentPlan={currentPlan}
           disabledReason={payBlocked}
           renewing={returning}
         />
@@ -214,6 +230,27 @@ export default async function PlanPage({
   /* has a plan: balance, top-up, then everything else folded away           */
   /* ---------------------------------------------------------------------- */
   const lowCredits = overview.credits <= 0;
+
+  /**
+   * Out of truck slots, and the plan is the only thing that fixes it - credits
+   * cannot buy a slot. This is the one state where changing plan is the answer
+   * rather than an option, so it decides both the link in the truck tile and
+   * whether the plan section arrives already open.
+   */
+  const outOfSlots = overview.truck_limit !== -1 && overview.active_trucks >= overview.truck_limit;
+  const endingSoon = daysLeft !== null && daysLeft <= 14;
+
+  /**
+   * Whether a bigger limit is actually for sale. Without this the tile offers a
+   * way out of a full fleet to somebody already on the largest plan there is,
+   * which sends them to a grid where every card is a sideways move or worse.
+   *
+   * Compared against the limit in force rather than the plan's own, because an
+   * account whose limit was raised by hand may already be above every plan.
+   */
+  const biggerPlanAvailable =
+    overview.truck_limit !== -1 &&
+    plans.some((plan) => plan.truck_limit === -1 || plan.truck_limit > overview.truck_limit);
 
   return (
     <>
@@ -283,10 +320,24 @@ export default async function PlanPage({
             <p className="mt-1.5 text-xs text-muted">
               {overview.truck_limit === -1
                 ? "No limit on this plan."
-                : overview.active_trucks >= overview.truck_limit
-                  ? "Every slot is in use. A bigger plan adds more."
+                : outOfSlots
+                  ? "Every slot is in use."
                   : `${fmtNumber(overview.truck_limit - overview.active_trucks)} more can be added.`}
             </p>
+
+            {/* This tile used to end on "A bigger plan adds more" with nothing
+                to tap - the plan grid was folded away at the very bottom of the
+                page, under the payment history. The sentence that names the fix
+                is the right place to offer it. */}
+            {outOfSlots && biggerPlanAvailable ? (
+              <Link
+                href="#plan"
+                className="mt-0.5 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-500 transition hover:underline"
+              >
+                See plans with more trucks
+                <ArrowRight size={13} />
+              </Link>
+            ) : null}
           </div>
         </div>
       </Panel>
@@ -301,7 +352,10 @@ export default async function PlanPage({
       <Panel
         id="topup"
         title="Top up credits"
-        description={`Credits pay for every search and automatic check. Topping up never buys the plan again — your plan, its end date and its truck limit stay exactly as they are.${openPackLine}`}
+        /* The "this does not touch your plan" half of this used to live here as
+           well. It is said once now, in the contrast below, rather than twice
+           within a screen of itself. */
+        description={`Credits pay for every search and automatic check.${openPackLine}`}
         className="mb-3 scroll-mt-20"
       >
         <BuyCredits
@@ -311,6 +365,79 @@ export default async function PlanPage({
           disabledReason={creditsBlocked}
         />
       </Panel>
+
+      {/*
+        The plan, immediately under the top-up and no further away.
+
+        This section used to be the last thing on the page, folded shut below
+        the payment history, titled "Renew or change plan" - so an account whose
+        trucks were all in use had a panel telling them a bigger plan would help
+        and no reachable way to buy one. It sits next to the top-up now because
+        the two are the pair a customer has to tell apart: this one moves the
+        truck limit and the end date, that one only adds credits. It opens by
+        itself in the two states where it is the answer rather than an option.
+      */}
+      <div id="plan" className="mb-3 scroll-mt-20">
+        <Disclosure
+          title="Change, upgrade or renew your plan"
+          hint="Sets how many trucks you can watch and when the plan ends. Not the way to get more credits."
+          badge={
+            outOfSlots ? (
+              <Badge tone="warn">Every slot in use</Badge>
+            ) : endingSoon ? (
+              <Badge tone="warn">Ends soon</Badge>
+            ) : null
+          }
+          defaultOpen={outOfSlots || endingSoon}
+        >
+          <div className="mb-4 grid gap-2 sm:grid-cols-2">
+            <Difference icon={<Wallet size={13} />} title="Topping up credits">
+              Adds credits and does nothing else. Your plan, its end date and its truck limit stay
+              exactly as they are.
+            </Difference>
+            <Difference icon={<Truck size={13} />} title="Changing your plan" highlight>
+              Sets a new truck limit straight away, and moves the end date out by the term you buy.
+              The new plan&apos;s included credits are added on top of the balance you already have.
+            </Difference>
+          </div>
+
+          {/*
+            What settle_payment() actually does, rather than a promise made up
+            to sound generous. It sets the new expiry to
+            greatest(current expiry, today) + the months bought, so days already
+            paid for are carried rather than thrown away - and there is no
+            refund of the difference either, which is why this says the term is
+            added on and not that the change is pro-rated.
+          */}
+          <p className="mb-3 text-xs leading-relaxed text-muted">
+            {expiresOn
+              ? `Nothing you have already paid for is lost: whatever term you buy is counted on from ${fmtDate(expiresOn)}, not from today. There is no refund of the difference in price.`
+              : "The term you buy is counted on from today."}
+          </p>
+
+          {/*
+            An override on user_limit_overrides.truck_limit beats the plan's own
+            in officer_effective_limits, so for these accounts a bigger plan may
+            change nothing on screen. Hedged rather than stated flatly, because
+            has_overrides is true even when only some other limit was adjusted.
+          */}
+          {overview.has_overrides ? (
+            <p className="mb-3 text-xs leading-relaxed text-warn-500">
+              Your limits have been adjusted by hand for this account, so a different plan may not
+              change how many trucks you can watch. Check with support before buying one.
+            </p>
+          ) : null}
+
+          <BuyPlans
+            plans={plans}
+            brandName={settings.brandName}
+            currentPlanId={overview.plan_id}
+            currentPlan={currentPlan}
+            disabledReason={payBlocked}
+            renewing
+          />
+        </Disclosure>
+      </div>
 
       {/* The other way to get credits, right where someone is deciding how
           much to spend on them. */}
@@ -368,19 +495,6 @@ export default async function PlanPage({
         >
           <Rates rates={rates} />
         </Disclosure>
-
-        <Disclosure
-          title="Renew or change plan"
-          hint="Only for more trucks or a longer term - not for more credits."
-        >
-          <BuyPlans
-            plans={plans}
-            brandName={settings.brandName}
-            currentPlanId={overview.plan_id}
-            disabledReason={payBlocked}
-            renewing
-          />
-        </Disclosure>
       </div>
     </>
   );
@@ -404,6 +518,43 @@ function Notice({ tone, children }: { tone: "warn" | "bad"; children: React.Reac
       <Icon size={16} className="mt-0.5 shrink-0" />
       <span>{children}</span>
     </p>
+  );
+}
+
+/**
+ * One half of the top-up / change-plan contrast, side by side so the
+ * distinction is read rather than remembered.
+ *
+ * Both buttons on this page open the same payment window and take the same
+ * money, and the only difference is what arrives afterwards - which is exactly
+ * the sort of difference a sentence buried in a panel description does not
+ * convey. Changing plan is the highlighted half because it is the one being
+ * offered here; topping up is on screen for comparison.
+ */
+function Difference({
+  icon,
+  title,
+  highlight = false,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  highlight?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cx(
+        "rounded-lg border px-3 py-2.5",
+        highlight ? "border-brand-500/40 bg-brand-500/8" : "border-line bg-raised/60",
+      )}
+    >
+      <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
+        <span className="shrink-0 text-brand-500">{icon}</span>
+        {title}
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-muted">{children}</p>
+    </div>
   );
 }
 

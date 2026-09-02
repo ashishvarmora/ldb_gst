@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  ArrowUp,
   Check,
   CheckCircle2,
   Info,
@@ -643,10 +644,44 @@ function Locked({ reason }: { reason: string }) {
 /* plans                                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A truck limit as a number that compares. -1 is stored for "no limit", and
+ * left as it is that sorts below every real limit - which would label the
+ * unlimited plan a downgrade from a five-truck one.
+ */
+function slots(truckLimit: number): number {
+  return truckLimit === -1 ? Number.POSITIVE_INFINITY : truckLimit;
+}
+
+/**
+ * What moving to this plan would do to the truck limit, or null when it would
+ * do nothing to it.
+ *
+ * This is the entire content of "is this an upgrade". A plan decides how many
+ * trucks may be watched at once; credits pay for the watching and are bought
+ * separately. So the truck limit is the only reason to change plan, and saying
+ * it on the card is what stops this grid reading as a second way to buy
+ * credits.
+ */
+function truckChange(plan: Plan, current: Plan): { better: boolean; text: string } | null {
+  const mine = slots(current.truck_limit);
+  const theirs = slots(plan.truck_limit);
+
+  if (theirs === mine) return null;
+  if (theirs === Number.POSITIVE_INFINITY) return { better: true, text: "No truck limit at all" };
+  if (mine === Number.POSITIVE_INFINITY) {
+    return { better: false, text: `Capped at ${theirs}, where you have no limit now` };
+  }
+  return theirs > mine
+    ? { better: true, text: `${theirs - mine} more trucks than your plan` }
+    : { better: false, text: `${mine - theirs} fewer trucks than your plan` };
+}
+
 export function BuyPlans({
   plans,
   brandName,
   currentPlanId,
+  currentPlan = null,
   disabledReason,
   /** True once a plan is running: the copy becomes about renewing, not starting. */
   renewing = false,
@@ -654,6 +689,16 @@ export function BuyPlans({
   plans: Plan[];
   brandName: string;
   currentPlanId: string | null;
+  /**
+   * The plan row the account is on, when it is still on sale. Only for working
+   * out which cards are a bigger truck limit than the one they already have -
+   * a grid that cannot tell an upgrade from a sideways move is the thing that
+   * made this read as a second copy of the plan chooser.
+   *
+   * Null when there is no plan, or when the one they are on has been archived
+   * and so is not in `plans`. Both fall back to the plain wording.
+   */
+  currentPlan?: Plan | null;
   disabledReason: string | null;
   renewing?: boolean;
 }) {
@@ -721,6 +766,9 @@ export function BuyPlans({
           // Nothing to charge for means no order to open, so say so on the card
           // rather than letting the click come back with a refusal.
           const buyable = plan.price_per_month > 0;
+          // Only worth saying against a plan they are not already on, and only
+          // when we know which one that is.
+          const change = !mine && currentPlan ? truckChange(plan, currentPlan) : null;
 
           return (
             <li
@@ -733,7 +781,14 @@ export function BuyPlans({
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-semibold text-strong">{plan.name}</p>
-                {mine ? <Badge tone="brand">Your plan</Badge> : null}
+                {mine ? (
+                  <Badge tone="brand">Your plan</Badge>
+                ) : change?.better ? (
+                  <Badge tone="good">
+                    <ArrowUp size={10} />
+                    Upgrade
+                  </Badge>
+                ) : null}
               </div>
 
               {plan.description ? (
@@ -764,6 +819,22 @@ export function BuyPlans({
                 </Feature>
                 <Feature icon={<Check size={13} />}>Top up credits any time</Feature>
               </ul>
+
+              {/* The one line that turns a price list into a decision: what
+                  this card would change about the account they already have.
+                  Deliberately tone-coded rather than worded as a warning - a
+                  smaller plan is a legitimate thing to want, it just must not
+                  be bought by accident. */}
+              {change ? (
+                <p
+                  className={cx(
+                    "mt-2 text-[11px] leading-relaxed",
+                    change.better ? "text-good-500" : "text-warn-500",
+                  )}
+                >
+                  {change.text}
+                </p>
+              ) : null}
 
               <button
                 type="button"
@@ -798,9 +869,11 @@ export function BuyPlans({
                       ? "Not available"
                       : mine
                         ? "Renew this plan"
-                        : renewing
-                          ? "Switch to this plan"
-                          : "Choose this plan"}
+                        : change?.better
+                          ? "Upgrade to this"
+                          : renewing
+                            ? "Switch to this plan"
+                            : "Choose this plan"}
               </button>
             </li>
           );

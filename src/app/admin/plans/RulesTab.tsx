@@ -1,24 +1,19 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, Plus, Settings } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 
 import { PackLadder } from "../credits/PackLadder";
 import { RateEditor } from "../credits/RateEditor";
 import { createCreditPack, saveCreditsPerRupee } from "../credits/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { Disclosure } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { EmptyState, LinkButton, Panel } from "@/components/ui";
-import {
-  describeOpenTier,
-  describeRate,
-  formatCredits,
-  loadCreditPacks,
-  loadCreditRates,
-} from "@/lib/credits";
+import { Badge, EmptyState, LinkButton, Panel } from "@/components/ui";
+import { formatCredits, loadCreditPacks, loadCreditRates } from "@/lib/credits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditPack } from "@/lib/types";
 
 /**
  * The rules, and nothing that has already happened.
@@ -27,6 +22,22 @@ import type { CreditPack } from "@/lib/types";
  * becomes credits at the ladder below, credits become work at the rates under
  * it. What was actually bought and spent lives in the History tab, so a price
  * can be changed without scrolling past a year of receipts.
+ *
+ * This screen used to open with three panels of explanation - a two-line
+ * summary of the whole model, a Step 1 / Step 2 diagram with a paragraph in
+ * each, a description under every section heading - so the first editable
+ * control was several screens down on a phone. None of it was wrong and none of
+ * it was needed twice. It is all still here, behind the (i) beside each heading
+ * and inside the folded panel below the ladder, one hover or one tap away. The
+ * page itself now shows the current prices and the boxes that change them.
+ *
+ * The order is also a claim about the model, and the old order made the wrong
+ * one. "The base rate" sat first, under its own heading, which read as though
+ * Rs 1 = 1 credit were the rule the product runs on. It is not: a fixed pack
+ * states its own credits and credits_for_amount() returns them without ever
+ * looking at the rate. The ladder is what money buys, so the ladder comes
+ * first, and the rate is a field below it that says whether anything is
+ * currently using it.
  */
 export async function RulesTab() {
   const admin = getSupabaseAdmin();
@@ -38,19 +49,18 @@ export async function RulesTab() {
     loadSettings(admin),
   ]);
 
-  // The rung a customer starts on - the cheapest fixed pack, by price rather
-  // than by sort order, because an admin can order the ladder however they like
-  // and the entry rung is still whichever costs least.
-  const entryPack = packs
-    .filter((pack) => pack.is_active && !pack.is_open_ended)
-    .reduce<CreditPack | undefined>(
-      (lowest, pack) => (!lowest || pack.price_inr < lowest.price_inr ? pack : lowest),
-      undefined,
-    );
-
-  // The rule the ladder ends in, if there is one. Only the first is described:
-  // two open tiers would be two answers to the same question.
-  const openTier = packs.find((pack) => pack.is_active && pack.is_open_ended);
+  /*
+   * The only packs the base rate reaches. credits_for_amount() reads the rate
+   * inside its open-ended branch alone, and looks up the pack with
+   * `where id = p_pack and is_active` - so an open tier that is switched off is
+   * not using the rate either, and with none on sale the field below changes
+   * nothing a customer can buy. Worth saying outright rather than leaving an
+   * admin to wonder why editing it moves no price on screen.
+   */
+  const openTiers = packs.filter((pack) => pack.is_active && pack.is_open_ended);
+  const rateInUse = openTiers.length > 0;
+  const perRupee = formatCredits(settings.creditsPerRupee);
+  const plural = settings.creditsPerRupee === 1 ? "" : "s";
 
   return (
     <>
@@ -61,69 +71,62 @@ export async function RulesTab() {
         </LinkButton>
       </div>
 
-      <Panel
-        className="mb-6"
-        title="The whole of it, in two lines"
-        description="Read this once and every number on this tab makes sense."
-      >
-        <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
-          <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Step 1</p>
-            <p className="mt-1 text-sm font-medium text-ink">Rupees buy credits</p>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted">
-              A fixed pack is one sentence: this much money buys this many credits. An open tier is a
-              rule instead — a minimum, and a percentage of whatever the buyer types — so the ladder
-              does not end in a wall.
-            </p>
-            {entryPack ? (
-              <p className="mt-2 text-xs text-brand-500">
-                Right now: Rs {entryPack.price_inr.toLocaleString("en-IN")} buys{" "}
-                {formatCredits(entryPack.credits)} credits.
-              </p>
-            ) : null}
-            {openTier ? (
-              <p className="mt-1 text-xs text-brand-500">
-                Above that: Rs {openTier.price_inr.toLocaleString("en-IN")} or more, at{" "}
-                {describeOpenTier(openTier, settings.creditsPerRupee)}.
-              </p>
-            ) : null}
-          </div>
-
-          <span className="flex items-center justify-center text-faint">
-            <ArrowRight size={18} className="rotate-90 lg:rotate-0" />
-          </span>
-
-          <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Step 2</p>
-            <p className="mt-1 text-sm font-medium text-ink">Credits buy work</p>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted">
-              Each action has a rate you can write either way round — one credit buys so many
-              searches, or so many credits buy one search. Nothing is capped: a customer works until
-              the balance runs out.
-            </p>
-            {rates.length > 0 ? (
-              <p className="mt-2 text-xs text-brand-500">
-                Right now:{" "}
-                {rates
-                  .map((rate) => `${rate.label.toLowerCase()}, ${describeRate(rate)}`)
-                  .join(" · ")}
-                .
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </Panel>
+      {/* A state, not an explanation, so it stays on screen: every price below
+          is unbuyable while this is true, and that is not something to fold
+          away behind an (i). */}
+      {settings.razorpayEnabled ? null : (
+        <p className="mb-4 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
+          <span className="text-warn-500">Online payment is off.</span> These prices are still the
+          list you charge against, but nothing can be bought in the app — credits arrive only when
+          you add them on a customer&apos;s page. Turn it on in{" "}
+          <Link href="/admin/settings" className="text-brand-400 hover:underline">
+            settings
+          </Link>
+          .
+        </p>
+      )}
 
       <FlowSection
         step="1"
         title="Money → credits"
-        description="What a rupee buys. A fixed pack is bought whole; an open tier takes whatever amount the customer types, from its minimum up."
         action={<NewPackButton />}
+        info={
+          <>
+            <p>
+              A fixed pack is one sentence: this much money buys this many credits. It states its own
+              credits and nothing else changes them — not the base rate, not a discount code.
+            </p>
+            <p>
+              An open tier is a rule instead — a minimum, and a percentage of whatever the buyer
+              types — so the ladder does not end in a wall. That is the only kind of pack the base
+              rate below applies to.
+            </p>
+          </>
+        }
       >
-        <Panel
-          className="mb-3"
-          title="The base rate"
-          description="What one rupee buys on a tier of 100%. Fixed packs state their own credits and ignore it; an open tier is built entirely on it."
+        {packs.length === 0 ? (
+          <Panel>
+            <EmptyState
+              title="No credit packs yet"
+              description="Without a pack there is nothing to top up with, so credits can only be added by hand on a customer's page."
+              action={<NewPackButton />}
+            />
+          </Panel>
+        ) : (
+          <PackLadder packs={packs} creditsPerRupee={settings.creditsPerRupee} />
+        )}
+
+        <Disclosure
+          className="mt-3"
+          title="Base rate for open tiers"
+          badge={rateInUse ? null : <Badge tone="neutral">not in use</Badge>}
+          hint={
+            rateInUse
+              ? `Rs 1 = ${perRupee} credit${plural} at 100% · used by ${openTiers
+                  .map((tier) => tier.name)
+                  .join(", ")}`
+              : `Rs 1 = ${perRupee} credit${plural} at 100% — but no open tier is on sale, so nothing uses it.`
+          }
         >
           <ActionForm action={saveCreditsPerRupee} closeOnSuccess={false}>
             <div className="flex flex-wrap items-end gap-3">
@@ -142,44 +145,38 @@ export async function RulesTab() {
               </Field>
               <SubmitButton size="sm">Save rate</SubmitButton>
             </div>
-            <p className="mt-2 text-xs text-muted">
-              Rs 1 = {formatCredits(settings.creditsPerRupee)} credit
-              {settings.creditsPerRupee === 1 ? "" : "s"} at 100%, so Rs 1,000 would buy{" "}
+
+            <p className="mt-2 text-xs leading-relaxed text-muted">
+              Rs 1 = {perRupee} credit{plural} at 100%, so Rs 1,000 would buy{" "}
               {formatCredits(1000 * settings.creditsPerRupee)} credits on a tier of 100%. Each open
-              tier below shows what it comes to once its own percentage is applied.
+              tier applies its own percentage on top of that, and the ladder above shows what each
+              one comes to.
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted">
+              {rateInUse
+                ? "Fixed packs are not affected: each states its own credits and never reads this."
+                : "Nothing on sale reads this at the moment. Fixed packs state their own credits, and an open tier has to be switched on before the rate reaches a customer."}
             </p>
           </ActionForm>
-        </Panel>
-
-        {packs.length === 0 ? (
-          <Panel>
-            <EmptyState
-              title="No credit packs yet"
-              description="Without a pack there is nothing to top up with, so credits can only be added by hand on a customer's page."
-              action={<NewPackButton />}
-            />
-          </Panel>
-        ) : (
-          <PackLadder packs={packs} creditsPerRupee={settings.creditsPerRupee} />
-        )}
-
-        {settings.razorpayEnabled ? null : (
-          <p className="mt-3 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
-            <span className="text-warn-500">Online payment is switched off.</span> These packs are
-            still the price list you charge against, but nothing can be bought in the app — credits
-            arrive only when you add them on a customer&apos;s page. Turn it on in{" "}
-            <Link href="/admin/settings" className="text-brand-400 hover:underline">
-              settings
-            </Link>
-            .
-          </p>
-        )}
+        </Disclosure>
       </FlowSection>
 
       <FlowSection
         step="2"
         title="Credits → usage"
-        description="What each chargeable action draws from the balance. Set it from either end, and the worked example shows what it costs in a normal day. Changes apply from the next call onwards."
+        info={
+          <>
+            <p>
+              Each action has a rate you can write either way round — one credit buys so many
+              searches, or so many credits buy one search — and the worked example under each shows
+              what that comes to in a normal day.
+            </p>
+            <p>
+              Nothing is capped: a customer works until the balance runs out. A change applies from
+              the next call onwards and never reprices anything already charged.
+            </p>
+          </>
+        }
       >
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {rates.length === 0 ? (
@@ -275,32 +272,38 @@ function NewPackButton() {
  * A numbered band around one half of the flow. The two editors do different
  * things to different numbers, and putting them in plain panels side by side is
  * how an admin ends up editing the rate when they meant the price.
+ *
+ * The paragraph that used to sit under each heading is now the `info` behind the
+ * (i) on it. The number and the title are enough to orient somebody who has
+ * been here before, which is almost everybody; the explanation is for the first
+ * visit and for the one time a year somebody has to re-derive the model.
  */
 function FlowSection({
   step,
   title,
-  description,
+  info,
   action,
   children,
 }: {
   step: string;
   title: string;
-  description: string;
+  info: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="mb-6">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        {/* min-w-0 flex-1 so the explanation opens to the full width of the
+            row rather than to the width of the heading it hangs off. */}
+        <InfoTip label={title} info={info} className="min-w-0 flex-1">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-strong">
             <span className="inline-flex size-5 items-center justify-center rounded-full border border-brand-500/40 bg-brand-500/12 text-[11px] font-semibold text-brand-400">
               {step}
             </span>
             {title}
           </h2>
-          <p className="mt-1 max-w-2xl text-xs text-muted">{description}</p>
-        </div>
+        </InfoTip>
         {action}
       </div>
       {children}

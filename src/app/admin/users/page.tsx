@@ -12,15 +12,16 @@ import {
 
 import { balanceTone } from "../tables";
 import {
-  ChartTable,
+  DataTable,
   MetricCard,
   ShareBreakdown,
-  StackedBars,
-  type Series,
+  sortRows,
+  type Column,
   type Slice,
 } from "@/components/charts";
 import { DateRangeBar } from "@/components/DateRangeBar";
 import { FilterSubmitButton } from "@/components/NavPending";
+import { bucketRange, parseSort, queryString, sortHrefFor } from "@/components/report";
 import { Input, Select } from "@/components/form";
 import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
@@ -92,6 +93,14 @@ const SORTS = {
 
 type SortKey = keyof typeof SORTS;
 
+/** One period of the sign-up report. */
+type SignupPeriod = {
+  bucket: string;
+  signups: number;
+  referred: number;
+  converted: number;
+};
+
 function isSort(value: string | undefined): value is SortKey {
   return value !== undefined && value in SORTS;
 }
@@ -104,6 +113,9 @@ type UsersParams = {
   stage?: string;
   q?: string;
   sort?: string;
+  /* The period table's own sort, kept apart from the accounts table's. */
+  psort?: string;
+  pdir?: string;
   page?: string;
 };
 
@@ -142,21 +154,125 @@ export default async function UsersPage({
     (account) => account.credits_spent > 0 || account.payments > 0,
   ).length;
 
-  const signupSeries: Series[] = [
+  /*
+   * Sign-ups per period as ROWS, not as a picture.
+   *
+   * This was a stacked bar chart with the numbers folded away underneath it,
+   * and at a one-day range it drew a single full-width bar that read as a flat
+   * line - a chart that is at its least readable exactly when the range is at
+   * its most specific. The questions actually being asked of this panel are
+   * "which month did we grow", "how many of March's sign-ups ever paid" and
+   * "who were they", and none of them is a question a bar answers: the first
+   * needs an orderable column, the second needs a rate beside the count, the
+   * third needs the row to be a link.
+   *
+   * fillBuckets rather than the raw rows, so a period with no sign-ups is a
+   * zero row instead of a gap - a missing week reads as "we did not grow" only
+   * if it is visibly there.
+   */
+  const signupPeriods: SignupPeriod[] = fillBuckets(signups, range, (row) => row.signups).map(
+    (point) => {
+      const row = signups.find((candidate) => candidate.bucket === point.bucket);
+      return {
+        bucket: point.bucket,
+        signups: point.value,
+        referred: Number(row?.referred ?? 0),
+        converted: Number(row?.converted ?? 0),
+      };
+    },
+  );
+
+  /*
+   * The period table's own sort, under psort/pdir.
+   *
+   * There are two sortable tables on this page and the accounts table below
+   * already owns `sort` - with its own vocabulary of values ("value", "quiet")
+   * that means nothing to a column called "Registered". Sharing one parameter
+   * would make sorting either table scramble the other, so this one carries
+   * its own pair and the shared helper is told to write them.
+   */
+  const periodSort = parseSort({ sort: params.psort, dir: params.pdir }, {
+    key: "bucket",
+    desc: true,
+  });
+  const PERIOD_SORT_KEYS = { sort: "psort", dir: "pdir" } as const;
+
+  const signupColumns: Column<SignupPeriod>[] = [
     {
-      key: "direct",
-      label: "Found us directly",
-      values: fillBuckets(signups, range, (row) => row.signups - row.referred).map((p) => p.value),
+      key: "bucket",
+      label: "Period",
+      cell: (row) => bucketLabel(row.bucket, range.bucket),
+      sortBy: (row) => row.bucket,
+      className: "whitespace-nowrap",
+      /*
+       * The drill-through the chart could not have. A period cell narrows this
+       * very page to the accounts that registered in it, which is the "who were
+       * the eleven people who signed up in March" question.
+       *
+       * bucketRange is what makes a weekly or monthly row work: a bucket is
+       * stored as the date it STARTS on, so passing it as both ends of a custom
+       * range would answer for one day and look like the rest of the month had
+       * vanished.
+       */
+      href: (row) => {
+        const { from, to } = bucketRange(row.bucket, range.bucket);
+        return `/admin/users?${queryString({ range: "custom", from, to, bucket: range.bucket, sort: "recent" })}`;
+      },
+      total: (rows) => `${fmtNumber(rows.length)} ${range.bucket}s`,
+    },
+    {
+      key: "signups",
+      label: "Registered",
+      align: "right",
+      cell: (row) => fmtNumber(row.signups),
+      sortBy: (row) => row.signups,
+      total: (rows) => fmtNumber(sumBy(rows, (row) => row.signups)),
     },
     {
       key: "referred",
-      label: "Invited by someone",
-      values: fillBuckets(signups, range, (row) => row.referred).map((p) => p.value),
+      label: "Invited",
+      align: "right",
+      cell: (row) => (row.referred > 0 ? fmtNumber(row.referred) : "—"),
+      sortBy: (row) => row.referred,
+      total: (rows) => fmtNumber(sumBy(rows, (row) => row.referred)),
+    },
+    {
+      key: "direct",
+      label: "Found us",
+      align: "right",
+      cell: (row) => fmtNumber(row.signups - row.referred),
+      sortBy: (row) => row.signups - row.referred,
+      total: (rows) => fmtNumber(sumBy(rows, (row) => row.signups - row.referred)),
+    },
+    {
+      key: "converted",
+      label: "Have paid",
+      align: "right",
+      cell: (row) => (row.converted > 0 ? fmtNumber(row.converted) : "—"),
+      sortBy: (row) => row.converted,
+      total: (rows) => fmtNumber(sumBy(rows, (row) => row.converted)),
+    },
+    {
+      /*
+       * The measure worth sorting by, and the one a chart of counts hides
+       * completely: a month with four sign-ups where three paid is a better
+       * month than one with forty where two did. Sorted on the rate rather
+       * than on the string, so "—" does not sort between 9% and 10%.
+       */
+      key: "rate",
+      label: "Converted",
+      align: "right",
+      cell: (row) =>
+        row.signups > 0 ? `${Math.round((row.converted / row.signups) * 100)}%` : "—",
+      sortBy: (row) => (row.signups > 0 ? row.converted / row.signups : -1),
+      total: (rows) => {
+        const registered = sumBy(rows, (row) => row.signups);
+        return registered > 0
+          ? `${Math.round((sumBy(rows, (row) => row.converted) / registered) * 100)}%`
+          : "—";
+      },
     },
   ];
-  const signupBuckets = fillBuckets(signups, range, (row) => row.signups).map((p) =>
-    bucketLabel(p.bucket, range.bucket),
-  );
 
   const stageSlices: Slice[] = LIFECYCLE_STAGES.map((item) => ({
     key: item.key,
@@ -245,18 +361,32 @@ export default async function UsersPage({
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+        <div className="xl:col-span-2" id="signups">
           <Panel
             title={`Sign-ups, by ${range.bucket}`}
-            description="Split by whether somebody invited them. Hover a bar for the split."
+            description="Every column sorts. A period opens the accounts that registered in it."
+            bodyClassName="p-0"
           >
-            <StackedBars
-              buckets={signupBuckets}
-              series={signupSeries}
+            <DataTable
+              rows={sortRows(signupPeriods, signupColumns, periodSort)}
+              columns={signupColumns}
+              sort={periodSort}
+              /* The range and the accounts table's own filters ride along, so
+                 sorting the periods does not silently widen the page under it.
+                 The anchor brings the reader back to the table they clicked -
+                 without it a sort on a long page lands them at the top. */
+              sortHref={sortHrefFor(
+                "/admin/users",
+                { ...rangeParams(range), stage, q: params.q, sort: params.sort },
+                periodSort,
+                { keys: PERIOD_SORT_KEYS, hash: "signups" },
+              )}
+              rowKey={(row) => row.bucket}
+              totalsOver={signupPeriods}
+              totalsLabel="In range"
               emptyLabel="Nobody registered in this range"
             />
-            <ChartTable buckets={signupBuckets} series={signupSeries} />
-            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-divider pt-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 border-t border-divider px-5 py-4 sm:grid-cols-4">
               <Figure label="Registered" value={fmtNumber(newAccounts)} />
               <Figure
                 label="Have since paid"

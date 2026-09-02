@@ -37,12 +37,15 @@ export default function ActivityLoading() {
           <Skeleton className="mt-2 h-2.5 w-64 max-w-full" />
         </div>
 
-        {/* The two control rows: group-by chips, then the filter pills. */}
+        {/* The two control rows: the group-by chips with the sort button at the
+            far end, then the filter pills. The sort block is square-cornered and
+            36px like the real one, because a round 32px placeholder there would
+            visibly change shape and shift the row when the ledger lands. */}
         <div className="space-y-2 border-b border-divider px-4 py-3">
-          <div className="flex gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Skeleton className="h-8 w-16 rounded-full" />
             <Skeleton className="h-8 w-16 rounded-full" />
-            <Skeleton className="h-8 w-40 max-w-full rounded-full" />
+            <Skeleton className="ml-auto h-9 w-24 rounded-lg" />
           </div>
           <div className="flex gap-1.5">
             <Skeleton className="h-9 w-28 shrink-0 rounded-full" />

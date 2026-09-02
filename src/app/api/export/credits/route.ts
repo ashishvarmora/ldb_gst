@@ -108,7 +108,20 @@ export async function GET(request: NextRequest) {
   const from = parseDate(params.get("from"));
   const to = parseDate(params.get("to"));
   const kind = params.get("kind");
-  const reason = params.get("reason");
+  /*
+   * A list, not a value.
+   *
+   * The ledger screen lets a reader pick several reasons at once - "given by an
+   * admin" is two of them and "free" is four - so the parameter carries a comma
+   * list. Read with .eq() this asked for a single reason literally named
+   * "manual_search,auto_check", matched nothing, and downloaded an EMPTY
+   * spreadsheet: the worst possible failure for an export, because a file that
+   * arrives looks like it worked.
+   */
+  const reasons = (params.get("reason") ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
   const truck = params.get("truck");
 
   let query = getSupabaseAdmin()
@@ -120,7 +133,8 @@ export async function GET(request: NextRequest) {
   if (userId) query = query.eq("user_id", userId);
   if (from) query = query.gte("created_at", istStart(from));
   if (to) query = query.lt("created_at", new Date(Date.parse(istStart(to)) + 86_400_000).toISOString());
-  if (reason) query = query.eq("reason", reason);
+  if (reasons.length === 1) query = query.eq("reason", reasons[0]);
+  else if (reasons.length > 1) query = query.in("reason", reasons);
   if (truck) query = query.eq("truck_number", truck);
   if (kind === "used") query = query.lt("delta", 0);
   if (kind === "added") query = query.gt("delta", 0);

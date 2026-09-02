@@ -471,6 +471,133 @@ export async function loadFunnel(admin: Admin): Promise<Funnel> {
 }
 
 /* -------------------------------------------------------------------------- */
+/* The pivot                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The dimensions the ledger can be sliced by.
+ *
+ * Every Analyse screen used to have its own grouping baked into its own
+ * database function, so the console could only answer the questions somebody
+ * had already written SQL for - "what did this account spend per truck last
+ * week" had no answer at all. One function takes these instead, and the screen
+ * says which it wants.
+ */
+export const PIVOT_DIMENSIONS = [
+  { key: "bucket", label: "Period", hint: "By day, week or month" },
+  { key: "account", label: "Customer", hint: "One row per account" },
+  { key: "truck", label: "Truck", hint: "Which lorry the charge was against" },
+  { key: "reason", label: "Action", hint: "Manual search, automatic check, top-up, bonus" },
+  { key: "source", label: "Source", hint: "Bought, added by an admin, or given free" },
+] as const;
+
+export type PivotDimension = (typeof PIVOT_DIMENSIONS)[number]["key"];
+
+export function isPivotDimension(value: string): value is PivotDimension {
+  return PIVOT_DIMENSIONS.some((d) => d.key === value);
+}
+
+/** Which half of the ledger. Spending is a sign test, not a named source. */
+export type LedgerKind = "all" | "spend" | "grant";
+
+/**
+ * One grouped row. Every dimension the caller did not ask for comes back null,
+ * so a row's shape tells you what it is a total OF.
+ */
+export type PivotRow = {
+  bucket: string | null;
+  user_id: string | null;
+  account: string | null;
+  truck_number: string | null;
+  reason: string | null;
+  source: string | null;
+  entries: number;
+  /** Signed: negative for spending, positive for credits added. */
+  credits: number;
+  accounts: number;
+  trucks: number;
+  first_at: string | null;
+  last_at: string | null;
+};
+
+export type PivotQuery = {
+  from: string;
+  to: string;
+  dims: PivotDimension[];
+  bucket?: Bucket;
+  kind?: LedgerKind;
+  users?: string[];
+  trucks?: string[];
+  reasons?: string[];
+  sources?: string[];
+};
+
+/**
+ * Read the ledger, grouped however the screen asked.
+ *
+ * Passing no dimensions is the totals row - one line for the whole window -
+ * which is how a screen gets a figure that is guaranteed to agree with the
+ * table under it, because both came out of the same function.
+ */
+export function loadPivot(admin: Admin, query: PivotQuery) {
+  return callRpc<PivotRow>(admin, "admin_credit_pivot", {
+    p_from: query.from,
+    p_to: query.to,
+    p_dims: query.dims,
+    p_bucket: query.bucket ?? "day",
+    p_kind: query.kind ?? "all",
+    p_users: query.users?.length ? query.users : null,
+    p_trucks: query.trucks?.length ? query.trucks : null,
+    p_reasons: query.reasons?.length ? query.reasons : null,
+    p_sources: query.sources?.length ? query.sources : null,
+  });
+}
+
+export type Facet = { label: string; entries: number };
+export type AccountFacet = { id: string; label: string; entries: number };
+export type Facets = {
+  accounts: AccountFacet[];
+  trucks: Facet[];
+  reasons: Facet[];
+  sources: Facet[];
+};
+
+const EMPTY_FACETS: Facets = { accounts: [], trucks: [], reasons: [], sources: [] };
+
+/**
+ * What a filter control can offer.
+ *
+ * Built from the whole window rather than from the rows on screen: a dropdown
+ * assembled from what is already visible can only ever narrow to something the
+ * reader can already see, which is not narrowing.
+ */
+export async function loadFacets(
+  admin: Admin,
+  range: { from: string; to: string },
+  kind: LedgerKind = "all",
+): Promise<Facets> {
+  const { data, error } = await admin.rpc("admin_credit_facets", {
+    p_from: range.from,
+    p_to: range.to,
+    p_kind: kind,
+  });
+  if (error) {
+    console.error("analytics: admin_credit_facets failed", error.message);
+    return EMPTY_FACETS;
+  }
+  return { ...EMPTY_FACETS, ...((data ?? {}) as Partial<Facets>) };
+}
+
+/** The one total a screen should quote, read from the same function as its table. */
+export async function loadPivotTotals(
+  admin: Admin,
+  query: Omit<PivotQuery, "dims">,
+): Promise<PivotRow | null> {
+  const rows = await loadPivot(admin, { ...query, dims: [] });
+  return rows[0] ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Folding series into what a screen draws                                     */
 /* -------------------------------------------------------------------------- */
 

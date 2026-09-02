@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
+  ArrowDown,
   ArrowDownUp,
   ArrowDownWideNarrow,
+  ArrowUp,
   CalendarRange,
   Check,
   ChevronDown,
@@ -12,11 +14,13 @@ import {
   Plus,
   Tag,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import { FilterSubmitButton } from "@/components/NavPending";
 import { FilterPill } from "@/components/FilterPill";
 import { EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
+import { CREDIT_SOURCES } from "@/lib/analytics";
 import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
 import { fmtDateTime, istDaysAgo, istMonthStart, istToday } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -38,7 +42,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * me this month", account alone ranks customers, and turning them all off
  * leaves the raw ledger. One control, and the combinations come free.
  *
- * THE FILTER BAR IS TWO ROWS: the group-by toggles, then one row of pills.
+ * THE FILTER BAR IS TWO ROWS: what arranges the rows, then what narrows them.
  *
  * It used to be five rows - group-by, a date range in three rows of its own, and
  * a "More filters" fold that opened three more rows of chips - which on a 390px
@@ -52,6 +56,28 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * never be quietly in force - which on a page people reconcile a bill on is the
  * whole point. The date range gets presets, so the common windows are one tap
  * and the two date boxes only appear for a range that is genuinely custom.
+ *
+ * SORTING IS NOT FILTERING, and the two rows say which is which. Order was a
+ * pill in the filter row, which claimed to narrow a list it only rearranges -
+ * and it went brand off its default, so "Biggest first" wore the colour this
+ * screen uses to mean "something is being hidden from you". It is a sort button
+ * now, square-cornered and always neutral, on the row with the grouping
+ * toggles: both of those arrange rows, and everything on the second row removes
+ * them.
+ *
+ * A REASON THAT CANNOT HAPPEN IS NOT OFFERED. The Reason options are whatever
+ * the current Show can actually produce - spending reasons under "Credits
+ * used", granting ones under "Credits added" - because the pills used to let
+ * somebody ask for credits added by a manual search, which is a combination no
+ * ledger can ever answer, and the screen replied with an empty list as though
+ * the charges were missing. Changing Show rewrites the reason parameter in the
+ * same link, so a reason that has just become impossible is gone before the
+ * next render rather than after it.
+ *
+ * Reasons are a SET, not a choice: the URL carries a list, the query uses
+ * .in(), and the source buckets - bought, given by an admin, free - are rows
+ * that turn their own reasons on together. Everything can be turned off again
+ * from inside its own sheet, and nothing selected means nothing filtered.
  *
  * State lives in the URL, and the only client state in the whole screen is
  * whether a pill's sheet is open. Every view is linkable, the back button steps
@@ -75,6 +101,11 @@ export type LedgerQuery = {
    */
   view?: string;
   kind?: string;
+  /**
+   * One reason, or several separated by commas. A list rather than a single
+   * value so a bucket - "given by an admin" is two reasons, "free" is four -
+   * is one tap instead of a filter the reader cannot express at all.
+   */
   reason?: string;
   /** A filter on one truck, which is a different thing from grouping by truck. */
   truck?: string;
@@ -91,17 +122,60 @@ const DIMENSIONS: { key: LedgerDimension; label: string; adminOnly?: boolean }[]
   { key: "user", label: "Account", adminOnly: true },
 ];
 
-const SORT_LABEL: Record<LedgerSort, string> = {
-  newest: "Newest first",
-  oldest: "Oldest first",
-  largest: "Biggest first",
-};
+/**
+ * The orders, each with the arrow that shows which way it runs.
+ *
+ * Two labels because the control has two jobs. The sheet spells the order out -
+ * "Newest first" is the sentence somebody is choosing - and the button carries
+ * only the word that changes, because the button sits on a row that has to fit
+ * a phone alongside the grouping toggles.
+ */
+const SORT_OPTIONS = [
+  { key: "newest", label: "Newest first", short: "Newest", icon: ArrowDown },
+  { key: "oldest", label: "Oldest first", short: "Oldest", icon: ArrowUp },
+  { key: "largest", label: "Biggest first", short: "Biggest", icon: ArrowDownWideNarrow },
+] as const satisfies readonly {
+  key: LedgerSort;
+  label: string;
+  short: string;
+  icon: LucideIcon;
+}[];
 
 const KIND_LABEL: Record<LedgerKind, string> = {
   all: "Everything",
   used: "Credits used",
   added: "Credits added",
 };
+
+/**
+ * The buckets a reason can fall into, in the order they are offered.
+ *
+ * These are credit_source()'s own buckets - see 0022_credit_sources_and_bonus
+ * _coupons.sql - and credit_ledger_daily carries the answer in a column, so
+ * this screen never has to re-derive which bucket a row belongs to. Which
+ * matters most for plan_grant, the one reason that is 'paid' when a payment
+ * caused it and 'admin' when somebody assigned the plan by hand: guessing from
+ * the reason alone would file half of them under the wrong heading.
+ *
+ * 'spend' is in the list because negative rows carry it, even though it is not
+ * a source of credits at all.
+ */
+const BUCKETS = ["spend", "paid", "admin", "free", "other"] as const;
+
+type ReasonBucket = (typeof BUCKETS)[number];
+
+/** A bucket of reasons, as one heading in the Reason sheet. */
+type ReasonGroup = { bucket: ReasonBucket; label: string; reasons: string[] };
+
+/**
+ * How a bucket reads. Borrowed from CREDIT_SOURCES so the customer's ledger and
+ * the console's own breakdown of where credits came from cannot call one bucket
+ * two things; 'spend' has no entry there, because spending is not a source.
+ */
+function bucketLabel(bucket: ReasonBucket): string {
+  if (bucket === "spend") return "Spent";
+  return CREDIT_SOURCES.find((source) => source.key === bucket)?.label ?? "Unclassified";
+}
 
 /**
  * How far back an unbounded view reaches. A date range overrides it. Without
@@ -130,6 +204,94 @@ function parseSort(raw: string | undefined): LedgerSort {
 
 function parseKind(raw: string | undefined): LedgerKind {
   return raw === "used" || raw === "added" ? raw : "all";
+}
+
+/**
+ * The reasons this ledger can show under the current Show, grouped by bucket.
+ *
+ * Built from the (reason, source) pairs the ledger actually holds rather than
+ * from a list written here, for two reasons. A reason nobody has ever been
+ * charged under is an option that only ever returns nothing. And what counts as
+ * SPENDING is a fact about the rows, not about the reason: admin_adjust is a
+ * granting reason until an administrator takes credits back with it, and then
+ * the same reason has spent some - so a hard-coded list of "the two spending
+ * reasons" would hide those rows from "Credits used" for ever.
+ *
+ * A reason that has both granted and spent is listed under what it granted,
+ * unless only spending is on screen. Listing it twice would put two rows in one
+ * sheet that filter on exactly the same column value.
+ */
+function reasonGroups(
+  pairs: { reason: string; source: string }[],
+  kind: LedgerKind,
+): ReasonGroup[] {
+  const seen = new Map<string, Set<string>>();
+  for (const { reason, source } of pairs) {
+    const sources = seen.get(reason) ?? new Set<string>();
+    // An unrecognised bucket is called out rather than quietly dropped, the
+    // same way credit_source() refuses to count an unknown reason as free.
+    sources.add((BUCKETS as readonly string[]).includes(source) ? source : "other");
+    seen.set(reason, sources);
+  }
+
+  const grouped = new Map<ReasonBucket, string[]>();
+  for (const [reason, sources] of seen) {
+    const granted = BUCKETS.filter((bucket) => bucket !== "spend" && sources.has(bucket));
+    if (kind === "used" && !sources.has("spend")) continue;
+    if (kind === "added" && granted.length === 0) continue;
+
+    const bucket: ReasonBucket = kind === "used" ? "spend" : (granted[0] ?? "spend");
+    grouped.set(bucket, [...(grouped.get(bucket) ?? []), reason]);
+  }
+
+  return BUCKETS.filter((bucket) => grouped.has(bucket)).map((bucket) => ({
+    bucket,
+    label: bucketLabel(bucket),
+    reasons: (grouped.get(bucket) ?? []).sort((a, b) =>
+      reasonLabel(a).localeCompare(reasonLabel(b)),
+    ),
+  }));
+}
+
+/**
+ * The reasons in force.
+ *
+ * Filtered against what the current Show can produce, which is what stops an
+ * impossible combination surviving in a link. Somebody who narrows to a manual
+ * search, switches to "Credits added" and bookmarks the result gets a URL whose
+ * reason cannot match a single row; read through this, that reason is simply
+ * dropped and the ledger answers the question that is left.
+ *
+ * Sorted, so the two routes to one selection - tapping a bucket, or tapping its
+ * reasons one at a time - produce the same URL and the same cache entry.
+ */
+function parseReasons(raw: string | undefined, possible: Set<string>): string[] {
+  if (!raw) return [];
+  const asked = new Set(raw.split(",").map((part) => part.trim()));
+  return [...possible].filter((reason) => asked.has(reason)).sort();
+}
+
+/** A reason selection as the URL carries it. Nothing selected is no parameter. */
+function reasonParam(reasons: string[]): string | undefined {
+  return reasons.length > 0 ? reasons.join(",") : undefined;
+}
+
+/**
+ * One reason or a whole bucket, turned on or off.
+ *
+ * A bucket already fully selected turns all of its reasons off, which is how
+ * "given by an admin" gets a way back out that is not the row's Clear - the
+ * thing the owner asked for when they said every option must select and
+ * deselect.
+ */
+function toggleReasons(selected: string[], values: string[]): string[] {
+  const next = new Set(selected);
+  const allOn = values.every((value) => next.has(value));
+  for (const value of values) {
+    if (allOn) next.delete(value);
+    else next.add(value);
+  }
+  return [...next].sort();
 }
 
 /**
@@ -244,7 +406,8 @@ type LedgerFilters = {
   since: string;
   until: string | null;
   kind: LedgerKind;
-  reason?: string;
+  /** Empty means every reason, which is not the same as one reason called "". */
+  reasons: string[];
   truck?: string;
 };
 
@@ -358,28 +521,64 @@ export async function CreditLedger({
     }
   }
 
-  /* Which reasons this ledger actually contains, so the filter offers what is
-     there rather than a fixed list of mostly-empty options. */
-  let reasonQuery = admin.from("credit_ledger_daily").select("reason").gte("last_at", since);
+  /* Which reasons this ledger actually contains and which bucket each of them
+     has turned up in, so the filter offers what is there rather than a fixed
+     list of mostly-empty options. The source column is credit_source() itself,
+     so a plan grant an admin made and one a payment made land in the buckets
+     the console would put them in too. */
+  let reasonQuery = admin.from("credit_ledger_daily").select("reason,source").gte("last_at", since);
   if (userId) reasonQuery = reasonQuery.eq("user_id", userId);
   const { data: reasonRows } = await reasonQuery;
-  const reasons = [
-    ...new Set(((reasonRows ?? []) as { reason: string }[]).map((r) => r.reason)),
-  ].sort((a, b) => reasonLabel(a).localeCompare(reasonLabel(b)));
+  const reasonPairs = (reasonRows ?? []) as { reason: string; source: string }[];
+
+  const groups = reasonGroups(reasonPairs, kind);
+  const possible = new Set(groups.flatMap((group) => group.reasons));
+  const reasons = parseReasons(query.reason, possible);
+
+  /*
+   * What a reason selection becomes under a different Show, computed for the
+   * link rather than after following it.
+   *
+   * Switching to "Credits added" with a manual search selected has to arrive
+   * already free of it. Left to a redirect, or to the parse on the next render,
+   * the reader would first be shown an empty ledger under a filter they did not
+   * choose and could not see - and this is the screen where an empty list reads
+   * as "you were never charged for that".
+   */
+  const reasonsUnder = (next: LedgerKind): string | undefined => {
+    const survives = new Set(reasonGroups(reasonPairs, next).flatMap((group) => group.reasons));
+    return reasonParam(reasons.filter((reason) => survives.has(reason)));
+  };
 
   const filters: LedgerFilters = {
     userId,
     since,
     until,
     kind,
-    reason: query.reason,
+    reasons,
     truck: query.truck,
   };
 
-  /* The export is this view, as a file. Same query string, different path, so
-     what downloads is exactly what is on screen rather than a second reading
-     of the filters. */
-  const csvHref = href("/api/export/credits", query, {}, userId ? { user: userId } : {});
+  /*
+   * The export is this view, as a file. Same query string, different path, so
+   * what downloads is exactly what is on screen rather than a second reading of
+   * the filters. The route reads the reason list the way this screen does - one
+   * value compared with =, several with in() - so a whole bucket downloads as
+   * the bucket.
+   *
+   * The list is re-serialised from the PARSED reasons rather than passed
+   * straight off the query string, because those are not always the same set.
+   * A link carrying kind=added&reason=manual_search is a filter this screen
+   * ignores - see parseReasons - but the export has no notion of which reasons
+   * a Show can produce, so it would apply both, match nothing, and hand over an
+   * empty spreadsheet for a screen with rows on it.
+   */
+  const csvHref = href(
+    "/api/export/credits",
+    query,
+    { reason: reasonParam(reasons) },
+    userId ? { user: userId } : {},
+  );
 
   /* Which preset the dates currently amount to, if any. A range typed by hand,
      or arrived at by tapping a grouped row, matches none of them and is spelt
@@ -391,7 +590,32 @@ export async function CreditLedger({
   /* Sort is not counted: it reorders the list, it does not narrow it, and a
      "Clear" that silently threw away the order somebody chose would be a
      surprise rather than a relief. */
-  const narrowed = ranged || kind !== "all" || Boolean(query.reason) || Boolean(query.truck);
+  const narrowed = ranged || kind !== "all" || reasons.length > 0 || Boolean(query.truck);
+
+  const ordering = SORT_OPTIONS.find((option) => option.key === sort) ?? SORT_OPTIONS[0];
+  const OrderingIcon = ordering.icon;
+
+  /*
+   * How the Reason pill reads when it is closed.
+   *
+   * A selection that is exactly one bucket says the bucket, because that is the
+   * row that was tapped and "2 reasons" would be a worse answer than "Given by
+   * an admin". Two buckets, or a hand-picked pair, has no name worth inventing
+   * and is counted instead. The single-group case is excluded: with one bucket
+   * on offer, selecting all of it is the same set as no filter at all, and
+   * naming it would suggest something is being held back.
+   */
+  const wholeBucket = groups.find(
+    (group) =>
+      groups.length > 1 &&
+      group.reasons.length === reasons.length &&
+      group.reasons.every((reason) => reasons.includes(reason)),
+  );
+  const reasonValue =
+    reasons.length === 0
+      ? "Any reason"
+      : (wholeBucket?.label ??
+        (reasons.length === 1 ? reasonLabel(reasons[0]) : `${reasons.length} reasons`));
 
   return (
     <Panel
@@ -399,6 +623,11 @@ export async function CreditLedger({
       description="Every credit added and spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time."
       bodyClassName="p-0"
     >
+      {/*
+        THE ARRANGING ROW: what a row is, and what order the rows come in.
+        Nothing here removes a charge from the screen, which is the whole reason
+        the sort control moved up here off the filter row.
+      */}
       <div className="space-y-2 border-b border-divider px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
@@ -413,8 +642,60 @@ export async function CreditLedger({
               {dim.label}
             </Chip>
           ))}
-          <span className="ml-1 text-[11px] text-faint">
+
+          {/* Off on a phone, where the toggles plus the sort button already fill
+              the row and this sentence is what would wrap it to a second line -
+              the thing these two rows exist to avoid. Nothing is lost: the count
+              line under the totals says "individual charges" the moment the
+              toggles are all off, and the help note on the activity page says it
+              in words. */}
+          <span className="ml-1 hidden text-[11px] text-faint sm:inline">
             {rawEntries ? "every individual charge" : "turn all off for every charge"}
+          </span>
+
+          {/* Pushed to the far end rather than left beside the toggles, so the
+              row reads as two controls with a gap between them instead of five
+              chips in a queue. */}
+          <span className="ml-auto shrink-0 pl-1.5">
+            <FilterPill
+              variant="sort"
+              label="Sort"
+              value={ordering.short}
+              icon={<OrderingIcon size={13} className="shrink-0" />}
+            >
+              <div className="space-y-0.5">
+                {SORT_OPTIONS.map((option) => {
+                  const Icon = option.icon;
+                  return (
+                    <SheetOption
+                      key={option.key}
+                      icon={<Icon size={15} className="shrink-0" />}
+                      /* The order in force taps back to newest, which is the
+                         order this list has when nobody has chosen one. Every
+                         other control on this screen can be turned off from
+                         inside its own sheet, and an order that could only ever
+                         be swapped for another order was the odd one out. */
+                      href={href(
+                        basePath,
+                        query,
+                        { sort: option.key === sort ? undefined : option.key },
+                        keep,
+                      )}
+                      active={sort === option.key}
+                    >
+                      {option.label}
+                    </SheetOption>
+                  );
+                })}
+              </div>
+
+              {/* Said here rather than only in the count line, because this is
+                  where somebody is choosing it. */}
+              <p className="mt-2 border-t border-divider px-3 pt-2 text-[11px] leading-relaxed text-faint">
+                Biggest first sorts by size, so a 5,000-credit purchase and a
+                5,000-credit spend rank together.
+              </p>
+            </FilterPill>
           </span>
         </div>
 
@@ -474,20 +755,31 @@ export async function CreditLedger({
                   icon={<CalendarRange size={13} className="shrink-0" />}
                 >
                   <div className="space-y-0.5">
-                    {presets.map((option) => (
-                      <SheetOption
-                        key={option.key}
-                        href={href(
-                          basePath,
-                          query,
-                          { from: option.from ?? undefined, to: option.to ?? undefined },
-                          keep,
-                        )}
-                        active={preset?.key === option.key}
-                      >
-                        {option.label}
-                      </SheetOption>
-                    ))}
+                    {presets.map((option) => {
+                      /* The window in force taps back off, which lands on the
+                         rolling window - the first entry in this list and the
+                         one the ledger falls back to. Without that, "Today"
+                         could only ever be swapped for another window, and the
+                         way out of a one-day view was the row's Clear, which
+                         also throws away the reason and the truck. */
+                      const on = preset?.key === option.key;
+                      return (
+                        <SheetOption
+                          key={option.key}
+                          href={href(
+                            basePath,
+                            query,
+                            on
+                              ? { from: undefined, to: undefined }
+                              : { from: option.from ?? undefined, to: option.to ?? undefined },
+                            keep,
+                          )}
+                          active={on}
+                        >
+                          {option.label}
+                        </SheetOption>
+                      );
+                    })}
                   </div>
 
                   {/*
@@ -555,66 +847,118 @@ export async function CreditLedger({
                   icon={<ArrowDownUp size={13} className="shrink-0" />}
                 >
                   <div className="space-y-0.5">
-                    {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => (
-                      <SheetOption
-                        key={value}
-                        href={href(basePath, query, { kind: value }, keep)}
-                        active={kind === value}
-                      >
-                        {KIND_LABEL[value]}
-                      </SheetOption>
-                    ))}
+                    {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => {
+                      /* Show in force taps back to everything, and every link
+                         here carries the reason selection forward already
+                         narrowed to what the new Show can produce - see
+                         reasonsUnder. Both halves matter: without the first
+                         there is no way back to "Everything" except the row's
+                         Clear, and without the second a reader who had picked a
+                         manual search and tapped "Credits added" would be shown
+                         an empty ledger under a filter that cannot match. */
+                      const next: LedgerKind = kind === value ? "all" : value;
+                      return (
+                        <SheetOption
+                          key={value}
+                          href={href(
+                            basePath,
+                            query,
+                            {
+                              kind: next === "all" ? undefined : next,
+                              reason: reasonsUnder(next),
+                            },
+                            keep,
+                          )}
+                          active={kind === value}
+                        >
+                          {KIND_LABEL[value]}
+                        </SheetOption>
+                      );
+                    })}
                   </div>
                 </FilterPill>
 
-                {/* One reason is not a choice, so the pill only appears where there
-                    is something to choose between. */}
-                {reasons.length > 1 ? (
+                {/*
+                  One option is not a choice, so the pill only appears where
+                  there is something to choose between - unless a reason is
+                  actually in force, in which case it appears whatever the
+                  count, because a filter with no control to unset it is the one
+                  state this row must never reach.
+                */}
+                {possible.size > 1 || reasons.length > 0 ? (
                   <FilterPill
                     label="Reason"
-                    value={query.reason ? reasonLabel(query.reason) : "Any reason"}
-                    active={Boolean(query.reason)}
+                    value={reasonValue}
+                    active={reasons.length > 0}
                     icon={<Tag size={13} className="shrink-0" />}
                   >
                     <div className="space-y-0.5">
                       <SheetOption
                         href={href(basePath, query, { reason: undefined }, keep)}
-                        active={!query.reason}
+                        active={reasons.length === 0}
                       >
                         Any reason
                       </SheetOption>
-                      {reasons.map((value) => (
-                        <SheetOption
-                          key={value}
-                          href={href(basePath, query, { reason: value }, keep)}
-                          active={query.reason === value}
-                        >
-                          {reasonLabel(value)}
-                        </SheetOption>
-                      ))}
+
+                      {groups.map((group) => {
+                        /*
+                         * Two tiers, and each tier only appears when it says
+                         * something the other one does not.
+                         *
+                         * A bucket row is worth its height when there is more
+                         * than one bucket on offer; with a single bucket - which
+                         * is what "Credits used" is - selecting the whole of it
+                         * is the same set as selecting nothing, so the row would
+                         * be a second "Any reason" wearing a different word.
+                         *
+                         * The reasons inside a bucket appear when there is more
+                         * than one of them. A bucket holding one reason already
+                         * filters on exactly that reason, and this account's
+                         * ledger really does have buckets like that - one plan
+                         * grant, one top-up, one coupon - so the sheet would
+                         * otherwise be six rows saying three things.
+                         */
+                        const asBucket = groups.length > 1;
+                        const children = !asBucket || group.reasons.length > 1 ? group.reasons : [];
+                        const whole = group.reasons.every((reason) => reasons.includes(reason));
+
+                        return (
+                          <div key={group.bucket} className="space-y-0.5">
+                            {asBucket ? (
+                              <SheetOption
+                                href={href(
+                                  basePath,
+                                  query,
+                                  { reason: reasonParam(toggleReasons(reasons, group.reasons)) },
+                                  keep,
+                                )}
+                                active={whole}
+                              >
+                                {group.label}
+                              </SheetOption>
+                            ) : null}
+
+                            {children.map((reason) => (
+                              <SheetOption
+                                key={reason}
+                                nested={asBucket}
+                                href={href(
+                                  basePath,
+                                  query,
+                                  { reason: reasonParam(toggleReasons(reasons, [reason])) },
+                                  keep,
+                                )}
+                                active={reasons.includes(reason)}
+                              >
+                                {reasonLabel(reason)}
+                              </SheetOption>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </FilterPill>
                 ) : null}
-
-                <FilterPill
-                  label="Order"
-                  value={SORT_LABEL[sort]}
-                  active={sort !== "newest"}
-                  icon={<ArrowDownWideNarrow size={13} className="shrink-0" />}
-                >
-                  <div className="space-y-0.5">
-                    {(Object.keys(SORT_LABEL) as LedgerSort[]).map((value) => (
-                      <SheetOption
-                        key={value}
-                        href={href(basePath, query, { sort: value }, keep)}
-                        active={sort === value}
-                      >
-                        {SORT_LABEL[value]}
-                      </SheetOption>
-                    ))}
-                  </div>
-                </FilterPill>
-
               </div>
             </div>
 
@@ -723,7 +1067,7 @@ async function loadRollups(
 
   if (filters.userId) request = request.eq("user_id", filters.userId);
   if (filters.until) request = request.lt("last_at", filters.until);
-  if (filters.reason) request = request.eq("reason", filters.reason);
+  if (filters.reasons.length > 0) request = request.in("reason", filters.reasons);
   if (filters.truck) request = request.eq("truck_number", filters.truck);
   if (filters.kind === "used") request = request.lt("credits", 0);
   if (filters.kind === "added") request = request.gt("credits", 0);
@@ -833,9 +1177,18 @@ async function RollupList({
 
   const totals = totalsOf(rows);
 
-  /* Fold onto whichever dimensions are on. A dimension that is off becomes null
-     on the key, so "truck off" genuinely merges every truck rather than
-     silently keeping the first one's number. */
+  /*
+   * Fold onto whichever dimensions are on. A dimension that is off becomes null
+   * on the key, so "truck off" genuinely merges every truck rather than
+   * silently keeping the first one's number.
+   *
+   * With day and truck both on - the default - the key is (day, truck) and
+   * nothing else, so a day on which five trucks were checked folds to five
+   * rows: one per truck, each holding every charge that truck took that day,
+   * whatever the reason. The rollup's own grain is finer than that (account,
+   * day, reason, source, truck), which is why the reasons have to be summed
+   * here rather than read off a row.
+   */
   const folded = new Map<string, Folded>();
   for (const row of rows) {
     const date = dimensions.includes("day") ? row.ist_date : null;
@@ -865,6 +1218,15 @@ async function RollupList({
     }
   }
 
+  /*
+   * Newest and oldest sort on the last charge in the group, which is what makes
+   * the default view day-driven without a second sort key: every group of one
+   * IST day has its last charge inside that day, and IST days do not overlap,
+   * so the five trucks of Tuesday are contiguous and sit as a block above the
+   * four of Monday. Biggest first deliberately breaks that - it is asked for
+   * when the question is "what cost the most", and answering it inside each day
+   * would be a different question.
+   */
   const list = [...folded.values()].sort((a, b) => {
     if (sort === "largest") return Math.abs(b.credits) - Math.abs(a.credits);
     if (sort === "oldest") return a.last_at.localeCompare(b.last_at);
@@ -884,6 +1246,10 @@ async function RollupList({
       ? ` — capped at the ${FOLD_CAP.toLocaleString("en-IN")} most recent rows, so narrow the dates for an exact total`
       : "";
   const scope = `${list.length.toLocaleString("en-IN")} group${list.length === 1 ? "" : "s"}, by ${grouping}${capped}`;
+
+  /* Once per list rather than once per row: istToday reads the clock, and the
+     year is the same for every row on the page. */
+  const thisYear = istToday().slice(0, 4);
 
   if (shown.length === 0) {
     return (
@@ -918,9 +1284,17 @@ async function RollupList({
             keep,
           );
 
+          /* The day leads, because with day and truck both on the row IS a day
+             and the truck is what that day is broken down by - reading "12 Aug
+             · GJ27TD6880" down a column groups by eye the way the fold groups
+             by key. Spelt "12 Aug" rather than 2026-08-12 for the same reason
+             the date pill is: the year is only worth its width when it is not
+             this one. */
           const heading = [
+            row.ist_date ? (
+              <span key="d">{dayMonth(row.ist_date, row.ist_date.slice(0, 4) !== thisYear)}</span>
+            ) : null,
             row.truck_number ? <Mono key="t">{row.truck_number}</Mono> : null,
-            row.ist_date ? <span key="d">{row.ist_date}</span> : null,
             row.user_id ? (
               <span key="u">{nameOf.get(row.user_id) ?? "Unknown account"}</span>
             ) : null,
@@ -1022,7 +1396,7 @@ async function EntryList({
 
     if (filters.userId) request = request.eq("user_id", filters.userId);
     if (filters.until) request = request.lt("created_at", filters.until);
-    if (filters.reason) request = request.eq("reason", filters.reason);
+    if (filters.reasons.length > 0) request = request.in("reason", filters.reasons);
     if (filters.truck) request = request.eq("truck_number", filters.truck);
     if (filters.kind === "used") request = request.lt("delta", 0);
     if (filters.kind === "added") request = request.gt("delta", 0);
@@ -1175,14 +1549,24 @@ async function EntryList({
  * to hit on a phone than a wrapped grid of small pills - which is what the old
  * chip rows were. Server-rendered, so these stay plain links and the filter
  * stays in the URL.
+ *
+ * Indented rather than smaller for a reason inside a bucket. The two tiers are
+ * equally tappable and equally worth hitting, so making the inner one look
+ * like a caption would be a lie about the target it has - and the indent alone
+ * is enough to say which reasons belong to which heading.
  */
 function SheetOption({
   href: to,
   active,
+  icon,
+  nested,
   children,
 }: {
   href: string;
   active: boolean;
+  icon?: React.ReactNode;
+  /** One tier in: a reason listed under its source bucket. */
+  nested?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -1190,10 +1574,12 @@ function SheetOption({
       href={to}
       aria-current={active ? "true" : undefined}
       className={cx(
-        "flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm transition",
+        "flex min-h-10 items-center gap-2 rounded-lg pr-3 text-sm transition",
+        nested ? "pl-8" : "pl-3",
         active ? "bg-brand-500/10 font-medium text-brand-500" : "text-ink hover:bg-sunken",
       )}
     >
+      {icon}
       <span className="min-w-0 flex-1">{children}</span>
       {active ? <Check size={15} className="shrink-0" /> : null}
     </Link>
