@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 
 import { csvFile, toCsv } from "@/components/report";
+import { resolveRange, shiftDate } from "@/lib/analytics";
 import { requireSuperAdmin } from "@/lib/auth";
+import { parseCouponFamily } from "@/lib/coupons";
+
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -13,6 +16,11 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * fit, whereas a spreadsheet has a pivot table of its own and is more useful
  * with the raw claims in it. So the file is always every matching row, and the
  * columns carry both the grouping keys and the measures.
+ *
+ * Only the coupon half takes a date range, and that is not an oversight: the
+ * referral screen has no range control, so windowing its file would be the file
+ * disagreeing with the page in the one direction nobody would notice - a
+ * spreadsheet quietly missing rows.
  */
 export const dynamic = "force-dynamic";
 
@@ -84,13 +92,36 @@ export async function GET(request: NextRequest) {
   }
 
   /* Coupon claims, the default - it is the section that prompted all this. */
+  const range = resolveRange({
+    range: params.get("range") ?? undefined,
+    from: params.get("from") ?? undefined,
+    to: params.get("to") ?? undefined,
+  });
+  const family = parseCouponFamily(params.get("kind") ?? undefined);
+
   let query = admin
     .from("coupon_claim_detail")
     .select("*")
+    /* The same IST day boundaries the screen uses. Half-open at the top, so a
+       claim at 11pm on the last day is inside the window. */
+    .gte("created_at", `${range.from}T00:00:00+05:30`)
+    .lt("created_at", `${shiftDate(range.to, 1)}T00:00:00+05:30`)
     .order("created_at", { ascending: false })
     .limit(CAP);
 
-  if (status) query = query.eq("status", status);
+  /* hold_state, not status, because that is what the screen filters on: the
+     table's single 'reserved' covers both a live checkout and one nobody came
+     back to, and the file has to be able to say which. The old status values
+     still arrive on links written before this, so they are translated. */
+  const LEGACY: Record<string, string> = {
+    applied: "settled",
+    reserved: "holding",
+    released: "released",
+  };
+  const state = status ? (LEGACY[status] ?? status) : null;
+
+  if (state) query = query.eq("hold_state", state);
+  if (family) query = query.eq("reward_kind", family);
   if (params.get("code")) query = query.eq("code", params.get("code"));
   if (params.get("account")) query = query.eq("user_id", params.get("account"));
 
@@ -101,13 +132,27 @@ export async function GET(request: NextRequest) {
   const body = rows.map((row) => [
     row.created_at,
     row.code,
+    /* The family and the exact kind. The family is what an admin sorts a sheet
+       by; the kind is what the database stores, and a file exists to be joined
+       against something else. */
+    row.reward_kind,
     row.kind,
     row.account ?? "",
     row.email ?? "",
     row.phone ?? "",
-    row.status,
+    row.hold_state,
     Number(row.amount_inr) || 0,
-    Number(row.discount_inr) || 0,
+    /*
+     * The reward given and the reward quoted, in separate columns.
+     *
+     * They used to be one - discount_inr - which is what the screen was
+     * totalling, and on a held or abandoned row it is a figure nobody has
+     * paid. A sheet that adds up one column of "discount" and gets a number
+     * larger than the money that actually came in is worse than the screen
+     * doing it, because nobody checks a spreadsheet against anything.
+     */
+    Number(row.discount_given) || 0,
+    Number(row.discount_quoted) || 0,
     /* Both reward columns, always. Which one carries the value depends on the
        code's kind, and a spreadsheet is the one place where two columns of
        mostly-zeroes is the right answer - it makes the whole set summable
@@ -121,18 +166,20 @@ export async function GET(request: NextRequest) {
   }
 
   return csvFile(
-    `coupon-claims-${new Date().toISOString().slice(0, 10)}.csv`,
+    `coupon-claims-${range.from}-to-${range.to}.csv`,
     toCsv(
       [
         "Claimed at",
         "Code",
+        "Sort of code",
         "Kind",
         "Account",
         "Email",
         "Phone",
-        "Status",
+        "Outcome",
         "Order value (INR)",
-        "Discount (INR)",
+        "Discount given (INR)",
+        "Discount quoted (INR)",
         "Bonus credits",
         "Settled at",
       ],

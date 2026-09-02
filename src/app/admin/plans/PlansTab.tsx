@@ -12,8 +12,8 @@ import {
 } from "@/components/ActionForm";
 import { FormActions } from "@/components/form";
 import { Modal } from "@/components/Modal";
-import { Badge, EmptyState, Panel } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import { Badge, EmptyState, Panel, cx } from "@/components/ui";
+import { formatCredits, planChargeInr, planTermLabel, planTermSuffix } from "@/lib/credits";
 import { fmtRupees } from "@/lib/format";
 import { NUMERIC_LIMITS, formatLimit } from "@/lib/limits";
 import { loadSettings } from "@/lib/settings";
@@ -43,12 +43,40 @@ export async function PlansTab() {
 
   const list = (plans ?? []) as Plan[];
   const onSale = list.filter((plan) => plan.is_active);
+  const trial = list.find((plan) => plan.is_trial) ?? null;
+  const lifetime = onSale.filter((plan) => !plan.is_trial && plan.duration_months === null);
 
   return (
     <>
       <div className="mb-4 flex justify-end">
         <NewPlanButton />
       </div>
+
+      {/*
+        Two states worth saying out loud on this screen, because both are
+        invisible in a grid of cards and both cost money.
+
+        A plan with no term is one payment for permanent access - fine for the
+        owner's own account, a mistake to leave on a plan strangers can buy. And
+        an archived trial means the portal has nothing to offer a new account
+        except a bill, which is the state this whole section was in before the
+        trial existed.
+      */}
+      {lifetime.length > 0 ? (
+        <p className="mb-4 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
+          <span className="text-warn-500">No end date on {lifetime.map((p) => p.name).join(", ")}.</span>{" "}
+          One payment buys that plan for ever, and nothing will prompt a renewal. Set a term on it
+          unless that is deliberate.
+        </p>
+      ) : null}
+
+      {trial && !trial.is_active ? (
+        <p className="mb-4 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
+          <span className="text-warn-500">The free trial is archived.</span> A new account has
+          nothing to try, so the plan page asks a stranger to pay before they have searched for
+          anything. Reactivate it below to put it back.
+        </p>
+      ) : null}
 
       {list.length === 0 ? (
         <Panel>
@@ -82,8 +110,11 @@ export async function PlansTab() {
                     name={plan.name}
                     description={plan.description}
                     pricePerMonth={plan.price_per_month}
+                    durationMonths={plan.duration_months}
                     includedCredits={plan.included_credits}
                     truckLimit={plan.truck_limit}
+                    isTrial={plan.is_trial}
+                    trialDays={plan.trial_days}
                   />
                 ))}
               </div>
@@ -132,6 +163,7 @@ function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
           <div className="flex flex-wrap items-center gap-2">
             <Package size={15} className="shrink-0 text-brand-400" />
             <h2 className="truncate text-base font-semibold text-strong">{plan.name}</h2>
+            {plan.is_trial ? <Badge tone="brand">Free trial</Badge> : null}
             {plan.is_active ? null : <Badge tone="warn">Archived</Badge>}
           </div>
           {plan.description ? (
@@ -139,9 +171,19 @@ function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
           ) : null}
         </div>
         <div className="shrink-0 text-right">
+          {/* What the customer is billed, not the unit price. A twelve-month
+              plan at Rs 199 takes Rs 2,388, and "Rs 199/mo" beside it is the
+              one number an admin would check and be reassured by. */}
           <p className="text-sm font-semibold text-ink">
-            {plan.price_per_month > 0 ? `${fmtRupees(plan.price_per_month)}/mo` : "Free"}
+            {plan.is_trial
+              ? "Free"
+              : planChargeInr(plan) > 0
+                ? fmtRupees(planChargeInr(plan))
+                : "Free"}
           </p>
+          {!plan.is_trial && planChargeInr(plan) > 0 ? (
+            <p className="text-[11px] text-muted">{planTermSuffix(plan)}</p>
+          ) : null}
           <Link
             href={`/admin/officers?plan=${plan.id}`}
             className="mt-1 inline-flex items-center gap-1 text-xs text-muted transition hover:text-brand-400"
@@ -153,6 +195,21 @@ function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
       </header>
 
       <dl className="flex-1 divide-y divide-divider px-5 pt-1 pb-3">
+        <div className="flex items-baseline justify-between gap-4 py-2">
+          <dt className="text-xs text-muted">Lasts</dt>
+          <dd
+            className={cx(
+              "text-sm font-medium tabular-nums",
+              /* No expiry is not a neutral setting: it is one payment for
+                 permanent access, and it should look different from a term. */
+              !plan.is_trial && plan.duration_months === null ? "text-warn-500" : "text-ink",
+            )}
+          >
+            {plan.is_trial
+              ? `${plan.trial_days ?? 7} day${plan.trial_days === 1 ? "" : "s"}`
+              : planTermLabel(plan)}
+          </dd>
+        </div>
         <div className="flex items-baseline justify-between gap-4 py-2">
           <dt className="text-xs text-muted">Credits included</dt>
           <dd className="text-sm font-medium tabular-nums text-brand-400">

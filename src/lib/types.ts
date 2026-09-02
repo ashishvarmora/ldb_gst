@@ -19,11 +19,57 @@ export type Plan = {
   /** Credits handed over when the plan is assigned. */
   included_credits: number;
   price_per_month: number;
+  /**
+   * How long the plan runs from the day it is bought. Null is no expiry.
+   *
+   * settle_payment() is the authority: it reads this column, not the term on
+   * the payment row, so the plan decides its own length and the buyer cannot.
+   * Restricted to 1, 3, 6 or 12 by a check constraint, because the checkout
+   * charges price_per_month x this and only prices those four terms - see
+   * PLAN_MONTHS in BuyCredits.tsx and ALLOWED_MONTHS in checkout-actions.ts.
+   */
+  duration_months: number | null;
+  /**
+   * The free trial row, of which there is at most one. It is free by
+   * constraint, so it can never be bought; start_free_trial() hands it over.
+   */
+  is_trial: boolean;
+  /** Trial only: how many days it runs. Null on every other plan. */
+  trial_days: number | null;
   is_active: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
 };
+
+/** What start_free_trial() answers. A refusal is a result, not an error. */
+export type TrialVerdict =
+  | {
+      ok: true;
+      plan_id: string;
+      plan_name: string;
+      trial_days: number;
+      truck_limit: number;
+      credits: number;
+      expires_on: string;
+      balance?: number;
+    }
+  | {
+      ok: false;
+      reason:
+        | "no_such_user"
+        | "not_a_customer"
+        | "account_suspended"
+        /** A plan is running - including a trial already under way. */
+        | "has_plan"
+        /** Has had a plan before, even one since taken away. */
+        | "had_plan"
+        | "has_paid"
+        /** No trial plan is on sale. */
+        | "no_trial"
+        /** This account, mailbox or mobile has already had one. */
+        | "already_claimed";
+    };
 
 export type Profile = {
   id: string;

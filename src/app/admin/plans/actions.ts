@@ -45,6 +45,45 @@ function readIncludedCredits(fd: FormData): number | null {
   return value;
 }
 
+/**
+ * Terms a plan may be sold for, mirrored in three places and deliberately so:
+ * ALLOWED_MONTHS in checkout-actions.ts prices the order, TERMS in
+ * PlanFields.tsx draws the picker, and plans_duration_months_check in the
+ * database refuses anything else.
+ *
+ * The reason it is a closed set rather than a number: the checkout charges
+ * price_per_month x the term and coerces a term it does not recognise to ONE
+ * month, while settle_payment() would still grant the full length off the plan
+ * row. A 24 typed here would sell two years for one month's money.
+ */
+const ALLOWED_TERMS = [1, 3, 6, 12];
+
+const TERM_REFUSAL =
+  'Choose a term of 1, 3, 6 or 12 months, or switch it off for no expiry. Those are the only terms the checkout can price.';
+
+/**
+ * The plan's term. Blank or absent is null - no expiry - which is the answer
+ * for the trial row (whose form has no term field) and for a plan the admin
+ * deliberately switched the term off on.
+ *
+ * `undefined` is the refusal, kept distinct from the null that means lifetime.
+ */
+function readDurationMonths(fd: FormData): number | null | undefined {
+  const raw = str(fd, "duration_months");
+  if (raw === null || raw === "") return null;
+  const value = Number(raw);
+  return ALLOWED_TERMS.includes(value) ? value : undefined;
+}
+
+/** Trial only. Absent leaves the stored value alone rather than clearing it. */
+function readTrialDays(fd: FormData): number | undefined {
+  const raw = str(fd, "trial_days");
+  if (raw === null || raw === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 90) return undefined;
+  return value;
+}
+
 export async function createPlan(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const actor = await assertSuperAdmin();
   const admin = getSupabaseAdmin();
@@ -61,6 +100,14 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
   const includedCredits = readIncludedCredits(fd);
   if (includedCredits === null) return fail("Credits included must be zero or more.");
 
+  const months = readDurationMonths(fd);
+  if (months === undefined) return fail(TERM_REFUSAL);
+
+  /*
+   * A new plan is never the trial. There is at most one trial row - a partial
+   * unique index enforces it - and it is created by the migration, not from
+   * this form, so nothing here needs a way to mint a second one.
+   */
   const { data, error } = await admin
     .from("plans")
     .insert({
@@ -69,6 +116,7 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
       ...limits.values,
       included_credits: includedCredits,
       price_per_month: price,
+      duration_months: months,
       is_active: true,
       sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
     })
@@ -114,13 +162,38 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
   if (includedCredits === null) return fail("Credits included must be zero or more.");
 
   const { data: before } = await admin.from("plans").select("*").eq("id", planId).maybeSingle();
+  if (!before) return fail("That plan no longer exists.");
+
+  /*
+   * Whether this is the trial comes off the STORED row, never off the form.
+   *
+   * The trial's editor leaves out the price and the term and shows a days box
+   * instead, so a posted form is not a reliable description of which kind of
+   * plan it is - and a form that claimed is_trial could otherwise turn a paid
+   * plan into a free one. The database has three check constraints that would
+   * refuse the resulting row anyway; this decides it before the round trip so
+   * the admin gets a sentence rather than a constraint name.
+   */
+  const isTrial = (before as { is_trial?: boolean }).is_trial === true;
+
+  const months = isTrial ? null : readDurationMonths(fd);
+  if (months === undefined) return fail(TERM_REFUSAL);
+
+  const trialDays = readTrialDays(fd);
+  if (isTrial && trialDays === undefined) {
+    return fail("The trial has to run for between 1 and 90 days.");
+  }
 
   const patch = {
     name,
     description: str(fd, "description"),
     ...limits.values,
     included_credits: includedCredits,
-    price_per_month: price,
+    // Free by constraint, and free is the reason the portal can hand it over
+    // without a payment. The form does not offer a price for it.
+    price_per_month: isTrial ? 0 : price,
+    duration_months: months,
+    ...(isTrial ? { trial_days: trialDays } : {}),
     sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
   };
 
@@ -262,9 +335,17 @@ export async function duplicatePlan(
     candidate = `${name} copy ${n}`;
   }
 
+  /*
+   * A copy is never the trial.
+   *
+   * `rest` is the whole row minus its identity, so without this the copy would
+   * carry is_trial = true and hit plans_one_trial_idx - a unique-violation
+   * message about an index, for pressing Duplicate. There is one trial by
+   * design, so the copy is an ordinary free plan and the admin can price it.
+   */
   const { data: inserted, error } = await admin
     .from("plans")
-    .insert({ ...rest, name: candidate })
+    .insert({ ...rest, name: candidate, is_trial: false, trial_days: null })
     .select("id")
     .single();
   if (error) return fail(error.message);

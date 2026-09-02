@@ -82,10 +82,28 @@ export function Receipt({
   row,
   overview,
   supportEmail,
+  effect,
 }: {
   row: PaymentRow;
   overview: OfficerOverview;
   supportEmail: string;
+  /**
+   * What this payment did to the balance, from payment_credit_effect.
+   *
+   * The owner asked to see the balance either side of a purchase. The figures
+   * are the LEDGER's rather than computed here: balance_after off the row this
+   * payment wrote, and balance_before as that row's balance_after minus its
+   * delta. Taking "before" from the live profile would be wrong the moment an
+   * automatic check spends a credit in between - which on this platform is
+   * every fifteen minutes.
+   *
+   * Null when nothing settled, which is exactly when there is no movement.
+   */
+  effect: {
+    credits_added: number;
+    balance_before: number | null;
+    balance_after: number | null;
+  } | null;
 }) {
   const settled = isSettled(row);
   const pending = row.status === "created";
@@ -201,6 +219,34 @@ export function Receipt({
               </>
             )}
           </p>
+
+          {/* The movement itself, as three numbers that reconcile.
+              Stated even on an old receipt, unlike the "your balance is now"
+              sentence above: what a payment DID is permanent, whereas what the
+              balance is now stops being about this payment within minutes.
+              This is the auditable line. */}
+          {settled && effect && effect.balance_after !== null && Number(effect.credits_added) > 0 ? (
+            <dl className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-line bg-raised/60 px-3 py-2 text-sm">
+              <dt className="text-xs text-faint">Balance before</dt>
+              <dd className="font-medium tabular-nums text-muted">
+                {formatCredits(Number(effect.balance_before ?? 0))}
+              </dd>
+              <dd className="text-faint" aria-hidden>
+                &rarr;
+              </dd>
+              <dt className="sr-only">Credits added</dt>
+              <dd className="font-medium tabular-nums text-good-500">
+                +{formatCredits(Number(effect.credits_added))}
+              </dd>
+              <dd className="text-faint" aria-hidden>
+                =
+              </dd>
+              <dt className="text-xs text-faint">after</dt>
+              <dd className="font-semibold tabular-nums text-ink">
+                {formatCredits(Number(effect.balance_after))}
+              </dd>
+            </dl>
+          ) : null}
         </div>
 
         {/* The receipt is a query parameter, and every date preset and column

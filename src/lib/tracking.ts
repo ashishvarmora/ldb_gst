@@ -7,6 +7,7 @@ import {
   type Position,
 } from "@/lib/alerts";
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
+import { istToday } from "@/lib/format";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
 import { dueForAutoPause } from "@/lib/pause";
@@ -835,12 +836,37 @@ export async function runTrackingSweep(
 
   if (!settings.trackingEnabled) return finish(base);
 
-  // Only active trucks belonging to active officers.
+  /*
+   * Active trucks, belonging to active officers, WHOSE PLAN HAS NOT RUN OUT.
+   *
+   * That last clause was missing, and it was a hole with a cost. This filtered
+   * on profiles.status alone, so once a plan or a trial expired the worker
+   * carried on checking every truck on the account and charging credits for it
+   * until the balance emptied. Manual search is gated on the plan
+   * (requireActivePlan in officer.ts); automatic checking was not, so the
+   * expensive half of the product was the unguarded half - and it is the half
+   * that runs every fifteen minutes without anybody watching.
+   *
+   * It matters more now than it did: until this release every plan was
+   * lifetime, so plan_expires_on was null on every account and there was
+   * nothing to enforce. Plans have terms from now on, which is exactly what
+   * turns a dormant hole into a live one.
+   *
+   * `or` rather than a plain comparison because null means "no expiry set" -
+   * the state every existing customer is in - and those accounts must keep
+   * running. Only a date in the past stops a truck.
+   *
+   * IST, via the same ist_today the database uses, so a plan that runs "until
+   * the 30th" is checked on the 30th in the timezone the customer bought it in.
+   */
   let query = admin
     .from("tracked_trucks")
-    .select("*, profiles!inner(status)")
+    .select("*, profiles!inner(status, plan_expires_on)")
     .eq("is_active", true)
     .eq("profiles.status", "active")
+    .or(`plan_expires_on.is.null,plan_expires_on.gte.${istToday()}`, {
+      referencedTable: "profiles",
+    })
     .order("last_polled_at", { ascending: true, nullsFirst: true })
     .limit(500);
 

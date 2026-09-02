@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   ArrowUp,
+  CalendarClock,
   Check,
   CheckCircle2,
   Info,
@@ -36,6 +37,9 @@ import {
   bonusPercent as valueAgainstEntryPack,
   creditsForAmount,
   formatCredits,
+  planChargeInr,
+  planMonths,
+  planTermLabel,
   rupeesPerCredit,
 } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
@@ -57,7 +61,17 @@ import type { CouponVerdict, CreditPack, Plan } from "@/lib/types";
 
 const SCRIPT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
 
-/** Terms a plan can be bought for. Mirrors ALLOWED_MONTHS in checkout-actions.ts. */
+/**
+ * Terms the checkout can price. Mirrors ALLOWED_MONTHS in checkout-actions.ts,
+ * ALLOWED_TERMS in admin/plans/actions.ts and plans_duration_months_check in
+ * the database.
+ *
+ * This used to draw a picker above the grid, and the buyer chose the term. It
+ * does not any more: the PLAN carries its own term now - plans.duration_months,
+ * which settle_payment() reads - so the four values here are the set an admin
+ * may choose from rather than a set a customer may. A term outside it would be
+ * charged as one month by pricePlan() and granted in full by settlement.
+ */
 export const PLAN_MONTHS = [1, 3, 6, 12] as const;
 
 type Handshake = {
@@ -942,21 +956,23 @@ function truckChange(plan: Plan, current: Plan): { better: boolean; text: string
 }
 
 /**
- * Where the account stands on a plan, which decides whether renewing the same
- * plan is offered at all.
+ * Where the account stands, and it is only ever one of two things here now.
  *
- *   none     nothing bought yet, so every card is a first purchase.
- *   expired  the plan has lapsed. Renewing the one they were on is the obvious
- *            thing to want, so that card offers exactly that.
- *   live     a plan is running, and renewing it early is deliberately not
- *            offered. Not because the sums would go wrong - settle_payment sets
- *            the new expiry to greatest(current expiry, today) + the months
- *            bought, so an early renewal does carry the days already paid for -
- *            but because the owner does not want the same month sold twice.
- *            Changing plan stays available either way: an upgrade is how a
- *            truck limit is raised, and that cannot wait for expiry.
+ *   none   nothing has ever been bought, so every card is a first purchase.
+ *   trial  the free trial is running. Converting to a paid plan is the one
+ *          plan CHANGE a customer may make on their own.
+ *
+ * "expired" and "live" have gone, and their absence is the feature. The owner's
+ * instruction was that a customer cannot change plan - no upgrade, no downgrade,
+ * no self-service renewal - so an account already on a paid plan is not shown a
+ * grid at all: the plan page routes it to support instead. This component is
+ * therefore only ever rendered for somebody who has no paid plan to lose, which
+ * is what lets every card here read as a plain first purchase.
+ *
+ * Topping up credits is untouched and stays fully self-service. It is the other
+ * grid in this file.
  */
-export type PlanStanding = "none" | "expired" | "live";
+export type PlanStanding = "none" | "trial";
 
 /** What a plan hands over, as one line for the total. */
 function planReceipt(plan: Plan): string {
@@ -964,76 +980,81 @@ function planReceipt(plan: Plan): string {
     plan.truck_limit === -1
       ? "Unlimited trucks"
       : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"}`;
-  return plan.included_credits > 0
-    ? `${trucks} · ${formatCredits(plan.included_credits)} credits`
-    : trucks;
+  const parts = [trucks];
+  if (plan.included_credits > 0) parts.push(`${formatCredits(plan.included_credits)} credits`);
+  parts.push(planTermLabel(plan).toLowerCase());
+  return parts.join(" · ");
 }
 
 export function BuyPlans({
   plans,
   brandName,
-  currentPlanId,
   currentPlan = null,
   disabledReason,
   standing = "none",
 }: {
   plans: Plan[];
   brandName: string;
-  currentPlanId: string | null;
   /**
-   * The plan row the account is on, when it is still on sale. Only for working
-   * out which cards are a bigger truck limit than the one they already have -
-   * a grid that cannot tell an upgrade from a sideways move is the thing that
-   * made this read as a second copy of the plan chooser.
+   * The plan row the account is on. Only used to say what a card would change
+   * about the truck limit they have now, which during a trial is the whole
+   * reason to look: every paid plan watches more than the trial's one truck.
    *
-   * Null when there is no plan, or when the one they are on has been archived
-   * and so is not in `plans`. Both fall back to the plain wording.
+   * Null when there is no plan at all.
    */
   currentPlan?: Plan | null;
   disabledReason: string | null;
   standing?: PlanStanding;
 }) {
-  const [months, setMonths] = useState<number>(1);
   /**
-   * The card being bought, held as an id rather than a copy of its figures.
-   * The term picker sits above the grid and can be changed after a card is
-   * tapped, so a snapshotted price would be the one from before that change -
-   * which is the single thing the total panel exists to prevent.
+   * The card being bought, held as an id rather than a copy of its figures, so
+   * the total panel below reads the same row the order will be opened from.
    */
   const [chosenId, setChosenId] = useState<string | null>(null);
+
+  /*
+   * The trial is never on this grid.
+   *
+   * It is a plan row like any other and it comes back in the same query, but it
+   * is free by constraint - so pricePlan() refuses to open an order for it and
+   * a card offering it here could only ever fail. It is claimed on the plan
+   * page instead. Filtered here as well as there, because a component that can
+   * show an unbuyable card will eventually be given one.
+   */
+  const sellable = plans.filter((plan) => !plan.is_trial);
+
   // Every total a code could apply to on this grid. A free plan has no order to
   // open, so it has no price to discount either.
   const coupon = useCoupon(
     "plan",
-    plans
-      .filter((plan) => plan.price_per_month > 0)
-      .map((plan) => rupees(plan.price_per_month * months)),
+    sellable.filter((plan) => planChargeInr(plan) > 0).map((plan) => rupees(planChargeInr(plan))),
   );
   const { busy, error, notice, pay } = useCheckout(brandName, coupon.remove);
   const locked = disabledReason !== null;
 
-  /**
-   * Renewing the plan already in force. Only offered once it has run out - see
-   * PlanStanding - and it is the one card whose button changes with standing,
-   * because every other card is a change of plan rather than a renewal.
+  const chosenPlan = chosenId ? (sellable.find((plan) => plan.id === chosenId) ?? null) : null;
+
+  /*
+   * The term posted is the PLAN's, not the buyer's.
+   *
+   * pricePlan() on the server charges price_per_month x months and records that
+   * term on the payment row, while settle_payment() takes the length of access
+   * from plans.duration_months. Posting the plan's own term is what keeps those
+   * two in step: the money charged and the time granted come from one number.
+   * A plan with no term posts 1, so it is charged its unit price once - and
+   * settlement gives it no expiry, which is what "no term" means.
    */
-  const canRenew = standing === "expired";
-
-  const chosenPlan = chosenId ? (plans.find((plan) => plan.id === chosenId) ?? null) : null;
-
-  /* Rebuilt on every render from the term picker's current value, so the figure
-     in the panel and the figure the order is opened for cannot disagree. */
   const purchase: Chosen | null = chosenPlan
     ? {
         key: chosenPlan.id,
         name: `${chosenPlan.name} plan`,
-        detail: months === 1 ? "1 month" : `${months} months`,
-        listInr: rupees(chosenPlan.price_per_month * months),
+        detail: planTermLabel(chosenPlan),
+        listInr: planChargeInr(chosenPlan),
         receive: planReceipt(chosenPlan),
         start: () => {
           const fd = new FormData();
           fd.set("plan_id", chosenPlan.id);
-          fd.set("months", String(months));
+          fd.set("months", String(planMonths(chosenPlan) ?? 1));
           // The code goes with the purchase, so the server holds the claim and
           // charges the figure the panel was showing.
           fd.set("coupon_code", coupon.formValue);
@@ -1042,7 +1063,7 @@ export function BuyPlans({
       }
     : null;
 
-  if (plans.length === 0) {
+  if (sellable.length === 0) {
     return (
       <Panel title="Plans">
         <p className="text-sm text-muted">
@@ -1056,73 +1077,43 @@ export function BuyPlans({
     <div>
       {locked ? <Locked reason={disabledReason} /> : null}
 
-      {/* One term for every card: choosing per card would put four controls on
-          screen to answer the same question once. */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted">Pay for</span>
-        <div className="inline-flex rounded-lg border border-line bg-panel p-1">
-          {PLAN_MONTHS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setMonths(option)}
-              aria-pressed={months === option}
-              /* The total below re-prices itself from this, so the choice can
-                 be changed with a card already picked and nothing goes stale. */
-              className={cx(
-                "inline-flex min-h-8 items-center rounded-md px-2.5 text-xs font-medium tabular-nums transition",
-                months === option
-                  ? "bg-brand-500 text-on-brand"
-                  : "text-muted hover:bg-sunken hover:text-ink",
-              )}
-            >
-              {option}m
-            </button>
-          ))}
-        </div>
-        {months > 1 ? (
-          <span className="text-xs text-muted">Same price a month, fewer renewals.</span>
-        ) : null}
-      </div>
-
+      {/*
+        The term picker that used to sit here has gone. It let the buyer choose
+        1, 3, 6 or 12 months, which meant the plan had no say in how long it
+        lasted - and the expiry it produced came off the payment row rather than
+        off the plan. Each card now states its own term, which is the admin's to
+        set on the plan.
+      */}
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {plans.map((plan) => {
-          const mine = plan.id === currentPlanId;
+        {sellable.map((plan) => {
           const picked = plan.id === chosenId;
-          const total = rupees(plan.price_per_month * months);
+          const total = planChargeInr(plan);
           const cut = coupon.cutFor(total);
+          const months = planMonths(plan);
           // Nothing to charge for means no order to open, so say so on the card
           // rather than letting the click come back with a refusal.
-          const buyable = plan.price_per_month > 0;
-          // Only worth saying against a plan they are not already on, and only
-          // when we know which one that is.
-          const change = !mine && currentPlan ? truckChange(plan, currentPlan) : null;
-          /* The one card that is not for sale: the plan already running. Its
-             renewal is what standing "live" withholds, and there is nothing
-             else this card could sell them. */
-          const inert = mine && standing === "live";
+          const buyable = total > 0;
+          /* What this card would change about the truck limit in force. During
+             a trial that is one truck, so every card here says how much more
+             it watches - which is the decision. */
+          const change =
+            currentPlan && currentPlan.id !== plan.id ? truckChange(plan, currentPlan) : null;
 
           return (
             <li
               key={plan.id}
               className={cx(
                 "flex flex-col rounded-xl border bg-panel p-4 transition",
-                picked
-                  ? "border-brand-500 ring-2 ring-brand-500/25"
-                  : mine
-                    ? "border-brand-500/60 ring-1 ring-brand-500/20"
-                    : "border-line",
-                !locked && !mine && !picked && "hover:border-line-strong",
+                picked ? "border-brand-500 ring-2 ring-brand-500/25" : "border-line",
+                !locked && !picked && "hover:border-line-strong",
               )}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-semibold text-strong">{plan.name}</p>
-                {mine ? (
-                  <Badge tone="brand">Your plan</Badge>
-                ) : change?.better ? (
+                {change?.better ? (
                   <Badge tone="good">
                     <ArrowUp size={10} />
-                    Upgrade
+                    More trucks
                   </Badge>
                 ) : null}
               </div>
@@ -1131,16 +1122,24 @@ export function BuyPlans({
                 <p className="mt-1 text-xs leading-relaxed text-muted">{plan.description}</p>
               ) : null}
 
+              {/* The figure charged, and under it the term it buys. The unit
+                  price is the small print here rather than the headline: a
+                  twelve-month plan shown at its monthly rate is a price nobody
+                  is ever asked to pay. */}
               <Price
                 listInr={total}
                 cut={cut}
                 className="mt-3"
                 figureClass="text-2xl font-semibold text-strong"
               />
-              <p className="mt-0.5 text-xs text-muted tabular-nums">
-                {months === 1
-                  ? "a month"
-                  : `for ${months} months · ${fmtRupees(plan.price_per_month)} a month`}
+              <p className="mt-0.5 text-xs tabular-nums text-muted">
+                {!buyable
+                  ? "Set up by support"
+                  : months === null
+                    ? "one payment · no end date"
+                    : months === 1
+                      ? "for 1 month"
+                      : `for ${months} months · ${fmtRupees(plan.price_per_month)} a month`}
               </p>
               <CodeNote cut={cut} whyNot={coupon.whyNot(total)} keeps="plan" />
 
@@ -1152,6 +1151,14 @@ export function BuyPlans({
                 </Feature>
                 <Feature icon={<Wallet size={13} />}>
                   {formatCredits(plan.included_credits)} credits included
+                </Feature>
+                {/* Stated on the card, because it is the one thing about a plan
+                    that is not obvious from its price and cannot be changed
+                    later without talking to somebody. */}
+                <Feature icon={<CalendarClock size={13} />}>
+                  {months === null
+                    ? "Never expires"
+                    : `Runs for ${months} month${months === 1 ? "" : "s"} from the day you buy it`}
                 </Feature>
                 <Feature icon={<Check size={13} />}>Top up credits any time</Feature>
               </ul>
@@ -1180,15 +1187,9 @@ export function BuyPlans({
               */}
               <button
                 type="button"
-                disabled={locked || !buyable || inert || busy !== null}
+                disabled={locked || !buyable || busy !== null}
                 onClick={() => setChosenId(plan.id)}
-                className={buttonClass(
-                  picked || change?.better || standing === "none" || (mine && canRenew)
-                    ? "primary"
-                    : "secondary",
-                  "md",
-                  "mt-4 w-full",
-                )}
+                className={buttonClass("primary", "md", "mt-4 w-full")}
               >
                 {picked ? <Check size={14} /> : null}
                 {!buyable
@@ -1197,18 +1198,11 @@ export function BuyPlans({
                     ? "Not available"
                     : picked
                       ? "Chosen"
-                      : inert
-                        ? /* Renewal is withheld until it lapses, and the end
-                             date is on the page above, so this says what the
-                             card is rather than offering an action. */
-                          "Your current plan"
-                        : mine
-                          ? "Renew this plan"
-                          : change?.better
-                            ? "Upgrade to this"
-                            : standing === "none"
-                              ? "Choose this plan"
-                              : "Switch to this plan"}
+                      : /* Both readings are a first purchase - see PlanStanding.
+                           Nobody reaches this grid with a paid plan to change. */
+                        standing === "trial"
+                        ? "Move to this plan"
+                        : "Choose this plan"}
               </button>
             </li>
           );

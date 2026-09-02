@@ -92,6 +92,28 @@ export default async function PaymentsPage({
 
   const totals = totalPayments(rows);
 
+  /*
+   * What the receipt's payment did to the balance, read only when there is a
+   * receipt to render. Its own round trip rather than part of the batch above,
+   * because it needs the payment's id, which comes out of that batch - and a
+   * page with no ?ref= must not pay for a query it will not use.
+   *
+   * Scoped to this customer's own id as well as the payment's. The view is
+   * security_invoker and the service-role client bypasses RLS, so the only
+   * thing stopping ?ref= reading a stranger's payment is that both reads are
+   * filtered by the session's own user.
+   */
+  const effect = receipt
+    ? ((
+        await admin
+          .from("payment_credit_effect")
+          .select("credits_added, balance_before, balance_after")
+          .eq("payment_id", receipt.id)
+          .eq("user_id", overview.id)
+          .maybeSingle()
+      ).data ?? null)
+    : null;
+
   /* The range, the receipt and the sort all have to survive a click on
      anything else on this page. Paging is dropped by sortHrefFor itself: a
      re-sorted list is a new result set, and page three of the old one meant
@@ -155,7 +177,12 @@ export default async function PaymentsPage({
       {header}
 
       {receipt ? (
-        <Receipt row={receipt} overview={overview} supportEmail={settings.supportEmail} />
+        <Receipt
+          row={receipt}
+          overview={overview}
+          supportEmail={settings.supportEmail}
+          effect={effect}
+        />
       ) : null}
 
       {/* showBucket is off: nothing on this page is grouped into periods, so a

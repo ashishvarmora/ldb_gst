@@ -1,3 +1,4 @@
+import { LinkPending } from "@/components/NavPending";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
@@ -198,8 +199,23 @@ export function LinkButton({
   className?: string;
 }) {
   return (
-    <Link href={href} className={buttonClass(variant, size, className)}>
+    /*
+     * `relative` and a childless LinkPending on every shared link primitive.
+     *
+     * There were 116 call sites across these five components with no feedback
+     * at all: tap "View all" or a metric card or a sort header, and until the
+     * server answered the page looked dead - which is what the owner meant by
+     * "dont see like dead page". Doing it here rather than at the call sites
+     * is the only version of this that stays done.
+     *
+     * Childless on purpose: LinkPending swaps an ICON for its spinner, and
+     * these components' children are their whole content. With no children it
+     * lays down the brand wash and inset ring only - no spinner appearing out
+     * of nowhere, and no layout shift mid-tap.
+     */
+    <Link href={href} className={cx("relative", buttonClass(variant, size, className))}>
       {children}
+      <LinkPending />
     </Link>
   );
 }
@@ -337,9 +353,10 @@ export function PanelAction({ href, children }: { href: string; children: ReactN
   return (
     <Link
       href={href}
-      className="-mr-2 inline-flex min-h-9 items-center rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-brand-500/8 hover:text-brand-600"
+      className="relative -mr-2 inline-flex min-h-9 items-center rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-brand-500/8 hover:text-brand-600"
     >
       {children}
+      <LinkPending />
     </Link>
   );
 }
@@ -373,12 +390,13 @@ export function LinkCard({
     <Link
       href={href}
       className={cx(
-        "flex items-center gap-3 rounded-xl border px-4 py-3.5 transition",
+        "relative flex items-center gap-3 rounded-xl border px-4 py-3.5 transition",
         tone === "warn"
           ? "border-warn-500/40 bg-warn-500/8 hover:border-warn-500/70"
           : "border-line bg-panel hover:border-brand-500/50 hover:bg-sunken",
       )}
     >
+      <LinkPending />
       {icon ? (
         <span
           className={cx(

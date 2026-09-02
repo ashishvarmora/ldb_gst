@@ -742,23 +742,68 @@ export async function confirmCheckout(
       return fail("Payment received. Your account will update in a moment.");
     }
 
-    const result = (data ?? {}) as { granted?: boolean; credits?: number; kind?: string };
+    const result = (data ?? {}) as {
+      granted?: boolean;
+      credits?: number;
+      kind?: string;
+      payment_id?: string;
+      balance_before?: number;
+      balance_after?: number;
+    };
 
     revalidatePath("/portal/plan");
     // The truck limit and the balance both gate other pages, so the whole
     // portal shell is stale the moment a plan settles.
     revalidatePath("/portal", "layout");
 
+    /*
+     * granted false means nothing moved from 'created' to 'paid' - which
+     * almost always means the WEBHOOK settled it first, in the second or two
+     * between the customer finishing and this action running. That is the
+     * system working, not a problem.
+     *
+     * It used to say "This payment is already recorded. Your account is up to
+     * date." Every word true, and it reads exactly like "duplicate, nothing
+     * happened" - the owner read it as their credits having gone missing and
+     * asked me to check the database. They had not: the payment in question
+     * took the balance from 570 to 580. So rather than describing the race,
+     * this now goes and reads what the settlement actually delivered and says
+     * that instead.
+     */
     if (!result.granted) {
-      return done("This payment is already recorded. Your account is up to date.");
+      const effect = result.payment_id
+        ? await admin
+            .from("payment_credit_effect")
+            .select("credits_added, balance_before, balance_after")
+            .eq("payment_id", result.payment_id)
+            .maybeSingle()
+        : null;
+
+      const added = Number(effect?.data?.credits_added ?? 0);
+      if (added > 0) {
+        return done(
+          `Already done — ${formatCredits(added)} credits are on your balance, now ${formatCredits(
+            Number(effect?.data?.balance_after ?? 0),
+          )}.`,
+        );
+      }
+
+      // No ledger row against it, so there is genuinely nothing to report.
+      // Says what is true without claiming credits arrived.
+      return done("This payment was already settled. Nothing further is owed.");
     }
+
+    const movement =
+      result.balance_after !== undefined
+        ? ` Your balance is now ${formatCredits(Number(result.balance_after))}.`
+        : "";
 
     return done(
       result.kind === "plan"
         ? `Your plan is active${
             result.credits ? `, with ${formatCredits(result.credits)} credits to spend` : ""
-          }.`
-        : `${formatCredits(result.credits)} credits added to your balance.`,
+          }.${movement}`
+        : `${formatCredits(result.credits)} credits added to your balance.${movement}`,
     );
   } catch (error) {
     return fail(reportError("confirmCheckout crashed", error));

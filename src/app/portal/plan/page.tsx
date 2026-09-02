@@ -4,6 +4,7 @@ import {
   ArrowRight,
   CalendarDays,
   ChevronRight,
+  Gift,
   History,
   Receipt,
   Truck,
@@ -11,9 +12,12 @@ import {
 } from "lucide-react";
 
 import { RedeemBonusCode } from "./RedeemBonusCode";
+import { startFreeTrial } from "./trial-actions";
 import { InviteCard } from "../referrals/InviteCard";
+import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
+import { SupportPanel } from "@/components/SupportLine";
 import { Badge, LinkCard, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import {
   creditStanding,
@@ -22,6 +26,7 @@ import {
   formatCredits,
   loadCreditPacks,
   loadCreditRates,
+  planTermLabel,
   searchesLeft,
   searchesLeftLabel,
 } from "@/lib/credits";
@@ -40,25 +45,42 @@ export async function generateMetadata() {
 /**
  * Where an account becomes able to use the product, and where it stays able to.
  *
- * Two readers, one page. Someone with no plan needs one decision made - which
- * plan - so that is all they get above the fold. Someone with a plan needs their
- * balance, then a top-up, and everything else folded away.
+ * Two readers, one page. Someone with no plan needs one decision made - try it,
+ * or buy it - so that is all they get above the fold. Someone with a plan needs
+ * their balance, then a top-up, and everything else folded away.
  *
  * The rule that shapes the copy: a plan sets how many trucks may be watched;
  * credits pay for the searching and checking. Running out of credits is a
  * top-up, never a second copy of the plan.
+ *
+ * WHAT A CUSTOMER MAY DO TO THEIR OWN PLAN, AND WHAT THEY MAY NOT
+ *
+ * Exactly two plan purchases are self-service: a first one, and moving off the
+ * free trial onto a paid plan. Everything else - a different plan, a bigger
+ * plan, a smaller one, a renewal - is a conversation with the owner, on the
+ * owner's instruction. So the plan grid appears on this page in those two
+ * states and in no others; an account on a paid plan gets a way to reach a
+ * human instead of a grid of cards that would take their money for a change
+ * nobody had agreed to.
+ *
+ * Topping up credits is untouched by all of that and stays fully self-service,
+ * which is why the top-up panel is unconditional below.
  */
 export default async function PlanPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
   const [planResult, rates, packs, settings, searchCost] = await Promise.all([
-    admin
-      .from("plans")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order")
-      .order("price_per_month"),
+    /*
+     * Every plan, archived ones included, and then filtered below.
+     *
+     * This query used to carry .eq("is_active", true), which meant an account
+     * on an archived plan could not find its own plan row - the page had a
+     * comment apologising for it and three branches hedging around the null.
+     * The row is needed to answer "what am I on and when does it end", so it is
+     * read here and what is FOR SALE is a filter rather than a query.
+     */
+    admin.from("plans").select("*").order("sort_order").order("price_per_month"),
     loadCreditRates(admin),
     loadCreditPacks(admin),
     loadSettings(admin),
@@ -69,13 +91,16 @@ export default async function PlanPage() {
 
   const plans = (planResult.data ?? []) as Plan[];
 
-  /**
-   * The plan row they are on, when it is still on sale. Archived plans are not
-   * in `plans` - somebody can be on one and go on being on one - so this is
-   * undefined often enough to matter, and every use of it below has to survive
-   * that rather than assume a match.
-   */
+  /** The paid plans, in order. The trial is claimed, never bought - see below. */
+  const onSale = plans.filter((plan) => plan.is_active && !plan.is_trial);
+  /** The trial, when there is one on offer. */
+  const trialPlan = plans.find((plan) => plan.is_trial && plan.is_active) ?? null;
+
+  /** The plan row they are on, archived or not. Null when there is no plan. */
   const currentPlan = plans.find((plan) => plan.id === overview.plan_id) ?? null;
+  const onTrial = currentPlan?.is_trial === true;
+
+  const support = { email: settings.supportEmail, phone: settings.supportPhone };
 
   const today = istToday();
   const expiresOn = overview.plan_expires_on;
@@ -100,8 +125,19 @@ export default async function PlanPage() {
     : payBlocked;
 
   /**
+   * Whether the trial is worth offering. The database has the final say -
+   * start_free_trial() refuses a second one for the same account, mailbox or
+   * mobile - and this is only about whether to draw the card at all.
+   *
+   * plan_assigned_at is set once and never cleared, so an account that has ever
+   * held a plan is not shown a button that would come back refused.
+   */
+  const trialOffered =
+    trialPlan !== null && overview.plan_id === null && overview.plan_assigned_at === null;
+
+  /**
    * The open pack sells a minimum and a rate, never a price, so it is quoted as
-   * "Rs 3,000 or more". Naming a single figure would advertise a purchase that
+   * "Rs 10,000 or more". Naming a single figure would advertise a purchase that
    * is only the smallest one available.
    */
   const openPack = packs.find((pack) => pack.is_open_ended);
@@ -116,24 +152,39 @@ export default async function PlanPage() {
         : "";
 
   /* ---------------------------------------------------------------------- */
-  /* no plan: one decision, nothing else above it                            */
+  /* nothing running: try it, buy it, or ask us                              */
   /* ---------------------------------------------------------------------- */
   if (!overview.plan_active) {
-    const returning = Boolean(overview.plan_id);
+    /*
+     * A lapsed PAID plan is the one state on this page with no button.
+     *
+     * Renewal is not self-service - that is the owner's instruction - so
+     * offering the grid here would sell a renewal the owner wants to handle
+     * themselves, and offering nothing at all would leave somebody staring at
+     * an expired account with no route anywhere. So it routes to a human.
+     *
+     * A lapsed TRIAL is the opposite case: buying a first plan is exactly what
+     * should happen next, so the grid stays.
+     */
+    const lapsedPaidPlan = expired && currentPlan !== null && !onTrial;
 
     return (
       <>
         <PageHeader
-          title={returning ? "Renew your plan" : "Choose a plan"}
-          /* The top-up rule is dropped from here: the Top up credits panel
-             already says it, at the point where somebody is about to do it. */
-          subtitle="How many trucks you can watch, and the credits to spend."
+          title={lapsedPaidPlan ? "Your plan has ended" : trialOffered ? "Start with a free trial" : "Choose a plan"}
+          subtitle={
+            lapsedPaidPlan
+              ? "Get in touch and we will put it back on."
+              : "How many trucks you can watch, and the credits to spend."
+          }
         />
 
         {expired ? (
           <Notice tone="bad">
-            Your plan ended on {fmtDate(expiresOn)}. Searching and automatic checks stay off until it
-            is renewed. Nothing you saved has been lost.
+            {onTrial ? "Your free trial ended" : "Your plan ended"} on {fmtDate(expiresOn)}.
+            Searching and automatic checks stay off until{" "}
+            {lapsedPaidPlan ? "it is put back on" : "a plan is active"}. Nothing you saved has been
+            lost.
           </Notice>
         ) : null}
 
@@ -144,28 +195,44 @@ export default async function PlanPage() {
           </Notice>
         ) : null}
 
-        {/* Nothing is running, so renewing the plan they were on is exactly
-            what this grid is for - see PlanStanding. */}
-        <BuyPlans
-          plans={plans}
-          brandName={settings.brandName}
-          currentPlanId={overview.plan_id}
-          currentPlan={currentPlan}
-          disabledReason={payBlocked}
-          standing={returning ? "expired" : "none"}
-        />
+        {lapsedPaidPlan ? (
+          <Panel
+            title="Renewing is done by us"
+            description="So that the term and the price are right for how you have actually been using it. Tell us you want it back and we will set it up the same day."
+          >
+            <SupportPanel support={support} />
+          </Panel>
+        ) : (
+          <>
+            {trialOffered && trialPlan ? (
+              <TrialCard plan={trialPlan} className="mb-4" />
+            ) : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Step n={1} title="Pick a plan">
-            It decides how many trucks may be watched at once.
-          </Step>
-          <Step n={2} title="Spend the credits">
-            Every search and automatic check draws from one balance.
-          </Step>
-          <Step n={3} title="Top up when low">
-            Buy more credits at any time. The plan stays as it is.
-          </Step>
-        </div>
+            {trialOffered ? (
+              <p className="mb-3 text-sm text-muted">Or start on a paid plan straight away.</p>
+            ) : null}
+
+            <BuyPlans
+              plans={onSale}
+              brandName={settings.brandName}
+              currentPlan={currentPlan}
+              disabledReason={payBlocked}
+              standing="none"
+            />
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Step n={1} title="Pick a plan">
+                It decides how many trucks may be watched at once, and how long for.
+              </Step>
+              <Step n={2} title="Spend the credits">
+                Every search and automatic check draws from one balance.
+              </Step>
+              <Step n={3} title="Top up when low">
+                Buy more credits at any time. The plan stays as it is.
+              </Step>
+            </div>
+          </>
+        )}
 
         {settings.referralEnabled ? <InviteCard className="mt-3" /> : null}
 
@@ -197,25 +264,12 @@ export default async function PlanPage() {
   const outOfCredits = standing === "empty";
 
   /**
-   * Out of truck slots, and the plan is the only thing that fixes it - credits
-   * cannot buy a slot. This is the one state where changing plan is the answer
-   * rather than an option, so it decides both the link in the truck tile and
-   * whether the plan section arrives already open.
+   * Out of truck slots. On a trial that is one truck and a paid plan is the
+   * answer; on a paid plan credits cannot buy a slot either, but the fix is a
+   * conversation rather than a purchase.
    */
   const outOfSlots = overview.truck_limit !== -1 && overview.active_trucks >= overview.truck_limit;
   const endingSoon = daysLeft !== null && daysLeft <= 14;
-
-  /**
-   * Whether a bigger limit is actually for sale. Without this the tile offers a
-   * way out of a full fleet to somebody already on the largest plan there is,
-   * which sends them to a grid where every card is a sideways move or worse.
-   *
-   * Compared against the limit in force rather than the plan's own, because an
-   * account whose limit was raised by hand may already be above every plan.
-   */
-  const biggerPlanAvailable =
-    overview.truck_limit !== -1 &&
-    plans.some((plan) => plan.truck_limit === -1 || plan.truck_limit > overview.truck_limit);
 
   return (
     <>
@@ -224,14 +278,32 @@ export default async function PlanPage() {
         subtitle="What you have left, and how to add more."
       />
 
-      {/* This used to say "renew it below", which is no longer a thing that can
-          be done from here: renewal opens once the plan has actually run out.
-          So it names the date and says when the button appears, rather than
-          pointing at one that is not there. */}
-      {daysLeft !== null && daysLeft <= 14 ? (
+      {/*
+        The trial's own banner, and it says the two things a trial is short of:
+        the day it stops, and that one truck is the limit. Deliberately louder
+        than the paid-plan notice below - a trial has a deadline, and the whole
+        reason it exists is to end in a decision.
+      */}
+      {onTrial ? (
+        <p className="mb-3 flex items-start gap-2.5 rounded-xl border border-brand-500/40 bg-brand-500/8 px-4 py-2.5 text-sm leading-relaxed text-ink">
+          <Gift size={16} className="mt-0.5 shrink-0 text-brand-500" />
+          <span>
+            <span className="font-medium">
+              Free trial —{" "}
+              {daysLeft === 0
+                ? "last day"
+                : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+              .
+            </span>{" "}
+            It ends on {fmtDate(expiresOn)} and stops by itself. Move to a paid plan below whenever
+            you like — the trial&apos;s remaining days are not carried over, so the new term starts
+            the day you buy it.
+          </span>
+        </p>
+      ) : daysLeft !== null && daysLeft <= 14 ? (
         <Notice tone="warn">
-          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}.
-          Renewing opens on that date — come back then, or move to a different plan now.
+          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}. Get
+          in touch before then and we will put the next term on.
         </Notice>
       ) : null}
 
@@ -267,11 +339,15 @@ export default async function PlanPage() {
             </p>
             <p className="mt-1.5 flex flex-wrap items-center gap-2">
               <span className="text-lg font-semibold text-strong">{overview.plan_name}</span>
-              <Badge tone="good">Active</Badge>
+              {onTrial ? <Badge tone="brand">Trial</Badge> : <Badge tone="good">Active</Badge>}
               {overview.has_overrides ? <Badge tone="brand">customised</Badge> : null}
             </p>
             <p className="mt-1 text-xs text-muted">
-              {overview.price_per_month ? `${fmtRupees(overview.price_per_month)} a month · ` : ""}
+              {/* The term, not the monthly rate. A customer who paid 2,388 rupees
+                  for a year is not helped by being told the plan is 199 a month. */}
+              {!onTrial && currentPlan && currentPlan.price_per_month > 0
+                ? `${planTermLabel(currentPlan).toLowerCase()} · `
+                : ""}
               {expiresOn ? (
                 <>
                   ends {fmtDate(expiresOn)}
@@ -298,11 +374,10 @@ export default async function PlanPage() {
                   : `${fmtNumber(overview.truck_limit - overview.active_trucks)} more can be added.`}
             </p>
 
-            {/* This tile used to end on "A bigger plan adds more" with nothing
-                to tap - the plan grid was folded away at the very bottom of the
-                page, under the payment history. The sentence that names the fix
-                is the right place to offer it. */}
-            {outOfSlots && biggerPlanAvailable ? (
+            {/* On a trial there is somewhere to send them; on a paid plan the
+                answer is the support panel further down, which the link would
+                only duplicate. */}
+            {outOfSlots && onTrial ? (
               <Link
                 href="#plan"
                 className="mt-0.5 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-500 transition hover:underline"
@@ -348,88 +423,83 @@ export default async function PlanPage() {
       </Panel>
 
       {/*
-        The plan, immediately under the top-up and no further away.
+        The plan, immediately under the top-up and no further away - but what is
+        on offer here depends entirely on which plan is running.
 
-        This section used to be the last thing on the page, folded shut below
-        the payment history, titled "Renew or change plan" - so an account whose
-        trucks were all in use had a panel telling them a bigger plan would help
-        and no reachable way to buy one. It sits next to the top-up now because
-        the two are the pair a customer has to tell apart: this one moves the
-        truck limit and the end date, that one only adds credits. It opens by
-        itself in the two states where it is the answer rather than an option.
+        ON A TRIAL this is the conversion, and it is the most important thing on
+        the page after the balance: a grid of paid plans, open, not folded.
+
+        ON A PAID PLAN there is nothing to sell. A customer cannot move plan,
+        renew early or downgrade on their own, so this is a route to a human and
+        a plain statement of what they are on. The alternative - leaving the grid
+        up - is a page that takes money for a change the owner has said they want
+        to handle themselves.
       */}
       <div id="plan" className="mb-3 scroll-mt-20">
-        <Disclosure
-          /* "or renew" has gone: while a plan is running the only thing on
-             offer here is a different one. Renewal comes back on the expiry
-             screen, which is a different branch of this page entirely. */
-          title="Change or upgrade your plan"
-          hint="Sets how many trucks you can watch and when the plan ends. Not the way to get more credits."
-          badge={
-            outOfSlots ? (
-              <Badge tone="warn">Every slot in use</Badge>
-            ) : endingSoon ? (
-              <Badge tone="warn">Ends soon</Badge>
-            ) : null
-          }
-          defaultOpen={outOfSlots || endingSoon}
-        >
-          <div className="mb-4 grid gap-2 sm:grid-cols-2">
-            <Difference icon={<Wallet size={13} />} title="Topping up credits">
-              Adds credits and does nothing else. Your plan, its end date and its truck limit stay
-              exactly as they are.
-            </Difference>
-            <Difference icon={<Truck size={13} />} title="Changing your plan" highlight>
-              Sets a new truck limit straight away, and moves the end date out by the term you buy.
-              The new plan&apos;s included credits are added on top of the balance you already have.
-            </Difference>
-          </div>
+        {onTrial ? (
+          <Panel
+            title="Move to a paid plan"
+            description="Watch more than one truck, and keep going after the trial ends. You can do this at any point during the trial."
+          >
+            <div className="mb-4 grid gap-2 sm:grid-cols-2">
+              <Difference icon={<Wallet size={13} />} title="Topping up credits">
+                Adds credits and does nothing else. Your trial still ends on{" "}
+                {fmtDate(expiresOn)}.
+              </Difference>
+              <Difference icon={<Truck size={13} />} title="Buying a plan" highlight>
+                Raises the truck limit straight away and starts a paid term from today. The
+                plan&apos;s included credits are added on top of the balance you already have.
+              </Difference>
+            </div>
 
-          {/*
-            What settle_payment() actually does, rather than a promise made up
-            to sound generous. It sets the new expiry to
-            greatest(current expiry, today) + the months bought, so days already
-            paid for are carried rather than thrown away - and there is no
-            refund of the difference either, which is why this says the term is
-            added on and not that the change is pro-rated.
-          */}
-          <p className="mb-3 text-xs leading-relaxed text-muted">
-            {expiresOn
-              ? `Nothing you have already paid for is lost: whatever term you buy is counted on from ${fmtDate(expiresOn)}, not from today. There is no refund of the difference in price.`
-              : "The term you buy is counted on from today."}
-          </p>
-
-          {/* Somebody who came here to renew has to be told where it went, or
-              they read the missing button as a fault. The card for the plan
-              they are on says "Your current plan" and does nothing, so this is
-              the sentence that explains it. */}
-          <p className="mb-3 text-xs leading-relaxed text-muted">
-            Staying on {overview.plan_name}? There is nothing to do — it runs until{" "}
-            {expiresOn ? fmtDate(expiresOn) : "it is cancelled"}, and renewing it opens on that day.
-          </p>
-
-          {/*
-            An override on user_limit_overrides.truck_limit beats the plan's own
-            in officer_effective_limits, so for these accounts a bigger plan may
-            change nothing on screen. Hedged rather than stated flatly, because
-            has_overrides is true even when only some other limit was adjusted.
-          */}
-          {overview.has_overrides ? (
-            <p className="mb-3 text-xs leading-relaxed text-warn-500">
-              Your limits have been adjusted by hand for this account, so a different plan may not
-              change how many trucks you can watch. Check with support before buying one.
+            <BuyPlans
+              plans={onSale}
+              brandName={settings.brandName}
+              currentPlan={currentPlan}
+              disabledReason={payBlocked}
+              standing="trial"
+            />
+          </Panel>
+        ) : (
+          <Disclosure
+            title="Changing your plan"
+            hint="A different plan, more trucks, or the next term — all of it goes through us."
+            badge={
+              outOfSlots ? (
+                <Badge tone="warn">Every slot in use</Badge>
+              ) : endingSoon ? (
+                <Badge tone="warn">Ends soon</Badge>
+              ) : null
+            }
+            defaultOpen={outOfSlots || endingSoon}
+          >
+            <p className="mb-3 text-sm leading-relaxed text-ink">
+              You are on {overview.plan_name}
+              {overview.truck_limit === -1
+                ? ", with no limit on trucks"
+                : `, watching up to ${fmtNumber(overview.truck_limit)} truck${overview.truck_limit === 1 ? "" : "s"} at once`}
+              {expiresOn ? `, until ${fmtDate(expiresOn)}` : ""}.
             </p>
-          ) : null}
 
-          <BuyPlans
-            plans={plans}
-            brandName={settings.brandName}
-            currentPlanId={overview.plan_id}
-            currentPlan={currentPlan}
-            disabledReason={payBlocked}
-            standing="live"
-          />
-        </Disclosure>
+            {/* Said before the contact details, because it is the answer to the
+                question most people arrive here with - and it costs them
+                nothing to read it first. */}
+            <p className="mb-3 text-xs leading-relaxed text-muted">
+              Credits are the thing you can change yourself: top up above, at any time, without
+              touching the plan. A different truck limit or another term is a quick conversation —
+              tell us what you need and we will price it against how you have been using it.
+            </p>
+
+            {overview.has_overrides ? (
+              <p className="mb-3 text-xs leading-relaxed text-warn-500">
+                Your limits have been adjusted by hand for this account, so they may not match the
+                plan as listed. Mention that when you get in touch.
+              </p>
+            ) : null}
+
+            <SupportPanel support={support} />
+          </Disclosure>
+        )}
       </div>
 
       {/* The other way to get credits, right where someone is deciding how
@@ -480,6 +550,86 @@ export default async function PlanPage() {
 /* pieces                                                                      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The trial, offered once.
+ *
+ * Deliberately a panel of its own above the paid grid rather than a fourth card
+ * in it. It is not a cheaper plan - it is free, it lasts days rather than
+ * months, it watches one truck, and it can only ever be taken once - so putting
+ * it in a row of price cards would invite a comparison on price, which is the
+ * one axis it wins on and the one that tells a buyer nothing.
+ *
+ * Every number here is read off the plan row, so an admin changing the offer on
+ * the Plans tab changes this card with it. Nothing about "7 days" or "15
+ * credits" is written into this file.
+ */
+function TrialCard({ plan, className }: { plan: Plan; className?: string }) {
+  const days = plan.trial_days ?? 7;
+  const trucks =
+    plan.truck_limit === -1
+      ? "as many trucks as you like"
+      : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"}`;
+
+  return (
+    <div
+      className={cx(
+        "rounded-xl border border-brand-500/50 bg-brand-500/8 p-4 ring-1 ring-brand-500/15",
+        className,
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-strong">
+          <Gift size={15} className="shrink-0 text-brand-500" />
+          {plan.name}
+        </p>
+        <Badge tone="good">No payment</Badge>
+      </div>
+
+      <p className="mt-2 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold text-strong">Free</span>
+        <span className="text-xs text-muted">
+          for {days} day{days === 1 ? "" : "s"}
+        </span>
+      </p>
+
+      {plan.description ? (
+        <p className="mt-1.5 text-xs leading-relaxed text-muted">{plan.description}</p>
+      ) : null}
+
+      <ul className="mt-3 space-y-1.5 border-t border-brand-500/20 pt-3">
+        <TrialPoint icon={<Wallet size={13} />}>
+          {formatCredits(plan.included_credits)} credits to spend — enough for{" "}
+          {formatCredits(plan.included_credits)} searches
+        </TrialPoint>
+        <TrialPoint icon={<Truck size={13} />}>{trucks} watched automatically</TrialPoint>
+        <TrialPoint icon={<CalendarDays size={13} />}>
+          Ends by itself after {days} day{days === 1 ? "" : "s"} — nothing to cancel
+        </TrialPoint>
+      </ul>
+
+      {/* One trial per customer, said before the button rather than after it
+          comes back refused. */}
+      <p className="mt-3 text-[11px] leading-relaxed text-faint">
+        One trial per customer. You can move to a paid plan at any time, during the trial or after
+        it has ended.
+      </p>
+
+      <ActionForm action={startFreeTrial} closeOnSuccess={false} className="mt-3">
+        <SubmitButton pendingLabel="Starting...">Start the free trial</SubmitButton>
+      </ActionForm>
+    </div>
+  );
+}
+
+function TrialPoint({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2 text-xs leading-relaxed text-ink">
+      <span className="mt-0.5 shrink-0 text-brand-500">{icon}</span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
 function Notice({ tone, children }: { tone: "warn" | "bad"; children: React.ReactNode }) {
   const Icon = tone === "bad" ? AlertTriangle : CalendarDays;
   return (
@@ -498,14 +648,14 @@ function Notice({ tone, children }: { tone: "warn" | "bad"; children: React.Reac
 }
 
 /**
- * One half of the top-up / change-plan contrast, side by side so the
- * distinction is read rather than remembered.
+ * One half of the top-up / buy-a-plan contrast, side by side so the distinction
+ * is read rather than remembered.
  *
  * Both buttons on this page open the same payment window and take the same
  * money, and the only difference is what arrives afterwards - which is exactly
  * the sort of difference a sentence buried in a panel description does not
- * convey. Changing plan is the highlighted half because it is the one being
- * offered here; topping up is on screen for comparison.
+ * convey. The plan is the highlighted half because it is the one being offered
+ * here; topping up is on screen for comparison.
  */
 function Difference({
   icon,

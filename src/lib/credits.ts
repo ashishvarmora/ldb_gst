@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditPack, CreditRate, CreditVerdict } from "@/lib/types";
+import type { CreditPack, CreditRate, CreditVerdict, Plan } from "@/lib/types";
 
 /**
  * One balance pays for everything.
@@ -260,6 +260,10 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   signup_bonus: "Free credits on sign-up",
   coupon_bonus: "Credit code redeemed",
   plan_grant: "Included with plan",
+  // Written by start_free_trial(). Classified as 'free' by credit_source(), so
+  // the admin's credit economy report counts it as a giveaway rather than
+  // filing it under "other".
+  trial_grant: "Free trial credits",
   // Written by reward_referral(). Without these two the credit history shows a
   // column value to a customer, which is the one place a raw reason leaks out.
   referral: "Referral reward",
@@ -323,6 +327,53 @@ export function creditsForAmount(
   // Rounded down, like the database: never hand over a fraction of a credit
   // that was not paid for.
   return Math.floor(amountInr * (creditsPerRupee || 1) * (pack.credit_percent || 100) / 100);
+}
+
+/* -------------------------------------------------------------------------- */
+/* what a plan costs, and for how long                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A plan's term, and what buying it actually charges.
+ *
+ * Both live here rather than in each screen because three of them have to agree
+ * exactly: the admin's preview, the plan card a customer decides on, and the
+ * order the checkout opens. price_per_month is a UNIT price - the sum charged is
+ * that times the term - and a screen that quoted the unit as the price would
+ * understate a twelve-month plan by a factor of twelve.
+ *
+ * A plan with no term still charges price_per_month, once. That is the honest
+ * reading of "no expiry": there is no second payment to spread it over.
+ */
+export type PlanTerm = Pick<Plan, "price_per_month" | "duration_months">;
+
+/** Months the plan runs for, or null for no expiry. */
+export function planMonths(plan: PlanTerm): number | null {
+  const months = plan.duration_months;
+  return typeof months === "number" && Number.isFinite(months) && months > 0 ? months : null;
+}
+
+/** Rupees taken at the checkout: the unit price times the term. */
+export function planChargeInr(plan: PlanTerm): number {
+  const months = planMonths(plan) ?? 1;
+  return Math.round(plan.price_per_month * months * 100) / 100;
+}
+
+/** "12 months" · "1 month" · "No expiry". */
+export function planTermLabel(plan: PlanTerm): string {
+  const months = planMonths(plan);
+  if (months === null) return "No expiry";
+  return months === 1 ? "1 month" : `${months} months`;
+}
+
+/**
+ * The term as it reads under a price. Lower case, so it sits after a figure:
+ * "Rs 2,388 for 12 months", "Rs 199 once - the plan never expires".
+ */
+export function planTermSuffix(plan: PlanTerm): string {
+  const months = planMonths(plan);
+  if (months === null) return "once - the plan never expires";
+  return months === 1 ? "for 1 month" : `for ${months} months`;
 }
 
 /** "250% of what you pay" - the open tier stated as a sentence. */

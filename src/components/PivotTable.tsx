@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
-import type { Sort } from "@/components/charts";
+import { SortHeader, type Sort } from "@/components/charts";
 import { TableWrap, Tbody, Thead, Tr, cx } from "@/components/ui";
 import {
   PIVOT_DIMENSIONS,
@@ -227,55 +226,6 @@ export function PivotTable({
   );
 }
 
-/**
- * A column header that sorts.
- *
- * The arrow shows the direction only on the column actually in force; every
- * other header gets a faint dash, so the header row says "these are all
- * sortable" without four arrows competing for the reader's attention.
- */
-function SortHeader({
-  label,
-  sortKey,
-  sort,
-  href,
-  align = "left",
-}: {
-  label: string;
-  sortKey: string;
-  sort?: SortState;
-  href: (key: string) => string;
-  align?: "left" | "right";
-}) {
-  const on = sort?.key === sortKey;
-
-  return (
-    <Link
-      href={href(sortKey)}
-      aria-label={
-        on
-          ? `Sorted by ${label}, ${sort?.desc ? "highest first" : "lowest first"}. Reverse it.`
-          : `Sort by ${label}`
-      }
-      className={cx(
-        "group inline-flex min-h-8 items-center gap-1 rounded transition",
-        align === "right" && "flex-row-reverse",
-        on ? "text-brand-500" : "text-muted hover:text-ink",
-      )}
-    >
-      {label}
-      {on ? (
-        sort?.desc ? (
-          <ArrowDown size={12} className="shrink-0" />
-        ) : (
-          <ArrowUp size={12} className="shrink-0" />
-        )
-      ) : (
-        <Minus size={12} className="shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
-      )}
-    </Link>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /* The measures every ledger screen wants                                      */

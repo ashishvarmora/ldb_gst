@@ -90,6 +90,42 @@ function WhenCell({ at, exact }: { at: string; exact?: string }) {
 /* Payments                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What one payment did to the balance: before, and after.
+ *
+ * Nothing at all when no ledger row was written against the payment, and that
+ * emptiness is the useful signal - a settled payment with no movement is a
+ * genuine problem, and a dash says so more clearly than a zero would.
+ */
+function BalanceCell({
+  effect,
+}: {
+  effect?: { credits_added: number; balance_before: number | null; balance_after: number | null };
+}) {
+  const added = Number(effect?.credits_added ?? 0);
+
+  if (!effect || added === 0 || effect.balance_after === null) {
+    return (
+      <td className="td text-right text-xs text-faint">
+        <span title="No credit movement is recorded against this payment.">&mdash;</span>
+      </td>
+    );
+  }
+
+  return (
+    <td className="td text-right text-sm whitespace-nowrap tabular-nums">
+      <span className="text-muted">{formatCredits(Number(effect.balance_before ?? 0))}</span>
+      <span className="mx-1 text-faint" aria-hidden>
+        &rarr;
+      </span>
+      <span className="font-medium text-ink">{formatCredits(Number(effect.balance_after))}</span>
+      <span className="mt-0.5 block text-xs font-normal text-good-500">
+        +{formatCredits(added)}
+      </span>
+    </td>
+  );
+}
+
 export function PaymentsTable({
   rows,
   nameOf,
@@ -97,6 +133,7 @@ export function PaymentsTable({
   packName,
   emptyTitle,
   emptyDescription,
+  effectOf,
 }: {
   rows: Payment[];
   /** Given, the table names the customer on every row and links to them. */
@@ -105,6 +142,20 @@ export function PaymentsTable({
   packName?: ReadonlyMap<string, string>;
   emptyTitle: string;
   emptyDescription?: string;
+  /**
+   * What each payment did to the balance, keyed by payment id, from
+   * payment_credit_effect.
+   *
+   * The support question this answers is "they say the credits never arrived" -
+   * and "Credits: 10" beside the payment does not answer it, because that
+   * column is what the payment was FOR, copied off the order at checkout. It
+   * says nothing about whether a ledger row was ever written. The balance
+   * either side is the proof, and its absence is the proof of the opposite.
+   */
+  effectOf?: ReadonlyMap<
+    string,
+    { credits_added: number; balance_before: number | null; balance_after: number | null }
+  >;
 }) {
   if (rows.length === 0) {
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
@@ -118,6 +169,7 @@ export function PaymentsTable({
         <th className="th">Bought</th>
         <th className="th text-right">Amount</th>
         <th className="th text-right">Credits</th>
+        {effectOf ? <th className="th text-right whitespace-nowrap">Balance</th> : null}
         <th className="th">Status</th>
         <th className="th">Order</th>
       </Thead>
@@ -169,6 +221,7 @@ export function PaymentsTable({
               <td className="td text-right text-sm tabular-nums text-muted">
                 {formatCredits(row.credits)}
               </td>
+              {effectOf ? <BalanceCell effect={effectOf.get(row.id)} /> : null}
               <td className="td">
                 <Badge tone={PAYMENT_TONE[row.status]}>{PAYMENT_LABEL[row.status]}</Badge>
                 {row.failure_reason ? (

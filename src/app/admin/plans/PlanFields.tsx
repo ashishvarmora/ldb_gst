@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Eye } from "lucide-react";
 
 import { PlanPreview } from "./PlanPreview";
-import { Field, FormGrid, Input, Textarea } from "@/components/form";
+import { Field, FormGrid, Input, Select, Textarea } from "@/components/form";
 import { NUMERIC_LIMITS, UNLIMITED, parseLimitInput } from "@/lib/limits";
 import type { Plan } from "@/lib/types";
 
@@ -17,6 +17,22 @@ function amount(raw: string): number {
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
+
+/**
+ * The four terms a plan may be sold for, and "off" for no expiry.
+ *
+ * Not a free number box, and this is the reason: the checkout charges
+ * price_per_month x the term, and it only knows how to price these four - see
+ * ALLOWED_MONTHS in checkout-actions.ts, which a check constraint on the column
+ * mirrors. A typed 24 would be charged as one month and granted as two years.
+ */
+const TERMS = [
+  { value: "", label: "Off - no expiry" },
+  { value: "1", label: "1 month" },
+  { value: "3", label: "3 months" },
+  { value: "6", label: "6 months" },
+  { value: "12", label: "12 months" },
+] as const;
 
 /**
  * Every field of a plan. Shared by the create and edit forms so the two can
@@ -33,11 +49,23 @@ function amount(raw: string): number {
  * pays, and typing them blind is how a wrong price ships.
  */
 export function PlanFields({ plan }: { plan?: Plan }) {
+  const isTrial = plan?.is_trial ?? false;
+
   const [draft, setDraft] = useState({
     name: plan?.name ?? "",
     description: plan?.description ?? "",
     price: String(plan?.price_per_month ?? 0),
     credits: String(plan?.included_credits ?? 0),
+    /*
+     * A new plan opens on twelve months rather than on "off".
+     *
+     * The default has to be a real term, because the alternative default is
+     * selling access for ever by omission - and that is exactly the mistake
+     * this field exists to stop. An admin who genuinely wants no expiry has to
+     * choose it.
+     */
+    months: plan ? (plan.duration_months === null ? "" : String(plan.duration_months)) : "12",
+    trialDays: String(plan?.trial_days ?? 7),
   });
 
   const [limits, setLimits] = useState<Record<string, string>>(() =>
@@ -59,6 +87,19 @@ export function PlanFields({ plan }: { plan?: Plan }) {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_16rem]">
       <div className="space-y-5">
+        {/* The trial is a plan row, so it is edited here like any other - but
+            three of these fields do not apply to it and one of them (the price)
+            is refused by a check constraint. Said once, at the top, rather than
+            hedged on every field below. */}
+        {isTrial ? (
+          <p className="rounded-lg border border-brand-500/40 bg-brand-500/8 px-3 py-2.5 text-xs leading-relaxed text-muted">
+            <span className="font-medium text-brand-400">This is the free trial.</span> It is always
+            free and it is handed over by the portal rather than bought, so it has no price and no
+            month term. What you set here is the offer: how many days it runs, how many credits it
+            opens with, and how many trucks it allows.
+          </p>
+        ) : null}
+
         <FormGrid cols={2}>
           <Field label="Plan name" name="name" hint="The heading on the public plan page.">
             <Input
@@ -70,21 +111,61 @@ export function PlanFields({ plan }: { plan?: Plan }) {
               autoComplete="off"
             />
           </Field>
-          <Field
-            label="Price per month (Rs)"
-            name="price_per_month"
-            hint="What a customer is charged when they buy this plan. Zero makes it a free plan."
-          >
-            <Input
+          {isTrial ? (
+            <Field
+              label="Trial length (days)"
+              name="trial_days"
+              hint="It ends by itself on that day - the end date is stored on the account and plan_active is computed from it, so nothing has to run."
+            >
+              <Input
+                name="trial_days"
+                type="number"
+                required
+                min={1}
+                max={90}
+                step="1"
+                value={draft.trialDays}
+                onChange={(e) => edit({ trialDays: e.target.value })}
+              />
+            </Field>
+          ) : (
+            <Field
+              label="Price per month (Rs)"
               name="price_per_month"
-              type="number"
-              min={0}
-              step="1"
-              value={draft.price}
-              onChange={(e) => edit({ price: e.target.value })}
-            />
-          </Field>
+              hint="A unit price, not the bill. The customer is charged this times the term below."
+            >
+              <Input
+                name="price_per_month"
+                type="number"
+                min={0}
+                step="1"
+                value={draft.price}
+                onChange={(e) => edit({ price: e.target.value })}
+              />
+            </Field>
+          )}
         </FormGrid>
+
+        {isTrial ? null : (
+          <Field
+            label="This plan lasts"
+            name="duration_months"
+            hint="Buying it ends this long after the purchase date. Off means it never expires - one payment, for ever."
+          >
+            <Select
+              name="duration_months"
+              value={draft.months}
+              onChange={(e) => edit({ months: e.target.value })}
+              className="max-w-56"
+            >
+              {TERMS.map((term) => (
+                <option key={term.value} value={term.value}>
+                  {term.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         <Field
           label="Description"
@@ -165,10 +246,14 @@ export function PlanFields({ plan }: { plan?: Plan }) {
         <PlanPreview
           name={draft.name}
           description={draft.description}
-          pricePerMonth={amount(draft.price)}
+          pricePerMonth={isTrial ? 0 : amount(draft.price)}
+          /* Blank reads as no expiry, which is what the column stores. */
+          durationMonths={isTrial || draft.months === "" ? null : amount(draft.months)}
           includedCredits={amount(draft.credits)}
           truckLimit={truckLimit ?? 0}
           isActive={plan?.is_active ?? true}
+          isTrial={isTrial}
+          trialDays={isTrial ? amount(draft.trialDays) : null}
         />
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
           This is what a customer sees before they pay. Archived plans are hidden from that page but

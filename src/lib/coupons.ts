@@ -1,14 +1,24 @@
 import { formatCredits } from "@/lib/credits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { Coupon, CouponUsage, CouponVerdict } from "@/lib/types";
+import type { Coupon, CouponKind, CouponUsage, CouponVerdict } from "@/lib/types";
 
 /**
- * Discount codes.
+ * Codes, of which there are two sorts that must never be read as one.
  *
- * A coupon reduces what someone PAYS. It never reduces what they GET: the
- * credits for a pack, or for an amount on the open tier, come from the price
- * before the discount. That is what a discount means to a buyer - the same
- * goods for less money.
+ * A DISCOUNT code (percent, flat) reduces what someone PAYS. It never reduces
+ * what they GET: the credits for a pack, or for an amount on the open tier,
+ * come from the price before the discount. That is what a discount means to a
+ * buyer - the same goods for less money.
+ *
+ * A FREE CREDIT code (credit_bonus) reduces nothing. It grants credits, is
+ * claimed on its own without a purchase, and is refused outright at a checkout
+ * - see 0030, where a 500-credit code was being read as a 500% discount
+ * because one branch of arithmetic served an open set of kinds.
+ *
+ * They are paid in different units, and that is the whole reason the
+ * classification below is written down once rather than re-derived per screen.
+ * Every screen that assumed rupees is a screen where a 500-credit grant
+ * rendered as Rs 0.
  *
  * Every question about a code is answered by validate_coupon() in the
  * database, and the claim is held by reserve_coupon(). Neither is duplicated
@@ -17,6 +27,34 @@ import type { Coupon, CouponUsage, CouponVerdict } from "@/lib/types";
  */
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
+
+/**
+ * One row of coupon_usage as 0033 leaves it.
+ *
+ * Extended here rather than in lib/types, because these four columns exist for
+ * the rewards screens and the base CouponUsage is read elsewhere with an older
+ * shape. Where they come from and why the database computes them:
+ *
+ *   credits_given  a bonus code's payout, which no rupee column can see. It
+ *                  was being worked out as value x used on the codes list AND
+ *                  again in the delete warning - two copies of one sum, which
+ *                  is two chances to be wrong about what a giveaway cost.
+ *   abandoned      a reservation past the release window. It used to count as
+ *                  "held" and to be subtracted from claims_left, so a closed
+ *                  tab read as consumed supply until the next person anywhere
+ *                  typed a code.
+ *   handed_back    reservations already released. Reported so "3 claims" on
+ *                  the claims report and "1 used" here stop looking like a
+ *                  contradiction.
+ *   accounts       how many different people settled a claim, which is what
+ *                  separates a popular code from a farmed one.
+ */
+export type CouponRow = CouponUsage & {
+  abandoned: number;
+  handed_back: number;
+  accounts: number;
+  credits_given: number;
+};
 
 /** Codes are stored and compared upper case, so a shift key never matters. */
 export function normaliseCode(raw: string | null | undefined): string {
@@ -112,13 +150,68 @@ export async function releaseCoupon(admin: Admin, paymentId: string): Promise<vo
   if (error) console.error("settle_coupon release failed", error.message);
 }
 
-export async function loadCoupons(admin: Admin): Promise<CouponUsage[]> {
+export async function loadCoupons(admin: Admin): Promise<CouponRow[]> {
   const { data } = await admin
     .from("coupon_usage")
     .select("*")
     .order("is_active", { ascending: false })
     .order("created_at", { ascending: false });
-  return (data ?? []) as CouponUsage[];
+  return (data ?? []) as CouponRow[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* the two sorts of code                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which of the two things a code is, and what it is paid in.
+ *
+ * `family` is the classification the owner asked for - "free credit can become
+ * messy so fix it history by proper filter and classification option". Two
+ * families, three kinds, because a percentage and a fixed amount are two ways
+ * of writing the same promise and a credit grant is not a discount at all.
+ *
+ * `unit` is here so a table can pick its own column without a second switch on
+ * `kind` in every cell. That second switch is exactly what went wrong twice
+ * already: once in validate_coupon, where credit_bonus fell into the
+ * percentage branch, and once in describeCoupon, where it fell into "Rs N off".
+ */
+export const COUPON_FAMILIES = [
+  {
+    key: "discount",
+    label: "Discount codes",
+    /** How the family reads on a row, in as few words as fit a badge. */
+    short: "Discount",
+    hint: "Takes money off a payment",
+    kinds: ["percent", "flat"] as CouponKind[],
+  },
+  {
+    key: "credit",
+    label: "Free credit codes",
+    short: "Free credits",
+    hint: "Grants credits, claimed on its own, changes no price",
+    kinds: ["credit_bonus"] as CouponKind[],
+  },
+] as const;
+
+export type CouponFamily = (typeof COUPON_FAMILIES)[number]["key"];
+
+/** Which family a kind belongs to. The only place this decision is made. */
+export function couponFamily(kind: CouponKind | string): CouponFamily {
+  return kind === "credit_bonus" ? "credit" : "discount";
+}
+
+/** A family key out of a URL, or undefined for "both". */
+export function parseCouponFamily(raw: string | undefined): CouponFamily | undefined {
+  return COUPON_FAMILIES.some((family) => family.key === raw)
+    ? (raw as CouponFamily)
+    : undefined;
+}
+
+/** "Discount" / "Free credits", for a badge on a row. */
+export function couponFamilyLabel(kind: CouponKind | string): string {
+  const key = couponFamily(kind);
+  return COUPON_FAMILIES.find((family) => family.key === key)?.short ?? key;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -162,6 +255,82 @@ export function describeClaims(usage: CouponUsage): string {
     return `${used} claimed, no limit`;
   }
   return `${used} of ${usage.max_claims.toLocaleString("en-IN")} claimed`;
+}
+
+/**
+ * What this code has actually handed over, in its own unit.
+ *
+ * One function because the answer lives in a different column for each family
+ * and the wrong column is a zero, not an error - which is how TOPUP500 came to
+ * be reported as having given nothing away after granting 500 credits. The
+ * `credits` flag is returned rather than the caller re-deriving it, so a cell
+ * cannot format rupees with a credit figure in it.
+ */
+export function couponPayout(coupon: CouponRow): {
+  credits: boolean;
+  amount: number;
+  text: string;
+  /** What the figure is measured against, or null when there is nothing to say. */
+  against: string | null;
+} {
+  if (couponFamily(coupon.kind) === "credit") {
+    const amount = Number(coupon.credits_given ?? 0);
+    return {
+      credits: true,
+      amount,
+      text: formatCredits(amount),
+      against: amount > 0 ? "credits" : null,
+    };
+  }
+
+  const amount = Number(coupon.discount_given ?? 0);
+  return {
+    credits: false,
+    amount,
+    text: fmtRupeesPlain(amount),
+    against: amount > 0 ? `off ${fmtRupeesPlain(Number(coupon.list_total ?? 0))}` : null,
+  };
+}
+
+/* Local rather than imported from lib/format: this file is read by the portal
+   as well, and "Rs" without the symbol is what every admin table already
+   prints, so the two must match. */
+function fmtRupeesPlain(value: number): string {
+  return `Rs ${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
+/**
+ * The holds on a code, said as what they are.
+ *
+ * Three numbers, and the difference between them is the whole of the bug the
+ * owner reported. A LIVE hold is a checkout that could still be paid, and it
+ * does count against the limit - that is what stops two people spending the
+ * last use of a single-use code at the same instant. An ABANDONED hold is a
+ * closed tab: 0033 stops it counting against anything, and the next code
+ * anybody types hands it back. Neither is a claim, and neither means the code
+ * was used.
+ *
+ * Null when there is nothing worth saying, so a row with no holds carries no
+ * line rather than a reassuring one nobody reads.
+ */
+export function describeHolds(coupon: CouponRow): string | null {
+  const holding = Number(coupon.holding ?? 0);
+  const abandoned = Number(coupon.abandoned ?? 0);
+
+  if (holding === 0 && abandoned === 0) return null;
+
+  const parts: string[] = [];
+  if (holding > 0) {
+    parts.push(
+      `${holding} checkout${holding === 1 ? "" : "s"} still open, holding a claim until the money arrives`,
+    );
+  }
+  if (abandoned > 0) {
+    parts.push(
+      `${abandoned} checkout${abandoned === 1 ? " was" : "s were"} abandoned — handed back, counting against nothing`,
+    );
+  }
+  return parts.join(" · ");
 }
 
 /** Why a coupon is not usable right now, or null when it is fine. */

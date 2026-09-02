@@ -1,3 +1,4 @@
+import { LinkPending } from "@/components/NavPending";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 import type { ReactNode } from "react";
@@ -430,9 +431,12 @@ export function MetricCard({
     return (
       <Link
         href={href}
-        className="panel block px-4 py-3.5 transition hover:border-brand-500/50 hover:bg-sunken/40"
+        className="panel relative block px-4 py-3.5 transition hover:border-brand-500/50 hover:bg-sunken/40"
       >
         {body}
+        {/* Childless: the wash and ring only. A card whose whole content is a
+            figure must not have that figure replaced by a spinner. */}
+        <LinkPending />
       </Link>
     );
   }
@@ -448,7 +452,7 @@ export function MetricCard({
  * reader goes looking without four arrows competing for attention when they
  * are not.
  */
-function SortHeader({
+export function SortHeader({
   label,
   sortKey,
   sort,
@@ -472,11 +476,16 @@ function SortHeader({
           : `Sort by ${label}`
       }
       className={cx(
-        "group inline-flex min-h-8 items-center gap-1 rounded transition",
+        "group relative inline-flex min-h-8 items-center gap-1 rounded transition",
         align === "right" && "flex-row-reverse",
         on ? "text-brand-500" : "text-muted hover:text-ink",
       )}
     >
+      {/* Sorting a large table is the slowest navigation on these screens and
+          had the least feedback: the arrow does not move until the new page
+          arrives, so a tap looked ignored. Wash only - swapping the arrow for
+          a spinner would lose which way it is currently sorted. */}
+      <LinkPending />
       {label}
       {on ? (
         sort?.desc ? (

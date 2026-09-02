@@ -305,9 +305,9 @@ export function CouponFields({ coupon }: { coupon?: Coupon }) {
         </FormGrid>
 
         <p className="field-hint">
-          A claim is counted from the moment a checkout opens, not from the moment it is paid —
-          otherwise two people could spend the last use of a single-use code at the same instant. A
-          claim nobody pays for is handed back after 30 minutes.
+          {bonus
+            ? "A credit code is claimed in one step, so a claim here always means credits actually handed over. There is no checkout to wait on."
+            : "A claim is held from the moment a checkout opens, not from the moment it is paid — otherwise two people could spend the last use of a single-use code at the same instant. A checkout nobody pays for holds the claim against other people for ten minutes and then hands it back, and it never blocks that customer's own next attempt."}
         </p>
       </fieldset>
 
@@ -350,6 +350,33 @@ function WorkedExample({ draft }: { draft: Draft }) {
   const value = num(draft.value);
   const minSpend = Math.max(0, num(draft.minSpend));
   const percent = draft.kind === "percent";
+
+  /*
+   * A credit code gets a different sentence, because the sum below is a
+   * DISCOUNT and a credit code has none.
+   *
+   * This block was reached by all three kinds, and outcomeAt's own branch is
+   * `flat ? value : amount x value / 100` - so 500 free credits was worked out
+   * as 500% and the form told the admin their code would take Rs 999 off a
+   * Rs 1,000 order and leave a rupee to pay. That is the identical fault 0030
+   * fixed in validate_coupon, still on screen in the form where the code is
+   * written: a two-way branch over three kinds. Here the kind decides first.
+   */
+  if (draft.kind === "credit_bonus") {
+    return (
+      <p className="rounded-lg border border-brand-500/35 bg-brand-500/8 px-3 py-2.5 text-sm text-ink">
+        <span className="font-medium">
+          {value > 0
+            ? `This hands over ${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })} credits and takes nothing off any price.`
+            : "Fill in how many credits it gives, and what it does appears here."}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted">
+          A credit code is not a discount. The customer enters it under “Have a credit code?” on
+          their own plan page, with nothing bought — it is refused at a checkout, on purpose.
+        </span>
+      </p>
+    );
+  }
 
   const capped = Number(draft.cap);
   const rule: Rule = {

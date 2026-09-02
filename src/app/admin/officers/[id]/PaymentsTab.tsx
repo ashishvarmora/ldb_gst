@@ -70,6 +70,30 @@ export async function PaymentsTab({
     ]);
 
   const rows = (payments ?? []) as Payment[];
+
+  /*
+   * The balance either side of each payment on this page.
+   *
+   * One read for the whole page rather than one per row: the support question
+   * is asked about a list ("which of these actually landed"), and a query per
+   * row would make the answer cost more the more payments an account has.
+   */
+  const { data: effects } = await admin
+    .from("payment_credit_effect")
+    .select("payment_id, credits_added, balance_before, balance_after")
+    .in(
+      "payment_id",
+      rows.map((row) => row.id),
+    );
+
+  const effectOf = new Map(
+    ((effects ?? []) as {
+      payment_id: string;
+      credits_added: number;
+      balance_before: number | null;
+      balance_after: number | null;
+    }[]).map((row) => [row.payment_id, row]),
+  );
   const settledRows = (settled ?? []) as Pick<Payment, "amount_inr" | "credits" | "method">[];
 
   const planName = new Map(
@@ -111,6 +135,7 @@ export async function PaymentsTab({
             rows={rows}
             planName={planName}
             packName={packName}
+            effectOf={effectOf}
             emptyTitle={
               (count ?? 0) > 0 ? "That page is past the end of the list" : "No payments yet"
             }

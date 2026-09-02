@@ -37,6 +37,18 @@ export type RewardParams = {
   code?: string;
   red?: string;
 
+  /**
+   * Which family of code, on both coupon screens: "discount", "credit", or
+   * absent for both.
+   *
+   * One parameter shared by the code list and the claims report rather than
+   * two, so "show me only the free credit codes" survives the jump from one to
+   * the other. The owner's complaint was that free credits get mixed in with
+   * discounts and become messy; a classification that resets itself when you
+   * follow a link is not a classification.
+   */
+  kind?: string;
+
   /* The two claims reports: a date window, a sort, filters and a page. */
   range?: string;
   from?: string;
@@ -63,6 +75,7 @@ export function rewardCarry(
   const all: Record<string, string | undefined> = {
     section,
     code: params.code,
+    kind: params.kind,
     cp: params.cp,
     red: params.red,
     ref: params.ref,
