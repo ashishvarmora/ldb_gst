@@ -449,7 +449,22 @@ export async function saveReferralSettings(
 
   const percent = number("referral_percent");
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
-    return fail("The share of a first payment must be between 0 and 100 percent.");
+    return fail("The inviter's share of a first payment must be between 0 and 100 percent.");
+  }
+
+  /*
+   * The invitee's side, absent-tolerated like the floor below: this action also
+   * serves any older form that has never heard of the field, and resetting a
+   * percentage a form was never shown is how a promotion quietly switches
+   * itself off.
+   */
+  const inviteeRaw = str(fd, "referral_invitee_percent");
+  const inviteePercent = inviteeRaw === null ? null : Number(inviteeRaw);
+  if (
+    inviteePercent !== null &&
+    (!Number.isFinite(inviteePercent) || inviteePercent < 0 || inviteePercent > 100)
+  ) {
+    return fail("The new customer's welcome share must be between 0 and 100 percent.");
   }
 
   /*
@@ -494,6 +509,9 @@ export async function saveReferralSettings(
    */
   if (minPayment !== null) {
     values.referral_min_payment = Math.round(minPayment * 100) / 100;
+  }
+  if (inviteePercent !== null) {
+    values.referral_invitee_percent = Math.round(inviteePercent * 100) / 100;
   }
 
   const { data: existing } = await admin

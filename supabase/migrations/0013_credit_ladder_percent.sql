@@ -97,9 +97,14 @@ set price_inr = 3000, credit_percent = 250, is_open_ended = true, sort_order = 4
     credits = 7500
 where name = 'Custom amount';
 
+-- Guarded on "an open tier exists", NOT on the name. These files re-run on
+-- every push, and a later migration renames this pack - an `on conflict
+-- (name)` guard cannot see a renamed row, so each re-run resurrected a second
+-- open tier under the old name, which then collided with the new one. The
+-- thing being seeded is the open-ended rung, whatever it is called today.
 insert into public.credit_packs (name, price_inr, credits, sort_order, is_open_ended, credit_percent)
-values ('Custom amount', 3000, 7500, 40, true, 250)
-on conflict (name) do nothing;
+select 'Custom amount', 3000, 7500, 40, true, 250
+where not exists (select 1 from public.credit_packs where is_open_ended);
 
 -- ---------------------------------------------------------------------------
 -- 3. One place the sum is done

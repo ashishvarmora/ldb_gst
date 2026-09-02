@@ -182,10 +182,17 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
                   defaultValue={settings.referralMinPayment}
                 />
               </Field>
+              {/* Two shares of one payment, side by side so an admin sets the
+                  scheme as a whole. They answer different questions - the
+                  inviter's share is what makes people share the link, the
+                  welcome share is what makes the invited person actually pay -
+                  and pricing one while blind to the other is how a scheme ends
+                  up costing 25% of a first payment without anyone deciding
+                  that. */}
               <Field
-                label="Share of the first payment (%)"
+                label="Inviter's share (%)"
                 name="referral_percent"
-                hint="Paid to the referrer as credits, rounded down."
+                hint="Of the first payment, paid to whoever shared the link. Credits, rounded down."
               >
                 <Input
                   name="referral_percent"
@@ -195,6 +202,21 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
                   max={100}
                   step="any"
                   defaultValue={settings.referralPercent}
+                />
+              </Field>
+              <Field
+                label="New customer's share (%)"
+                name="referral_invitee_percent"
+                hint="Of the same payment, paid to the person who joined. 0 pays them nothing."
+              >
+                <Input
+                  name="referral_invitee_percent"
+                  type="number"
+                  required
+                  min={0}
+                  max={100}
+                  step="any"
+                  defaultValue={settings.referralInviteePercent}
                 />
               </Field>
               <Field

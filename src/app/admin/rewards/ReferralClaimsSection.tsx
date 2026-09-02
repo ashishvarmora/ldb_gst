@@ -52,6 +52,7 @@ type ReferralRow = {
   invitee_email: string | null;
   status: string;
   reward_credits: number;
+  welcome_credits: number | null;
   first_amount: number;
   days_to_reward: number | null;
   created_at: string;
@@ -111,6 +112,9 @@ export async function ReferralClaimsSection({ params }: { params: RewardParams }
     rewarded: rewarded.length,
     pending: rows.filter((row) => row.status === "pending").length,
     credits: rows.reduce((sum, row) => sum + (Number(row.reward_credits) || 0), 0),
+    /* The other half of what the scheme pays out. Null on referrals rewarded
+       before the welcome bonus existed, which Number() must not read as NaN. */
+    welcome: rows.reduce((sum, row) => sum + (Number(row.welcome_credits ?? 0) || 0), 0),
     revenue: rows.reduce((sum, row) => sum + (Number(row.first_amount) || 0), 0),
     referrers: new Set(rows.map((row) => row.referrer_id)).size,
   };
@@ -152,8 +156,12 @@ export async function ReferralClaimsSection({ params }: { params: RewardParams }
         />
         <MetricCard
           label="Rewards given"
-          value={formatCredits(totals.credits)}
-          hint={`${fmtNumber(totals.pending)} still waiting`}
+          value={formatCredits(totals.credits + totals.welcome)}
+          hint={
+            totals.welcome > 0
+              ? `${formatCredits(totals.credits)} to inviters, ${formatCredits(totals.welcome)} in welcomes`
+              : `${fmtNumber(totals.pending)} still waiting`
+          }
           icon={<Gift size={15} />}
         />
         <MetricCard
@@ -435,6 +443,30 @@ function InviteTable({
         ),
       sortBy: (row) => Number(row.reward_credits) || 0,
       total: (all) => formatCredits(all.reduce((s, r) => s + (Number(r.reward_credits) || 0), 0)),
+    },
+    {
+      /*
+       * What the INVITED person got off the same payment - the half the owner
+       * asked for and the half that was invisible. Shown as its own column
+       * rather than folded into one figure, because the two payouts answer
+       * different questions: the referrer column prices the sharing, this one
+       * prices the joining.
+       */
+      key: "welcome_credits",
+      label: "They got",
+      align: "right",
+      cell: (row) =>
+        row.welcome_credits === null ? (
+          <span className="text-faint" title="Rewarded before the welcome bonus existed.">
+            —
+          </span>
+        ) : Number(row.welcome_credits) > 0 ? (
+          <span className="text-brand-500">+{formatCredits(Number(row.welcome_credits))}</span>
+        ) : (
+          <span className="text-faint">—</span>
+        ),
+      sortBy: (row) => Number(row.welcome_credits ?? 0) || 0,
+      total: (all) => formatCredits(all.reduce((s, r) => s + (Number(r.welcome_credits ?? 0) || 0), 0)),
     },
     {
       key: "days_to_reward",

@@ -232,6 +232,17 @@ export default async function PricingPage() {
                     The credits arrive when the person you invited makes their first payment — not
                     when they register. Until then the invitation is simply waiting.
                   </p>
+                  {/* The invitee's half. This is the public page a person
+                      holding an invite link reads before deciding, so the half
+                      of the offer addressed to THEM belongs here - it was
+                      previously said to nobody. Rendered only while the share
+                      is switched on. */}
+                  {settings.referralInviteePercent > 0 ? (
+                    <p className="mt-2 text-sm leading-relaxed text-muted">
+                      And it pays both ways: joining through an invite gives the new account{" "}
+                      {settings.referralInviteePercent}% of that first payment back as credits.
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs leading-relaxed text-faint">
                     {signedIn
                       ? "Your invite link is on your account page, ready to share."

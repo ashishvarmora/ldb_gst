@@ -268,6 +268,10 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   // column value to a customer, which is the one place a raw reason leaks out.
   referral: "Referral reward",
   referral_milestone: "Referral bonus",
+  // The invitee's own share of their first payment - the other half of a
+  // referral. Its own reason so the giveaway report can split the scheme's
+  // cost between the person who shared and the person who joined.
+  referral_welcome: "Welcome bonus",
 };
 
 /* -------------------------------------------------------------------------- */

@@ -414,6 +414,8 @@ export type AppSettings = {
   referralEnabled: boolean;
   /** Share of a referred person's first payment, paid to the referrer. */
   referralPercent: number;
+  /** The invited customer's own share of their first payment, as credits. */
+  referralInviteePercent: number;
   /**
    * The smallest payment that earns the inviter anything, in rupees, tested
    * against what was actually charged after any discount. 0 means no floor,
@@ -493,6 +495,15 @@ export type Payment = {
   kind: PaymentKind;
   plan_id: string | null;
   months: number;
+  /**
+   * Credits bought ON TOP of a plan, in the same payment - the owner's
+   * "plan + top-up, one payment". Fixed when the order opens, granted by
+   * settle_payment() as its own ledger row beside the plan's included credits.
+   * Always 0 on a credits-only payment (a check constraint pins it), and 0 on
+   * a plan payment with nothing attached. `credits` keeps its own meaning -
+   * see below - the two never share a column.
+   */
+  topup_credits: number;
   /** Set when a code was used. amount_inr is already net of the discount. */
   coupon_id: string | null;
   discount_inr: number;
@@ -656,6 +667,14 @@ export type CouponVerdict =
       discount_inr: number;
       payable_inr: number;
       message: string;
+      /**
+       * Which part of a combined plan-plus-top-up payment the discount was
+       * computed on. Set by previewCoupon() when the purchase carries a top-up:
+       * a 'plan' code discounts the plan price, a 'credits' code the top-up,
+       * 'all' the whole sum - so the pay panel can say which. Absent on a
+       * plain purchase, where the whole amount is the only base there is.
+       */
+      applies_to?: CouponScope;
     }
   | {
       ok: false;

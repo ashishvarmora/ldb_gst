@@ -14,9 +14,10 @@ import {
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { env } from "@/lib/env";
+import { HelpNote } from "@/components/Disclosure";
 import { fmtDate, fmtNumber, fmtRupees } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
-import { describeReferralReward, loadReferrals, loadReferralSummary, referralLink } from "@/lib/referrals";
+import { describeReferralReward, describeWelcomeBonus, loadReferrals, loadReferralSummary, referralLink } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Referral, ReferralSummary } from "@/lib/types";
@@ -89,6 +90,9 @@ export default async function ReferralsPage({
   const page = pageFromParam(params.page, pages);
   const visible = pageSlice(ordered, page, PAGE_SIZE);
 
+  /* Null when the welcome share is 0, and the line simply disappears. */
+  const welcomeLine = describeWelcomeBonus(settings.referralInviteePercent);
+
   return (
     <>
       <PageHeader
@@ -100,6 +104,9 @@ export default async function ReferralsPage({
         subtitle="Share your link with someone who runs trucks."
       />
 
+      {/* What the INVITED person gets, said beside the link the reader is
+          about to send - it is the half of the offer that makes the link worth
+          tapping, and it was previously said nowhere at all. */}
       {/* ------------------------------- the link ------------------------- */}
       <Panel
         title="Your invite link"
@@ -130,8 +137,23 @@ export default async function ReferralsPage({
           <span>
             A sign-up on its own earns nothing. The credits arrive when the person you invited pays
             for their first plan or top-up, and they land straight on your balance.
+            {welcomeLine ? <span className="mt-1 block text-muted">{welcomeLine}</span> : null}
           </span>
         </p>
+
+        {/* The fine print, folded. The owner asked for the terms to be said
+            here without the page becoming a contract - so the rule that
+            matters is in the callout above, and everything an accountant would
+            ask is behind one small disclosure. */}
+        <HelpNote title="How the reward is worked out">
+          Both rewards are a percentage of the first payment the person you invited actually
+          completes — a plan, a top-up, or both bought together — worked out on the amount after
+          any coupon, and rounded down to whole credits. One reward per person invited, on their
+          first payment only{settings.referralMinPayment > 0
+            ? `, and only when that payment is at least ${fmtRupees(settings.referralMinPayment)}`
+            : ""}. Credits are added to balances and are not money; they cannot be withdrawn or
+          transferred. Percentages can change, but a reward already earned is never taken back.
+        </HelpNote>
       </Panel>
 
       {/* ------------------------------- the score ------------------------ */}

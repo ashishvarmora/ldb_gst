@@ -18,6 +18,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SessionUser } from "@/lib/auth";
 import type {
   ActionResult,
+  CouponScope,
   CouponVerdict,
   CreditPack,
   PaymentKind,

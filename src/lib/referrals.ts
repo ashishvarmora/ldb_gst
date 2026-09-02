@@ -97,7 +97,10 @@ export async function attachReferral(
   await admin.from("profiles").update({ referred_by: referrerId }).eq("id", referredId);
 }
 
-/** "10% of what they spend first, plus 500 credits at 5 referrals." */
+/**
+ * The referrer's side of the deal, in one sentence.
+ * "10% of what they spend first, plus 500 credits at 5 referrals."
+ */
 export function describeReferralReward(
   percent: number,
   milestoneCount: number,
@@ -106,4 +109,18 @@ export function describeReferralReward(
   const base = `${percent}% of what they spend first, as credits`;
   if (milestoneCount <= 0 || milestoneBonus <= 0) return `${base}.`;
   return `${base} — plus ${milestoneBonus.toLocaleString("en-IN")} credits once ${milestoneCount} of them have paid.`;
+}
+
+/**
+ * The invitee's side, or null when the welcome share is switched off.
+ *
+ * Its own sentence rather than a clause bolted onto the one above, because the
+ * two are said in different places to different people: the referrer reads
+ * "what do I get" beside their link, the invited customer reads "what do I
+ * get" at sign-up and at their first checkout, and a sentence that answers
+ * both at once answers neither cleanly.
+ */
+export function describeWelcomeBonus(inviteePercent: number): string | null {
+  if (inviteePercent <= 0) return null;
+  return `They get ${inviteePercent}% of that first payment back as credits too — joining on an invite pays both of you.`;
 }

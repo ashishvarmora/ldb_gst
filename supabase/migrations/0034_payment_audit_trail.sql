@@ -48,10 +48,21 @@ create index if not exists credit_transactions_payment_idx
 -- ---------------------------------------------------------------------------
 -- 2 · Set it going forward
 -- ---------------------------------------------------------------------------
--- A sixth argument with a default, so the four existing callers that do not
--- know about payments keep compiling and keep working. Adding a parameter
--- rather than a new function keeps one place where a credit is created - two
--- granting functions would be two places for the balance to be got wrong.
+-- A sixth argument with a default, so the existing callers that do not know
+-- about payments keep working - a five-argument call binds p_payment to its
+-- default. Adding a parameter rather than a new function keeps one place where
+-- a credit is created.
+--
+-- THE OLD SIGNATURE MUST GO FIRST, and this was learnt the expensive way.
+-- `create or replace` with a different argument list does not replace - it
+-- OVERLOADS - and once both exist, every five-argument call in every PL/pgSQL
+-- body is ambiguous (42725 "not unique"): with two candidates, one exact and
+-- one via a default, Postgres refuses to choose. reward_referral() would have
+-- crashed inside the first real referral settlement, and rolled the whole
+-- payment back with it. It had not crashed in production only because the
+-- referrals table was empty, so its early return fired before any grant.
+drop function if exists public.grant_credits(uuid, numeric, text, uuid, text);
+
 create or replace function public.grant_credits(
   p_user    uuid,
   p_amount  numeric,

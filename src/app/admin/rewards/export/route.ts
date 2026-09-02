@@ -63,6 +63,10 @@ export async function GET(request: NextRequest) {
       // put a group separator in it.
       Number(row.first_amount) || 0,
       Number(row.reward_credits) || 0,
+      /* Blank, not 0, for referrals rewarded before the welcome bonus existed -
+         a spreadsheet must be able to tell "paid nothing" from "predates the
+         scheme". */
+      row.welcome_credits === null ? "" : Number(row.welcome_credits) || 0,
       row.days_to_reward === null ? "" : Number(row.days_to_reward).toFixed(2),
       row.rewarded_at ?? "",
     ]);
@@ -83,6 +87,7 @@ export async function GET(request: NextRequest) {
           "Status",
           "First payment (INR)",
           "Reward credits",
+          "Welcome credits",
           "Days to reward",
           "Rewarded at",
         ],

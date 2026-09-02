@@ -173,9 +173,23 @@ where name = 'Plus' and price_inr = 1000 and credits = 2500;
 
 -- Renamed to what it is. "Custom amount" reads like a bespoke deal to arrange;
 -- this rung is the buyer typing a figure.
+--
+-- The rename only fires while 'Any amount' does not already exist: 0013 used to
+-- re-seed 'Custom amount' on every push once this rename had taken its name,
+-- and renaming the resurrected row into the existing one is a unique-key
+-- violation that stopped every migration after this file. 0013 is fixed to
+-- guard on "an open tier exists", and the delete below heals any database the
+-- old pair already polluted - the stray has no payments against it by
+-- construction, since it only ever existed between two migration runs.
 update public.credit_packs
 set name = 'Any amount', price_inr = 10000, credit_percent = 250, sort_order = 40
-where name = 'Custom amount' and price_inr = 3000 and is_open_ended;
+where name = 'Custom amount' and price_inr = 3000 and is_open_ended
+  and not exists (select 1 from public.credit_packs where name = 'Any amount');
+
+delete from public.credit_packs
+where name = 'Custom amount' and is_open_ended
+  and exists (select 1 from public.credit_packs where name = 'Any amount')
+  and not exists (select 1 from public.payments where pack_id = credit_packs.id);
 
 
 -- ---------------------------------------------------------------------------
