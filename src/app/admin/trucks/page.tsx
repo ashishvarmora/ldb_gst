@@ -14,6 +14,7 @@ import {
   type TruckFilters,
 } from "../tables";
 import { Input, Select } from "@/components/form";
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Pager } from "@/components/Pager";
 import {
   EmptyState,
@@ -175,8 +176,12 @@ export default async function TrucksPage({
         />
       </div>
 
+      {/* Full width until sm, one control to a line. The account select in
+          particular carries names and email addresses that are far longer than
+          the 224px it gets on a desktop, and on a phone there is a whole line
+          spare to give it. */}
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
-        <div className="relative min-w-52 flex-1">
+        <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-52">
           <SearchIcon
             size={14}
             className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint"
@@ -184,7 +189,7 @@ export default async function TrucksPage({
           <Input name="q" defaultValue={q ?? ""} placeholder="Truck number" className="pl-9" />
         </div>
 
-        <Select name="officer" defaultValue={officer ?? ""} className="w-56">
+        <Select name="officer" defaultValue={officer ?? ""} className="w-full sm:w-56">
           <option value="">All accounts</option>
           {(accounts ?? []).map((row) => (
             <option key={row.id} value={row.id}>
@@ -195,7 +200,7 @@ export default async function TrucksPage({
 
         {/* Before the movement status, because "is it even being checked" comes
             first: a paused truck's movement status is meaningless. */}
-        <Select name="tracking" defaultValue={trackingFilter} className="w-48">
+        <Select name="tracking" defaultValue={trackingFilter} className="w-full sm:w-48">
           <option value="">Live and paused</option>
           {Object.entries(TRUCK_TRACKING_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
@@ -204,7 +209,7 @@ export default async function TrucksPage({
           ))}
         </Select>
 
-        <Select name="status" defaultValue={statusFilter} className="w-40">
+        <Select name="status" defaultValue={statusFilter} className="w-full sm:w-40">
           <option value="">Any status</option>
           {Object.entries(TRUCK_STATUS_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
@@ -213,7 +218,7 @@ export default async function TrucksPage({
           ))}
         </Select>
 
-        <Select name="sort" defaultValue={sort} className="w-52">
+        <Select name="sort" defaultValue={sort} className="w-full sm:w-52">
           {Object.entries(TRUCK_SORTS).map(([key, option]) => (
             <option key={key} value={key}>
               Sort by {option.label.toLowerCase()}
@@ -221,10 +226,9 @@ export default async function TrucksPage({
           ))}
         </Select>
 
-        <button type="submit" className={buttonClass("secondary")}>
-          <Filter size={14} />
+        <FilterSubmitButton icon={<Filter size={14} />} size="md">
           Apply
-        </button>
+        </FilterSubmitButton>
         {filtered || sort !== "event" ? (
           <Link href="/admin/trucks" className={buttonClass("ghost")}>
             Clear

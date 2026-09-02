@@ -1,18 +1,24 @@
 import Link from "next/link";
 import {
-  ArrowLeft,
+  ArrowDownUp,
+  ArrowDownWideNarrow,
+  CalendarRange,
+  Check,
+  ChevronDown,
   ChevronRight,
   Coins,
   Download,
   Minus,
   Plus,
-  SlidersHorizontal,
+  Tag,
   X,
 } from "lucide-react";
 
+import { FilterSubmitButton } from "@/components/NavPending";
+import { FilterPill } from "@/components/FilterPill";
 import { EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
 import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, istDaysAgo, istMonthStart, istToday } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -32,14 +38,25 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * me this month", account alone ranks customers, and turning them all off
  * leaves the raw ledger. One control, and the combinations come free.
  *
- * The filter bar is two rows deep rather than five. Group-by and the date range
- * are what people reach for; show, reason and order sit behind a native
- * <details> so they cost no JavaScript and no height until wanted. Anything in
- * force is echoed as a pill that clears only itself, so a folded control can
- * never leave a filter quietly applied.
+ * THE FILTER BAR IS TWO ROWS: the group-by toggles, then one row of pills.
  *
- * State lives in the URL. No JavaScript, every view is linkable, the back button
- * works, and the CSV export is the same query string with a different path.
+ * It used to be five rows - group-by, a date range in three rows of its own, and
+ * a "More filters" fold that opened three more rows of chips - which on a 390px
+ * phone put roughly 400px of controls above the first charge. Every chip row
+ * showed all of its options all of the time, so the reader had to read twelve
+ * chips to find out that nothing was filtered.
+ *
+ * Now each filter is one pill that reads as its own current answer, and the
+ * options only exist while somebody is choosing (see FilterPill). Nothing is
+ * hidden by that: a pill off its default takes the brand colour, so a filter can
+ * never be quietly in force - which on a page people reconcile a bill on is the
+ * whole point. The date range gets presets, so the common windows are one tap
+ * and the two date boxes only appear for a range that is genuinely custom.
+ *
+ * State lives in the URL, and the only client state in the whole screen is
+ * whether a pill's sheet is open. Every view is linkable, the back button steps
+ * through filter changes, and the CSV export is the same query string with a
+ * different path - so what downloads is exactly what is on screen.
  */
 
 export type LedgerKind = "all" | "used" | "added";
@@ -151,6 +168,70 @@ function parseDate(raw: string | undefined): string | null {
 /** One IST day boundary, as the UTC instant it begins. */
 function istStart(date: string): string {
   return new Date(`${date}T00:00:00+05:30`).toISOString();
+}
+
+type DatePreset = { key: string; label: string; from: string | null; to: string | null };
+
+/**
+ * The date windows worth one tap, resolved to the `from` and `to` this ledger
+ * has always taken.
+ *
+ * Deliberately NOT a new ?range=30d parameter. The CSV export reads from and to
+ * off the same query string, and so does the drill-down link on every grouped
+ * row, so a window that only the page knew how to expand would download a
+ * different set of charges from the one on screen. Absolute dates cost a link
+ * that says "last 30 days" its freshness a month later, and that is the right
+ * trade for an export that cannot disagree with the screen.
+ *
+ * The first entry clears both parameters, which is the rolling window the ledger
+ * falls back to - named out loud so the default reads as a choice rather than as
+ * an absence.
+ */
+function datePresets(): DatePreset[] {
+  const today = istToday();
+  return [
+    { key: "rolling", label: `Last ${WINDOW_DAYS} days`, from: null, to: null },
+    { key: "today", label: "Today", from: today, to: today },
+    { key: "7d", label: "Last 7 days", from: istDaysAgo(6), to: today },
+    { key: "30d", label: "Last 30 days", from: istDaysAgo(29), to: today },
+    { key: "month", label: "This month", from: istMonthStart(), to: today },
+  ];
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "12 Aug", and the year as well when it is asked for. */
+function dayMonth(date: string, withYear: boolean): string {
+  const [year, month, day] = date.split("-");
+  return `${Number(day)} ${MONTHS[Number(month) - 1]}${withYear ? ` ${year}` : ""}`;
+}
+
+/**
+ * How a hand-picked date range reads on a pill, in a row with no width to spare.
+ *
+ * Split rather than parsed: a YYYY-MM-DD here is already an IST calendar date,
+ * and running it through Date would re-interpret it in whatever zone the server
+ * happens to run in, which is how a range ends up labelled a day off its own
+ * date boxes.
+ *
+ * Both ends on the same day is the commonest range on this screen - it is what
+ * tapping a grouped row produces - and "2 Sep → 2 Sep" is a wider way of saying
+ * "2 Sep". A shared year is printed once, at the end, and the current year not
+ * at all, for the same reason: every character this pill takes is one the next
+ * pill in the row does not get. A one-sided range says which side it is open on
+ * rather than filling the other end with the word "today".
+ */
+function rangeLabel(from: string | null, to: string | null): string {
+  const thisYear = istToday().slice(0, 4);
+  if (from && to) {
+    const shared = from.slice(0, 4) === to.slice(0, 4);
+    const trailingYear = shared && from.slice(0, 4) !== thisYear ? ` ${from.slice(0, 4)}` : "";
+    if (from === to) return `${dayMonth(from, false)}${trailingYear}`;
+    return `${dayMonth(from, !shared)} → ${dayMonth(to, !shared)}${trailingYear}`;
+  }
+  if (from) return `since ${dayMonth(from, from.slice(0, 4) !== thisYear)}`;
+  if (to) return `until ${dayMonth(to, to.slice(0, 4) !== thisYear)}`;
+  return "";
 }
 
 /** A reason label a customer should read, never the raw column value. */
@@ -300,19 +381,25 @@ export async function CreditLedger({
      of the filters. */
   const csvHref = href("/api/export/credits", query, {}, userId ? { user: userId } : {});
 
+  /* Which preset the dates currently amount to, if any. A range typed by hand,
+     or arrived at by tapping a grouped row, matches none of them and is spelt
+     out on the pill instead. */
+  const presets = datePresets();
+  const preset = presets.find((option) => option.from === from && option.to === to);
+  const dateLabel = preset?.label ?? rangeLabel(from, to);
+
+  /* Sort is not counted: it reorders the list, it does not narrow it, and a
+     "Clear" that silently threw away the order somebody chose would be a
+     surprise rather than a relief. */
+  const narrowed = ranged || kind !== "all" || Boolean(query.reason) || Boolean(query.truck);
+
   return (
     <Panel
       title={title}
       description="Every credit added and spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time."
       bodyClassName="p-0"
-      actions={
-        <a href={csvHref} className={buttonClass("secondary", "sm")} download>
-          <Download size={13} />
-          CSV
-        </a>
-      }
     >
-      <div className="space-y-3 border-b border-divider px-4 py-3">
+      <div className="space-y-2 border-b border-divider px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
             Group by
@@ -331,131 +418,255 @@ export async function CreditLedger({
           </span>
         </div>
 
-        <form method="get" action={basePath} className="flex flex-wrap items-end gap-2">
-          {Object.entries({ ...keep, ...query }).map(([k, v]) =>
-            v && k !== "from" && k !== "to" && k !== "page" ? (
-              <input key={k} type="hidden" name={k} value={String(v)} />
-            ) : null,
-          )}
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold tracking-wider text-faint uppercase">
-              From
-            </span>
-            <input
-              type="date"
-              name="from"
-              defaultValue={from ?? ""}
-              className="field w-auto py-1.5 text-xs"
+        {/*
+          One row, scrolling sideways rather than wrapping - the pattern the
+          section tabs and the console's date bar already use. Four pills that
+          each say what they are doing come to 555px, so on a 390px phone they
+          would wrap to three lines, and three lines of controls is the thing
+          this row was built to get rid of. What is off the edge is said twice:
+          a pill off its default jumps to the front of the row, and the right
+          edge fades so the row does not look finished when it is not.
+
+          scrollbar-width:none needed an `!` here until globals.css was fixed.
+          That file set `* { scrollbar-width: thin }` OUTSIDE any cascade layer,
+          and unlayered CSS beats every layered rule whatever its specificity -
+          so the utility was silently losing and this row kept a stray grey
+          scrollbar under the pills. The rule lives in @layer base now, which
+          fixes it for every horizontal strip in the app rather than just the
+          ones somebody remembered to shout at. The webkit fallback is for the
+          Safaris that predate scrollbar-width, and only those: Chrome ignores
+          ::-webkit-scrollbar entirely once scrollbar-width is set to anything.
+
+          min-w-0 on the wrapper is what actually keeps the page from scrolling
+          sideways. A flex child defaults to min-width:auto, which means it
+          refuses to shrink below its content - so an overflow-x-auto box inside
+          a flex row is only a scroller once it is allowed to be narrower than
+          the thing it is scrolling.
+        */}
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <div className="-ml-4 overflow-x-auto pl-4 [scrollbar-width:none] sm:ml-0 sm:pl-0 [&::-webkit-scrollbar]:hidden">
+              <div className="flex w-max min-w-full items-center gap-1.5 pr-6 sm:pr-1">
+                {/*
+                  A truck filter leads the row, ahead of the pills, and only
+                  exists when one is set. It is the filter nobody chose from a
+                  control - it arrives by tapping a grouped row - so it is the
+                  one most likely to leave somebody staring at a three-row
+                  ledger wondering where the rest went. First position is the
+                  only one this row can guarantee is on screen without
+                  scrolling, and order-first keeps it there even once an active
+                  pill has jumped the queue behind it - among equal orders the
+                  markup decides, and this is first in the markup.
+                */}
+                {query.truck ? (
+                  <Pill
+                    href={href(basePath, query, { truck: undefined }, keep)}
+                    className="order-first"
+                  >
+                    {query.truck}
+                  </Pill>
+                ) : null}
+
+                <FilterPill
+                  label="Date range"
+                  value={dateLabel}
+                  active={ranged}
+                  icon={<CalendarRange size={13} className="shrink-0" />}
+                >
+                  <div className="space-y-0.5">
+                    {presets.map((option) => (
+                      <SheetOption
+                        key={option.key}
+                        href={href(
+                          basePath,
+                          query,
+                          { from: option.from ?? undefined, to: option.to ?? undefined },
+                          keep,
+                        )}
+                        active={preset?.key === option.key}
+                      >
+                        {option.label}
+                      </SheetOption>
+                    ))}
+                  </div>
+
+                  {/*
+                    Two date boxes are the slowest way to say "last 30 days" and used
+                    to be the only way, three rows tall, on every visit. They are
+                    still here for the range no preset covers - open already when
+                    that is the range in force, so a hand-typed window is never
+                    hiding inside a fold that looks shut.
+                  */}
+                  <details className="group mt-2 border-t border-divider pt-2" open={ranged && !preset}>
+                    <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg px-3 text-sm text-ink transition hover:bg-sunken [&::-webkit-details-marker]:hidden">
+                      <span className="flex-1">Custom range</span>
+                      <ChevronDown
+                        size={15}
+                        aria-hidden
+                        className="shrink-0 text-faint transition group-open:rotate-180"
+                      />
+                    </summary>
+
+                    <form method="get" action={basePath} className="mt-2 space-y-2 px-3 pb-1">
+                      {/* Everything else on the query string, carried through - a
+                          change of dates must not quietly drop a reason filter. */}
+                      {Object.entries({ ...keep, ...query }).map(([k, v]) =>
+                        v && k !== "from" && k !== "to" && k !== "page" ? (
+                          <input key={k} type="hidden" name={k} value={String(v)} />
+                        ) : null,
+                      )}
+                      <label className="block text-xs text-muted">
+                        From
+                        <input
+                          type="date"
+                          name="from"
+                          defaultValue={from ?? ""}
+                          max={to ?? undefined}
+                          className="field mt-1"
+                        />
+                      </label>
+                      <label className="block text-xs text-muted">
+                        To
+                        <input
+                          type="date"
+                          name="to"
+                          defaultValue={to ?? ""}
+                          min={from ?? undefined}
+                          className="field mt-1"
+                        />
+                      </label>
+                      <FilterSubmitButton
+                        icon={<Check size={14} />}
+                        iconSize={14}
+                        variant="primary"
+                        size="md"
+                        className="w-full"
+                      >
+                        Apply range
+                      </FilterSubmitButton>
+                    </form>
+                  </details>
+                </FilterPill>
+
+                <FilterPill
+                  label="Show"
+                  value={KIND_LABEL[kind]}
+                  active={kind !== "all"}
+                  icon={<ArrowDownUp size={13} className="shrink-0" />}
+                >
+                  <div className="space-y-0.5">
+                    {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => (
+                      <SheetOption
+                        key={value}
+                        href={href(basePath, query, { kind: value }, keep)}
+                        active={kind === value}
+                      >
+                        {KIND_LABEL[value]}
+                      </SheetOption>
+                    ))}
+                  </div>
+                </FilterPill>
+
+                {/* One reason is not a choice, so the pill only appears where there
+                    is something to choose between. */}
+                {reasons.length > 1 ? (
+                  <FilterPill
+                    label="Reason"
+                    value={query.reason ? reasonLabel(query.reason) : "Any reason"}
+                    active={Boolean(query.reason)}
+                    icon={<Tag size={13} className="shrink-0" />}
+                  >
+                    <div className="space-y-0.5">
+                      <SheetOption
+                        href={href(basePath, query, { reason: undefined }, keep)}
+                        active={!query.reason}
+                      >
+                        Any reason
+                      </SheetOption>
+                      {reasons.map((value) => (
+                        <SheetOption
+                          key={value}
+                          href={href(basePath, query, { reason: value }, keep)}
+                          active={query.reason === value}
+                        >
+                          {reasonLabel(value)}
+                        </SheetOption>
+                      ))}
+                    </div>
+                  </FilterPill>
+                ) : null}
+
+                <FilterPill
+                  label="Order"
+                  value={SORT_LABEL[sort]}
+                  active={sort !== "newest"}
+                  icon={<ArrowDownWideNarrow size={13} className="shrink-0" />}
+                >
+                  <div className="space-y-0.5">
+                    {(Object.keys(SORT_LABEL) as LedgerSort[]).map((value) => (
+                      <SheetOption
+                        key={value}
+                        href={href(basePath, query, { sort: value }, keep)}
+                        active={sort === value}
+                      >
+                        {SORT_LABEL[value]}
+                      </SheetOption>
+                    ))}
+                  </div>
+                </FilterPill>
+
+              </div>
+            </div>
+
+            {/* The pills run wider than a phone, and the CSV button parked at
+                the end of the row hides the fact: the pill that is cut off ends
+                flush against the button, which reads as a pill behind a button
+                rather than as a row with more in it. Fading the last few pixels
+                into the panel is what says "there is more this way". A painted
+                overlay rather than a mask on the scroller, because a mask makes
+                a stacking context and this row has a position:fixed sheet
+                hanging off every pill in it. */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-panel to-transparent sm:hidden"
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold tracking-wider text-faint uppercase">
-              To
-            </span>
-            <input
-              type="date"
-              name="to"
-              defaultValue={to ?? ""}
-              className="field w-auto py-1.5 text-xs"
-            />
-          </label>
-          <button type="submit" className={buttonClass("secondary", "sm")}>
-            Apply
-          </button>
-          {ranged ? (
+          </div>
+
+          {/* The way out, pinned rather than left in the scroller. A filtered
+              ledger can carry six things in that row, which put "Clear" three
+              swipes off the right-hand edge - the one control somebody reaches
+              for precisely when the list in front of them looks wrong. */}
+          {narrowed ? (
             <Link
-              href={href(basePath, query, { from: undefined, to: undefined }, keep)}
-              className="inline-flex min-h-9 items-center gap-1 rounded-lg px-1.5 text-[11px] font-medium text-muted transition hover:text-ink"
+              href={href(
+                basePath,
+                query,
+                {
+                  from: undefined,
+                  to: undefined,
+                  kind: undefined,
+                  reason: undefined,
+                  truck: undefined,
+                },
+                keep,
+              )}
+              className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-muted transition hover:bg-sunken hover:text-ink"
             >
-              <ArrowLeft size={12} />
-              Last 60 days
+              <X size={13} className="shrink-0" />
+              Clear
             </Link>
           ) : null}
-        </form>
 
-        {/* Native <details>, so the fold costs no JavaScript and the three
-            controls behind it cost no height until somebody wants them. */}
-        <details className="group">
-          <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1.5 rounded-lg text-xs font-medium text-muted transition hover:text-ink">
-            <SlidersHorizontal size={13} />
-            More filters
-            <ChevronRight size={13} className="transition group-open:rotate-90" />
-          </summary>
-
-          <div className="mt-3 space-y-3 border-t border-divider pt-3">
-            <ChipRow label="Show">
-              {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => (
-                <Chip
-                  key={value}
-                  href={href(basePath, query, { kind: value }, keep)}
-                  active={kind === value}
-                >
-                  {KIND_LABEL[value]}
-                </Chip>
-              ))}
-            </ChipRow>
-
-            {reasons.length > 1 ? (
-              <ChipRow label="Reason">
-                <Chip
-                  href={href(basePath, query, { reason: undefined }, keep)}
-                  active={!query.reason}
-                >
-                  Any
-                </Chip>
-                {reasons.map((value) => (
-                  <Chip
-                    key={value}
-                    href={href(basePath, query, { reason: value }, keep)}
-                    active={query.reason === value}
-                  >
-                    {reasonLabel(value)}
-                  </Chip>
-                ))}
-              </ChipRow>
-            ) : null}
-
-            <ChipRow label="Order">
-              {(Object.keys(SORT_LABEL) as LedgerSort[]).map((value) => (
-                <Chip
-                  key={value}
-                  href={href(basePath, query, { sort: value }, keep)}
-                  active={sort === value}
-                >
-                  {SORT_LABEL[value]}
-                </Chip>
-              ))}
-            </ChipRow>
-          </div>
-        </details>
-
-        {/* Anything in force, echoed - so a folded control cannot leave a filter
-            quietly applied. Each pill clears only itself. */}
-        {query.truck || query.reason || kind !== "all" || ranged ? (
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-divider pt-3">
-            <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
-              Filtered
-            </span>
-            {ranged ? (
-              <Pill href={href(basePath, query, { from: undefined, to: undefined }, keep)}>
-                {from ?? "start"} → {to ?? "today"}
-              </Pill>
-            ) : null}
-            {query.truck ? (
-              <Pill href={href(basePath, query, { truck: undefined }, keep)}>{query.truck}</Pill>
-            ) : null}
-            {query.reason ? (
-              <Pill href={href(basePath, query, { reason: undefined }, keep)}>
-                {reasonLabel(query.reason)}
-              </Pill>
-            ) : null}
-            {kind !== "all" ? (
-              <Pill href={href(basePath, query, { kind: undefined }, keep)}>
-                {KIND_LABEL[kind]}
-              </Pill>
-            ) : null}
-          </div>
-        ) : null}
+          {/* Pinned outside the scroller rather than left to be scrolled to.
+              The export is this exact view as a file, so it belongs with the
+              filters that decided it - but it is also the one control here that
+              is useless if it cannot be found, and the panel header gave it a
+              whole row of its own on a phone to say so. */}
+          <a href={csvHref} className={buttonClass("secondary", "sm", "shrink-0")} download>
+            <Download size={13} />
+            CSV
+          </a>
+        </div>
       </div>
 
       {rawEntries ? (
@@ -956,14 +1167,36 @@ async function EntryList({
 /* small pieces                                                                */
 /* -------------------------------------------------------------------------- */
 
-function ChipRow({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * One choice inside a filter pill's sheet.
+ *
+ * A full-width row at min-h-10 rather than another chip: a sheet is where
+ * somebody is deliberately choosing, and a list of thumb-sized rows is easier
+ * to hit on a phone than a wrapped grid of small pills - which is what the old
+ * chip rows were. Server-rendered, so these stay plain links and the filter
+ * stays in the URL.
+ */
+function SheetOption({
+  href: to,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
-        {label}
-      </span>
-      {children}
-    </div>
+    <Link
+      href={to}
+      aria-current={active ? "true" : undefined}
+      className={cx(
+        "flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm transition",
+        active ? "bg-brand-500/10 font-medium text-brand-500" : "text-ink hover:bg-sunken",
+      )}
+    >
+      <span className="min-w-0 flex-1">{children}</span>
+      {active ? <Check size={15} className="shrink-0" /> : null}
+    </Link>
   );
 }
 
@@ -992,11 +1225,22 @@ function Chip({
 }
 
 /** A filter in force, carrying its own way out. */
-function Pill({ href: to, children }: { href: string; children: React.ReactNode }) {
+function Pill({
+  href: to,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
   return (
     <Link
       href={to}
-      className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/8 px-2.5 text-xs font-medium whitespace-nowrap text-brand-500 transition hover:bg-brand-500/16"
+      className={cx(
+        "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/8 px-2.5 text-xs font-medium whitespace-nowrap text-brand-500 transition hover:bg-brand-500/16",
+        className,
+      )}
     >
       {children}
       <X size={11} className="shrink-0 opacity-70" />

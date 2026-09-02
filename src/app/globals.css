@@ -181,19 +181,37 @@ body {
   color: var(--c-on-brand);
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-line-strong) transparent;
-}
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--c-line-strong);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
+/*
+ * Inside @layer base, and that matters more than it looks.
+ *
+ * Unlayered CSS beats every layered rule in the cascade, whatever the
+ * specificity - so while these sat outside a layer, `scrollbar-width: thin` on
+ * `*` silently overrode Tailwind's own utilities, which live in @layer
+ * utilities. Every horizontal strip in the app that asked for
+ * `[scrollbar-width:none]` - the admin section tabs, the date presets, the
+ * filter pills - got a grey scrollbar under it anyway, and the only way anyone
+ * found to win was to append `!` at the call site. Layering these means the
+ * utility wins on its own, the way it reads.
+ *
+ * Chrome also ignores ::-webkit-scrollbar entirely once scrollbar-width is
+ * set, so the -webkit rules below are for the browsers that do not support the
+ * standard property, not a second bite at the same one.
+ */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--c-line-strong);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
 }
 
 /* Visible focus for keyboard users, invisible for mouse users. */

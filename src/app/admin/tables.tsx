@@ -14,6 +14,7 @@ import {
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
+import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
 import type { Payment, PaymentStatus, TruckDirectoryRow, TruckStatus } from "@/lib/types";
 
 /**
@@ -365,14 +366,40 @@ export function TrucksTable({
             {/* Paused wins over the movement status rather than sitting beside
                 it. A truck nothing checks keeps whatever it last reported, so
                 showing "Idle" for it would be reporting a stale reading as
-                current. */}
+                current.
+
+                And it says WHICH stop fired. This was a bare "paused", which
+                is the whole of what an administrator could see while the
+                customer's own screen explained it in a paragraph - so the one
+                person taking the "why has my lorry stopped?" call was the one
+                person with no answer. The wording is the same table the portal
+                reads, so the two cannot drift. */}
             <td className="td">
               {truck.is_active ? (
-                <Badge tone={TRUCK_STATUS_TONE[truck.status]}>
-                  {TRUCK_STATUS_LABEL[truck.status]}
-                </Badge>
+                <>
+                  <Badge tone={TRUCK_STATUS_TONE[truck.status]}>
+                    {TRUCK_STATUS_LABEL[truck.status]}
+                  </Badge>
+                  {/* A truck still running with a stop time coming. Worth
+                      seeing here, because "it is about to go quiet" is the
+                      call this prevents rather than answers. */}
+                  {autoPauseCountdown(truck) ? (
+                    <span className="mt-0.5 block text-[11px] whitespace-nowrap text-faint">
+                      stops {autoPauseCountdown(truck)}
+                    </span>
+                  ) : null}
+                </>
               ) : (
-                <Badge>paused</Badge>
+                <>
+                  <Badge tone={pauseCopyFor(truck)?.tone ?? "neutral"}>
+                    {pauseCopyFor(truck)?.badge ?? "paused"}
+                  </Badge>
+                  {truck.paused_at ? (
+                    <span className="mt-0.5 block text-[11px] whitespace-nowrap text-faint">
+                      {fmtRelative(truck.paused_at)}
+                    </span>
+                  ) : null}
+                </>
               )}
             </td>
 

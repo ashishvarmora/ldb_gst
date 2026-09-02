@@ -157,7 +157,13 @@ export function AdminMobileNav({ brandName }: { brandName?: string }) {
         onClick={() => setOpen(true)}
         aria-label="Open navigation"
         aria-expanded={open}
-        className="rounded-lg border border-line bg-raised p-2 text-ink transition hover:bg-sunken"
+        /*
+         * size-9 rather than p-2, which came out at 34px. Every other control
+         * in this console has a 36px floor - see BUTTON_SIZES in ui.tsx - and
+         * this is the one a phone user has to hit before they can reach any of
+         * them, so it was the worst possible place to be two pixels short.
+         */
+        className="inline-flex size-9 items-center justify-center rounded-lg border border-line bg-raised text-ink transition hover:bg-sunken"
       >
         <Menu size={16} />
       </button>

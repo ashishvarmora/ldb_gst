@@ -9,6 +9,7 @@ import {
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
+import { dueForAutoPause } from "@/lib/pause";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
@@ -98,6 +99,17 @@ export type SweepSummary = {
   alertsDelivered: number;
   /** Set when the batch cap cut the sweep short, so it is never silent. */
   deferred: number;
+  /**
+   * Trucks this sweep stopped by itself, and why.
+   *
+   * Reported rather than left implicit because it is the one thing in a sweep
+   * that REDUCES what the platform does. An admin watching the worker output
+   * needs to be able to tell "nothing was checked because nothing was due"
+   * from "nothing was checked because forty trucks just timed out" - and a
+   * sudden spike in `inactive` is how a too-tight platform setting would
+   * announce itself.
+   */
+  autoPaused: { schedule: number; inactive: number };
   /** Anything that went wrong outside a single truck's own check. */
   errors: string[];
   outcomes: PollOutcome[];
@@ -651,6 +663,121 @@ export async function checkTruck({
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* stopping by itself                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** How a paused truck is described to the person who owns it. */
+const AUTO_PAUSE_MESSAGE = {
+  schedule: {
+    title: "Checking has finished as scheduled",
+    body:
+      "This truck was set to stop being checked automatically, and that time has now arrived. " +
+      "It is no longer costing credits. Everything it recorded is still here, and you can start " +
+      "it again from My trucks whenever you want.",
+  },
+  inactive: {
+    title: "Checking paused - the lorry has stopped moving",
+    body:
+      "No new toll crossing has come through for this truck for a while, so it has been paused " +
+      "rather than left burning credits on a question with the same answer every time. " +
+      "Its recorded crossings are untouched. Switch it back on from My trucks when it is on the " +
+      "road again.",
+  },
+} as const;
+
+/**
+ * Pauses every truck that has reached a stop of its own, and tells its owner
+ * which stop it was.
+ *
+ * Runs over the candidate list at the top of a sweep, before any credit is
+ * spent, because both of these decisions are made from the row itself - no
+ * upstream call, so no reason to pay for one.
+ *
+ * The update is guarded on is_active still being true. Two sweeps can overlap,
+ * and an officer can press pause by hand at the same moment; the guard means
+ * whichever gets there first owns the reason, and the second one does not
+ * overwrite "you paused this" with "it timed out" or send a second message
+ * about a truck that is already stopped.
+ *
+ * Returns the ids it paused so the caller can drop them from this sweep, and a
+ * count per reason so the sweep summary can report them.
+ */
+async function applyAutoPauses(
+  admin: Admin,
+  trucks: TrackedTruck[],
+  settings: AppSettings,
+  now: Date,
+): Promise<{ ids: Set<string>; counts: { schedule: number; inactive: number } }> {
+  const paused = new Set<string>();
+  const counts = { schedule: 0, inactive: 0 };
+  /* One officer usually owns several of the trucks stopping at once - a batch
+     added together for one journey runs out together. Loading their settings
+     and Telegram details once rather than once per truck is the difference
+     between one round trip and thirty on a busy sweep. */
+  const contexts = new Map<string, OfficerContext>();
+
+  for (const truck of trucks) {
+    const verdict = dueForAutoPause(truck, settings, now);
+    if (!verdict) continue;
+
+    const { data: stopped, error } = await admin
+      .from("tracked_trucks")
+      .update({
+        is_active: false,
+        paused_reason: verdict.reason,
+        paused_at: now.toISOString(),
+        // Cleared so restarting the truck does not immediately stop it again on
+        // the deadline it has already passed.
+        auto_pause_at: null,
+      })
+      .eq("id", truck.id)
+      .eq("is_active", true)
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (error) {
+      console.error(`auto-pause failed for ${truck.truck_number}`, error.message);
+      continue;
+    }
+    // Null means somebody else got there first. Nothing to say about it.
+    if (!stopped) continue;
+
+    paused.add(truck.id);
+    counts[verdict.reason] += 1;
+
+    const copy = AUTO_PAUSE_MESSAGE[verdict.reason];
+    let context = contexts.get(truck.user_id);
+    if (!context) {
+      context = await loadOfficerContext(admin, truck.user_id);
+      contexts.set(truck.user_id, context);
+    }
+    await sendSystemAlert({
+      admin,
+      context,
+      truckNumber: truck.truck_number,
+      kind: `tracking_paused_${verdict.reason}`,
+      title: copy.title,
+      message:
+        verdict.reason === "inactive" && verdict.hours
+          ? copy.body.replace("for a while", `for ${describeHours(verdict.hours)}`)
+          : copy.body,
+    });
+  }
+
+  return { ids: paused, counts };
+}
+
+/** "6 hours", "3 days" - the same duration the officer typed, read back to them. */
+export function describeHours(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return "no time at all";
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
 /**
  * Keeps the plaza catalogue current. It is what the "alert me when the truck
  * reaches this plaza" dropdown is built from, so it has to learn names as the
@@ -691,6 +818,7 @@ export async function runTrackingSweep(
     alerts: 0,
     alertsDelivered: 0,
     deferred: 0,
+    autoPaused: { schedule: 0, inactive: 0 },
     errors: [] as string[],
     outcomes: [] as PollOutcome[],
     backup: null as BackupSummary | null,
@@ -726,6 +854,26 @@ export async function runTrackingSweep(
   const all = (candidates ?? []) as TrackedTruck[];
   if (all.length === 0) return finish(base);
 
+  /*
+   * The trucks that have reached a stop of their own, dealt with before
+   * anything is checked.
+   *
+   * Before, on purpose. A truck past its auto-pause time must not be charged
+   * for one last look on the way out - that is the whole thing the officer was
+   * trying to avoid when they set the timer. Neither of these stops needs an
+   * upstream call to decide, so both are settled from the row itself, and the
+   * paused trucks drop out of this sweep entirely.
+   */
+  const autoPaused = await applyAutoPauses(admin, all, settings, startedAt);
+  const running =
+    autoPaused.ids.size > 0 ? all.filter((truck) => !autoPaused.ids.has(truck.id)) : all;
+
+  // Every candidate stopped itself. Still a complete sweep, and the summary has
+  // to say what it did rather than reading as "nothing happened".
+  if (running.length === 0) {
+    return finish({ ...base, candidates: all.length, autoPaused: autoPaused.counts });
+  }
+
   // A truck is checked because one of its alerts came due. Nothing else calls
   // for a check, so a truck with no alerts costs nothing and is never fetched.
   const { data: alertRows } = await admin
@@ -734,7 +882,7 @@ export async function runTrackingSweep(
     .eq("is_enabled", true)
     .in(
       "tracked_truck_id",
-      all.map((truck) => truck.id),
+      running.map((truck) => truck.id),
     );
 
   const byTruck = new Map<string, TruckAlertWithTemplate[]>();
@@ -746,7 +894,7 @@ export async function runTrackingSweep(
     byTruck.set(row.tracked_truck_id, list);
   }
 
-  const due = all
+  const due = running
     .map((truck) => {
       const alerts = byTruck.get(truck.id) ?? [];
       const ready = options.truckIds?.length
@@ -821,6 +969,7 @@ export async function runTrackingSweep(
   return finish({
     ...base,
     candidates: all.length,
+    autoPaused: autoPaused.counts,
     due: due.length,
     deferred: Math.max(due.length - selected.length, 0),
     checked: outcomes.filter((o) => o.status === "checked").length,

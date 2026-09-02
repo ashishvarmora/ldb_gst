@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Bell, ClipboardList, Search } from "lucide-react";
 
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Badge, EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtDateTime } from "@/lib/format";
@@ -627,9 +628,7 @@ function FilterForm({
         className="field py-1.5 text-xs"
       />
 
-      <button type="submit" className={buttonClass("secondary", "sm")}>
-        Apply
-      </button>
+      <FilterSubmitButton>Apply</FilterSubmitButton>
     </form>
   );
 }

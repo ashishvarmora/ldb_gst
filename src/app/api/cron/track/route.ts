@@ -96,6 +96,10 @@ async function handle(request: NextRequest) {
       skipped: summary.skipped,
       failed: summary.failed,
       deferred: summary.deferred,
+      // Trucks that stopped themselves on this tick, by reason. A rising
+      // `inactive` count is how a too-tight platform setting shows up before
+      // customers start asking why their lorries went quiet.
+      autoPaused: summary.autoPaused,
       newEvents: summary.newEvents,
       alerts: summary.alerts,
       alertsDelivered: summary.alertsDelivered,

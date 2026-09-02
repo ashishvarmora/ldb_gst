@@ -96,6 +96,72 @@ export async function findPlazas(query: string): Promise<PlazaMatch[]> {
  * alert is part of adding a truck now, and this ends on the truck's own page
  * with that alert on screen.
  */
+/* -------------------------------------------------------------------------- */
+/* stopping by itself                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** The longest a truck may be scheduled to run for. A year, as a typo guard. */
+const MAX_AUTO_PAUSE_HOURS = 8760;
+
+/**
+ * "Stop checking in 6 hours" turned into the instant that lands on.
+ *
+ * A duration is what a person can answer; an instant is what the worker can
+ * compare against. Converting here rather than storing the duration means the
+ * clock starts when they said so, and cannot be silently restarted by an
+ * unrelated edit to the same row later.
+ *
+ * Three answers, all of them legitimate:
+ *   undefined  the form did not carry the field, so leave whatever is stored
+ *   null       the officer cleared it - run until something else stops it
+ *   Date       stop then
+ */
+function readAutoPauseAt(fd: FormData): Date | null | undefined | { error: string } {
+  const amountRaw = str(fd, "auto_pause_amount");
+  // A unit with no number is not an answer, and neither is the field being
+  // absent. Both mean "no scheduled stop", which is a real choice to store.
+  if (amountRaw === null) return fd.has("auto_pause_amount") ? null : undefined;
+
+  const amount = Number(amountRaw);
+  const unit = str(fd, "auto_pause_unit") === "days" ? "days" : "hours";
+  const hours = unit === "days" ? amount * 24 : amount;
+
+  if (!Number.isFinite(amount) || amount <= 0 || hours > MAX_AUTO_PAUSE_HOURS) {
+    return {
+      error:
+        unit === "days"
+          ? "Stop checking after how many days? Enter a number from 1 to 365, or leave it empty."
+          : "Stop checking after how many hours? Enter a number from 1 to 8760, or leave it empty.",
+    };
+  }
+
+  return new Date(Date.now() + hours * 3_600_000);
+}
+
+/**
+ * The per-truck "pause once it has stopped moving for this long", in hours.
+ *
+ * Blank is null, meaning the platform setting applies - never a number copied
+ * in from today's default, which would quietly opt this truck out of every
+ * future change to it. Same rule as the failure budget above.
+ */
+function readInactiveHours(fd: FormData): number | null | { error: string } {
+  const raw = str(fd, "inactive_pause_hours");
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_AUTO_PAUSE_HOURS) {
+    return {
+      error:
+        "Pause after how many hours without movement? Enter a whole number from 1 to 8760, or leave it empty.",
+    };
+  }
+  return parsed;
+}
+
+function isError(value: unknown): value is { error: string } {
+  return typeof value === "object" && value !== null && "error" in value;
+}
+
 export async function addTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
@@ -167,12 +233,20 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     maxFailures = parsed;
   }
 
+  const autoPauseAt = readAutoPauseAt(fd);
+  if (isError(autoPauseAt)) return fail(autoPauseAt.error);
+
+  const inactiveHours = readInactiveHours(fd);
+  if (isError(inactiveHours)) return fail(inactiveHours.error);
+
   const payload = {
     user_id: session.id,
     truck_number: truckNumber,
     label: str(fd, "label"),
     is_active: true,
     max_consecutive_failures: maxFailures,
+    auto_pause_at: autoPauseAt instanceof Date ? autoPauseAt.toISOString() : null,
+    inactive_pause_hours: inactiveHours,
     /* Re-adding a paused truck is a fresh start: the old failure run and the
        reason it stopped must not follow it back onto the list. */
     consecutive_errors: 0,
@@ -268,20 +342,50 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
    */
   const resuming = activating && !truck.is_active;
 
+  const autoPauseAt = readAutoPauseAt(fd);
+  if (isError(autoPauseAt)) return fail(autoPauseAt.error);
+
+  const inactiveHours = readInactiveHours(fd);
+  if (isError(inactiveHours)) return fail(inactiveHours.error);
+
   const { error } = await admin
     .from("tracked_trucks")
     .update({
       label: str(fd, "label"),
       is_active: activating,
       max_consecutive_failures: maxFailures,
+      inactive_pause_hours: inactiveHours,
+      /*
+       * Resuming clears the deadline that stopped the truck. Without this, a
+       * truck paused because its auto-pause time arrived still carries that
+       * time, and the very next sweep sees a deadline already in the past and
+       * stops it again - with nothing on any screen explaining why Resume
+       * appeared to do nothing.
+       */
       ...(resuming
         ? {
             consecutive_errors: 0,
             failure_warned_at: null,
             paused_reason: null,
             paused_at: null,
+            auto_pause_at: null,
           }
         : {}),
+      /*
+       * The form's own answer, applied AFTER the resume clear so that resuming
+       * and setting a fresh schedule in the same save keeps the schedule. The
+       * order of these two spreads is the whole behaviour: the other way round,
+       * an officer who switched a truck back on and asked for another six hours
+       * would silently get no timer at all.
+       *
+       * A schedule is a countdown from when it was set, so re-saving with "6
+       * hours" still in the box restarts it - which is what somebody editing a
+       * truck and pressing save expects. undefined means the form never carried
+       * the field, so whatever is stored is left alone.
+       */
+      ...(autoPauseAt === undefined
+        ? {}
+        : { auto_pause_at: autoPauseAt === null ? null : autoPauseAt.toISOString() }),
       ...(activating ? {} : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
     })
     .eq("id", truckId)
@@ -453,6 +557,14 @@ export async function setTruckPaused(
             failure_warned_at: null,
             paused_reason: null,
             paused_at: null,
+            /*
+             * And the schedule, for the same reason. A truck that stopped
+             * because its auto-pause time arrived still has that time on the
+             * row; resuming without clearing it would let the very next sweep
+             * see a deadline already in the past and stop the truck again,
+             * with nothing on any screen explaining why Resume did nothing.
+             */
+            auto_pause_at: null,
           }
         : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
     })

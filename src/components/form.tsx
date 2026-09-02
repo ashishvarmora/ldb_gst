@@ -34,7 +34,11 @@ export function Field({
         ) : null}
       </label>
       {children}
-      {hint ? <p className="field-hint">{hint}</p> : null}
+      {/* break-words, because a hint is not always prose: the delete-account
+          form passes the account's own email as the hint to type back, and an
+          address is one unbreakable token that would otherwise run past the
+          edge of a max-w-md dialog on a phone. */}
+      {hint ? <p className="field-hint break-words">{hint}</p> : null}
     </div>
   );
 }
@@ -126,9 +130,22 @@ export function TriState({
   const current = value === null ? "inherit" : value ? "true" : "false";
   return (
     <div className="rounded-lg border border-line/70 bg-panel/50 px-3 py-2.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-ink">{label}</span>
-        <Select name={name} defaultValue={current} className="w-40 py-1 text-xs">
+      {/*
+       * Wraps, and the select goes full width once it has. These sit inside a
+       * max-w-md dialog, which leaves about 290px of content on a 360px phone:
+       * a sentence-length label beside a fixed 160px control squeezed the
+       * label to two or three words a line and left the control too narrow to
+       * read its own options in.
+       */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
+        <span className="min-w-0 text-sm text-ink">{label}</span>
+        {/* min-h-9: py-1 with text-xs is a 26px control, and this is the only
+            thing on the row anyone taps. */}
+        <Select
+          name={name}
+          defaultValue={current}
+          className="min-h-9 w-full py-1 text-xs sm:w-40"
+        >
           <option value="inherit">Inherit ({inheritedLabel})</option>
           <option value="true">Force on</option>
           <option value="false">Force off</option>

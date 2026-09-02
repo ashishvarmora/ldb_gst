@@ -8,6 +8,7 @@ import { balanceTone } from "../tables";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { FormActions, Input, Select } from "@/components/form";
 import { Modal } from "@/components/Modal";
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Pager } from "@/components/Pager";
 import {
   Avatar,
@@ -152,8 +153,15 @@ export default async function AccountsPage({
       {/* A plain GET form, so the filters live in the address bar: the view can
           be bookmarked, shared and reloaded, and needs no client state. Leaving
           out the page number is deliberate - a new filter starts at page 1. */}
+      {/*
+       * Each control is full width until sm and takes its own line, rather than
+       * keeping the fixed width it needs on a desktop. Those widths all fit
+       * inside 360px, so nothing overflowed - they just wrapped into a ragged
+       * column of half-empty boxes, and a select whose options are longer than
+       * itself is the one a phone user has to guess at.
+       */}
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
-        <div className="relative min-w-56 flex-1">
+        <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-56">
           <Search
             size={14}
             className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint"
@@ -166,13 +174,13 @@ export default async function AccountsPage({
           />
         </div>
 
-        <Select name="status" defaultValue={status ?? ""} className="w-40">
+        <Select name="status" defaultValue={status ?? ""} className="w-full sm:w-40">
           <option value="">Any status</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
         </Select>
 
-        <Select name="plan" defaultValue={plan ?? ""} className="w-48">
+        <Select name="plan" defaultValue={plan ?? ""} className="w-full sm:w-48">
           <option value="">Any plan</option>
           <option value="none">No plan yet</option>
           {planList.map((p) => (
@@ -182,7 +190,7 @@ export default async function AccountsPage({
           ))}
         </Select>
 
-        <Select name="sort" defaultValue={sort} className="w-52">
+        <Select name="sort" defaultValue={sort} className="w-full sm:w-52">
           {Object.entries(SORTS).map(([key, option]) => (
             <option key={key} value={key}>
               Sort by {option.label.toLowerCase()}
@@ -190,10 +198,9 @@ export default async function AccountsPage({
           ))}
         </Select>
 
-        <button type="submit" className={buttonClass("secondary")}>
-          <Filter size={14} />
+        <FilterSubmitButton icon={<Filter size={14} />} size="md">
           Apply
-        </button>
+        </FilterSubmitButton>
         {filtered || sort !== "recent" ? (
           <Link href="/admin/officers" className={buttonClass("ghost")}>
             Clear

@@ -111,6 +111,22 @@ export type TrackedTruck = {
    * check interval - see resolveFailureBudget().
    */
   max_consecutive_failures: number | null;
+  /**
+   * When automatic checking should stop by itself, as an instant rather than a
+   * duration. The officer types "6 hours" when they add the truck and the
+   * server works out the moment that lands on - a stored duration would have
+   * to be re-based against something, and both obvious candidates (added at,
+   * edited at) are wrong the moment anybody touches the row for another
+   * reason. null means it runs until something else stops it.
+   */
+  auto_pause_at: string | null;
+  /**
+   * Pause once no new crossing has been seen for this many hours. A duration
+   * rather than an instant, because it is measured from a moving target - the
+   * last crossing. null means the officer has not chosen, so the platform
+   * setting applies - see resolveInactiveWindow().
+   */
+  inactive_pause_hours: number | null;
   /** Why is_active went false. null while it is running. */
   paused_reason: PausedReason | null;
   paused_at: string | null;
@@ -120,7 +136,12 @@ export type TrackedTruck = {
 };
 
 /** Why a truck stopped being checked. Mirrors the check on tracked_trucks. */
-export type PausedReason = "manual" | "repeated_failures" | "account_suspended";
+export type PausedReason =
+  | "manual"
+  | "repeated_failures"
+  | "account_suspended"
+  | "schedule"
+  | "inactive";
 
 /* -------------------------------------------------------------------------- */
 /* credits                                                                     */
@@ -315,6 +336,14 @@ export type AppSettings = {
    */
   trackingFailureCutoff: number;
   /**
+   * The platform-wide fallback for "stop checking once the lorry has not moved
+   * for this long", in hours. Used for any truck whose owner did not set their
+   * own. Generous on purpose: this stops a truck being watched, and a customer
+   * whose lorry quietly went unchecked over a long weekend in a yard is a
+   * worse outcome than some wasted credits.
+   */
+  inactivePauseHours: number;
+  /**
    * Credits handed to a brand-new account so it can try a search before paying.
    * 0 switches the free tier off entirely.
    */
@@ -454,6 +483,14 @@ export type TruckDirectoryRow = {
   last_event_at: string | null;
   last_polled_at: string | null;
   created_at: string;
+  /**
+   * Why checking stopped, carried through so the admin fielding "my lorry
+   * went quiet" can answer without opening the customer's own screen - which
+   * they cannot do, because it is a portal page.
+   */
+  paused_reason: PausedReason | null;
+  paused_at: string | null;
+  auto_pause_at: string | null;
   officer_id: string;
   officer_name: string | null;
   officer_email: string;

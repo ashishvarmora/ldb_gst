@@ -80,8 +80,22 @@ export function Modal({
               maxWidth,
             )}
           >
-            <header className="flex items-start justify-between gap-4 border-b border-line/70 px-5 py-4">
-              <div>
+            {/*
+             * min-w-0 and break-words on the title block, shrink-0 on the
+             * close button. Titles here are built from stored values - "Edit
+             * SAVE20-DIWALI-FLEET", "Edit GJ27TD6880 crossing" - and a long
+             * one is often a single unbreakable token, which a flex child will
+             * not shrink below. Without these the heading pushed the X past
+             * the dialog's rounded edge on a phone, leaving Escape or a tap on
+             * the backdrop as the only way out.
+             *
+             * The button is sized rather than padded: p-1.5 round a 16px icon
+             * is a 28px target, well under the 36px floor the rest of the
+             * console keeps to, and this is the control somebody reaches for
+             * when they opened the wrong form.
+             */}
+            <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
+              <div className="min-w-0 break-words">
                 <h2 className="text-base font-semibold text-strong">{title}</h2>
                 {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
               </div>
@@ -89,7 +103,7 @@ export function Modal({
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="rounded-lg p-1.5 text-muted transition hover:bg-sunken hover:text-ink"
+                className="-mt-1 -mr-2 inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink"
               >
                 <X size={16} />
               </button>

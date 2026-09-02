@@ -139,6 +139,7 @@ export default async function TrucksPage({
             <AddTruckForm
               templates={templateList}
               defaultFailureCutoff={settings.trackingFailureCutoff}
+              defaultInactiveHours={settings.inactivePauseHours}
             />
           </Modal>
         }

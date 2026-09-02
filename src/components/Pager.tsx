@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { LinkPending } from "@/components/NavPending";
 import { buttonClass, cx } from "@/components/ui";
 import { fmtNumber } from "@/lib/format";
 
@@ -14,6 +15,12 @@ import { fmtNumber } from "@/lib/format";
  *
  * It is a Server Component on purpose: pages are links, so a shared list stays
  * server-rendered, survives a refresh, and can be opened in a new tab.
+ *
+ * Which also means turning a page is a server round trip that loading.tsx never
+ * sees - only ?page= changes, so the route segment is the same and no skeleton
+ * runs. On a long table that is a second or two of a screen that has not
+ * visibly reacted, and the reader taps Next again. The step links carry their
+ * own pending state for that reason; see NavPending.tsx.
  *
  * USAGE
  *
@@ -139,8 +146,10 @@ export function Pager({
         <p className="text-xs tabular-nums text-muted">
           Page {fmtNumber(page)} is past the end of this list.
         </p>
-        <Link href={pagerHref(href, 1)} className={buttonClass("secondary", "sm")}>
-          <ChevronLeft size={14} />
+        <Link href={pagerHref(href, 1)} className={buttonClass("secondary", "sm", "relative")}>
+          <LinkPending size={14}>
+            <ChevronLeft size={14} />
+          </LinkPending>
           Back to the first page
         </Link>
       </nav>
@@ -173,7 +182,9 @@ export function Pager({
 
       <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto">
         <Step href={href} page={current - 1} disabled={current <= 1} label="Previous">
-          <ChevronLeft size={14} />
+          <LinkPending size={14}>
+            <ChevronLeft size={14} />
+          </LinkPending>
           Previous
         </Step>
 
@@ -183,7 +194,9 @@ export function Pager({
 
         <Step href={href} page={current + 1} disabled={current >= totalPages} label="Next">
           Next
-          <ChevronRight size={14} />
+          <LinkPending size={14}>
+            <ChevronRight size={14} />
+          </LinkPending>
         </Step>
       </div>
     </nav>
@@ -204,8 +217,9 @@ function Step({
   children: ReactNode;
 }) {
   // flex-1 on a phone so both steps are wide enough to hit; natural width once
-  // there is room for the count line beside them.
-  const shape = "flex-1 sm:flex-none";
+  // there is room for the count line beside them. `relative` is what LinkPending
+  // positions its wash against, and it costs nothing when nothing is loading.
+  const shape = "relative flex-1 sm:flex-none";
 
   if (disabled) {
     return (
@@ -253,11 +267,13 @@ export function ShowMore({
     <Link
       href={href}
       className={cx(
-        buttonClass("ghost", "sm", "w-full justify-center gap-1.5 text-brand-500"),
+        buttonClass("ghost", "sm", "relative w-full justify-center gap-1.5 text-brand-500"),
         className,
       )}
     >
-      <Plus size={13} />
+      <LinkPending size={13}>
+        <Plus size={13} />
+      </LinkPending>
       {children ??
         (remaining !== undefined ? `Show ${fmtNumber(remaining)} ${noun}` : `Show ${noun}`)}
     </Link>

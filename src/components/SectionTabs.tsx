@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { LinkPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
 /**
@@ -19,6 +20,11 @@ import { cx } from "@/components/ui";
  *
  * Scrolls horizontally on a phone rather than wrapping to three rows, which
  * would push the actual content below the fold on the smallest screens.
+ *
+ * Changing section only changes ?section=, so the route segment is the same and
+ * the page's loading.tsx never runs - the reader gets no skeleton, just a still
+ * screen for as long as the server takes. LinkPending is what fills that gap:
+ * the tab that was tapped lights up straight away. See NavPending.tsx.
  */
 
 export type Section = { key: string; label: string; icon?: ReactNode; hint?: string };
@@ -67,13 +73,13 @@ export function SectionTabs({
                 aria-current={on ? "page" : undefined}
                 title={hint}
                 className={cx(
-                  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium whitespace-nowrap transition",
+                  "relative inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium whitespace-nowrap transition",
                   on
                     ? "border-brand-500 bg-brand-500/10 text-brand-500"
                     : "border-transparent text-muted hover:bg-sunken hover:text-ink",
                 )}
               >
-                {icon}
+                <LinkPending size={14}>{icon}</LinkPending>
                 {label}
               </Link>
             </li>

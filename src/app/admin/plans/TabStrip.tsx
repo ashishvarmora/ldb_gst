@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Coins, Package } from "lucide-react";
 
+import { LinkPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
 /**
@@ -28,6 +29,11 @@ import { cx } from "@/components/ui";
  * so opening one costs only that tab's data; a tab can be linked to and
  * bookmarked; and a Server Action that refreshes the route comes back to the
  * tab you were on, with its filters and page numbers intact.
+ *
+ * The cost of that is a real server round trip on every tab change, with no
+ * loading.tsx behind it - the route segment does not change when only ?tab=
+ * does - so the strip has to report its own progress. That is what LinkPending
+ * is doing below; see NavPending.tsx.
  */
 
 export const TABS = [
@@ -78,13 +84,15 @@ export function TabStrip({ current }: { current: Tab }) {
             href={tabHref(key)}
             aria-current={active ? "page" : undefined}
             className={cx(
-              "flex min-h-10 shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3.5 text-sm transition",
+              "relative flex min-h-10 shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3.5 text-sm transition",
               active
                 ? "border-brand-500 font-medium text-brand-500"
                 : "border-transparent text-muted hover:bg-sunken/70 hover:text-ink",
             )}
           >
-            <Icon size={15} className="shrink-0" />
+            <LinkPending size={15}>
+              <Icon size={15} className="shrink-0" />
+            </LinkPending>
             {label}
           </Link>
         );

@@ -56,9 +56,10 @@ export default async function ActivityPage({
           <HelpNote title="How do I find one particular charge?">
             Turn the <strong>Group by</strong> toggles off and you get every individual charge,
             newest first. Leave them on to fold the same charges up — by day, by truck, or both.
-            Tapping any folded row opens the charges behind it. The date boxes take a range, and the
-            three figures above the list always describe everything the filters match, not just the
-            page you are looking at.
+            Tapping any folded row opens the charges behind it. The pills under the toggles narrow
+            the list — each one reads out what it is currently doing, and turns blue when it is
+            doing something — and the three figures above the list always describe everything the
+            filters match, not just the page you are looking at.
           </HelpNote>
         </div>
 

@@ -123,9 +123,13 @@ function NewPlanButton() {
 function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
   return (
     <section className="panel flex flex-col overflow-hidden">
-      <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
+      {/* Wraps, so the price and customer count drop below the name rather than
+          squeezing it. A plan card is a single grid column on a phone - about
+          290px - and without this the name was truncated to make room for a
+          figure that has a whole line spare underneath it. */}
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Package size={15} className="shrink-0 text-brand-400" />
             <h2 className="truncate text-base font-semibold text-strong">{plan.name}</h2>
             {plan.is_active ? null : <Badge tone="warn">Archived</Badge>}

@@ -73,6 +73,45 @@ Sidebar on desktop, thumb-reachable tab bar on mobile - most people use this fro
 
 ---
 
+## When a truck stops checking itself
+
+Automatic checking costs a credit every time it runs, so the expensive mistake
+is not a wrong setting - it is a watch nobody remembered to switch off. Someone
+follows a lorry for an afternoon, does not come back, and pays hourly for weeks
+to be told the same thing.
+
+Four things stop a truck, and the reason is stored on the row so its owner is
+told **which**. A truck that goes quiet without saying why is the failure all
+of this is guarding against.
+
+| Reason | Fires when | Who sets the number |
+| --- | --- | --- |
+| `schedule` | the officer said "for 6 hours" and 6 hours have passed | officer, when adding or editing the truck |
+| `inactive` | no toll crossing has come through for Y hours - the lorry is parked | officer per truck, else `inactive_pause_hours` (default 72h) |
+| `repeated_failures` | X checks in a row could not be answered | officer per truck, else `tracking_failure_cutoff` (default 10) |
+| `manual` | somebody pressed Pause | — |
+| `account_suspended` | the account was switched off | — |
+
+Two rules hold across all of them:
+
+- **The officer's number wins, and a blank follows the platform.** A per-truck
+  null is never resolved at write time. Storing today's default onto the row
+  would freeze it there, so changing the platform setting later would do
+  nothing for any truck already added.
+- **The check runs before the credit is spent.** A truck past its stop time must
+  not pay for one last look on the way out - that charge is the whole thing the
+  officer set the timer to avoid. Both timed stops are decided from the row
+  alone, so neither costs an upstream call.
+
+Resuming clears an expired deadline. Without that, pressing Resume on a truck
+that stopped on schedule appears to do nothing: the old deadline is still on the
+row and the next sweep stops it again.
+
+`no_activity_hours` is a different setting and does not stop anything - it only
+decides when the word on screen changes from "idle" to "no activity".
+
+---
+
 ## One credit balance
 
 There is a single number to think about. There used to be two quotas —

@@ -15,6 +15,7 @@ import {
   type TruckFilters,
 } from "../../tables";
 import { Input, Select } from "@/components/form";
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Pager } from "@/components/Pager";
 import {
   EmptyState,
@@ -139,22 +140,34 @@ export async function TrucksTab({
       >
         <input type="hidden" name="tab" value="trucks" />
 
-        <div className="relative min-w-44 flex-1">
+        {/* Full width until sm, like the platform-wide truck list. This row sits
+            inside a panel that is itself inside the page padding, so there is
+            barely 290px to share on a phone - three fixed-width selects side by
+            side is a column of half-empty boxes rather than a filter bar. */}
+        <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-44">
           <Search
             size={13}
             className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint"
           />
+          {/* min-h-9 on every control in this row. py-1.5 with text-xs is a
+              30px box, which is the compact look this tab wants on a desktop
+              and too small to hit reliably with a thumb - the same 36px floor
+              buttonClass keeps to. */}
           <Input
             name="tq"
             defaultValue={q ?? ""}
             placeholder="Truck number"
-            className="py-1.5 pl-8 text-xs"
+            className="min-h-9 py-1.5 pl-8 text-xs"
           />
         </div>
 
         {/* Whether it is being checked at all comes before how it last moved,
             the same order the platform-wide list puts them in. */}
-        <Select name="ttracking" defaultValue={tracking} className="w-48 py-1.5 text-xs">
+        <Select
+          name="ttracking"
+          defaultValue={tracking}
+          className="min-h-9 w-full py-1.5 text-xs sm:w-48"
+        >
           <option value="">Live and paused</option>
           {Object.entries(TRUCK_TRACKING_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
@@ -163,7 +176,11 @@ export async function TrucksTab({
           ))}
         </Select>
 
-        <Select name="tstatus" defaultValue={status} className="w-40 py-1.5 text-xs">
+        <Select
+          name="tstatus"
+          defaultValue={status}
+          className="min-h-9 w-full py-1.5 text-xs sm:w-40"
+        >
           <option value="">Any status</option>
           {Object.entries(TRUCK_STATUS_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
@@ -172,7 +189,11 @@ export async function TrucksTab({
           ))}
         </Select>
 
-        <Select name="tsort" defaultValue={sort} className="w-48 py-1.5 text-xs">
+        <Select
+          name="tsort"
+          defaultValue={sort}
+          className="min-h-9 w-full py-1.5 text-xs sm:w-48"
+        >
           {Object.entries(TRUCK_SORTS).map(([key, option]) => (
             <option key={key} value={key}>
               Sort by {option.label.toLowerCase()}
@@ -180,10 +201,7 @@ export async function TrucksTab({
           ))}
         </Select>
 
-        <button type="submit" className={buttonClass("secondary", "sm")}>
-          <Filter size={13} />
-          Apply
-        </button>
+        <FilterSubmitButton icon={<Filter size={13} />}>Apply</FilterSubmitButton>
         {filtered || sort !== "event" ? (
           <Link href={`/admin/officers/${id}?tab=trucks`} className={buttonClass("ghost", "sm")}>
             Clear

@@ -211,7 +211,13 @@ export function AccountMenu(props: AccountMenuProps) {
           "z-50 overflow-hidden border border-line bg-panel [box-shadow:var(--shadow-pop)]",
           sheet
             ? "animate-in fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-2xl border-b-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
-            : "animate-in absolute top-full right-0 mt-2 w-80 rounded-xl",
+            : /* The 320px dropdown is capped against the viewport as well as
+                 anchored to the button. It is the avatar variant, so it is
+                 normally on a desktop header - but a narrow window puts the
+                 button close enough to the left edge that a fixed 320px panel
+                 hangs off the screen, and an absolutely positioned overflow
+                 scrolls the whole document sideways rather than itself. */
+              "animate-in absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl",
         )}
       >
         {/* ---------------- who you are ---------------- */}

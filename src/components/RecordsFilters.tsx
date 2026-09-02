@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronDown, Download, SlidersHorizontal } from "lucide-react";
 
+import { FilterSubmitButton } from "@/components/NavPending";
 import { directionLabel } from "@/components/Timeline";
 import { Field, Input, Select } from "@/components/form";
 import { Badge, buttonClass, cx } from "@/components/ui";
@@ -173,9 +174,9 @@ export function RecordsControls({
           </div>
 
           <div className="mt-3 flex items-center gap-2">
-            <button type="submit" className={buttonClass("primary", "sm", "flex-1 sm:flex-none")}>
+            <FilterSubmitButton variant="primary" size="sm" className="flex-1 sm:flex-none">
               Apply filters
-            </button>
+            </FilterSubmitButton>
             {active > 0 ? (
               <Link
                 href={recordsHref({ view, range })}

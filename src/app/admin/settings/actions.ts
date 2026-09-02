@@ -48,6 +48,22 @@ const ENGINE_SPECS: SettingSpec[] = [
     min: 1,
     max: 1000,
   },
+  /*
+   * The fallback for the other automatic stop. An officer who set their own
+   * number for a truck keeps it; this is what every other truck follows.
+   *
+   * The ceiling is a year rather than a week because "never stop this one" is
+   * a legitimate answer for a lorry that spends months on a site, and the
+   * floor is an hour because the sweep does not run more often than that -
+   * anything shorter would pause a truck before it had been checked once.
+   */
+  {
+    key: "inactive_pause_hours",
+    label: "Pause a truck after this long without movement",
+    kind: "int",
+    min: 1,
+    max: 8760,
+  },
 ];
 
 /*
@@ -363,6 +379,7 @@ export async function runTrackingNow(
       newEvents: summary.newEvents,
       alerts: summary.alerts,
       deferred: summary.deferred,
+      autoPaused: summary.autoPaused,
     },
   });
 
@@ -375,10 +392,28 @@ export async function runTrackingNow(
     return { ok: false, error: "Tracking is switched off in the settings above." };
   }
 
+  const stopped = summary.autoPaused.schedule + summary.autoPaused.inactive;
+  const stoppedNote = stopped
+    ? ` ${stopped} truck${stopped === 1 ? "" : "s"} stopped by itself (${
+        [
+          summary.autoPaused.schedule ? `${summary.autoPaused.schedule} reached its time limit` : null,
+          summary.autoPaused.inactive ? `${summary.autoPaused.inactive} stopped moving` : null,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      }).`
+    : "";
+
+  /*
+   * "Nothing was due" is the ordinary answer, but it must not swallow the
+   * trucks this run stopped. An admin who has just tightened the inactivity
+   * setting and pressed Run now needs to see how many that switched off - the
+   * sweep having checked nothing is not the same as it having done nothing.
+   */
   if (summary.due === 0) {
     return {
       ok: true,
-      message: `Nothing was due. ${summary.candidates} active truck${summary.candidates === 1 ? "" : "s"} on the platform, all checked recently.`,
+      message: `Nothing was due. ${summary.candidates} active truck${summary.candidates === 1 ? "" : "s"} on the platform, all checked recently.${stoppedNote}`,
     };
   }
 
@@ -393,7 +428,10 @@ export async function runTrackingNow(
   if (summary.errors.length > 0) parts.push(`${summary.errors.length} error(s)`);
   if (summary.backup?.ran) parts.push("backup ran");
 
-  return { ok: true, message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.` };
+  return {
+    ok: true,
+    message: `${parts.join(" · ")} in ${(summary.durationMs / 1000).toFixed(1)}s.${stoppedNote}`,
+  };
 }
 
 /*

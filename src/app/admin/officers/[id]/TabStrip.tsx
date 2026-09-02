@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { CreditCard, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
 
+import { LinkPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
 /**
@@ -14,6 +15,10 @@ import { cx } from "@/components/ui";
  * opened in a new browser tab; and a Server Action that refreshes the route
  * comes back to the tab you were on. It also means the filters and page numbers
  * inside a tab are just more query parameters, with nothing to keep in sync.
+ *
+ * Every one of those is a server round trip that loading.tsx cannot cover, because
+ * the route segment is the same whether ?tab= says credits or trucks. So the
+ * strip reports its own progress with LinkPending; see NavPending.tsx.
  */
 
 /*
@@ -99,13 +104,15 @@ export function TabStrip({
             href={key === "overview" ? basePath : `${basePath}?tab=${key}`}
             aria-current={active ? "page" : undefined}
             className={cx(
-              "flex min-h-10 shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3.5 text-sm transition",
+              "relative flex min-h-10 shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3.5 text-sm transition",
               active
                 ? "border-brand-500 font-medium text-brand-500"
                 : "border-transparent text-muted hover:bg-sunken/70 hover:text-ink",
             )}
           >
-            <Icon size={15} className="shrink-0" />
+            <LinkPending size={15}>
+              <Icon size={15} className="shrink-0" />
+            </LinkPending>
             {label}
             {counts?.[key] !== undefined && counts[key] !== null ? (
               <span

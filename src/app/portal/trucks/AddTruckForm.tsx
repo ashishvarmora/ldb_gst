@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { addTruck } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Field, FormActions, Input } from "@/components/form";
+import { Field, FormActions, Input, Select } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
 import { AlertChooser } from "@/components/TruckAlertForm";
 import type { AlertRuleTemplate } from "@/lib/types";
@@ -26,10 +26,13 @@ import type { AlertRuleTemplate } from "@/lib/types";
 export function AddTruckForm({
   templates,
   defaultFailureCutoff,
+  defaultInactiveHours,
 }: {
   templates: AlertRuleTemplate[];
   /** The admin's number, used for any truck the officer leaves blank. */
   defaultFailureCutoff: number;
+  /** The admin's "stopped moving for this long" fallback, in hours. */
+  defaultInactiveHours: number;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -59,6 +62,51 @@ export function AddTruckForm({
 
         <div className="border-t border-divider pt-5">
           <AlertChooser templates={templates} />
+        </div>
+
+        {/*
+          On the first screen rather than behind "More settings", because it is
+          the answer to the mistake this product actually causes: somebody puts
+          a lorry on automatic checking to follow it for an afternoon, does not
+          come back, and pays for a check every hour for a fortnight. Asking the
+          question while they are still thinking about the journey costs one
+          box; asking it later costs them credits.
+
+          Blank is a real answer and the default one - plenty of trucks are
+          meant to be watched indefinitely.
+        */}
+        <div className="border-t border-divider pt-5">
+          <LabelWithInfo
+            label="Stop checking automatically after"
+            htmlFor="auto_pause_amount"
+            info={
+              <>
+                Set this if you only need to follow this truck for a while. When the time is up it
+                is paused, you are told, and it stops costing credits — nothing is deleted and
+                every crossing it recorded stays.
+                <span className="mt-1.5 block text-faint">
+                  Leave it empty to keep checking until you pause it yourself.
+                </span>
+              </>
+            }
+          />
+          <div className="mt-1.5 flex gap-2">
+            <Input
+              id="auto_pause_amount"
+              name="auto_pause_amount"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={8760}
+              step={1}
+              placeholder="Leave empty to keep going"
+              className="flex-1"
+            />
+            <Select name="auto_pause_unit" defaultValue="hours" className="w-28 shrink-0">
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </Select>
+          </div>
         </div>
 
         {/*
@@ -107,6 +155,45 @@ export function AddTruckForm({
                 placeholder={`Default (${defaultFailureCutoff})`}
                 className="mt-1.5"
               />
+
+              {/*
+                The third stop, and the one nobody thinks to ask for. A lorry
+                parked in a yard answers every check with the same crossing it
+                answered with yesterday, so the checks cost credits and tell
+                nobody anything. This is a per-truck number for the same reason
+                the failure budget is: only the officer knows whether this
+                particular vehicle is expected to sit still for a week.
+              */}
+              <div className="mt-4">
+                <LabelWithInfo
+                  label="Pause if it stops moving for"
+                  htmlFor="inactive_pause_hours"
+                  info={
+                    <>
+                      Counted from the last toll crossing that came through. If the lorry is parked
+                      and no new crossing arrives for this long, checking is paused and you are
+                      told — so a vehicle standing in a yard stops quietly spending credits on the
+                      same answer.
+                      <span className="mt-1.5 block text-faint">
+                        Leave it empty to use the platform default, currently{" "}
+                        {defaultInactiveHours} hours. Set it longer for a truck you expect to be
+                        parked.
+                      </span>
+                    </>
+                  }
+                />
+                <Input
+                  id="inactive_pause_hours"
+                  name="inactive_pause_hours"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={8760}
+                  step={1}
+                  placeholder={`Default (${defaultInactiveHours} hours)`}
+                  className="mt-1.5"
+                />
+              </div>
             </div>
           ) : null}
         </div>

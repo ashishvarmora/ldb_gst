@@ -65,12 +65,15 @@ export function OverridesPanel({
                     <td className="td text-right text-sm tabular-nums text-muted">
                       {plan ? formatLimit(planValue) : "--"}
                     </td>
+                    {/* min-h-9: py-1.5 makes a 34px box, just under the floor
+                        the rest of the console keeps to, and there is one of
+                        these per limit for somebody to tap down a column. */}
                     <td className="td">
                       <Input
                         name={`override_${field.key}`}
                         defaultValue={inputValue(overrideValue)}
                         placeholder="inherit"
-                        className="py-1.5 text-sm"
+                        className="min-h-9 py-1.5 text-sm"
                       />
                     </td>
                     <td className="td text-right text-sm font-semibold tabular-nums text-ink">

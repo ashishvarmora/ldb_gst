@@ -1,3 +1,4 @@
+import { NavProgress } from "@/components/NavProgress";
 import Link from "next/link";
 import { Coins, ShieldCheck, Truck } from "lucide-react";
 
@@ -136,6 +137,8 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div className="theme-light flex min-h-screen">
+      <NavProgress />
+
       <PortalSidebar brandName={brandName} referralsEnabled={referralEnabled} />
 
       <div className="flex min-w-0 flex-1 flex-col">

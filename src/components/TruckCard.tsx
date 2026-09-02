@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { BellOff, BellRing, ChevronRight, Clock, MapPin, Plus } from "lucide-react";
+import { BellOff, BellRing, ChevronRight, Clock, MapPin, Plus, Timer } from "lucide-react";
 
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
 import { describeAlert } from "@/lib/alerts";
 import { fmtRelative } from "@/lib/format";
+import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
 import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
 
 export const TRUCK_STATUS_TONE: Record<TruckStatus, BadgeTone> = {
@@ -55,17 +56,12 @@ export function lastCheckedLabel(
   alerts: Pick<TruckAlertWithTemplate, "is_enabled">[],
 ): string {
   /* A truck the worker paused looks exactly like one the officer paused, and
-     the difference is the whole story: one was a decision, the other is a
-     number that needs fixing. */
-  if (!truck.is_active) {
-    if (truck.paused_reason === "repeated_failures") {
-      return "Paused — the toll network kept failing on this number";
-    }
-    if (truck.paused_reason === "account_suspended") {
-      return "Paused — this account is suspended";
-    }
-    return "Paused — not being checked";
-  }
+     the difference is the whole story: one was a decision, the others are
+     something that needs fixing or a timer that ran out. The wording lives in
+     one table so a new reason cannot show up on this line as a bare "paused"
+     while the truck's own page explains it properly. */
+  const paused = pauseCopyFor(truck);
+  if (paused) return paused.line;
   if (truck.last_polled_at) return `Last checked ${fmtRelative(truck.last_polled_at)}`;
   if (alerts.length === 0) return "Never checked — it has no alert yet";
   if (!isWatching(alerts)) return "Every alert is off — nothing is checked";
@@ -146,6 +142,8 @@ export function TruckCard({
   alerts?: TruckAlertWithTemplate[];
 }) {
   const status = truck.is_active ? truck.status : "unknown";
+  const pausedCopy = pauseCopyFor(truck);
+  const countdown = autoPauseCountdown(truck);
 
   return (
     <Link
@@ -169,10 +167,18 @@ export function TruckCard({
               <Mono className="text-[15px] font-semibold tracking-wide text-strong">
                 {truck.truck_number}
               </Mono>
-              {!truck.is_active ? (
-                <Badge tone={truck.paused_reason === "repeated_failures" ? "warn" : "neutral"}>
-                  {truck.paused_reason === "repeated_failures" ? "not answering" : "paused"}
-                </Badge>
+              {pausedCopy ? <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge> : null}
+              {/*
+                A truck that is still running but has a stop time coming reads
+                as an ordinary truck, which is how somebody forgets they set
+                one. The countdown is small and beside the number so it is
+                visible without competing with the movement status.
+              */}
+              {countdown ? (
+                <span className="inline-flex items-center gap-1 text-[11px] text-faint">
+                  <Timer size={11} className="shrink-0" />
+                  stops {countdown}
+                </span>
               ) : null}
             </div>
             {truck.label ? (

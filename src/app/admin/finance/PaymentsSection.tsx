@@ -5,6 +5,7 @@ import type { FinanceParams } from "./page";
 import { pageWindow, type AdminQuery } from "../pager";
 import { PAYMENT_LABEL, PAYMENT_TONE, isPaymentStatus, type NameLookup } from "../tables";
 import { Select } from "@/components/form";
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Pager } from "@/components/Pager";
 import {
   Badge,
@@ -15,7 +16,6 @@ import {
   Tbody,
   Thead,
   Tr,
-  buttonClass,
 } from "@/components/ui";
 import {
   PAYMENT_METHODS,
@@ -138,10 +138,12 @@ export async function PaymentsSection({
             <option value="plan">Plans</option>
             <option value="credits">Credit packs</option>
           </Select>
-          <button type="submit" className={buttonClass("secondary", "sm")}>
-            <Filter size={13} />
-            Apply
-          </button>
+          {/* A method="get" form is a browser navigation React never sees, so
+              neither useFormStatus nor a loading.tsx can report it. This button
+              watches its own form's submit event instead - without it, applying
+              a filter over a slow connection looks like nothing happened and
+              people press Apply again. */}
+          <FilterSubmitButton icon={<Filter size={13} />}>Apply</FilterSubmitButton>
         </form>
       }
     >

@@ -20,6 +20,7 @@ import {
   type Slice,
 } from "@/components/charts";
 import { DateRangeBar } from "@/components/DateRangeBar";
+import { FilterSubmitButton } from "@/components/NavPending";
 import { Input, Select } from "@/components/form";
 import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
 import {
@@ -34,7 +35,6 @@ import {
   Tbody,
   Thead,
   Tr,
-  buttonClass,
   type BadgeTone,
 } from "@/components/ui";
 import {
@@ -333,10 +333,7 @@ export default async function UsersPage({
                 </option>
               ))}
             </Select>
-            <button type="submit" className={buttonClass("secondary", "sm")}>
-              <Filter size={13} />
-              Apply
-            </button>
+            <FilterSubmitButton icon={<Filter size={13} />}>Apply</FilterSubmitButton>
           </form>
         }
       >

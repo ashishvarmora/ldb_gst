@@ -414,11 +414,23 @@ export function Mono({ children, className }: { children: ReactNode; className?:
   return <span className={cx("font-mono text-[13px] tracking-tight", className)}>{children}</span>;
 }
 
+/**
+ * One label-and-value line of a detail panel.
+ *
+ * min-w-0 and break-words on the value, because half of what goes in here is a
+ * single unbreakable token: an email address, a Razorpay order id, a Google
+ * spreadsheet id, a Telegram error carrying a URL. A flex child refuses to
+ * shrink below its own min-content width, and for an unbreakable token that IS
+ * the whole token - so on a 360px phone the value ran past the right edge of
+ * the panel and Panel's own overflow-hidden cut the end of it off, silently.
+ * An email whose last few characters cannot be read is worse than one on three
+ * lines, and there was no way to scroll to them.
+ */
 export function DescRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-divider py-2 last:border-0">
       <dt className="shrink-0 text-xs tracking-wide text-muted uppercase">{label}</dt>
-      <dd className="text-right text-sm text-ink">{children}</dd>
+      <dd className="min-w-0 text-right text-sm break-words text-ink">{children}</dd>
     </div>
   );
 }

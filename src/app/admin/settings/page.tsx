@@ -291,7 +291,7 @@ export default async function SettingsPage({
                 <Field
                   label="Treat as no activity after (hours)"
                   name="no_activity_hours"
-                  hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle."
+                  hint="A tracked truck that crosses no toll for this long is shown as no activity rather than idle. This only changes the WORD on screen — checking carries on. The setting below is the one that actually stops it, which is why the two numbers are nothing like each other."
                 >
                   <Input
                     name="no_activity_hours"
@@ -314,6 +314,21 @@ export default async function SettingsPage({
                     min={1}
                     max={1000}
                     defaultValue={num(settings, "tracking_failure_cutoff", 10)}
+                    className="max-w-40"
+                  />
+                </Field>
+
+                <Field
+                  label="Pause a truck after this long without movement (hours)"
+                  name="inactive_pause_hours"
+                  hint="A parked lorry answers every check with the same crossing it gave yesterday, so the checks cost credits and tell nobody anything. Counted from the last crossing that came through: past this, the truck is paused and its owner is told it stopped moving. This is the fallback - an officer who set their own number for a truck keeps it. Generous by default, because the cost of setting it too low is a customer whose lorry quietly stopped being watched over a long weekend."
+                >
+                  <Input
+                    name="inactive_pause_hours"
+                    type="number"
+                    min={1}
+                    max={8760}
+                    defaultValue={num(settings, "inactive_pause_hours", 72)}
                     className="max-w-40"
                   />
                 </Field>
@@ -722,6 +737,9 @@ export default async function SettingsPage({
                 </Badge>
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
+              <DescRow label="Pause when still for">
+                {num(settings, "inactive_pause_hours", 72)} h
+              </DescRow>
               <DescRow label="Pause after">
                 {num(settings, "tracking_failure_cutoff", 10)} failed checks
               </DescRow>

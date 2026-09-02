@@ -12,6 +12,7 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  Timer,
   Trash2,
 } from "lucide-react";
 
@@ -31,16 +32,17 @@ import {
 } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
 import { LabelWithInfo } from "@/components/InfoTip";
-import { Checkbox, Field, FormActions, Input } from "@/components/form";
+import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
 import { TruckAlertForm } from "@/components/TruckAlertForm";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE, lastCheckedLabel } from "@/components/TruckCard";
-import { Badge, EmptyState, LinkCard, Panel } from "@/components/ui";
+import { Badge, EmptyState, LinkCard, Panel, cx } from "@/components/ui";
 import { alertSentence } from "@/lib/alerts";
 import { intervalLabel } from "@/lib/intervals";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
+import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
 import { getSessionUser } from "@/lib/auth";
 import { loadSettings } from "@/lib/settings";
 import { requirePortalSession } from "@/lib/officer";
@@ -175,6 +177,12 @@ export default async function TruckDetailPage({
   /* Shown in the failure field so the officer can see what "empty" actually
      means today, rather than being asked to trust a word. */
   const defaultFailureCutoff = settings.trackingFailureCutoff;
+  const defaultInactiveHours = settings.inactivePauseHours;
+
+  /* Why it stopped, and - if it has not - when it is going to. Both read from
+     the shared table so this page and the fleet card agree. */
+  const pausedCopy = pauseCopyFor(truck);
+  const countdown = autoPauseCountdown(truck);
 
   const eventList = (events ?? []) as TruckEvent[];
   const alertList = (alerts ?? []) as AlertLog[];
@@ -204,7 +212,7 @@ export default async function TruckDetailPage({
             {truck.truck_number}
           </h1>
           <Badge tone={TRUCK_STATUS_TONE[status]}>{TRUCK_STATUS_LABEL[status]}</Badge>
-          {truck.is_active ? null : <Badge>paused</Badge>}
+          {pausedCopy ? <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge> : null}
         </div>
         <p className="mt-1 text-xs text-muted">
           {truck.label ? `${truck.label} · ` : ""}
@@ -431,16 +439,60 @@ export default async function TruckDetailPage({
           and a remove button, and hiding them behind a dropdown made people
           hunt for the pause switch. */}
       <Panel title="Settings" description="Label, pause, failure limit, and removing this truck.">
-        {/* A truck the worker stopped says so here, where the switch to restart
-            it is - not only on the card in the list the officer may not revisit. */}
-        {!truck.is_active && truck.paused_reason === "repeated_failures" ? (
-          <p className="mb-4 flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-warn-500">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+        {/*
+          Why it stopped, said here where the switch to restart it is - not only
+          on the card in a list the officer may not go back to.
+
+          Every reason now, not just repeated failures. There are five of them,
+          and the two new ones (a stop time that arrived, a lorry that stopped
+          moving) are precisely the cases where the officer has no way to guess:
+          nothing failed, nothing is broken, the truck simply went quiet. The
+          wording comes from PAUSE_COPY so this panel, the card and the fleet
+          list cannot tell three different stories.
+        */}
+        {pausedCopy ? (
+          <p
+            className={cx(
+              "mb-4 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-relaxed",
+              pausedCopy.tone === "bad"
+                ? "border-bad-500/40 bg-bad-500/10 text-bad-500"
+                : pausedCopy.tone === "warn"
+                  ? "border-warn-500/40 bg-warn-500/10 text-warn-500"
+                  : pausedCopy.tone === "brand"
+                    ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+                    : "border-line bg-raised text-muted",
+            )}
+          >
+            {pausedCopy.tone === "brand" ? (
+              <Timer size={14} className="mt-0.5 shrink-0" />
+            ) : (
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            )}
             <span>
-              Checking stopped by itself after {truck.consecutive_errors} failed checks in a row.
-              That usually means the number does not match any lorry the toll network reports.
-              Check the number, then tick <strong>Tracking active</strong> to start again — the
-              failure count is cleared when you do.
+              {pausedCopy.detail}
+              {truck.paused_reason === "repeated_failures" && truck.consecutive_errors > 0 ? (
+                <> The last {truck.consecutive_errors} checks in a row could not be completed.</>
+              ) : null}
+              {truck.paused_at ? (
+                <span className="mt-1 block opacity-80">
+                  Stopped {fmtRelative(truck.paused_at)}.
+                </span>
+              ) : null}
+            </span>
+          </p>
+        ) : null}
+
+        {/*
+          The other half of the same problem: a truck that is still running with
+          a stop time coming. Somebody who set "6 hours" three days ago and is
+          looking at this page deserves to be told, not surprised.
+        */}
+        {countdown ? (
+          <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+            <Timer size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Checking stops by itself <strong className="text-ink">{countdown}</strong>. Leave the
+              box below empty to keep it running, or set a new time to push it back.
             </span>
           </p>
         ) : null}
@@ -493,6 +545,80 @@ export default async function TruckDetailPage({
               placeholder={`Default (${defaultFailureCutoff})`}
               className="mt-1.5"
             />
+          </div>
+
+          {/*
+            The other two stops, editable in the same place as the first. One
+            heading, because all three answer a single question - when should
+            this stop by itself - and somebody deciding that wants all three
+            answers in front of them rather than across three panels.
+          */}
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <LabelWithInfo
+                label="Stop checking automatically after"
+                htmlFor="auto_pause_amount"
+                info={
+                  <>
+                    A countdown that starts when you save. Use it when you only need to follow this
+                    truck for a while — when the time is up it is paused, you are told, and it
+                    stops costing credits.
+                    <span className="mt-1.5 block text-faint">
+                      Leave it empty to keep checking until you pause it yourself. Saving with a
+                      number in the box restarts the countdown from now.
+                    </span>
+                  </>
+                }
+              />
+              <div className="mt-1.5 flex gap-2">
+                <Input
+                  id="auto_pause_amount"
+                  name="auto_pause_amount"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={8760}
+                  step={1}
+                  placeholder="No limit"
+                  className="flex-1"
+                />
+                <Select name="auto_pause_unit" defaultValue="hours" className="w-24 shrink-0">
+                  <option value="hours">hours</option>
+                  <option value="days">days</option>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <LabelWithInfo
+                label="Pause if it stops moving for"
+                htmlFor="inactive_pause_hours"
+                info={
+                  <>
+                    Counted from the last toll crossing that came through. A parked lorry answers
+                    every check with the same crossing as yesterday, so this pauses it instead of
+                    spending credits to be told nothing.
+                    <span className="mt-1.5 block text-faint">
+                      Leave it empty to follow the platform default, currently{" "}
+                      {defaultInactiveHours} hours. Set it longer for a truck you expect to be
+                      parked.
+                    </span>
+                  </>
+                }
+              />
+              <Input
+                id="inactive_pause_hours"
+                name="inactive_pause_hours"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={8760}
+                step={1}
+                defaultValue={truck.inactive_pause_hours ?? ""}
+                placeholder={`Default (${defaultInactiveHours} hours)`}
+                className="mt-1.5"
+              />
+            </div>
           </div>
 
           <FormActions>

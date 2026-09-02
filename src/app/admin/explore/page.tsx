@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Coins, Eye, Search, Truck, User } from "lucide-react";
 
+import { FilterSubmitButton } from "@/components/NavPending";
 import { safeTerm } from "../pager";
 import {
   Avatar,
@@ -143,18 +144,21 @@ export default async function ExplorePage({
 
       <Panel className="mb-5">
         <form method="get" action="/admin/explore" className="flex gap-2">
+          {/* min-w-0: an <input> refuses to shrink below its own default
+              intrinsic width - about twenty characters - and this one shares a
+              non-wrapping row with the Find button. Without it the box sets the
+              floor for the row rather than giving way to the button. */}
           <input
             name="q"
             defaultValue={raw}
             autoFocus
             placeholder="GJ27TD6880, or a name, email, phone or office"
             aria-label="Registration number, name, email, phone or office"
-            className="field flex-1"
+            className="field min-w-0 flex-1"
           />
-          <button type="submit" className={buttonClass("primary", "md")}>
-            <Search size={15} />
+          <FilterSubmitButton icon={<Search size={15} />} variant="primary" size="md" iconSize={15}>
             Find
-          </button>
+          </FilterSubmitButton>
         </form>
       </Panel>
 
@@ -226,24 +230,32 @@ export default async function ExplorePage({
                   </p>
                 ) : (
                   <ul className="divide-y divide-divider">
+                    {/*
+                      The link wraps both lines of a row rather than only the
+                      name. As a one-line anchor it was a 20px-tall target on a
+                      phone - the row around it looks tappable and is not - and
+                      the counts underneath identify the account as much as the
+                      name does. The lookups link beside it gets padding for the
+                      same reason: as bare text it renders about 16px tall.
+                    */}
                     {shown.map((row) => (
                       <li key={row.user_id} className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="min-w-0 flex-1">
-                          <Link
-                            href={`/admin/officers/${row.user_id}`}
-                            className="block truncate text-sm font-medium text-ink hover:text-brand-500"
-                          >
+                        <Link
+                          href={`/admin/officers/${row.user_id}`}
+                          className="group min-w-0 flex-1"
+                        >
+                          <span className="block truncate text-sm font-medium text-ink group-hover:text-brand-500">
                             {nameOf.get(row.user_id) ?? "Unknown account"}
-                          </Link>
+                          </span>
                           <span className="mt-0.5 block text-[11px] text-faint">
                             {fmtNumber(row.manual)} manual · {fmtNumber(row.automatic)} automatic
                             {Number(row.failed) > 0 ? ` · ${fmtNumber(row.failed)} failed` : ""} ·
                             last {fmtRelative(row.last_at)}
                           </span>
-                        </span>
+                        </Link>
                         <Link
                           href={`/admin/logs?type=searches&truck=${encodeURIComponent(number)}&officer=${row.user_id}`}
-                          className="shrink-0 text-xs font-medium text-brand-500 hover:underline"
+                          className="-mr-2 inline-flex min-h-9 shrink-0 items-center rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-brand-500/8"
                         >
                           {fmtNumber(row.searches)} lookups
                         </Link>
@@ -288,22 +300,30 @@ export default async function ExplorePage({
           {accounts.map((account) => (
             <Panel key={account.id} bodyClassName="p-0">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-divider px-4 py-3">
-                <span className="flex min-w-0 items-center gap-2.5">
+                {/* Both lines inside the link, so the whole two-line block is
+                    the target rather than a 20px strip of name text. */}
+                <Link
+                  href={`/admin/officers/${account.id}`}
+                  className="group flex min-w-0 items-center gap-2.5"
+                >
                   <Avatar size="sm" text={initials(account.full_name, account.email)} />
                   <span className="min-w-0">
-                    <Link
-                      href={`/admin/officers/${account.id}`}
-                      className="block truncate text-sm font-semibold text-ink hover:text-brand-500"
-                    >
+                    <span className="block truncate text-sm font-semibold text-ink group-hover:text-brand-500">
                       {account.full_name?.trim() || account.email}
-                    </Link>
+                    </span>
                     <span className="block truncate text-[11px] text-faint">
                       {account.email}
                       {account.office ? ` · ${account.office}` : ""}
                     </span>
                   </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
+                </Link>
+                {/* Wraps, and does not pin itself at its widest. A Badge is
+                    whitespace-nowrap by design and the plan name inside one is
+                    whatever the owner called it, so two of them side by side
+                    with shrink-0 could be wider than a phone - and the panel's
+                    overflow-hidden cut the second one in half rather than
+                    letting it move to its own line. */}
+                <span className="flex flex-wrap items-center gap-2">
                   <Badge tone={account.status === "active" ? "good" : "warn"}>
                     {account.status}
                   </Badge>
