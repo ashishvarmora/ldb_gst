@@ -170,11 +170,29 @@ export default async function SettingsPage({
                   />
                 </Field>
 
+                {/*
+                  Blank is no longer harmless, so it says so.
+                  Every customer screen now offers a way to report a problem,
+                  and with both of these empty that way is the /contact page,
+                  which with nothing filled in has nothing to give them. The
+                  warning is here rather than in a doc because this is the
+                  screen where it gets fixed.
+                */}
+                {!site.supportEmail && !site.supportPhone ? (
+                  <p className="mb-4 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
+                    <span className="text-warn-500">
+                      No support contact is published.
+                    </span>{" "}
+                    Customers who hit a problem are sent to the contact page, and it currently
+                    lists no way to reach you. Fill in at least one of these.
+                  </p>
+                ) : null}
+
                 <FormGrid cols={2}>
                   <Field
                     label="Support email"
                     name="support_email"
-                    hint="Shown in the public footer. Leave blank to show no email at all."
+                    hint="Shown in the public footer, and offered to any customer reporting a problem."
                   >
                     <Input
                       name="support_email"
@@ -188,7 +206,7 @@ export default async function SettingsPage({
                   <Field
                     label="Support phone"
                     name="support_phone"
-                    hint="Shown in the public footer. Blank means no number is published."
+                    hint="Shown in the public footer, and dialled straight from a phone."
                   >
                     <Input
                       name="support_phone"

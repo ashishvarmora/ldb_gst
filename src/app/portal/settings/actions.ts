@@ -20,7 +20,7 @@ import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/type
  * Longest each detail may be. Matches what the admin form accepts, so a value
  * typed here cannot be one the console then refuses to show.
  */
-const MAX = { full_name: 80, phone: 20, designation: 60, office: 120, district: 60, state: 60 };
+const MAX = { full_name: 80, phone: 13, designation: 60, office: 120, district: 60, state: 60 };
 
 /**
  * The account holder editing their own details.
@@ -63,12 +63,19 @@ export async function updateMyProfile(
    * notice it is wrong and clear it before they can type. Normalising here
    * means a stored number is either usable or absent.
    *
-   * Empty stays allowed - a phone is optional on this form, and clearing it is
-   * how somebody removes a number they no longer want us to hold.
+   * Compulsory, and enforced HERE rather than only by the input's `required`.
+   * That attribute is a convenience for the person filling the form in and
+   * nothing more - it is one devtools edit or one hand-made POST away from
+   * being gone - so a rule that matters has to hold on the server too.
+   *
+   * It also means an account created before the number was required is asked
+   * for one the next time its owner saves this form. That is deliberate: the
+   * whole value of the column is being able to ring somebody when their
+   * account is broken, and a column that is optional in practice cannot be
+   * relied on for that.
    */
-  const phoneRaw = str(fd, "phone");
-  const phone = phoneRaw ? normaliseIndianMobile(phoneRaw) : null;
-  if (phoneRaw && phone === null) return fail(PHONE_ERROR);
+  const phone = normaliseIndianMobile(str(fd, "phone"));
+  if (phone === null) return fail(PHONE_ERROR);
 
   const fields = { full_name: fullName, phone, ...pick(fd, ["designation", "office", "district", "state"]) };
 

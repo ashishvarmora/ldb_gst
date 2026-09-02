@@ -168,10 +168,14 @@ export function DateRangeBar({
         </div>
       ) : null}
 
+      {/* The grouping is only mentioned when there is one. With showBucket
+          off there are no buckets and no toggle, so "grouped by month" was
+          describing something the page does not do - on the payment history,
+          for one, where every row is a single payment. */}
       <p className="text-xs text-faint">
         {range.from === range.to ? range.from : `${range.from} → ${range.to}`} ·{" "}
-        {range.days.toLocaleString("en-IN")} day{range.days === 1 ? "" : "s"} · grouped by{" "}
-        {range.bucket} · all dates IST
+        {range.days.toLocaleString("en-IN")} day{range.days === 1 ? "" : "s"}
+        {showBucket ? ` · grouped by ${range.bucket}` : ""} · all dates IST
       </p>
     </div>
   );

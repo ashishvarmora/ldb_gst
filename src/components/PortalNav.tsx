@@ -2,7 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Gift, History, Home, Rows3, Search, Truck, Wallet } from "lucide-react";
+import {
+  CreditCard,
+  FolderOpen,
+  Gift,
+  History,
+  Home,
+  ReceiptText,
+  Rows3,
+  Search,
+  Truck,
+  Wallet,
+} from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
@@ -16,9 +27,23 @@ const NAV = [
   // The route keeps its /cases path - the table behind it is truck_groups and
   // the label is what a customer reads, so only the label is neutral wording.
   { href: "/portal/cases", label: "Groups", icon: FolderOpen },
+  /*
+   * The money group, in the order the questions are actually asked, and each
+   * one answering a different one:
+   *
+   *   My plan         what am I on, and what does it cost
+   *   Payments        what have I paid, and what is the reference
+   *   Credit history  where did the credits come from and go, per day
+   *   Activity        what exactly did the spending buy, charge by charge
+   *
+   * These were two pages until now, and both were doing three jobs: payment
+   * history was a collapsed panel inside My plan, and Activity carried grants
+   * and spending together. Splitting them is only an improvement if each still
+   * reads as one question, hence the order rather than alphabetically.
+   */
   { href: "/portal/plan", label: "My plan", icon: Wallet },
-  // Next to My plan on purpose: that page has the balance, this one has where
-  // it went, and the pair is read in that order.
+  { href: "/portal/payments", label: "Payments", icon: CreditCard },
+  { href: "/portal/credits", label: "Credit history", icon: ReceiptText },
   { href: "/portal/activity", label: "Activity", icon: History },
   { href: "/portal/referrals", label: "Invite and earn", icon: Gift },
 ] as const;
@@ -37,10 +62,11 @@ const NAV = [
  * button now, with the credit balance and a top-up on top of them, so the slot
  * carries more than the single page it used to.
  *
- * Groups and Activity stay off the bar as before: a folder is set up once, and
- * "where did my credits go" is asked when the balance looks wrong rather than
- * several times a day. Both are in the sidebar on a large screen, and reached
- * from Home and the plan page on a phone.
+ * Groups and the money pages stay off the bar as before: a folder is set up
+ * once, and "where did my credits go" is asked when the balance looks wrong
+ * rather than several times a day. All of them are in the sidebar on a large
+ * screen, and on a phone they are behind the profile button - which is also
+ * why splitting payments and credit history out did not need a sixth tab.
  */
 const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);

@@ -5,6 +5,7 @@ import {
   CalendarDays,
   ChevronRight,
   History,
+  Receipt,
   Truck,
   Wallet,
 } from "lucide-react";
@@ -13,8 +14,7 @@ import { RedeemBonusCode } from "./RedeemBonusCode";
 import { InviteCard } from "../referrals/InviteCard";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
-import { Pager, pageFromParam, pagerHref } from "@/components/Pager";
-import { Badge, EmptyState, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
+import { Badge, LinkCard, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import {
   creditStanding,
   creditsForAmount,
@@ -25,27 +25,12 @@ import {
   searchesLeft,
   searchesLeftLabel,
 } from "@/lib/credits";
-import { fmtDate, fmtDateTime, fmtNumber, fmtRupees, istToday } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtRupees, istToday } from "@/lib/format";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { BadgeTone } from "@/components/ui";
-import type { CreditRate, Payment, Plan } from "@/lib/types";
-
-/** A payment with the plan it bought, when it bought one. */
-type PaymentRow = Payment & { plan: { name: string } | null };
-
-/**
- * `show` opens one folded section on arrival, so a link straight to Credit
- * history or Payments lands on the list rather than on a shut heading. It is a
- * name and not a page number, which is why it is separate from the two pagers.
- */
-type PlanQuery = { payments?: string; show?: string };
-
-/** Short lists: this page is read on a phone, and both have a pager under them. */
-const HISTORY_SIZE = 8;
-const PAYMENTS_SIZE = 6;
+import type { CreditRate, Plan } from "@/lib/types";
 
 export async function generateMetadata() {
   const { brandName } = await loadSettings(getSupabaseAdmin());
@@ -63,26 +48,11 @@ export async function generateMetadata() {
  * credits pay for the searching and checking. Running out of credits is a
  * top-up, never a second copy of the plan.
  */
-export default async function PlanPage({
-  searchParams,
-}: {
-  searchParams: Promise<PlanQuery>;
-}) {
+export default async function PlanPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
-  const params = await searchParams;
 
-  const paymentsPage = pageFromParam(params.payments);
-  const showPayments = params.show === "payments";
-  const paymentsFrom = (paymentsPage - 1) * PAYMENTS_SIZE;
-
-  const [paymentResult, planResult, rates, packs, settings, searchCost] = await Promise.all([
-    admin
-      .from("payments")
-      .select("*, plan:plans(name)", { count: "exact" })
-      .eq("user_id", overview.id)
-      .order("created_at", { ascending: false })
-      .range(paymentsFrom, paymentsFrom + PAYMENTS_SIZE - 1),
+  const [planResult, rates, packs, settings, searchCost] = await Promise.all([
     admin
       .from("plans")
       .select("*")
@@ -97,8 +67,6 @@ export default async function PlanPage({
     loadSearchCost(),
   ]);
 
-  const payments = (paymentResult.data ?? []) as unknown as PaymentRow[];
-  const paymentsTotal = paymentResult.count ?? payments.length;
   const plans = (planResult.data ?? []) as Plan[];
 
   /**
@@ -146,9 +114,6 @@ export default async function PlanPage({
       : openPack
         ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more, and you name the amount.`
         : "";
-
-  const paymentsPager = (page: number) =>
-    `${pagerHref({ path: "/portal/plan", params: {}, pageKey: "payments" }, page)}#payments`;
 
   /* ---------------------------------------------------------------------- */
   /* no plan: one decision, nothing else above it                            */
@@ -210,26 +175,7 @@ export default async function PlanPage({
           </Disclosure>
         ) : null}
 
-        {paymentsTotal > 0 ? (
-          <div id="payments" className="mt-3 scroll-mt-20">
-            <Disclosure
-              title="Payments"
-              hint={`${fmtNumber(paymentsTotal)} on record`}
-              defaultOpen={paymentsPage > 1 || showPayments}
-              bodyClassName="p-0"
-            >
-              <PaymentList payments={payments} />
-              <Pager
-                page={paymentsPage}
-                total={paymentsTotal}
-                pageSize={PAYMENTS_SIZE}
-                href={paymentsPager}
-                noun="payments"
-                className="px-4 pt-1 pb-3"
-              />
-            </Disclosure>
-          </div>
-        ) : null}
+        <PaymentsLink className="mt-3" />
       </>
     );
   }
@@ -517,24 +463,7 @@ export default async function PlanPage({
           </Link>
         </div>
 
-        <div id="payments" className="scroll-mt-20">
-          <Disclosure
-            title="Payments"
-            hint={paymentsTotal > 0 ? `${fmtNumber(paymentsTotal)} on record` : "Nothing bought yet"}
-            defaultOpen={paymentsPage > 1 || showPayments}
-            bodyClassName="p-0"
-          >
-            <PaymentList payments={payments} />
-            <Pager
-              page={paymentsPage}
-              total={paymentsTotal}
-              pageSize={PAYMENTS_SIZE}
-              href={paymentsPager}
-              noun="payments"
-              className="px-4 pt-1 pb-3"
-            />
-          </Disclosure>
-        </div>
+        <PaymentsLink />
 
         <Disclosure
           title="What each action costs"
@@ -639,61 +568,27 @@ function Rates({ rates }: { rates: CreditRate[] }) {
 }
 
 
-function PaymentList({ payments }: { payments: PaymentRow[] }) {
-  if (payments.length === 0) {
-    return (
-      <EmptyState
-        title="No payments yet"
-        description="Anything you buy is listed here with what it bought."
-      />
-    );
-  }
-
+/**
+ * Where the payments went.
+ *
+ * This page used to render the payment history itself, folded away six rows at
+ * a time: an amount, a date and a badge, with no reference, no method and no
+ * way to filter by date. It has its own page now, built for the conversation it
+ * actually gets used in - see /portal/payments - and this names it rather than
+ * keeping a shorter second copy beside it.
+ */
+function PaymentsLink({ className }: { className?: string }) {
   return (
-    <ul className="divide-y divide-divider">
-      {payments.map((payment) => (
-        <li key={payment.id} className="px-4 py-2.5">
-          <div className="flex items-start justify-between gap-3">
-            <span className="min-w-0">
-              <span className="block text-sm tabular-nums text-ink">
-                {fmtRupees(payment.amount_inr)}
-                <span className="text-muted">
-                  {" "}
-                  {payment.kind === "plan"
-                    ? `for ${payment.plan?.name ?? "a plan"}, ${payment.months} month${payment.months === 1 ? "" : "s"}`
-                    : `for ${formatCredits(payment.credits)} credits`}
-                </span>
-              </span>
-              <span className="block text-xs text-faint">
-                {fmtDateTime(payment.paid_at ?? payment.created_at)}
-                {/* amount_inr is what was charged, so a discounted payment
-                    otherwise reads as a smaller purchase than it was. Saying
-                    what came off is what makes the credits above add up. */}
-                {payment.discount_inr > 0
-                  ? ` · ${fmtRupees(payment.discount_inr)} off with a code`
-                  : ""}
-              </span>
-            </span>
-            <Badge tone={PAYMENT_TONE[payment.status]}>{PAYMENT_LABEL[payment.status]}</Badge>
-          </div>
-          {payment.status === "failed" && payment.failure_reason ? (
-            <p className="mt-1 text-xs text-muted">{payment.failure_reason}</p>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    /* The anchor stays. /portal/plan#payments and ?show=payments are in older
+       menus and in messages already sent, and landing on the link to the new
+       page is a better answer to those than landing on nothing at all. */
+    <div id="payments" className={cx("scroll-mt-20", className)}>
+      <LinkCard
+        href="/portal/payments"
+        icon={<Receipt size={16} />}
+        title="Payment history"
+        description="Every payment with its date, status and reference — filterable by date, and downloadable."
+      />
+    </div>
   );
 }
-
-/** "created" is what an unfinished checkout leaves behind, not a failure. */
-const PAYMENT_LABEL: Record<Payment["status"], string> = {
-  created: "Not completed",
-  paid: "Paid",
-  failed: "Failed",
-};
-
-const PAYMENT_TONE: Record<Payment["status"], BadgeTone> = {
-  created: "neutral",
-  paid: "good",
-  failed: "bad",
-};

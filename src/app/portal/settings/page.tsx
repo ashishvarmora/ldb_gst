@@ -6,6 +6,7 @@ import { saveMySheet, saveMyTelegram, testMyTelegram, updateMyProfile } from "./
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form";
+import { PhoneField } from "@/components/PhoneInput";
 import { publicSettings } from "@/components/SiteFooter";
 import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
 import { env, integrationHealth } from "@/lib/env";
@@ -105,16 +106,18 @@ export default async function PortalSettingsPage() {
                 </Field>
 
                 <FormGrid cols={2}>
-                  <Field label="Phone" name="phone" hint="For our records. Alerts go over Telegram.">
-                    <Input
-                      name="phone"
-                      type="tel"
-                      maxLength={20}
-                      defaultValue={profile.phone ?? ""}
-                      placeholder="+91 98250 00000"
-                      autoComplete="tel"
-                    />
-                  </Field>
+                  {/* Was a free-text 20-character box that accepted a
+                      landline, a five-digit number and a foreign number - none
+                      of which sign-up allows, so one account could hold a
+                      format another refused. Same field as every other form
+                      now, and compulsory: this is the number we ring when
+                      somebody cannot get into their account, which is exactly
+                      when they cannot use the app to tell us a better one. */}
+                  <PhoneField
+                    label="Mobile number"
+                    hint="How we reach you if something goes wrong with your account."
+                    value={profile.phone}
+                  />
                   <Field label="Job title" name="designation">
                     <Input
                       name="designation"

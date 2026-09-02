@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { Input } from "@/components/form";
+import { useCopy } from "@/components/useCopy";
 import { buttonClass, cx } from "@/components/ui";
 
 /**
@@ -15,32 +15,12 @@ import { buttonClass, cx } from "@/components/ui";
  * silently and the reader has no idea why.
  */
 
-/** Long enough to read the tick, short enough not to look stuck. */
-const TICK_MS = 2000;
-
 export function CopyAddress({ address }: { address: string }) {
-  const [copied, setCopied] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), TICK_MS);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  async function copy() {
-    setProblem(null);
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-    } catch {
-      // friendlyError is not used here on purpose: it reads database and
-      // network failures, and a blocked clipboard says "permission denied",
-      // which it would turn into a sentence about a record. The address is on
-      // screen either way, so the honest advice is to select it.
-      setProblem("Copying did not work on this device. Tap the address to select it instead.");
-    }
-  }
+  /* The clipboard mechanics live in useCopy - this file and the payment
+     reference list had grown two copies of the same state, timer and
+     try/catch. Only the presentation differs, and only the presentation is
+     still here. */
+  const { copied, problem, copy } = useCopy();
 
   return (
     <div>
@@ -56,11 +36,11 @@ export function CopyAddress({ address }: { address: string }) {
         />
         <button
           type="button"
-          onClick={() => void copy()}
+          onClick={() => void copy(address)}
           className={buttonClass("secondary", "md", "shrink-0")}
         >
-          {copied ? <Check size={15} /> : <Copy size={15} />}
-          <span className="sr-only sm:not-sr-only">{copied ? "Copied" : "Copy"}</span>
+          {copied !== null ? <Check size={15} /> : <Copy size={15} />}
+          <span className="sr-only sm:not-sr-only">{copied !== null ? "Copied" : "Copy"}</span>
         </button>
       </div>
 

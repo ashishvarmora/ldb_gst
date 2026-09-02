@@ -9,10 +9,8 @@ import {
   Coins,
   Gift,
   History,
-  LifeBuoy,
-  Mail,
-  Phone,
   Receipt,
+  ReceiptText,
   Settings,
   ShieldCheck,
   User,
@@ -22,6 +20,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { SupportPanel } from "@/components/SupportLine";
 import { Avatar, Badge, QuotaBar, buttonClass, cx } from "@/components/ui";
 import { TOPUP_HREF, formatCredits, searchesLeftLabel, type CreditStanding } from "@/lib/credits";
 
@@ -84,22 +83,34 @@ function itemGroups({
   referralsEnabled,
 }: Pick<AccountMenuProps, "isSuperAdmin" | "referralsEnabled">): Item[][] {
   /*
-   * `show=` opens the matching section on arrival. Without it these two land on
-   * a heading that is still shut, which reads as a broken link.
+   * Each is its own route now, so none of them needs a `show=` to open a
+   * section on arrival - the trick that used to be needed here, and the thing
+   * that made the old payment link so easy to break.
    */
   const money: Item[] = [
     { href: "/portal/plan", label: "My plan", icon: Wallet, hint: "Balance, renewals and truck limit" },
     {
-      href: "/portal/activity",
-      label: "Credits and activity",
-      icon: History,
-      hint: "Per truck per day, or charge by charge",
+      /*
+       * Its own route now. This pointed at /portal/plan?show=payments#payments,
+       * a collapsed panel inside the plan page - and that panel has been moved
+       * out, so the link was about to land on a heading that no longer exists.
+       */
+      href: "/portal/payments",
+      label: "Payments",
+      icon: Receipt,
+      hint: "Every payment, its reference and what it bought",
     },
     {
-      href: "/portal/plan?show=payments#payments",
-      label: "Payment history",
-      icon: Receipt,
-      hint: "Every payment and what it bought",
+      href: "/portal/credits",
+      label: "Credit history",
+      icon: ReceiptText,
+      hint: "Credits added, and what was used each day",
+    },
+    {
+      href: "/portal/activity",
+      label: "Activity",
+      icon: History,
+      hint: "Every charge, per truck per day",
     },
   ];
 
@@ -351,34 +362,16 @@ export function AccountMenu(props: AccountMenuProps) {
           the one screen they can reach from every page. mailto and tel, so a
           phone dials or composes instead of handing over a string to copy.
         */}
-        {supportEmail || supportPhone ? (
-          <div className="border-t border-divider px-4 py-3">
-            <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
-              <LifeBuoy size={11} />
-              Need help?
-            </p>
-            <div className="mt-2 flex flex-col gap-1.5">
-              {supportEmail ? (
-                <a
-                  href={`mailto:${supportEmail}`}
-                  className="inline-flex min-h-9 items-center gap-2 text-sm text-brand-500 transition hover:underline"
-                >
-                  <Mail size={14} className="shrink-0" />
-                  <span className="truncate">{supportEmail}</span>
-                </a>
-              ) : null}
-              {supportPhone ? (
-                <a
-                  href={`tel:${supportPhone.replace(/[^\d+]/g, "")}`}
-                  className="inline-flex min-h-9 items-center gap-2 text-sm text-brand-500 transition hover:underline"
-                >
-                  <Phone size={14} className="shrink-0" />
-                  <span className="truncate">{supportPhone}</span>
-                </a>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {/* Unconditional now. This was wrapped in a check for either
+            setting being present, so with both blank - which is how the
+            platform is configured today - a customer who hit a bug had no
+            route to anybody. SupportPanel falls back to /contact rather than
+            to nothing. */}
+        <SupportPanel
+          support={{ email: supportEmail, phone: supportPhone }}
+          report
+          className="border-t border-divider px-4 py-3"
+        />
 
         <div className="border-t border-divider px-4 py-3">
           <SignOutButton variant="secondary" size="sm" className="w-full" />

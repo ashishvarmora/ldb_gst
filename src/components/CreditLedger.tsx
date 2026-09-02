@@ -80,6 +80,18 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * that turn their own reasons on together. Everything can be turned off again
  * from inside its own sheet, and nothing selected means nothing filtered.
  *
+ * ONE SIDE OF THE LEDGER, WHEN THAT IS THE WHOLE POINT. `only` pins a mount to
+ * spending or to granting, and `groupBy` pins what a row is. The console gets
+ * neither and keeps the full ledger; the portal now splits the same component
+ * three ways - /portal/activity is spend, /portal/credits is grants itemised on
+ * one tab and a day per row of spend on the other.
+ *
+ * A pinned side is not a filter somebody set, so it is not offered and cannot be
+ * cleared: the Show pill does not exist, "Clear" leaves it alone, and the totals
+ * strip drops the column that would read zero for ever. That last one matters
+ * more than it looks - a "Credits added: 0" tile above a page of charges is read
+ * as a fact about the account rather than as a fact about the page.
+ *
  * State lives in the URL, and the only client state in the whole screen is
  * whether a pill's sheet is open. Every view is linkable, the back button steps
  * through filter changes, and the CSV export is the same query string with a
@@ -397,6 +409,16 @@ function rangeLabel(from: string | null, to: string | null): string {
   return "";
 }
 
+/**
+ * The row noun, counted. Two words rather than a lookup because there are two
+ * of them: "charge" is wrong for a purchase, and "entry" pluralises the one way
+ * an -s cannot cover.
+ */
+function plural(noun: string, count: number): string {
+  if (count === 1) return noun;
+  return noun === "entry" ? "entries" : `${noun}s`;
+}
+
 /** A reason label a customer should read, never the raw column value. */
 function reasonLabel(reason: string): string {
   return CREDIT_REASON_LABEL[reason] ?? reason.replace(/_/g, " ");
@@ -464,6 +486,24 @@ function href(
   return qs ? `${basePath}?${qs}` : basePath;
 }
 
+/**
+ * A drill-down that lands on a DIFFERENT page, built from scratch rather than
+ * patched onto this one's query string.
+ *
+ * href() merges `keep` and everything already in the URL, which is right within
+ * one screen and wrong the moment the target is another one: `side=used` means
+ * nothing on the activity page, `by` and `page` describe a list that is about to
+ * be replaced, and `kind` is a fact about the page being left rather than the
+ * one being opened. Only the filters that mean the same thing on both sides
+ * travel - the window, the truck, the reason and the order.
+ */
+function crossHref(base: string, params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value) search.set(key, value);
+  const qs = search.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 /** Toggling one dimension on or off, as a link. */
 function dimensionHref(
   basePath: string,
@@ -484,6 +524,11 @@ export async function CreditLedger({
   query,
   keep = {},
   title = "Credit history",
+  description,
+  only,
+  groupBy,
+  drillBase,
+  split = false,
 }: {
   /** One account, or null for every account - which only the console passes. */
   userId: string | null;
@@ -491,13 +536,46 @@ export async function CreditLedger({
   query: LedgerQuery;
   keep?: Record<string, string>;
   title?: string;
+  /** Overrides the sentence derived from `only`. Takes a link. */
+  description?: React.ReactNode;
+  /**
+   * Pins this mount to one side of the ledger. Omitted, the reader chooses -
+   * which is what the console keeps.
+   */
+  only?: "used" | "added";
+  /**
+   * Pins what a row is. `[]` is every individual movement. Omitted, the
+   * group-by toggles appear and the reader chooses.
+   */
+  groupBy?: LedgerDimension[];
+  /**
+   * Where a grouped row drills to, when the detail behind it lives on another
+   * page. Defaults to this one, i.e. the raw ledger under the same filters.
+   */
+  drillBase?: string;
+  /**
+   * Breaks the spending down by reason under the totals. Off by default, and
+   * deliberately set on exactly ONE mount: it is analysis, and the credit
+   * history page's job is the movement of the balance. Two pages carrying the
+   * same 99%-automatic bar over the same window is the mirroring this split was
+   * meant to be an alternative to.
+   */
+  split?: boolean;
 }) {
   const admin = getSupabaseAdmin();
   const platformWide = userId === null;
-  const dimensions = parseDimensions(query.by, platformWide, query.view);
-  const kind = parseKind(query.kind);
+  const locked = groupBy !== undefined;
+  const dimensions = groupBy ?? parseDimensions(query.by, platformWide, query.view);
+  /* A pinned side beats the query string outright, so a hand-edited or stale
+     ?kind= cannot turn a spend-only page back into the full ledger. */
+  const kind: LedgerKind = only ?? parseKind(query.kind);
   const sort = parseSort(query.sort);
   const page = Math.max(Number(query.page) || 1, 1);
+
+  /* What one row of the raw list is called. "Charge" is wrong for a purchase,
+     and this is the noun the count line, the pager and the empty state all use,
+     so it is decided once. */
+  const entryNoun = only === "added" ? "entry" : "charge";
 
   const from = parseDate(query.from);
   const to = parseDate(query.to);
@@ -528,6 +606,16 @@ export async function CreditLedger({
      so a plan grant an admin made and one a payment made land in the buckets
      the console would put them in too. */
   let reasonQuery = admin.from("credit_ledger_daily").select("reason,source").gte("last_at", since);
+  /*
+   * Both ends of the window, not just the start.
+   *
+   * This applied `since` and never `until`, so with a closed range the Reason
+   * pill offered reasons drawn from every day AFTER it as well - pick one and
+   * the ledger comes back empty under a filter the reader did not realise was
+   * impossible. The behaviour it was quietly providing, a pill that never
+   * empties, is not worth a filter that can lie about what is in the range.
+   */
+  if (until) reasonQuery = reasonQuery.lt("last_at", until);
   if (userId) reasonQuery = reasonQuery.eq("user_id", userId);
   const { data: reasonRows } = await reasonQuery;
   const reasonPairs = (reasonRows ?? []) as { reason: string; source: string }[];
@@ -577,7 +665,11 @@ export async function CreditLedger({
   const csvHref = href(
     "/api/export/credits",
     query,
-    { reason: reasonParam(reasons) },
+    /* `kind` is written out rather than left to the query string for the same
+       reason the reasons are: on a pinned mount the parameter is absent from
+       the URL and the side is a fact about the page, so a file downloaded from
+       the spend page would otherwise arrive carrying every grant as well. */
+    { reason: reasonParam(reasons), kind: kind === "all" ? undefined : kind },
     userId ? { user: userId } : {},
   );
 
@@ -590,8 +682,11 @@ export async function CreditLedger({
 
   /* Sort is not counted: it reorders the list, it does not narrow it, and a
      "Clear" that silently threw away the order somebody chose would be a
-     surprise rather than a relief. */
-  const narrowed = ranged || kind !== "all" || reasons.length > 0 || Boolean(query.truck);
+     surprise rather than a relief. Nor is a pinned side, which nobody chose and
+     nothing on the page can unset - counting it would leave "Clear" showing on
+     an unfiltered ledger and doing nothing when tapped. */
+  const narrowed =
+    ranged || (!only && kind !== "all") || reasons.length > 0 || Boolean(query.truck);
 
   const ordering = SORT_OPTIONS.find((option) => option.key === sort) ?? SORT_OPTIONS[0];
   const OrderingIcon = ordering.icon;
@@ -618,12 +713,33 @@ export async function CreditLedger({
       : (wholeBucket?.label ??
         (reasons.length === 1 ? reasonLabel(reasons[0]) : `${reasons.length} reasons`));
 
+  /*
+   * What this panel says it is, derived from the side it is pinned to rather
+   * than written at each call site, so four mounts cannot describe the same
+   * rows four ways. A caller may still override it: the credit-history tabs
+   * each name the other one, and a link is not a string.
+   */
+  const blurb =
+    description ??
+    (only === "used"
+      ? "Every credit you have spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time."
+      : only === "added"
+        ? "Every credit that has ever arrived on this account — bought, given, or free. Straight from the ledger."
+        : "Every credit added and spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time.");
+
+  /* With the toggles gone, nothing else on a pinned mount tells the reader why
+     one line covers a whole day, so the row they used to sit on says what a row
+     is instead of standing empty behind the sort button. */
+  const shapeNote = !locked
+    ? null
+    : dimensions.length === 0
+      ? `One row per ${entryNoun}`
+      : `One row per ${dimensions
+          .map((d) => DIMENSIONS.find((x) => x.key === d)!.label.toLowerCase())
+          .join(" and ")}`;
+
   return (
-    <Panel
-      title={title}
-      description="Every credit added and spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time."
-      bodyClassName="p-0"
-    >
+    <Panel title={title} description={blurb} bodyClassName="p-0">
       {/*
         THE ARRANGING ROW: what a row is, and what order the rows come in.
         Nothing here removes a charge from the screen, which is the whole reason
@@ -631,28 +747,40 @@ export async function CreditLedger({
       */}
       <div className="space-y-2 border-b border-divider px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
-            Group by
-          </span>
-          {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
-            <Chip
-              key={dim.key}
-              href={dimensionHref(basePath, query, keep, dimensions, dim.key)}
-              active={dimensions.includes(dim.key)}
-            >
-              {dim.label}
-            </Chip>
-          ))}
+          {locked ? (
+            /* Printed on a phone as well, unlike the hint below: it is the only
+               thing saying what a row covers, and a page of one-line days with
+               no explanation is how somebody concludes their charges are
+               missing. */
+            <span className="mr-0.5 min-w-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+              {shapeNote}
+            </span>
+          ) : (
+            <>
+              <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+                Group by
+              </span>
+              {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
+                <Chip
+                  key={dim.key}
+                  href={dimensionHref(basePath, query, keep, dimensions, dim.key)}
+                  active={dimensions.includes(dim.key)}
+                >
+                  {dim.label}
+                </Chip>
+              ))}
 
-          {/* Off on a phone, where the toggles plus the sort button already fill
-              the row and this sentence is what would wrap it to a second line -
-              the thing these two rows exist to avoid. Nothing is lost: the count
-              line under the totals says "individual charges" the moment the
-              toggles are all off, and the help note on the activity page says it
-              in words. */}
-          <span className="ml-1 hidden text-[11px] text-faint sm:inline">
-            {rawEntries ? "every individual charge" : "turn all off for every charge"}
-          </span>
+              {/* Off on a phone, where the toggles plus the sort button already
+                  fill the row and this sentence is what would wrap it to a
+                  second line - the thing these two rows exist to avoid. Nothing
+                  is lost: the count line under the totals says "individual
+                  charges" the moment the toggles are all off, and the help note
+                  on the activity page says it in words. */}
+              <span className="ml-1 hidden text-[11px] text-faint sm:inline">
+                {rawEntries ? `every individual ${entryNoun}` : `turn all off for every ${entryNoun}`}
+              </span>
+            </>
+          )}
 
           {/* Pushed to the far end rather than left beside the toggles, so the
               row reads as two controls with a gap between them instead of five
@@ -691,11 +819,16 @@ export async function CreditLedger({
               </div>
 
               {/* Said here rather than only in the count line, because this is
-                  where somebody is choosing it. */}
-              <p className="mt-2 border-t border-divider px-3 pt-2 text-[11px] leading-relaxed text-faint">
-                Biggest first sorts by size, so a 5,000-credit purchase and a
-                5,000-credit spend rank together.
-              </p>
+                  where somebody is choosing it. Only where it can happen: on a
+                  mount pinned to one side every row has the same sign, so
+                  warning about the two ranking together would be describing a
+                  list this page cannot produce. */}
+              {only ? null : (
+                <p className="mt-2 border-t border-divider px-3 pt-2 text-[11px] leading-relaxed text-faint">
+                  Biggest first sorts by size, so a 5,000-credit purchase and a
+                  5,000-credit spend rank together.
+                </p>
+              )}
             </FilterPill>
           </span>
         </div>
@@ -841,43 +974,50 @@ export async function CreditLedger({
                   </details>
                 </FilterPill>
 
-                <FilterPill
-                  label="Show"
-                  value={KIND_LABEL[kind]}
-                  active={kind !== "all"}
-                  icon={<ArrowDownUp size={13} className="shrink-0" />}
-                >
-                  <div className="space-y-0.5">
-                    {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => {
-                      /* Show in force taps back to everything, and every link
-                         here carries the reason selection forward already
-                         narrowed to what the new Show can produce - see
-                         reasonsUnder. Both halves matter: without the first
-                         there is no way back to "Everything" except the row's
-                         Clear, and without the second a reader who had picked a
-                         manual search and tapped "Credits added" would be shown
-                         an empty ledger under a filter that cannot match. */
-                      const next: LedgerKind = kind === value ? "all" : value;
-                      return (
-                        <SheetOption
-                          key={value}
-                          href={href(
-                            basePath,
-                            query,
-                            {
-                              kind: next === "all" ? undefined : next,
-                              reason: reasonsUnder(next),
-                            },
-                            keep,
-                          )}
-                          active={kind === value}
-                        >
-                          {KIND_LABEL[value]}
-                        </SheetOption>
-                      );
-                    })}
-                  </div>
-                </FilterPill>
+                {/* Gone entirely on a pinned mount. Not disabled and not left
+                    showing its one reachable value: a control that can only be
+                    tapped back to where it already is reads as a filter in
+                    force, which on this screen means "something is being kept
+                    from you". The page header says which side it is. */}
+                {only ? null : (
+                  <FilterPill
+                    label="Show"
+                    value={KIND_LABEL[kind]}
+                    active={kind !== "all"}
+                    icon={<ArrowDownUp size={13} className="shrink-0" />}
+                  >
+                    <div className="space-y-0.5">
+                      {(Object.keys(KIND_LABEL) as LedgerKind[]).map((value) => {
+                        /* Show in force taps back to everything, and every link
+                           here carries the reason selection forward already
+                           narrowed to what the new Show can produce - see
+                           reasonsUnder. Both halves matter: without the first
+                           there is no way back to "Everything" except the row's
+                           Clear, and without the second a reader who had picked a
+                           manual search and tapped "Credits added" would be shown
+                           an empty ledger under a filter that cannot match. */
+                        const next: LedgerKind = kind === value ? "all" : value;
+                        return (
+                          <SheetOption
+                            key={value}
+                            href={href(
+                              basePath,
+                              query,
+                              {
+                                kind: next === "all" ? undefined : next,
+                                reason: reasonsUnder(next),
+                              },
+                              keep,
+                            )}
+                            active={kind === value}
+                          >
+                            {KIND_LABEL[value]}
+                          </SheetOption>
+                        );
+                      })}
+                    </div>
+                  </FilterPill>
+                )}
 
                 {/*
                   One option is not a choice, so the pill only appears where
@@ -1024,6 +1164,9 @@ export async function CreditLedger({
           page={page}
           nameOf={nameOf}
           platformWide={platformWide}
+          only={only}
+          entryNoun={entryNoun}
+          split={split}
         />
       ) : (
         <RollupList
@@ -1035,6 +1178,10 @@ export async function CreditLedger({
           sort={sort}
           page={page}
           nameOf={nameOf}
+          only={only}
+          entryNoun={entryNoun}
+          drillBase={drillBase ?? basePath}
+          split={split}
         />
       )}
     </Panel>
@@ -1117,26 +1264,46 @@ function totalsOf(rows: { credits: number; entries: number }[]): {
  * Always shown rather than only with a date range: "used 412 over 90 charges"
  * is the answer somebody wants whether or not they narrowed the dates, and a
  * total that appears and disappears with a filter reads as a different total.
+ *
+ * A pinned side loses the column that cannot move. Three tiles across a 390px
+ * phone leaves 130px each, so the one reading "Credits added: 0" for ever was
+ * spending a third of the strip to say nothing - and worse, saying it in the
+ * place where somebody checks whether their top-up landed.
  */
 function Totals({
   added,
   spent,
   entries,
   scope,
+  only,
+  countLabel,
 }: {
   added: number;
   spent: number;
   entries: number;
   scope: string;
+  only?: "used" | "added";
+  countLabel: string;
 }) {
+  const tiles = [
+    only === "used"
+      ? null
+      : { label: "Credits added", value: formatCredits(added), tone: "text-good-500" },
+    only === "added"
+      ? null
+      : { label: "Credits used", value: formatCredits(spent), tone: "text-ink" },
+    { label: countLabel, value: entries.toLocaleString("en-IN"), tone: "text-ink" },
+  ].filter((tile): tile is { label: string; value: string; tone: string } => tile !== null);
+
   return (
     <div className="border-b border-divider bg-raised/40">
-      <dl className="grid grid-cols-3 divide-x divide-divider">
-        {[
-          { label: "Credits added", value: formatCredits(added), tone: "text-good-500" },
-          { label: "Credits used", value: formatCredits(spent), tone: "text-ink" },
-          { label: "Charges", value: entries.toLocaleString("en-IN"), tone: "text-ink" },
-        ].map(({ label, value, tone }) => (
+      <dl
+        className={cx(
+          "grid divide-x divide-divider",
+          tiles.length === 2 ? "grid-cols-2" : "grid-cols-3",
+        )}
+      >
+        {tiles.map(({ label, value, tone }) => (
           <div key={label} className="px-4 py-2.5">
             <dt className="text-[10px] font-semibold tracking-wider text-faint uppercase">
               {label}
@@ -1146,6 +1313,93 @@ function Totals({
         ))}
       </dl>
       <p className="border-t border-divider px-4 py-1.5 text-[11px] text-faint">{scope}</p>
+    </div>
+  );
+}
+
+/**
+ * What the spending went on, as one bar under the totals.
+ *
+ * The one thing the ledger could never answer at a glance. Both spending
+ * reasons are charged at rates the admin sets independently, and a truck on a
+ * 15-minute beat takes ninety-odd automatic checks a day against a handful of
+ * searches somebody typed - so "you used 1,036 credits" is a figure nobody can
+ * act on until they know which of the two it was. Slowing a beat down and doing
+ * fewer searches are different decisions.
+ *
+ * Read off the rollup rows already loaded for the totals, so it costs no query
+ * and cannot disagree with the figure above it.
+ *
+ * Every segment is also the filter for that reason, which is the whole reason
+ * this is a bar and not a sentence: the analysis and the way to act on it are
+ * the same tap. That is also why it hides itself once a reason IS selected -
+ * one segment at 100% is a bar that has stopped saying anything, and the Reason
+ * pill above is already showing what is in force.
+ */
+function SpendSplit({
+  rows,
+  spent,
+  basePath,
+  query,
+  keep,
+}: {
+  rows: RollupRow[];
+  spent: number;
+  basePath: string;
+  query: LedgerQuery;
+  keep: Record<string, string>;
+}) {
+  const byReason = new Map<string, number>();
+  for (const row of rows) {
+    const credits = Number(row.credits) || 0;
+    if (credits >= 0) continue;
+    byReason.set(row.reason, (byReason.get(row.reason) ?? 0) + Math.abs(credits));
+  }
+
+  const split = [...byReason.entries()]
+    .map(([reason, credits]) => ({ reason, credits }))
+    .sort((a, b) => b.credits - a.credits);
+
+  if (split.length < 2 || spent <= 0) return null;
+
+  /* Two tones, alternating, rather than a colour per reason. There are two
+     spending reasons today and a third would be a rate the admin added; a
+     palette keyed to reason names would silently give the new one no colour at
+     all, and this bar is read as proportions rather than as a legend. */
+  const tone = (index: number) => (index % 2 === 0 ? "bg-brand-500" : "bg-brand-500/45");
+
+  return (
+    <div className="border-b border-divider bg-raised/40 px-4 pt-1 pb-2.5">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-sunken">
+        {split.map((part, index) => (
+          <span
+            key={part.reason}
+            aria-hidden
+            className={tone(index)}
+            style={{ width: `${(part.credits / spent) * 100}%` }}
+          />
+        ))}
+      </div>
+
+      {/* Wraps rather than scrolls: two or three of these fit a phone on two
+          lines, and a legend behind a sideways scroll is a legend nobody reads.
+          Each is a real tap target, so min-h-8 rather than bare text. */}
+      <ul className="mt-1 flex flex-wrap items-center gap-x-3">
+        {split.map((part, index) => (
+          <li key={part.reason}>
+            <Link
+              href={href(basePath, query, { reason: part.reason }, keep)}
+              className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-muted transition hover:text-ink"
+            >
+              <span aria-hidden className={cx("size-2 shrink-0 rounded-full", tone(index))} />
+              <span className="truncate">{reasonLabel(part.reason)}</span>
+              <span className="font-semibold tabular-nums text-ink">
+                {Math.round((part.credits / spent) * 100)}%
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1163,6 +1417,10 @@ async function RollupList({
   sort,
   page,
   nameOf,
+  only,
+  entryNoun,
+  drillBase,
+  split,
 }: {
   basePath: string;
   query: LedgerQuery;
@@ -1172,6 +1430,10 @@ async function RollupList({
   sort: LedgerSort;
   page: number;
   nameOf: Map<string, string>;
+  only?: "used" | "added";
+  entryNoun: string;
+  drillBase: string;
+  split: boolean;
 }) {
   const { rows, error } = await loadRollups(filters);
   if (error) return <LoadFailed message={error} />;
@@ -1246,7 +1508,14 @@ async function RollupList({
     rows.length >= FOLD_CAP
       ? ` — capped at the ${FOLD_CAP.toLocaleString("en-IN")} most recent rows, so narrow the dates for an exact total`
       : "";
-  const scope = `${list.length.toLocaleString("en-IN")} group${list.length === 1 ? "" : "s"}, by ${grouping}${capped}`;
+  /* Grouped by day and nothing else, the rows ARE days, so they are counted as
+     days. "31 groups, by day" is the same fact spelt in the component's own
+     vocabulary rather than the reader's. */
+  const dayOnly = dimensions.length === 1 && dimensions[0] === "day";
+  const noun = dayOnly ? "day" : "group";
+  const scope = `${list.length.toLocaleString("en-IN")} ${noun}${list.length === 1 ? "" : "s"}${
+    dayOnly ? "" : `, by ${grouping}`
+  }${capped}`;
 
   /* Once per list rather than once per row: istToday reads the clock, and the
      year is the same for every row on the page. */
@@ -1256,14 +1525,31 @@ async function RollupList({
     return (
       <EmptyState
         title="Nothing here"
-        description="No credit movements match those filters. Widen the dates or clear a filter above."
+        description={`No ${only === "used" ? "charges" : only === "added" ? "credits added" : "credit movements"} match those filters. Widen the dates or clear a filter above.`}
       />
     );
   }
 
   return (
     <>
-      <Totals added={totals.added} spent={totals.spent} entries={totals.entries} scope={scope} />
+      <Totals
+        added={totals.added}
+        spent={totals.spent}
+        entries={totals.entries}
+        scope={scope}
+        only={only}
+        countLabel={entryNoun === "entry" ? "Entries" : "Charges"}
+      />
+
+      {split && only === "used" && filters.reasons.length === 0 ? (
+        <SpendSplit
+          rows={rows}
+          spent={totals.spent}
+          basePath={basePath}
+          query={query}
+          keep={keep}
+        />
+      ) : null}
 
       <ul className="divide-y divide-divider">
         {shown.map((row) => {
@@ -1272,18 +1558,34 @@ async function RollupList({
           /* Drilling in narrows by whatever this row actually is and switches to
              the raw ledger, which is where "why is this number this" is
              answered. A dimension that is off contributes no filter, because the
-             row does not represent one value of it. */
-          const drill = href(
-            basePath,
-            query,
-            {
-              by: "none",
-              from: row.ist_date ?? query.from,
-              to: row.ist_date ?? query.to,
-              truck: row.truck_number ?? query.truck,
-            },
-            keep,
-          );
+             row does not represent one value of it.
+
+             Unless the detail lives on another page, which is how the credit
+             history keeps out of the activity page's way: a day of spending
+             there is one line and a chevron, and the chevron opens that day on
+             the page that owns the breakdown. `by` is deliberately not set on
+             the way out - the target's own default is one row per truck, which
+             is the answer somebody tapping a day is after. */
+          const drill =
+            drillBase === basePath
+              ? href(
+                  basePath,
+                  query,
+                  {
+                    by: "none",
+                    from: row.ist_date ?? query.from,
+                    to: row.ist_date ?? query.to,
+                    truck: row.truck_number ?? query.truck,
+                  },
+                  keep,
+                )
+              : crossHref(drillBase, {
+                  from: row.ist_date ?? query.from,
+                  to: row.ist_date ?? query.to,
+                  truck: row.truck_number ?? query.truck,
+                  reason: reasonParam(filters.reasons),
+                  sort: query.sort,
+                });
 
           /* The day leads, because with day and truck both on the row IS a day
              and the truck is what that day is broken down by - reading "12 Aug
@@ -1323,7 +1625,7 @@ async function RollupList({
                     {heading.length > 0 ? heading : <span>Everything</span>}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-faint">
-                    {row.entries} {row.entries === 1 ? "charge" : "charges"} · balance{" "}
+                    {row.entries} {plural(entryNoun, row.entries)} · balance{" "}
                     {formatCredits(row.balance_after)}
                   </span>
                 </span>
@@ -1355,7 +1657,7 @@ async function RollupList({
         page={current}
         pageCount={pageCount}
         total={list.length}
-        noun="groups"
+        noun={`${noun}s`}
       />
     </>
   );
@@ -1374,6 +1676,9 @@ async function EntryList({
   page,
   nameOf,
   platformWide,
+  only,
+  entryNoun,
+  split,
 }: {
   basePath: string;
   query: LedgerQuery;
@@ -1383,6 +1688,9 @@ async function EntryList({
   page: number;
   nameOf: Map<string, string>;
   platformWide: boolean;
+  only?: "used" | "added";
+  entryNoun: string;
+  split: boolean;
 }) {
   /* Built by a function because it is run twice - once to count what matches,
      once for the rows - and both have to see exactly the same filters. */
@@ -1466,7 +1774,7 @@ async function EntryList({
     return (
       <EmptyState
         title="Nothing here"
-        description="No individual charges match those filters. Widen the dates or clear a filter above."
+        description={`No individual ${plural(entryNoun, 2)} match those filters. Widen the dates or clear a filter above.`}
       />
     );
   }
@@ -1477,12 +1785,24 @@ async function EntryList({
         added={totals.added}
         spent={totals.spent}
         entries={totals.entries}
-        scope={`${total.toLocaleString("en-IN")} individual charge${total === 1 ? "" : "s"}${
+        only={only}
+        countLabel={entryNoun === "entry" ? "Entries" : "Charges"}
+        scope={`${total.toLocaleString("en-IN")} individual ${plural(entryNoun, total)}${
           capped
             ? ` — the ${FOLD_CAP.toLocaleString("en-IN")} most recent, sorted by size, so narrow the dates for the whole ledger`
             : ""
         }`}
       />
+
+      {split && only === "used" && filters.reasons.length === 0 ? (
+        <SpendSplit
+          rows={rollups.rows}
+          spent={totals.spent}
+          basePath={basePath}
+          query={query}
+          keep={keep}
+        />
+      ) : null}
 
       <ul className="divide-y divide-divider">
         {rows.map((row) => {
@@ -1532,7 +1852,7 @@ async function EntryList({
         page={current}
         pageCount={pageCount}
         total={total}
-        noun="charges"
+        noun={plural(entryNoun, 2)}
       />
     </>
   );

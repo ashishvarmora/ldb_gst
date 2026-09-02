@@ -752,7 +752,26 @@ function useCheckout(brandName: string, onPaid?: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function confirm(handshake: Handshake) {
+  /**
+   * Where a finished checkout lands.
+   *
+   * Somebody who has just paid used to be left sitting on this page with one
+   * green sentence under the grid and no reference to anything - so a purchase
+   * that half-worked had nothing on screen that support could act on. They go
+   * to the confirmation screen instead, which reads the payment ROW and says
+   * what actually became of it: settled, still waiting on the webhook, or
+   * refused. It is the same landing place for all three outcomes below, because
+   * the row is a better witness than any of them.
+   *
+   * The order id is the one the SERVER handed back when it opened the order,
+   * not the one in the handshake: the handshake is the half that can arrive
+   * malformed, and a confirmation screen is worthless without the reference.
+   */
+  function receipt(orderId: string): string {
+    return `/portal/payments?ref=${encodeURIComponent(orderId)}`;
+  }
+
+  async function confirm(orderId: string, handshake: Handshake) {
     const fd = new FormData();
     fd.set("razorpay_order_id", handshake.razorpay_order_id ?? "");
     fd.set("razorpay_payment_id", handshake.razorpay_payment_id ?? "");
@@ -772,7 +791,13 @@ function useCheckout(brandName: string, onPaid?: () => void) {
       setNotice("Payment received. Your account will update in a moment.");
     } finally {
       setBusy(null);
+      // The balance and the truck limit gate other pages, so the whole portal
+      // shell is stale whichever way the confirmation went.
       router.refresh();
+      /* The message set above is only for the moment before this lands. It is
+         what the buyer reads if the navigation is slow on a bad connection,
+         and the confirmation screen states all of it properly. */
+      router.push(receipt(orderId));
     }
   }
 
@@ -813,7 +838,7 @@ function useCheckout(brandName: string, onPaid?: () => void) {
           started.couponCode ? ` — code ${started.couponCode}` : ""
         }`,
         handler: (handshake) => {
-          void confirm(handshake);
+          void confirm(started.orderId, handshake);
         },
         /*
          * Razorpay asked every buyer for their name, email and phone on every

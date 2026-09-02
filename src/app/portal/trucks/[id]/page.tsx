@@ -44,6 +44,7 @@ import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
 import { getSessionUser } from "@/lib/auth";
+import { SupportLine } from "@/components/SupportLine";
 import { loadSettings } from "@/lib/settings";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -643,6 +644,19 @@ export default async function TruckDetailPage({
           </ActionForm>
         </div>
       </Panel>
+
+      {/*
+        The one screen where a customer decides the product is broken.
+        "My truck has not updated" is the commonest complaint there is, and
+        this page is where they form that opinion - so the way to report it
+        belongs here rather than only behind the account menu. Quiet and grey:
+        a page that keeps asking whether anything is wrong reads as software
+        that expects to be.
+      */}
+      <SupportLine
+        support={{ email: settings.supportEmail, phone: settings.supportPhone }}
+        className="mt-1"
+      />
     </div>
   );
 }

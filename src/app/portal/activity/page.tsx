@@ -4,14 +4,15 @@ import { publicSettings } from "@/components/SiteFooter";
 import { PageHeader } from "@/components/ui";
 import { creditStanding } from "@/lib/credits";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
+import { LedgerLinks } from "../credits/LedgerNav";
 
 export async function generateMetadata() {
   const { brandName } = await publicSettings();
-  return { title: `Credits and activity — ${brandName}` };
+  return { title: `Activity — ${brandName}` };
 }
 
 /**
- * Where the credits went - the only page that answers it.
+ * Where the credits went - the only page that answers it, and now only that.
  *
  * This was 450 lines reading a my_activity view that unioned search_logs with
  * credit_transactions, while the plan page showed the same history again from a
@@ -22,6 +23,17 @@ export async function generateMetadata() {
  * All of that is now one component over one view, mounted here for the account
  * holder and again in the admin console for a named customer. The page itself
  * is deliberately this short: it decides whose ledger to show and nothing else.
+ *
+ * SPEND ONLY, since the credit history page took the other half. The grants
+ * were never analysed here - nobody groups a coupon by truck - and keeping them
+ * meant a Show pill whose two useful settings were on different pages and whose
+ * third mixed them. What is left is one question asked properly: what did the
+ * spending go on. Reasons narrow to the two spending ones, the totals strip has
+ * dropped the column that would read zero for ever, and the split under it says
+ * which of the two rates the balance actually went on.
+ *
+ * The grouping, the drill-down and the filters are untouched - that is the part
+ * the owner asked us to keep.
  */
 export default async function ActivityPage({
   searchParams,
@@ -38,11 +50,18 @@ export default async function ActivityPage({
   return (
     <>
       <PageHeader
-        title="Credits and activity"
-        subtitle="Every credit you have been given and every one you have spent."
+        title="Activity"
+        subtitle="Every credit you have spent — by day, by truck, and charge by charge."
       />
 
       <div className="space-y-3">
+        {/* Where the grants and the money went, both of which used to be
+            somewhere on this page. Above the tiles rather than under the
+            ledger: somebody who came here looking for a top-up that has not
+            appeared needs the pointer before they have scrolled past fifty
+            charges deciding it is missing. */}
+        <LedgerLinks current="activity" />
+
         {/* This is the page somebody opens when the balance looks wrong, so the
             way to fix it belongs on the tile rather than one page further on. */}
         <CreditSummary
@@ -72,13 +91,27 @@ export default async function ActivityPage({
             behind it. <strong>Sort</strong> sits at the end of that same row and only changes the
             order. The pills underneath are what narrow the list — each reads out what it is
             currently doing, turns blue when it is doing something, and can be tapped off again
-            from inside itself. <strong>Reason</strong> takes as many as you like, and the three
-            figures above the list always describe everything the filters match, not just the page
-            you are looking at.
+            from inside itself. <strong>Reason</strong> takes as many as you like, and so does the
+            split bar above the list: tapping a slice of it narrows to that reason. The figures
+            above the list always describe everything the filters match, not just the page you are
+            looking at.
           </HelpNote>
         </div>
 
-        <CreditLedger userId={overview.id} basePath="/portal/activity" query={query} />
+        {/* only="used" is the whole of the page split. The admin console mounts
+            the same component without it and keeps the full ledger.
+
+            split is the analysis, and this is the only mount that gets it: the
+            credit history page shows the same window and would carry the same
+            bar, which is the duplication the two pages exist to avoid. */}
+        <CreditLedger
+          userId={overview.id}
+          basePath="/portal/activity"
+          query={query}
+          title="Credits used"
+          only="used"
+          split
+        />
       </div>
     </>
   );
