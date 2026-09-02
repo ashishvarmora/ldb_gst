@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Clock, Gift, Users, Wallet } from "lucide-react";
 
-import { BASE_PATH, type SectionParams } from "./TabStrip";
+import { REWARDS_PATH, type RewardParams } from "./params";
 import { saveReferralSettings } from "../credits/actions";
 import { CapNote, pageWindow } from "../pager";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
@@ -54,7 +54,7 @@ const REFERRERS_PER_PAGE = 25;
  */
 const REWARDED_SCANNED = 2000;
 
-export async function ReferralsTab({ params }: { params: SectionParams }) {
+export async function ReferralsTab({ params }: { params: RewardParams }) {
   const admin = getSupabaseAdmin();
 
   const [settings, { count: referrerCount }, { count: invited }, { count: rewarded }, { data: paid }] =
@@ -337,7 +337,7 @@ export async function ReferralsTab({ params }: { params: SectionParams }) {
           total={total}
           pageSize={REFERRERS_PER_PAGE}
           noun="referrers"
-          href={{ path: BASE_PATH, params: { tab: "referrals" }, pageKey: "ref" }}
+          href={{ path: REWARDS_PATH, params: { section: "referrals" }, pageKey: "ref" }}
         />
       </Panel>
     </>

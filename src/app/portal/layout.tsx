@@ -1,53 +1,23 @@
 import { NavProgress } from "@/components/NavProgress";
 import Link from "next/link";
-import { Coins, ShieldCheck, Truck } from "lucide-react";
+import { ShieldCheck, Truck } from "lucide-react";
 
 import { AccountMenu, type AccountMenuProps } from "@/components/AccountMenu";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
+import { CreditPill } from "@/components/CreditBalance";
 import { LogoBadge } from "@/components/Logo";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import { creditStanding, searchesLeft } from "@/lib/credits";
 import { initials } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
-import { requirePortalSession } from "@/lib/officer";
+import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-
-/** Roughly a day of ordinary work - worth a warning colour before it hits zero. */
-const LOW_CREDITS = 10;
 
 /** How many rows the bell can show. Enough history to be the only alerts view. */
 const BELL_LIMIT = 20;
-
-/**
- * The balance the whole app runs on, on every page. Nobody should have to open
- * the dashboard to find out whether their next search will work.
- */
-function CreditPill({ credits }: { credits: number }) {
-  const tone =
-    credits <= 0
-      ? "border-bad-500/40 bg-bad-500/12 text-bad-500"
-      : credits < LOW_CREDITS
-        ? "border-warn-500/40 bg-warn-500/12 text-warn-500"
-        : "border-line bg-raised text-muted";
-
-  return (
-    <Link
-      href="/portal/plan"
-      title="Credits left"
-      className={cx(
-        "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap transition hover:brightness-105",
-        tone,
-      )}
-    >
-      <Coins size={12} />
-      <span className="font-medium tabular-nums">{formatCredits(credits)}</span>
-      <span className="opacity-70">left</span>
-    </Link>
-  );
-}
 
 /** Small "3 / 10" pill. Trucks still have a hard cap, so this one stays. */
 function TruckPill({ used, limit }: { used: number; limit: number }) {
@@ -92,9 +62,12 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await requirePortalSession();
   const { overview } = session;
 
-  const [{ brandName, referralEnabled, supportEmail, supportPhone }, { data: alertRows }] =
+  const [{ brandName, referralEnabled, supportEmail, supportPhone }, searchCost, { data: alertRows }] =
     await Promise.all([
     publicSettings(),
+    // What a search costs, so "low" means "nearly out of searches" rather than
+    // a number picked in this file. Cached per request - see loadSearchCost.
+    loadSearchCost(),
     // Loaded here rather than inside the bell so the panel opens with no wait.
     getSupabaseAdmin()
       .from("alert_logs")
@@ -119,11 +92,17 @@ export default async function PortalLayout({ children }: { children: React.React
    * show different balances, and so the sheet has its figures the instant it
    * opens rather than after a round trip.
    */
+  const standing = creditStanding(overview.credits, searchCost);
+
   const account: Omit<AccountMenuProps, "variant"> = {
     name: displayName,
     email: session.email,
     initials: initials(session.profile.full_name, session.email),
     credits: overview.credits,
+    // Classified here, in the one server component that has the rate, so the
+    // sheet does not need a threshold of its own to disagree with.
+    standing,
+    searchesLeft: searchesLeft(overview.credits, searchCost),
     creditsSpentMonth: overview.credits_spent_month,
     activeTrucks: overview.active_trucks,
     truckLimit: overview.truck_limit,
@@ -159,7 +138,11 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
 
             <div className="hidden items-center gap-2 lg:flex">
-              <CreditPill credits={overview.credits} />
+              <CreditPill
+                credits={overview.credits}
+                standing={standing}
+                planActive={overview.plan_active}
+              />
               <TruckPill used={overview.active_trucks} limit={overview.truck_limit} />
               <PlanPill name={overview.plan_name} />
             </div>
@@ -168,7 +151,11 @@ export default async function PortalLayout({ children }: { children: React.React
               {/* The balance follows the reader on a phone too, where the pill
                   row it used to sit in is gone. */}
               <span className="lg:hidden">
-                <CreditPill credits={overview.credits} />
+                <CreditPill
+                  credits={overview.credits}
+                  standing={standing}
+                  planActive={overview.plan_active}
+                />
               </span>
 
               {account.isSuperAdmin ? (

@@ -1,10 +1,26 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { getSessionUser, type SessionUser } from "@/lib/auth";
+import { CREDIT_ACTIONS, costOf, loadRate } from "@/lib/credits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview } from "@/lib/types";
 
 export type PortalSession = SessionUser & { overview: OfficerOverview };
+
+/**
+ * What one manual search costs this account today, in credits.
+ *
+ * Lives here rather than in credits.ts because a Client Component imports that
+ * file for formatCredits(), and the service-role client must not follow it into
+ * a browser bundle.
+ *
+ * Cached per request: the layout shows the balance on every page and the page
+ * under it usually shows it again, so both read the same rate off one query.
+ */
+export const loadSearchCost = cache(async (): Promise<number> => {
+  return costOf(await loadRate(getSupabaseAdmin(), CREDIT_ACTIONS.manualSearch));
+});
 
 /**
  * Gate for everything under /portal. Any active account can use the officer

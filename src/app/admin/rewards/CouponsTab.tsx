@@ -13,14 +13,13 @@ import {
 } from "lucide-react";
 
 import { CouponFields } from "./CouponFields";
-import { BASE_PATH, type SectionParams } from "./TabStrip";
+import { REWARDS_PATH, type RewardParams } from "./params";
 import {
   createCoupon,
   deleteCoupon,
   saveCoupon,
   setCouponActive,
 } from "../credits/actions";
-import { pageWindow } from "../pager";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -36,24 +35,23 @@ import {
   LinkButton,
   Mono,
   Panel,
-  PanelAction,
   StatCard,
   TableWrap,
   Tbody,
   Thead,
   Tr,
 } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import {
   couponInactiveReason,
   describeClaims,
   describeCoupon,
   loadCoupons,
-  normaliseCode,
 } from "@/lib/coupons";
-import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtRupees } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CouponRedemption, CouponUsage } from "@/lib/types";
+import type { CouponUsage } from "@/lib/types";
 
 /**
  * Discount codes: what exists, what it does, and what it has cost.
@@ -72,16 +70,14 @@ import type { CouponRedemption, CouponUsage } from "@/lib/types";
  */
 
 const COUPONS_PER_PAGE = 25;
-const REDEMPTIONS_PER_PAGE = 25;
 
-export async function CouponsTab({ params }: { params: SectionParams }) {
+export async function CouponsTab({ params }: { params: RewardParams }) {
   const admin = getSupabaseAdmin();
   const [coupons, settings] = await Promise.all([loadCoupons(admin), loadSettings(admin)]);
 
   // Clamped to what exists, so deleting the last code on page 3 lands on the
   // last page there is rather than on an empty table.
   const page = pageFromParam(params.cp, pageCount(coupons.length, COUPONS_PER_PAGE));
-  const redPage = pageFromParam(params.red);
 
   // Totals across every code, not just the page listed - the same approach the
   // History tab takes to payments, and for the same reason: a figure that
@@ -92,16 +88,30 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
   const given = coupons.reduce((sum, coupon) => sum + Number(coupon.discount_given ?? 0), 0);
   const listTotal = coupons.reduce((sum, coupon) => sum + Number(coupon.list_total ?? 0), 0);
 
-  // The code is in the URL rather than its id, so a link to "who used SAVE20"
-  // reads as what it is. It is already in memory, so resolving it costs nothing.
-  const wanted = normaliseCode(params.code);
-  const selected = wanted ? (coupons.find((coupon) => coupon.code === wanted) ?? null) : null;
+  /*
+   * Credits handed out by bonus codes, which none of the rupee figures above
+   * can see.
+   *
+   * discount_given sums coupon_redemptions.discount_inr, and a credit_bonus
+   * code writes nothing there - it grants credits and takes nothing off any
+   * price. So a screen whose only payout figure was "discount given" reported
+   * Rs 0 for a code that had handed over 500 credits. Read from the coupon's
+   * own value, the way redeem_coupon() computes it, and only for claims that
+   * actually settled.
+   */
+  const creditsGiven = coupons.reduce(
+    (sum, coupon) =>
+      coupon.kind === "credit_bonus"
+        ? sum + Number(coupon.value ?? 0) * Number(coupon.used ?? 0)
+        : sum,
+    0,
+  );
 
   const rows = pageSlice(coupons, page, COUPONS_PER_PAGE);
 
-  // Every pager carries the whole query string, so turning one page never drops
-  // the open code or the other list's page number.
-  const pagerParams = { tab: "coupons", code: selected?.code ?? null, cp: page, red: redPage };
+  // The pager carries the section, so turning a page does not fall back to the
+  // first tab.
+  const pagerParams = { section: "coupons", cp: page };
 
   return (
     <>
@@ -122,8 +132,7 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
         <StatCard
           label="Claims used"
           value={fmtNumber(used)}
-          sub="Payments that actually settled at a discount"
-          icon={<TicketCheck size={15} />}
+          sub="Claims that actually settled — a discount, or a credit grant"
         />
         <StatCard
           label="Claims held"
@@ -137,14 +146,19 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
           icon={<Hourglass size={15} />}
         />
         <StatCard
-          label="Discount given"
-          value={fmtRupees(given)}
+          /* Both payouts, because a bonus code's whole value is invisible in
+             rupees and a discount code's is invisible in credits. Whichever
+             is nought is said to be nought rather than left out, so the card
+             never looks like the only kind of code you have. */
+          label="Handed out"
+          value={creditsGiven > 0 ? formatCredits(creditsGiven) : fmtRupees(given)}
           sub={
-            listTotal > 0
-              ? `Off ${fmtRupees(listTotal)} of list prices`
-              : "Nothing has been discounted yet"
+            creditsGiven > 0 && given > 0
+              ? `credits, plus ${fmtRupees(given)} off ${fmtRupees(listTotal)} of list prices`
+              : creditsGiven > 0
+                ? "free credits from bonus codes; no discount codes claimed yet"
+                : `off ${fmtRupees(listTotal)} of list prices`
           }
-          icon={<IndianRupee size={15} />}
         />
       </div>
 
@@ -185,7 +199,7 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
                 <th className="th">Code</th>
                 <th className="th">What it does</th>
                 <th className="th">Claims</th>
-                <th className="th text-right">Discount given</th>
+                <th className="th text-right">Handed out</th>
                 <th className="th">Status</th>
                 <th className="th text-right">Manage</th>
               </Thead>
@@ -194,7 +208,6 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
                   <CouponRow
                     key={coupon.id}
                     coupon={coupon}
-                    open={selected?.id === coupon.id}
                     couponsPage={page}
                   />
                 ))}
@@ -207,22 +220,12 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
               total={coupons.length}
               pageSize={COUPONS_PER_PAGE}
               noun="codes"
-              href={{ path: BASE_PATH, params: pagerParams, pageKey: "cp" }}
+              href={{ path: REWARDS_PATH, params: pagerParams, pageKey: "cp" }}
             />
           </>
         )}
       </Panel>
 
-      {selected ? (
-        <RedemptionsPanel coupon={selected} pageParam={params.red} couponsPage={page} />
-      ) : coupons.length > 0 ? (
-        <Panel title="Who used a code" bodyClassName="p-0">
-          <EmptyState
-            title="No code chosen"
-            description="Pick one above and every claim on it is listed here, against the account that made it — what the order was worth, what came off, and whether the money ever arrived."
-          />
-        </Panel>
-      ) : null}
     </>
   );
 }
@@ -233,19 +236,16 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
 
 function CouponRow({
   coupon,
-  open,
   couponsPage,
 }: {
   coupon: CouponUsage;
-  /** True when this is the code whose redemptions are listed below. */
-  open: boolean;
   couponsPage: number;
 }) {
   const reason = couponInactiveReason(coupon);
   const exhausted = coupon.claims_left === 0;
 
   return (
-    <Tr className={open ? "bg-brand-500/8" : undefined}>
+    <Tr>
       <td className="td whitespace-nowrap">
         <Mono className="font-semibold text-ink">{coupon.code}</Mono>
         {coupon.description ? (
@@ -282,8 +282,20 @@ function CouponRow({
         ) : null}
       </td>
 
+      {/* The payout, in whichever unit this code actually pays in.
+          A bonus code writes nothing to discount_inr, so reading only that
+          showed TOPUP500 - which had handed over 500 credits - as a dash. */}
       <td className="td text-right text-sm font-medium tabular-nums text-ink">
-        {Number(coupon.discount_given) > 0 ? (
+        {coupon.kind === "credit_bonus" ? (
+          Number(coupon.used) > 0 ? (
+            <>
+              {formatCredits(Number(coupon.value) * Number(coupon.used))}
+              <span className="mt-0.5 block text-xs font-normal text-faint">credits</span>
+            </>
+          ) : (
+            <span className="text-faint">nothing yet</span>
+          )
+        ) : Number(coupon.discount_given) > 0 ? (
           <>
             {fmtRupees(Number(coupon.discount_given))}
             <span className="mt-0.5 block text-xs font-normal text-faint">
@@ -291,7 +303,7 @@ function CouponRow({
             </span>
           </>
         ) : (
-          <span className="text-faint">--</span>
+          <span className="text-faint">nothing yet</span>
         )}
       </td>
 
@@ -310,15 +322,23 @@ function CouponRow({
 
       <td className="td">
         <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {/* Straight to the claims report, filtered to this code.
+              This used to open a panel at the foot of this page, which was a
+              second and worse copy of that report: it spoke only in rupees, so
+              a credit_bonus code - whose entire payout is credits - showed a
+              row of zeroes. One report now, and it is the one that can say what
+              was actually handed over. */}
           <LinkButton
-            href={`${BASE_PATH}?tab=coupons&code=${encodeURIComponent(coupon.code)}${
-              couponsPage > 1 ? `&cp=${couponsPage}` : ""
-            }`}
+            href={`${REWARDS_PATH}?${new URLSearchParams({
+              section: "coupon-claims",
+              code: coupon.code,
+              group: "none",
+            })}`}
             variant="ghost"
             size="sm"
           >
             <Users size={13} />
-            {open ? "Listed below" : "Who used it"}
+            Who used it
           </LinkButton>
 
           <Modal
@@ -391,7 +411,9 @@ function deleteWarning(coupon: CouponUsage): string {
 
   if (coupon.used > 0) {
     parts.push(
-      `Its ${coupon.used} redemption${coupon.used === 1 ? "" : "s"} are deleted with it, so the record of ${fmtRupees(Number(coupon.discount_given))} already discounted is lost. The payments themselves keep their amounts.`,
+      coupon.kind === "credit_bonus"
+        ? `Its ${coupon.used} claim${coupon.used === 1 ? "" : "s"} are deleted with it, so the record of ${formatCredits(Number(coupon.value) * Number(coupon.used))} credits already granted is lost. The credits themselves stay in the accounts that got them.`
+        : `Its ${coupon.used} redemption${coupon.used === 1 ? "" : "s"} are deleted with it, so the record of ${fmtRupees(Number(coupon.discount_given))} already discounted is lost. The payments themselves keep their amounts.`,
     );
   }
   if (coupon.holding > 0) {
@@ -404,158 +426,6 @@ function deleteWarning(coupon: CouponUsage): string {
   return parts.join(" ");
 }
 
-/* -------------------------------------------------------------------------- */
-/* who used one code                                                           */
-/* -------------------------------------------------------------------------- */
-
-const REDEMPTION_TONE = { applied: "good", reserved: "warn", released: "neutral" } as const;
-const REDEMPTION_LABEL = {
-  applied: "Used",
-  reserved: "Held",
-  released: "Handed back",
-} as const;
-
-async function RedemptionsPanel({
-  coupon,
-  pageParam,
-  couponsPage,
-}: {
-  coupon: CouponUsage;
-  /** The raw ?red=, clamped here once this code's claims have been counted. */
-  pageParam: string | undefined;
-  couponsPage: number;
-}) {
-  const admin = getSupabaseAdmin();
-
-  // Counted before a page of claims is asked for, the same way the code list
-  // above is clamped: PostgREST answers a range that starts past the last claim
-  // with an error and no total, so a stale ?red= would show an empty panel with
-  // nothing to click back to.
-  const { count } = await admin
-    .from("coupon_redemptions")
-    .select("id", { count: "exact", head: true })
-    .eq("coupon_id", coupon.id);
-
-  const total = count ?? 0;
-  const { page, from, to } = pageWindow(pageParam, total, REDEMPTIONS_PER_PAGE);
-
-  const { data } = await admin
-    .from("coupon_redemptions")
-    .select("*")
-    .eq("coupon_id", coupon.id)
-    .order("created_at", { ascending: false })
-    .range(from, to);
-
-  const rows = (data ?? []) as CouponRedemption[];
-  const nameOf = await namesFor(admin, rows.map((row) => row.user_id));
-
-  return (
-    <Panel
-      title={`Who used ${coupon.code}`}
-      description="Every claim on this code, newest first — including the ones that were held and handed back, because an abandoned checkout is worth seeing."
-      actions={<PanelAction href={`${BASE_PATH}?tab=coupons`}>Clear</PanelAction>}
-      bodyClassName="p-0"
-    >
-      {rows.length === 0 ? (
-        <EmptyState
-          title={
-            total > 0
-              ? "That page is past the end of the claims"
-              : `Nobody has claimed ${coupon.code}`
-          }
-          description={
-            total > 0
-              ? "Use the page links below to get back."
-              : "A row appears here the moment a checkout opens with this code, before any money arrives."
-          }
-        />
-      ) : (
-        <>
-          <TableWrap>
-            <Thead>
-              <th className="th">When</th>
-              <th className="th">Account</th>
-              <th className="th text-right">Order before discount</th>
-              <th className="th text-right">Came off</th>
-              <th className="th">Status</th>
-            </Thead>
-            <Tbody>
-              {rows.map((row) => (
-                <Tr key={row.id}>
-                  <td className="td whitespace-nowrap">
-                    <span className="block text-sm text-ink">{fmtRelative(row.created_at)}</span>
-                    <span className="block text-xs text-faint">{fmtDateTime(row.created_at)}</span>
-                  </td>
-                  <td className="td text-sm">
-                    <Link
-                      href={`/admin/officers/${row.user_id}`}
-                      className="transition hover:text-brand-400"
-                    >
-                      {nameOf.get(row.user_id) ?? "--"}
-                    </Link>
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {fmtRupees(Number(row.amount_inr))}
-                  </td>
-                  <td className="td text-right text-sm font-medium tabular-nums text-brand-500">
-                    {fmtRupees(Number(row.discount_inr))}
-                  </td>
-                  <td className="td">
-                    <Badge tone={REDEMPTION_TONE[row.status]}>{REDEMPTION_LABEL[row.status]}</Badge>
-                    {/* A held claim is the one an admin will ask about, so it
-                        says what it is waiting for rather than only when it
-                        started. */}
-                    <span className="mt-0.5 block text-xs text-faint">
-                      {row.status === "reserved"
-                        ? "waiting on payment"
-                        : row.settled_at
-                          ? fmtRelative(row.settled_at)
-                          : ""}
-                    </span>
-                  </td>
-                </Tr>
-              ))}
-            </Tbody>
-          </TableWrap>
-        </>
-      )}
-
-      {/* Outside the branch above: a page with no claims on it is exactly when
-          the reader needs the link back to the pages that have some. */}
-      <Pager
-        className="border-t border-divider px-5 py-3"
-        page={page}
-        total={total}
-        pageSize={REDEMPTIONS_PER_PAGE}
-        noun="claims"
-        href={{
-          path: BASE_PATH,
-          params: { tab: "coupons", code: coupon.code, cp: couponsPage },
-          pageKey: "red",
-        }}
-      />
-    </Panel>
-  );
-}
-
-/**
- * Names for the accounts on this page, by id.
- *
- * A lookup rather than an embedded join: the join would have to name the
- * foreign key, and a wrong name there fails as an empty table rather than as an
- * error. The History tab builds the same map for the same reason.
- */
-async function namesFor(
-  admin: ReturnType<typeof getSupabaseAdmin>,
-  userIds: string[],
-): Promise<Map<string, string>> {
-  const ids = [...new Set(userIds)];
-  if (ids.length === 0) return new Map();
-
-  const { data } = await admin.from("profiles").select("id, email, full_name").in("id", ids);
-  const people = (data ?? []) as { id: string; email: string; full_name: string | null }[];
-  return new Map(people.map((person) => [person.id, person.full_name ?? person.email]));
-}
 
 /* -------------------------------------------------------------------------- */
 

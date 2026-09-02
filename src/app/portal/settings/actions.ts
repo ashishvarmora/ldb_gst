@@ -7,6 +7,7 @@ import { bool, done, fail, str } from "@/lib/forms";
 import { assertPortalUser } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { spreadsheetIdFromUrl } from "@/lib/sheets";
+import { PHONE_ERROR, normaliseIndianMobile } from "@/lib/phone";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/types";
@@ -46,15 +47,28 @@ export async function updateMyProfile(
     return fail(`That name is too long. Keep it under ${MAX.full_name} characters.`);
   }
 
-  const phone = str(fd, "phone");
   /*
-   * Loose on purpose. Numbers arrive with +91, with spaces, with dashes and
-   * with a leading 0, and refusing a real number somebody can be reached on is
-   * worse than storing an oddly punctuated one.
+   * The same rule sign-up and the admin's own officer form use, and stored in
+   * the same normalised shape.
+   *
+   * This was a loose pattern - /^[+\d][\d\s()-]{5,19}$/ - chosen so a real
+   * number would never be refused for its punctuation. Reasonable in isolation,
+   * wrong in a system: it accepted "12345", a landline and a non-Indian number,
+   * all of which sign-up rejects, so one account could hold a format another
+   * refused and nobody could tell which was authoritative.
+   *
+   * It also has a cost the loose version could not see coming. The checkout now
+   * prefills Razorpay's contact field from this column, and a prefilled value
+   * that is not a reachable mobile is worse than an empty box: the buyer has to
+   * notice it is wrong and clear it before they can type. Normalising here
+   * means a stored number is either usable or absent.
+   *
+   * Empty stays allowed - a phone is optional on this form, and clearing it is
+   * how somebody removes a number they no longer want us to hold.
    */
-  if (phone && !/^[+\d][\d\s()-]{5,19}$/.test(phone)) {
-    return fail("That does not look like a phone number. Digits, spaces and + are all fine.");
-  }
+  const phoneRaw = str(fd, "phone");
+  const phone = phoneRaw ? normaliseIndianMobile(phoneRaw) : null;
+  if (phoneRaw && phone === null) return fail(PHONE_ERROR);
 
   const fields = { full_name: fullName, phone, ...pick(fd, ["designation", "office", "district", "state"]) };
 

@@ -10,10 +10,12 @@ import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
 import { assertPortalUser, loadOverview } from "@/lib/officer";
+import { normaliseIndianMobile } from "@/lib/phone";
 import { rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import { createOrder, razorpayConfigured, verifyCheckoutSignature } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import type { SessionUser } from "@/lib/auth";
 import type {
   ActionResult,
   CouponVerdict,
@@ -47,6 +49,27 @@ import type {
 type Admin = ReturnType<typeof getSupabaseAdmin>;
 
 /**
+ * Who is buying, for Razorpay's own name / email / contact boxes.
+ *
+ * Taken from the session and never from the form. The browser gains nothing by
+ * telling us who is paying, and a posted name is a way to put one person's
+ * details on another's receipt.
+ *
+ * Every field is optional, and an absent one is left OUT rather than sent
+ * blank: Razorpay reads a prefill it was given as an answer, so an empty
+ * `contact` produces a filled-in-and-wrong box rather than the ordinary empty
+ * one somebody can just type into. Missing is the ordinary case rather than the
+ * edge - profiles.phone was only made compulsory at sign-up later on, so the
+ * accounts that predate it hold nothing.
+ */
+export type CheckoutBuyer = {
+  name?: string;
+  email?: string;
+  /** +91 and ten digits, the one form Razorpay reads without complaint. */
+  contact?: string;
+};
+
+/**
  * A start action has to hand the browser the order id, the amount and the public
  * key id, and ActionResult has nowhere to put them. Widening ActionResult would
  * push an optional payload onto every form in the app for the sake of two
@@ -73,6 +96,7 @@ export type CheckoutStart =
       itemName: string;
       /** One line under it, e.g. "500 credits" or "Growth, 3 months". */
       itemDetail: string;
+      buyer: CheckoutBuyer;
       keyId: string;
     }
   | {
@@ -93,6 +117,30 @@ function refuse(error: string): CheckoutStart {
 
 /** Nothing was charged, and trying again is the right next move. */
 const TROUBLE = "Payment could not be started just now. Please try again in a moment.";
+
+/**
+ * The signed-in buyer's details, with anything we do not hold left out.
+ *
+ * The phone is put back through normaliseIndianMobile rather than passed along
+ * as stored. profiles.phone is written by two forms that do not agree: sign-up
+ * insists on an Indian mobile, while the portal's own profile form accepts
+ * anything shaped roughly like a phone number - so the column can legitimately
+ * hold "0982 5000 00" or a landline. Razorpay does nothing useful with a number
+ * it cannot parse, and a wrong prefill is worse than none, so anything phone.ts
+ * refuses is dropped instead of forwarded.
+ */
+function buyerDetails(session: SessionUser): CheckoutBuyer {
+  const buyer: CheckoutBuyer = {};
+
+  const name = session.profile.full_name?.trim();
+  if (name) buyer.name = name;
+  if (session.email) buyer.email = session.email;
+
+  const contact = normaliseIndianMobile(session.profile.phone);
+  if (contact) buyer.contact = contact;
+
+  return buyer;
+}
 
 /**
  * Terms a plan may be bought for. Longer terms mean fewer renewals, not a
@@ -325,6 +373,7 @@ async function openOrder({
   kind,
   priced,
   code,
+  buyer,
 }: {
   admin: Admin;
   userId: string;
@@ -332,6 +381,7 @@ async function openOrder({
   priced: Extract<Priced, { ok: true }>;
   /** Raw from the form. Whether it is worth anything is the database's to say. */
   code: string | null;
+  buyer: CheckoutBuyer;
 }): Promise<CheckoutStart> {
   const { listInr, credits } = priced;
 
@@ -448,6 +498,7 @@ async function openOrder({
     couponCode,
     itemName: priced.itemName,
     itemDetail: priced.itemDetail,
+    buyer,
     // Must be the twin of the secret that opened the order, so it comes from
     // the environment - the key id in app_settings is only there for display.
     keyId: env.razorpayKeyId,
@@ -577,6 +628,7 @@ export async function startCheckout(
       kind: "credits",
       priced,
       code: str(fd, "coupon_code"),
+      buyer: buyerDetails(session),
     });
   } catch (error) {
     return refuse(reportError("startCheckout crashed", error, TROUBLE));
@@ -622,6 +674,7 @@ export async function startPlanCheckout(
       kind: "plan",
       priced,
       code: str(fd, "coupon_code"),
+      buyer: buyerDetails(session),
     });
   } catch (error) {
     return refuse(reportError("startPlanCheckout crashed", error, TROUBLE));

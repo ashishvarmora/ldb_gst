@@ -28,12 +28,25 @@ export default async function PlansAndCreditsPage({
   await requireSuperAdmin();
   const params = await searchParams;
 
-  /* Referrals and coupons moved to their own section, and History became the
-     Finance report. Old links and bookmarks land where the thing they were
-     looking for actually lives, rather than on a tab that silently became
-     Plans. */
+  /*
+   * Referrals and coupons moved to their own section, and History became the
+   * Finance report. Old links and bookmarks land where the thing they were
+   * looking for actually lives, rather than on a tab that silently became
+   * Plans.
+   *
+   * CARRYING THE REST OF THE QUERY STRING IS THE POINT. This redirect used to
+   * keep only the tab name, which broke the exact link it existed to preserve:
+   * /admin/plans?tab=coupons&code=TOPUP500 arrived at the coupons section with
+   * the code stripped off, so a code that had definitely been claimed rendered
+   * as "No code chosen". Every rewards parameter comes across.
+   */
   if (params.tab === "referrals" || params.tab === "coupons") {
-    redirect(`/admin/rewards?section=${params.tab}`);
+    const carried = new URLSearchParams({ section: params.tab });
+    for (const key of ["code", "cp", "red", "ref", "status", "group", "sort", "dir"] as const) {
+      const value = params[key as keyof SectionParams];
+      if (typeof value === "string" && value) carried.set(key, value);
+    }
+    redirect(`/admin/rewards?${carried}`);
   }
   if (params.tab === "history") redirect("/admin/finance");
 

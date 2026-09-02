@@ -1,3 +1,4 @@
+import { formatCredits } from "@/lib/credits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Coupon, CouponUsage, CouponVerdict } from "@/lib/types";
 
@@ -128,8 +129,22 @@ const inr = (n: number) => `₹${Number(n).toLocaleString("en-IN", { maximumFrac
 
 /** "20% off, up to ₹200, on orders over ₹1,000". */
 export function describeCoupon(coupon: Coupon): string {
+  /*
+   * Three kinds, and the third one is not a discount at all.
+   *
+   * This was a two-way branch: percent got "N% off" and EVERYTHING ELSE got
+   * "Rs N off". credit_bonus arrived later and fell into the else, so the live
+   * code TOPUP500 - which grants 500 credits and takes nothing off any price -
+   * was described to the admin as "Rs 500 off". A wrong unit on a price list is
+   * not a cosmetic problem: it is the figure somebody sets their own prices
+   * against.
+   */
   const parts: string[] = [
-    coupon.kind === "percent" ? `${coupon.value}% off` : `${inr(coupon.value)} off`,
+    coupon.kind === "percent"
+      ? `${coupon.value}% off`
+      : coupon.kind === "credit_bonus"
+        ? `${formatCredits(coupon.value)} free credits`
+        : `${inr(coupon.value)} off`,
   ];
   if (coupon.kind === "percent" && coupon.max_discount_inr) {
     parts.push(`up to ${inr(coupon.max_discount_inr)}`);

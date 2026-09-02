@@ -19,9 +19,10 @@ import {
 
 import { FilterSubmitButton } from "@/components/NavPending";
 import { FilterPill } from "@/components/FilterPill";
+import { TopUpLink } from "@/components/CreditBalance";
 import { EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
 import { CREDIT_SOURCES } from "@/lib/analytics";
-import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
+import { CREDIT_REASON_LABEL, formatCredits, type CreditStanding } from "@/lib/credits";
 import { fmtDateTime, istDaysAgo, istMonthStart, istToday } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -1687,8 +1688,23 @@ function Pager({
  *
  * Read from the same view the list is, so the total and the rows it sits above
  * can never tell different stories.
+ *
+ * The balance tile is the only one that can be bad news, so it is the only one
+ * that carries a way out. Its standing arrives as a prop: the caller has the
+ * session and the search rate, and this component should not grow a second
+ * opinion about what counts as low.
  */
-export async function CreditSummary({ userId, balance }: { userId: string; balance: number }) {
+export async function CreditSummary({
+  userId,
+  balance,
+  standing,
+  planActive,
+}: {
+  userId: string;
+  balance: number;
+  standing: CreditStanding;
+  planActive: boolean;
+}) {
   const { data } = await getSupabaseAdmin()
     .from("credit_ledger_daily")
     .select("ist_date,credits")
@@ -1713,17 +1729,49 @@ export async function CreditSummary({ userId, balance }: { userId: string; balan
 
   return (
     <div className="grid grid-cols-3 gap-2 sm:gap-3">
-      {tiles.map(({ key, icon: Icon, label, value }) => (
-        <div key={key} className="rounded-xl border border-line bg-panel px-3 py-2.5">
-          <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted uppercase sm:text-[11px]">
-            <Icon size={11} className="shrink-0" />
-            <span className="truncate">{label}</span>
-          </span>
-          <span className="mt-1 block text-lg font-semibold tabular-nums text-strong sm:text-xl">
-            {formatCredits(value)}
-          </span>
-        </div>
-      ))}
+      {tiles.map(({ key, icon: Icon, label, value }) => {
+        const isBalance = key === "balance";
+
+        return (
+          <div key={key} className="rounded-xl border border-line bg-panel px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted uppercase sm:text-[11px]">
+              <Icon size={11} className="shrink-0" />
+              <span className="truncate">{label}</span>
+            </span>
+            <span
+              className={cx(
+                "mt-1 block text-lg font-semibold tabular-nums sm:text-xl",
+                !isBalance || standing === "ok"
+                  ? "text-strong"
+                  : standing === "empty"
+                    ? "text-bad-500"
+                    : "text-warn-500",
+              )}
+            >
+              {formatCredits(value)}
+            </span>
+
+            {/* Two words rather than a sentence: three tiles across a 390px
+                phone leaves about 90px of usable width here. The words are
+                what carries the state - the colour above only repeats it, and
+                the figure they sit under says how bad it is. */}
+            {isBalance && standing !== "ok" ? (
+              <span
+                className={cx(
+                  "block text-[10px] font-medium sm:text-[11px]",
+                  standing === "empty" ? "text-bad-500" : "text-warn-500",
+                )}
+              >
+                {standing === "empty" ? "Too low to search" : "Running low"}
+              </span>
+            ) : null}
+
+            {isBalance ? (
+              <TopUpLink standing={standing} planActive={planActive} className="-mt-0.5" />
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -16,10 +16,17 @@ import {
   PanelAction,
   cx,
 } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import { TopUpLink } from "@/components/CreditBalance";
+import {
+  TOPUP_HREF,
+  creditStanding,
+  formatCredits,
+  searchesLeft,
+  searchesLeftLabel,
+} from "@/lib/credits";
 import { fmtDate, fmtNumber, fmtRelative, fmtRupees, istToday } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
-import { requirePortalSession } from "@/lib/officer";
+import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertLog, OfficerOverview } from "@/lib/types";
 
@@ -27,9 +34,6 @@ export async function generateMetadata() {
   const { brandName } = await publicSettings();
   return { title: `Dashboard — ${brandName}` };
 }
-
-/** Roughly a day of ordinary work - worth a warning colour before it hits zero. */
-const LOW_CREDITS = 10;
 
 /**
  * The three things people open the app to check, in the order they matter: how
@@ -41,10 +45,12 @@ const LOW_CREDITS = 10;
  * instead - see WelcomeHome below.
  */
 export default async function PortalHome() {
-  const [{ overview, profile }, { referralEnabled }] = await Promise.all([
+  const [{ overview, profile }, { referralEnabled }, searchCost] = await Promise.all([
     requirePortalSession(),
     // Already resolved for the layout on this request, so this costs nothing.
     publicSettings(),
+    // Same again - the header pill above has already read the search rate.
+    loadSearchCost(),
   ]);
 
   const firstName = (profile.full_name ?? "").split(" ")[0];
@@ -65,8 +71,21 @@ export default async function PortalHome() {
     ? Math.ceil((new Date(`${expiresOn}T23:59:59+05:30`).getTime() - Date.now()) / 86_400_000)
     : null;
 
+  const standing = creditStanding(overview.credits, searchCost);
+
   const balanceTone =
-    overview.credits <= 0 ? "text-bad-500" : overview.credits < LOW_CREDITS ? "text-warn-500" : "text-strong";
+    standing === "empty" ? "text-bad-500" : standing === "low" ? "text-warn-500" : "text-strong";
+
+  /**
+   * An empty balance gets the banner at the top of the page, because it has
+   * stopped the account working and that is page-level news. A merely low one
+   * does not: it gets the nudge on the balance itself, further down.
+   *
+   * Either way there is exactly one way out on this screen. The banner and the
+   * credits panel are a few centimetres apart, so whichever of them is
+   * speaking is the one that carries the link.
+   */
+  const bannerCarriesTopUp = standing === "empty";
 
   return (
     <>
@@ -77,13 +96,17 @@ export default async function PortalHome() {
 
       {/* The plan is live, so the only thing that can stop a search here is an
           empty balance - and the fix is one tap away, not a support request. */}
-      {overview.credits <= 0 ? (
+      {bannerCarriesTopUp ? (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
           <p className="flex items-start gap-2.5 text-sm text-warn-500">
             <Coins size={16} className="mt-0.5 shrink-0" />
-            You have run out of credits, so searches and automatic checks are paused.
+            {/* Not "you have run out": a balance still showing a figure can be
+                under the price of one search, and is refused just the same. */}
+            Your balance is too low to search, so searches and automatic checks are paused.
           </p>
-          <LinkButton href="/portal/plan" size="sm" variant="secondary">
+          {/* Straight to the top-up panel rather than the top of the plan page,
+              which on a phone is two screens above the thing being asked for. */}
+          <LinkButton href={TOPUP_HREF} size="sm" variant="secondary">
             Top up
           </LinkButton>
         </div>
@@ -113,9 +136,35 @@ export default async function PortalHome() {
             <p className={cx("mt-1 text-4xl font-semibold tabular-nums sm:text-5xl", balanceTone)}>
               {formatCredits(overview.credits)}
             </p>
-            <p className="mt-1.5 text-xs text-muted">
-              One balance pays for every search and every automatic check.
-            </p>
+
+            {/*
+              The figure is meaningless on its own - the rate it is spent at is
+              set in the console and is not on this page - so under it goes what
+              the balance actually buys. Carried in the words, not the colour,
+              and the link only when the banner above is not already offering
+              it.
+            */}
+            {standing === "ok" ? (
+              <p className="mt-1.5 text-xs text-muted">
+                One balance pays for every search and every automatic check.
+              </p>
+            ) : (
+              <p
+                className={cx(
+                  "mt-1.5 flex flex-wrap items-center gap-x-2 text-xs",
+                  standing === "empty" ? "text-bad-500" : "text-warn-500",
+                )}
+              >
+                <span>
+                  {standing === "empty"
+                    ? "Searches and automatic checks are paused."
+                    : `Only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`}
+                </span>
+                {bannerCarriesTopUp ? null : (
+                  <TopUpLink standing={standing} planActive={overview.plan_active} />
+                )}
+              </p>
+            )}
           </div>
           <LinkButton href="/portal/plan" size="sm" variant="secondary">
             Plan and credits

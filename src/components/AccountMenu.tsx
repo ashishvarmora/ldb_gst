@@ -23,7 +23,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { Avatar, Badge, QuotaBar, buttonClass, cx } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import { TOPUP_HREF, formatCredits, searchesLeftLabel, type CreditStanding } from "@/lib/credits";
 
 /**
  * Everything about *this account*, behind one control.
@@ -48,6 +48,14 @@ export type AccountMenuProps = {
   email: string;
   initials: string;
   credits: number;
+  /**
+   * Whether that balance is worth mentioning, decided by the layout against
+   * the search rate. Passed in rather than worked out here: this is a Client
+   * Component and the rate lives in the database.
+   */
+  standing: CreditStanding;
+  /** Whole searches the balance still covers, for saying so in words. */
+  searchesLeft: number;
   creditsSpentMonth: number;
   activeTrucks: number;
   truckLimit: number;
@@ -70,9 +78,6 @@ type Item = {
   /** Right-hand flag. Draws the eye to the one item that pays. */
   flag?: string;
 };
-
-/** Roughly a day of ordinary work - worth a warning colour before it hits zero. */
-const LOW_CREDITS = 10;
 
 function itemGroups({
   isSuperAdmin,
@@ -131,6 +136,8 @@ export function AccountMenu(props: AccountMenuProps) {
     email,
     initials,
     credits,
+    standing,
+    searchesLeft,
     creditsSpentMonth,
     activeTrucks,
     truckLimit,
@@ -182,7 +189,7 @@ export function AccountMenu(props: AccountMenuProps) {
     };
   }, [open, close, sheet]);
 
-  const lowCredits = credits <= 0;
+  const empty = standing === "empty";
   const groups = itemGroups(props);
 
   /*
@@ -250,15 +257,30 @@ export function AccountMenu(props: AccountMenuProps) {
               <span
                 className={cx(
                   "mt-1 block text-2xl font-semibold tabular-nums",
-                  lowCredits
+                  empty
                     ? "text-bad-500"
-                    : credits < LOW_CREDITS
+                    : standing === "low"
                       ? "text-warn-500"
                       : "text-brand-500",
                 )}
               >
                 {formatCredits(credits)}
               </span>
+
+              {/* What that number means, since the rate it is spent at is not
+                  on this screen. Said in words as well as in a colour, and
+                  only when it is news - a healthy balance needs no comment. */}
+              {standing === "ok" ? null : (
+                <span
+                  className={cx(
+                    "mt-0.5 block text-[11px] font-medium",
+                    empty ? "text-bad-500" : "text-warn-500",
+                  )}
+                >
+                  {empty ? "Searching is paused" : `Only ${searchesLeftLabel(searchesLeft)}`}
+                </span>
+              )}
+
               <span className="mt-0.5 block text-[11px] tabular-nums text-faint">
                 {formatCredits(creditsSpentMonth)} used this month
               </span>
@@ -278,17 +300,21 @@ export function AccountMenu(props: AccountMenuProps) {
             </span>
           </div>
 
+          {/* This panel's own top-up, a full-width button two lines under the
+              balance - so no TopUpLink beside the number as well. The same
+              warning twice inside one block is noise; the sentence above says
+              what is wrong and this says what to do about it. */}
           <Link
-            href={planActive ? "/portal/plan#topup" : "/portal/plan"}
+            href={planActive ? TOPUP_HREF : "/portal/plan"}
             onClick={close}
             className={buttonClass(
-              lowCredits || !planActive ? "primary" : "secondary",
+              standing !== "ok" || !planActive ? "primary" : "secondary",
               "sm",
               "mt-3 w-full",
             )}
           >
             <Wallet size={13} />
-            {!planActive ? "Choose a plan" : lowCredits ? "Top up now" : "Top up credits"}
+            {!planActive ? "Choose a plan" : empty ? "Top up now" : "Top up credits"}
           </Link>
         </div>
 
@@ -396,8 +422,13 @@ export function AccountMenu(props: AccountMenuProps) {
           </span>
           Account
           {/* An empty balance stops every search, so it is flagged on the tab
-              itself rather than only inside the panel nobody has opened. */}
-          {lowCredits ? (
+              itself rather than only inside the panel nobody has opened.
+
+              Kept to empty rather than extended to merely low: the header pill
+              two inches above already carries a low balance and a way to fix
+              it, and a dot cannot be tapped for the fix. A blocker earns the
+              second marker, a nudge does not. */}
+          {empty ? (
             <span
               aria-hidden
               className="absolute top-2.5 right-[calc(50%-16px)] size-2 rounded-full border-2 border-panel bg-bad-500"

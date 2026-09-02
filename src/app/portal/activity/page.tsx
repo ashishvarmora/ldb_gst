@@ -2,7 +2,8 @@ import { HelpNote } from "@/components/Disclosure";
 import { CreditLedger, CreditSummary, type LedgerQuery } from "@/components/CreditLedger";
 import { publicSettings } from "@/components/SiteFooter";
 import { PageHeader } from "@/components/ui";
-import { requirePortalSession } from "@/lib/officer";
+import { creditStanding } from "@/lib/credits";
+import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 
 export async function generateMetadata() {
   const { brandName } = await publicSettings();
@@ -27,8 +28,12 @@ export default async function ActivityPage({
 }: {
   searchParams: Promise<LedgerQuery>;
 }) {
-  const { overview } = await requirePortalSession();
-  const query = await searchParams;
+  const [{ overview }, searchCost, query] = await Promise.all([
+    requirePortalSession(),
+    // Cached for the request - the header pill has already read it.
+    loadSearchCost(),
+    searchParams,
+  ]);
 
   return (
     <>
@@ -38,7 +43,14 @@ export default async function ActivityPage({
       />
 
       <div className="space-y-3">
-        <CreditSummary userId={overview.id} balance={overview.credits} />
+        {/* This is the page somebody opens when the balance looks wrong, so the
+            way to fix it belongs on the tile rather than one page further on. */}
+        <CreditSummary
+          userId={overview.id}
+          balance={overview.credits}
+          standing={creditStanding(overview.credits, searchCost)}
+          planActive={overview.plan_active}
+        />
 
         {/* The one thing about this page that surprises people, and the reason
             a bill can look wrong when it is not. */}

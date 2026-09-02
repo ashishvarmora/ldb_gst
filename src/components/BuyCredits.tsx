@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -23,6 +23,7 @@ import {
   previewCoupon,
   startCheckout,
   startPlanCheckout,
+  type CheckoutBuyer,
   type CheckoutStart,
 } from "@/app/portal/plan/checkout-actions";
 // Only the pure formatters. The service-role helpers in the same module are
@@ -73,6 +74,12 @@ type CheckoutOptions = {
   name: string;
   description: string;
   handler: (response: Handshake) => void;
+  /**
+   * Fills Razorpay's own name / email / contact boxes. Built on the server from
+   * the session - see CheckoutBuyer - and every key is optional because an
+   * absent one must be omitted rather than sent blank.
+   */
+  prefill?: CheckoutBuyer;
   modal?: { ondismiss?: () => void };
   theme?: { color?: string };
 };
@@ -128,6 +135,29 @@ function loadCheckoutScript(): Promise<void> {
   });
 
   return pending;
+}
+
+/**
+ * The brand blue, as a literal Razorpay can use.
+ *
+ * Their window is its own document and cannot read our custom properties, so
+ * the colour has to be handed over rather than inherited. Read off the live
+ * stylesheet instead of typed in here: the portal renders in the light theme
+ * where --c-brand-500 is #2563eb, the dark one carries a different blue, and a
+ * second copy of either in this file is a copy that goes stale the first time
+ * the palette moves.
+ */
+const BRAND_FALLBACK = "#2563eb";
+
+function brandColour(): string {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--c-brand-500")
+    .trim();
+  // Razorpay wants a hex triplet and does nothing sensible with anything else.
+  // A blank read before the stylesheet has landed, or an oklch() once the
+  // palette moves on, is worth dropping - their own default is closer to right
+  // than a colour they cannot parse.
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : BRAND_FALLBACK;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -191,6 +221,26 @@ function bestRefusal(verdicts: Record<string, CouponVerdict>): string | null {
     .map(([, verdict]) => verdict)
     .find((verdict) => !verdict.ok);
   return refusal?.message ?? null;
+}
+
+/**
+ * A credit code typed into the discount box, which is not what this box is for.
+ *
+ * Caught by name rather than left to the server, because validate_coupon() does
+ * not refuse one. Its rupees-off branch is keyed on `flat`, so a credit_bonus
+ * falls through to the percentage branch and a code worth 500 credits is read
+ * as 500% off - clamped, in the end, to a rupee payable. Letting one reach
+ * checkout would charge Rs 1 for a plan and grant no bonus credits at all,
+ * because settle_payment only marks the claim applied.
+ *
+ * This is the honest-buyer path and not a defence: nothing on the server stops
+ * the same code being posted directly. The fix belongs in validate_coupon.
+ */
+const BONUS_CODE_MESSAGE =
+  'That is a credit code, not a discount. Enter it under "Have a credit code?" on this page and the credits go straight to your balance.';
+
+function isBonusCode(verdicts: Record<string, CouponVerdict>): boolean {
+  return Object.values(verdicts).some((verdict) => verdict.ok && verdict.kind === "credit_bonus");
 }
 
 /**
@@ -278,6 +328,17 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
 
     try {
       const next = await askAbout(code, kind, amounts);
+
+      // Never applied, so formValue stays empty and the code cannot travel to
+      // openOrder even if the buyer leaves it sitting in the box.
+      if (isBonusCode(next)) {
+        setApplied(null);
+        setVerdicts({});
+        setPricedFor("");
+        setMessage(BONUS_CODE_MESSAGE);
+        return;
+      }
+
       if (Object.values(next).some((verdict) => verdict.ok)) {
         setApplied(code);
         setVerdicts(next);
@@ -360,17 +421,25 @@ type CouponBox = ReturnType<typeof useCoupon>;
  * "Have a code?", collapsed. Most people arriving here do not have one, and a
  * code box on the common path only invites a hunt for a code that does not
  * exist. One tap opens it, and it stays open once something is applied.
+ *
+ * It used to sit at the top of the page, above the cards, where it asked for a
+ * code before there was anything to discount. It is rendered inside the pay
+ * panel now - one tap from the button that spends the money, and beside the
+ * total it changes.
  */
-function CouponField({ coupon, disabled }: { coupon: CouponBox; disabled: boolean }) {
-  // Nothing can be bought, so there is nothing to discount.
-  if (disabled) return null;
-
+function CouponField({ coupon, className }: { coupon: CouponBox; className?: string }) {
+  /* It used to take a `disabled` flag for "nothing can be bought, so there is
+     nothing to discount". That is structural now: a locked grid has no card
+     that can be chosen, so the panel this lives in never renders. */
   if (!coupon.open && !coupon.applied) {
     return (
       <button
         type="button"
         onClick={coupon.reveal}
-        className="mb-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-sunken"
+        className={cx(
+          "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-brand-500 transition hover:bg-sunken",
+          className,
+        )}
       >
         <TicketPercent size={14} />
         Have a code?
@@ -379,7 +448,7 @@ function CouponField({ coupon, disabled }: { coupon: CouponBox; disabled: boolea
   }
 
   return (
-    <div className="mb-3 rounded-xl border border-line bg-panel p-3">
+    <div className={cx("rounded-xl border border-line bg-raised p-3", className)}>
       {coupon.applied ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <Badge tone="good">
@@ -443,12 +512,9 @@ function CouponField({ coupon, disabled }: { coupon: CouponBox; disabled: boolea
         </p>
       ) : null}
 
-      {coupon.applied ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-faint">
-          A code lowers what you pay. The credits you receive are worked out from the full price, so
-          they do not change.
-        </p>
-      ) : null}
+      {/* The "same credits either way" reassurance used to live here. The total
+          below now states what is paid and what is received as two rows of one
+          sum, which says it where it is checked rather than a line above. */}
     </div>
   );
 }
@@ -506,6 +572,173 @@ function CodeNote({
     return <p className="mt-0.5 text-[11px] leading-relaxed text-warn-500">{whyNot}</p>;
   }
   return null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* the total, and the button that spends it                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A purchase that has been picked but not yet paid for.
+ *
+ * The card buttons used to open Razorpay on the first tap, so the last figure
+ * anybody saw before money was involved was a price on a card - never the sum
+ * of it, and never the code's effect on it stated in full. A tap now fills this
+ * in, and one panel states the list price, what the code takes off, what is
+ * actually charged and what arrives afterwards.
+ *
+ * `start` is the closure the card used to call, so each grid goes on owning
+ * what it sells and this panel holds no second copy of it.
+ */
+type Chosen = {
+  /** The card, so the grid can mark which one is being bought. */
+  key: string;
+  name: string;
+  detail: string;
+  /** Before any code. The panel's arithmetic starts here. */
+  listInr: number;
+  /**
+   * What the buyer actually gets, as one line. Worked out from the list price
+   * and never from what is paid, which is the whole reason it is shown next to
+   * the discount: a code that takes rupees off must visibly take nothing else.
+   */
+  receive: string;
+  start: () => Promise<CheckoutStart>;
+};
+
+/** One row of the sum. */
+function Sum({
+  label,
+  value,
+  tone = "plain",
+  /** The row the decision is made on: the figure that will leave the account. */
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  tone?: "plain" | "good" | "brand";
+  strong?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={cx("text-xs", strong ? "font-medium text-ink" : "text-muted")}>{label}</dt>
+      <dd
+        className={cx(
+          "shrink-0 tabular-nums",
+          strong ? "text-lg font-semibold text-strong" : "text-xs",
+          tone === "good" && "text-good-500",
+          tone === "brand" && "text-brand-500",
+          tone === "plain" && !strong && "text-ink",
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The last thing on screen before Razorpay: what is being bought, the code box,
+ * the sum, and one button carrying the figure it will charge.
+ *
+ * The code box lives in here rather than above the grid because a discount code
+ * needs something to discount - asked for first, it invited a hunt for a code
+ * before the buyer had even chosen a pack, and its effect appeared four inches
+ * away from the button that spent the money.
+ */
+function PayPanel({
+  chosen,
+  coupon,
+  busy,
+  onPay,
+  onCancel,
+}: {
+  chosen: Chosen;
+  coupon: CouponBox;
+  /** Which card is mid-checkout, so only this button spins. */
+  busy: string | null;
+  onPay: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cut = coupon.cutFor(chosen.listInr);
+  const whyNot = coupon.whyNot(chosen.listInr);
+  const payable = cut ? cut.payableInr : chosen.listInr;
+  const working = busy === chosen.key;
+
+  /* On a phone the grid is taller than the screen, so a panel that appears
+     under it appears out of sight. "nearest" rather than "center" so a panel
+     already on screen is left where it is instead of jumping. */
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [chosen.key]);
+
+  return (
+    <div
+      ref={ref}
+      className="mt-3 scroll-mt-20 rounded-xl border border-brand-500/50 bg-panel p-4 ring-1 ring-brand-500/15"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+            You are buying
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-strong">{chosen.name}</p>
+          <p className="text-xs text-muted">{chosen.detail}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={working}
+          className={buttonClass("ghost", "sm", "shrink-0")}
+        >
+          <X size={13} />
+          Change
+        </button>
+      </div>
+
+      <CouponField coupon={coupon} className="mt-3" />
+
+      {/* Spelled out as rows rather than a struck-through price. A card being
+          compared with three others only needs the new figure; the moment
+          before paying is the moment to show where that figure came from. */}
+      <dl className="mt-3 space-y-1.5 border-t border-divider pt-3">
+        <Sum label="Price" value={fmtRupees(chosen.listInr)} />
+        {cut && coupon.applied ? (
+          <Sum
+            label={`Code ${coupon.applied}`}
+            value={`− ${fmtRupees(cut.discountInr)}`}
+            tone="good"
+          />
+        ) : null}
+        <Sum label="To pay now" value={fmtRupees(payable)} strong />
+        {/* Directly under the figure that shrank, because "the credits do not
+            change" is the one thing a buyer wants confirmed at that moment. */}
+        <Sum label="You receive" value={chosen.receive} tone="brand" />
+      </dl>
+
+      {whyNot ? (
+        <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warn-500">
+          <AlertCircle size={13} className="mt-0.5 shrink-0" />
+          <span>{whyNot}</span>
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onPay}
+        disabled={working}
+        className={buttonClass("primary", "md", "mt-3 w-full")}
+      >
+        {working ? <Loader2 size={14} className="animate-spin" /> : null}
+        {working ? "Opening payment..." : `Pay ${fmtRupees(payable)}`}
+      </button>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-faint">
+        Paid through Razorpay. Nothing is charged until you finish there.
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -582,6 +815,14 @@ function useCheckout(brandName: string, onPaid?: () => void) {
         handler: (handshake) => {
           void confirm(handshake);
         },
+        /*
+         * Razorpay asked every buyer for their name, email and phone on every
+         * purchase, all three of which the server already knows. Handed over
+         * exactly as the server built it: absent fields are missing keys rather
+         * than empty strings, because Razorpay reads a blank prefill as an
+         * answer and leaves the box in a worse state than an untouched one.
+         */
+        prefill: started.buyer,
         modal: {
           ondismiss: () => {
             // Nothing to undo. The payment row stays 'created', so if money did
@@ -589,9 +830,7 @@ function useCheckout(brandName: string, onPaid?: () => void) {
             setBusy(null);
           },
         },
-        // Razorpay's window is its own document, so it cannot read our theme
-        // variables - this is the same blue as --c-brand-500.
-        theme: { color: "#2563eb" },
+        theme: { color: brandColour() },
       });
 
       checkout.on("payment.failed", () => {
@@ -677,14 +916,41 @@ function truckChange(plan: Plan, current: Plan): { better: boolean; text: string
     : { better: false, text: `${mine - theirs} fewer trucks than your plan` };
 }
 
+/**
+ * Where the account stands on a plan, which decides whether renewing the same
+ * plan is offered at all.
+ *
+ *   none     nothing bought yet, so every card is a first purchase.
+ *   expired  the plan has lapsed. Renewing the one they were on is the obvious
+ *            thing to want, so that card offers exactly that.
+ *   live     a plan is running, and renewing it early is deliberately not
+ *            offered. Not because the sums would go wrong - settle_payment sets
+ *            the new expiry to greatest(current expiry, today) + the months
+ *            bought, so an early renewal does carry the days already paid for -
+ *            but because the owner does not want the same month sold twice.
+ *            Changing plan stays available either way: an upgrade is how a
+ *            truck limit is raised, and that cannot wait for expiry.
+ */
+export type PlanStanding = "none" | "expired" | "live";
+
+/** What a plan hands over, as one line for the total. */
+function planReceipt(plan: Plan): string {
+  const trucks =
+    plan.truck_limit === -1
+      ? "Unlimited trucks"
+      : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"}`;
+  return plan.included_credits > 0
+    ? `${trucks} · ${formatCredits(plan.included_credits)} credits`
+    : trucks;
+}
+
 export function BuyPlans({
   plans,
   brandName,
   currentPlanId,
   currentPlan = null,
   disabledReason,
-  /** True once a plan is running: the copy becomes about renewing, not starting. */
-  renewing = false,
+  standing = "none",
 }: {
   plans: Plan[];
   brandName: string;
@@ -700,9 +966,16 @@ export function BuyPlans({
    */
   currentPlan?: Plan | null;
   disabledReason: string | null;
-  renewing?: boolean;
+  standing?: PlanStanding;
 }) {
   const [months, setMonths] = useState<number>(1);
+  /**
+   * The card being bought, held as an id rather than a copy of its figures.
+   * The term picker sits above the grid and can be changed after a card is
+   * tapped, so a snapshotted price would be the one from before that change -
+   * which is the single thing the total panel exists to prevent.
+   */
+  const [chosenId, setChosenId] = useState<string | null>(null);
   // Every total a code could apply to on this grid. A free plan has no order to
   // open, so it has no price to discount either.
   const coupon = useCoupon(
@@ -713,6 +986,36 @@ export function BuyPlans({
   );
   const { busy, error, notice, pay } = useCheckout(brandName, coupon.remove);
   const locked = disabledReason !== null;
+
+  /**
+   * Renewing the plan already in force. Only offered once it has run out - see
+   * PlanStanding - and it is the one card whose button changes with standing,
+   * because every other card is a change of plan rather than a renewal.
+   */
+  const canRenew = standing === "expired";
+
+  const chosenPlan = chosenId ? (plans.find((plan) => plan.id === chosenId) ?? null) : null;
+
+  /* Rebuilt on every render from the term picker's current value, so the figure
+     in the panel and the figure the order is opened for cannot disagree. */
+  const purchase: Chosen | null = chosenPlan
+    ? {
+        key: chosenPlan.id,
+        name: `${chosenPlan.name} plan`,
+        detail: months === 1 ? "1 month" : `${months} months`,
+        listInr: rupees(chosenPlan.price_per_month * months),
+        receive: planReceipt(chosenPlan),
+        start: () => {
+          const fd = new FormData();
+          fd.set("plan_id", chosenPlan.id);
+          fd.set("months", String(months));
+          // The code goes with the purchase, so the server holds the claim and
+          // charges the figure the panel was showing.
+          fd.set("coupon_code", coupon.formValue);
+          return startPlanCheckout(null, fd);
+        },
+      }
+    : null;
 
   if (plans.length === 0) {
     return (
@@ -739,6 +1042,8 @@ export function BuyPlans({
               type="button"
               onClick={() => setMonths(option)}
               aria-pressed={months === option}
+              /* The total below re-prices itself from this, so the choice can
+                 be changed with a card already picked and nothing goes stale. */
               className={cx(
                 "inline-flex min-h-8 items-center rounded-md px-2.5 text-xs font-medium tabular-nums transition",
                 months === option
@@ -755,12 +1060,10 @@ export function BuyPlans({
         ) : null}
       </div>
 
-      <CouponField coupon={coupon} disabled={locked} />
-
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {plans.map((plan) => {
           const mine = plan.id === currentPlanId;
-          const working = busy === plan.id;
+          const picked = plan.id === chosenId;
           const total = rupees(plan.price_per_month * months);
           const cut = coupon.cutFor(total);
           // Nothing to charge for means no order to open, so say so on the card
@@ -769,14 +1072,22 @@ export function BuyPlans({
           // Only worth saying against a plan they are not already on, and only
           // when we know which one that is.
           const change = !mine && currentPlan ? truckChange(plan, currentPlan) : null;
+          /* The one card that is not for sale: the plan already running. Its
+             renewal is what standing "live" withholds, and there is nothing
+             else this card could sell them. */
+          const inert = mine && standing === "live";
 
           return (
             <li
               key={plan.id}
               className={cx(
                 "flex flex-col rounded-xl border bg-panel p-4 transition",
-                mine ? "border-brand-500/60 ring-1 ring-brand-500/20" : "border-line",
-                !locked && !mine && "hover:border-line-strong",
+                picked
+                  ? "border-brand-500 ring-2 ring-brand-500/25"
+                  : mine
+                    ? "border-brand-500/60 ring-1 ring-brand-500/20"
+                    : "border-line",
+                !locked && !mine && !picked && "hover:border-line-strong",
               )}
             >
               <div className="flex items-start justify-between gap-2">
@@ -836,49 +1147,58 @@ export function BuyPlans({
                 </p>
               ) : null}
 
+              {/*
+                Selects rather than pays. The figure it would charge, and the
+                code that changes it, are both settled in the total panel below
+                the grid - so this button decides what is bought and nothing
+                about what it costs.
+              */}
               <button
                 type="button"
-                disabled={locked || !buyable || busy !== null}
-                onClick={() =>
-                  void pay(
-                    plan.id,
-                    () => {
-                      const fd = new FormData();
-                      fd.set("plan_id", plan.id);
-                      fd.set("months", String(months));
-                      // The code goes with the purchase, so the server holds the
-                      // claim and charges the figure the card was showing.
-                      fd.set("coupon_code", coupon.formValue);
-                      return startPlanCheckout(null, fd);
-                    },
-                    coupon.refused,
-                  )
-                }
+                disabled={locked || !buyable || inert || busy !== null}
+                onClick={() => setChosenId(plan.id)}
                 className={buttonClass(
-                  mine || !renewing ? "primary" : "secondary",
+                  picked || change?.better || standing === "none" || (mine && canRenew)
+                    ? "primary"
+                    : "secondary",
                   "md",
                   "mt-4 w-full",
                 )}
               >
-                {working ? <Loader2 size={14} className="animate-spin" /> : null}
-                {working
-                  ? "Opening payment..."
-                  : !buyable
-                    ? "Contact support"
-                    : locked
-                      ? "Not available"
-                      : mine
-                        ? "Renew this plan"
-                        : change?.better
-                          ? "Upgrade to this"
-                          : renewing
-                            ? "Switch to this plan"
-                            : "Choose this plan"}
+                {picked ? <Check size={14} /> : null}
+                {!buyable
+                  ? "Contact support"
+                  : locked
+                    ? "Not available"
+                    : picked
+                      ? "Chosen"
+                      : inert
+                        ? /* Renewal is withheld until it lapses, and the end
+                             date is on the page above, so this says what the
+                             card is rather than offering an action. */
+                          "Your current plan"
+                        : mine
+                          ? "Renew this plan"
+                          : change?.better
+                            ? "Upgrade to this"
+                            : standing === "none"
+                              ? "Choose this plan"
+                              : "Switch to this plan"}
               </button>
             </li>
           );
         })}
       </ul>
+
+      {purchase ? (
+        <PayPanel
+          chosen={purchase}
+          coupon={coupon}
+          busy={busy}
+          onPay={() => void pay(purchase.key, purchase.start, coupon.refused)}
+          onCancel={() => setChosenId(null)}
+        />
+      ) : null}
 
       <Outcome error={error} notice={notice} />
     </div>
@@ -930,6 +1250,14 @@ export function BuyCredits({
   );
 
   /**
+   * The pack being bought, as an id. Held this way rather than as a copy of its
+   * price because the open tier's amount box can be edited after the card is
+   * chosen - a snapshot would leave the total quoting a figure the buyer has
+   * since typed over.
+   */
+  const [chosenId, setChosenId] = useState<string | null>(null);
+
+  /**
    * Every price a code could apply to. An open tier below its minimum has no
    * price yet - creditsForAmount says so by returning null - so it contributes
    * nothing to ask about until the buyer has typed enough.
@@ -955,6 +1283,58 @@ export function BuyCredits({
 
   const locked = disabledReason !== null;
 
+  const chosenPack = chosenId ? (packs.find((pack) => pack.id === chosenId) ?? null) : null;
+
+  /**
+   * What the chosen card would buy, rebuilt every render from whatever is in
+   * the amount box now.
+   *
+   * An open tier below its minimum buys nothing, so it yields no purchase at
+   * all rather than a panel offering to charge an amount the server would
+   * refuse - creditsForAmount returning null is that answer.
+   */
+  const purchase: Chosen | null = (() => {
+    if (!chosenPack) return null;
+
+    if (!chosenPack.is_open_ended) {
+      return {
+        key: chosenPack.id,
+        name: chosenPack.name,
+        detail: `${formatCredits(chosenPack.credits)} credits`,
+        listInr: chosenPack.price_inr,
+        receive: `${formatCredits(chosenPack.credits)} credits`,
+        start: () => {
+          const fd = new FormData();
+          fd.set("pack_id", chosenPack.id);
+          fd.set("coupon_code", coupon.formValue);
+          return startCheckout(null, fd);
+        },
+      };
+    }
+
+    const typed = amounts[chosenPack.id] ?? "";
+    const amount = rupees(Number(typed));
+    const credits = creditsForAmount(chosenPack, amount, creditsPerRupee);
+    if (credits === null) return null;
+
+    return {
+      key: chosenPack.id,
+      name: chosenPack.name,
+      detail: `${fmtRupees(amount)} of credits`,
+      listInr: amount,
+      receive: `${formatCredits(credits)} credits`,
+      start: () => {
+        const fd = new FormData();
+        fd.set("pack_id", chosenPack.id);
+        // Sent so the server knows what was asked for. It prices the purchase
+        // itself either way - see startCheckout.
+        fd.set("amount_inr", typed);
+        fd.set("coupon_code", coupon.formValue);
+        return startCheckout(null, fd);
+      },
+    };
+  })();
+
   if (packs.length === 0) {
     return (
       <p className="text-sm text-muted">
@@ -967,11 +1347,9 @@ export function BuyCredits({
     <div>
       {locked ? <Locked reason={disabledReason} /> : null}
 
-      <CouponField coupon={coupon} disabled={locked} />
-
       <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
         {packs.map((pack) => {
-          const working = busy === pack.id;
+          const picked = pack.id === chosenId;
           const minimum = `Rs ${pack.price_inr.toLocaleString("en-IN")}`;
 
           /* ---------------------------------------------------------------- */
@@ -995,8 +1373,9 @@ export function BuyCredits({
               <li
                 key={pack.id}
                 className={cx(
-                  "col-span-2 flex flex-col rounded-xl border border-brand-500/40 bg-panel p-3 transition",
-                  !locked && "hover:border-brand-500/60",
+                  "col-span-2 flex flex-col rounded-xl border bg-panel p-3 transition",
+                  picked ? "border-brand-500 ring-2 ring-brand-500/25" : "border-brand-500/40",
+                  !locked && !picked && "hover:border-brand-500/60",
                 )}
               >
                 <div className="flex items-start justify-between gap-1.5">
@@ -1037,46 +1416,24 @@ export function BuyCredits({
                       }`}
                 </p>
 
-                {/* Spelled out in full here, because this is the one card where
-                    the buyer chose the figure the discount comes off. */}
-                {cut ? (
-                  <p className="mt-1.5 text-xs leading-relaxed tabular-nums text-good-500">
-                    {fmtRupees(amount)} − {fmtRupees(cut.discountInr)} ={" "}
-                    <span className="font-semibold">{fmtRupees(cut.payableInr)}</span> to pay ·{" "}
-                    {formatCredits(credits)} credits either way
-                  </p>
-                ) : whyNot ? (
-                  <p className="mt-1.5 text-xs leading-relaxed text-warn-500">{whyNot}</p>
-                ) : null}
+                {/* Terse here, like every other card. The sum this comes from
+                    is spelled out in the total panel, where it is checked. */}
+                <CodeNote cut={cut} whyNot={whyNot} />
 
                 <button
                   type="button"
                   disabled={locked || tooLittle || busy !== null}
-                  onClick={() =>
-                    void pay(
-                      pack.id,
-                      () => {
-                        const fd = new FormData();
-                        fd.set("pack_id", pack.id);
-                        // Sent so the server knows what was asked for. It prices
-                        // the purchase itself either way - see startCheckout.
-                        fd.set("amount_inr", typed);
-                        fd.set("coupon_code", coupon.formValue);
-                        return startCheckout(null, fd);
-                      },
-                      coupon.refused,
-                    )
-                  }
+                  onClick={() => setChosenId(pack.id)}
                   className={buttonClass("primary", "sm", "mt-3 w-full")}
                 >
-                  {working ? <Loader2 size={13} className="animate-spin" /> : null}
-                  {working
-                    ? "Opening..."
-                    : locked
-                      ? "Not available"
-                      : tooLittle
-                        ? `Minimum is ${minimum}`
-                        : `Pay ${fmtRupees(cut ? cut.payableInr : amount)}`}
+                  {picked ? <Check size={13} /> : null}
+                  {locked
+                    ? "Not available"
+                    : tooLittle
+                      ? `Minimum is ${minimum}`
+                      : picked
+                        ? "Chosen"
+                        : "Top up this much"}
                 </button>
               </li>
             );
@@ -1092,8 +1449,9 @@ export function BuyCredits({
             <li
               key={pack.id}
               className={cx(
-                "flex flex-col rounded-xl border border-line bg-panel p-3 transition",
-                !locked && "hover:border-line-strong",
+                "flex flex-col rounded-xl border bg-panel p-3 transition",
+                picked ? "border-brand-500 ring-2 ring-brand-500/25" : "border-line",
+                !locked && !picked && "hover:border-line-strong",
               )}
             >
               <div className="flex items-start justify-between gap-1.5">
@@ -1123,33 +1481,26 @@ export function BuyCredits({
               <button
                 type="button"
                 disabled={locked || busy !== null}
-                onClick={() =>
-                  void pay(
-                    pack.id,
-                    () => {
-                      const fd = new FormData();
-                      fd.set("pack_id", pack.id);
-                      fd.set("coupon_code", coupon.formValue);
-                      return startCheckout(null, fd);
-                    },
-                    coupon.refused,
-                  )
-                }
+                onClick={() => setChosenId(pack.id)}
                 className={buttonClass("primary", "sm", "mt-3 w-full")}
               >
-                {working ? <Loader2 size={13} className="animate-spin" /> : null}
-                {working
-                  ? "Opening..."
-                  : locked
-                    ? "Not available"
-                    : cut
-                      ? `Pay ${fmtRupees(cut.payableInr)}`
-                      : "Top up"}
+                {picked ? <Check size={13} /> : null}
+                {locked ? "Not available" : picked ? "Chosen" : "Top up"}
               </button>
             </li>
           );
         })}
       </ul>
+
+      {purchase ? (
+        <PayPanel
+          chosen={purchase}
+          coupon={coupon}
+          busy={busy}
+          onPay={() => void pay(purchase.key, purchase.start, coupon.refused)}
+          onCancel={() => setChosenId(null)}
+        />
+      ) : null}
 
       <Outcome error={error} notice={notice} />
     </div>

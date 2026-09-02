@@ -6,9 +6,15 @@ import { Pager, pageFromParam } from "@/components/Pager";
 import { SearchBox } from "@/components/SearchBox";
 import { publicSettings } from "@/components/SiteFooter";
 import { Badge, EmptyState, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import {
+  TOPUP_HREF,
+  creditStanding,
+  formatCredits,
+  searchesLeft,
+  searchesLeftLabel,
+} from "@/lib/credits";
 import { fmtDateTime, fmtNumber, istToday } from "@/lib/format";
-import { requirePortalSession } from "@/lib/officer";
+import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog } from "@/lib/types";
 
@@ -25,7 +31,11 @@ export default async function SearchPage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  const { overview } = await requirePortalSession();
+  const [{ overview }, searchCost] = await Promise.all([
+    requirePortalSession(),
+    // Cached for the request - the header pill has already read it.
+    loadSearchCost(),
+  ]);
   const admin = getSupabaseAdmin();
 
   const page = pageFromParam((await searchParams).page);
@@ -48,13 +58,41 @@ export default async function SearchPage({
      link anywhere. Here the fix is one tap away, so the portal says it in its
      own words and points at the page that solves it. */
   const planEnded = overview.plan_expires_on !== null && overview.plan_expires_on < istToday();
+  const standing = creditStanding(overview.credits, searchCost);
+
+  /*
+   * Four states, in the order they have to be answered: no plan at all, a plan
+   * that has ended, a plan with nothing left to spend, and a plan with nearly
+   * nothing left. The last one is new - the page used to say nothing until the
+   * balance was already at zero and the next tap had failed.
+   *
+   * The plan cases send somebody to the plan page, the credit cases to the
+   * top-up panel on it, because credits cannot be bought without a live plan.
+   */
   const notice = !overview.plan_active
-    ? planEnded
-      ? "Your plan has ended, so searching is paused. Renew it to start again."
-      : "Choose a plan to start searching. It comes with the credits a search spends."
-    : overview.credits <= 0
-      ? "You have run out of credits, so searching is paused until you top up."
-      : null;
+    ? {
+        text: planEnded
+          ? "Your plan has ended, so searching is paused. Renew it to start again."
+          : "Choose a plan to start searching. It comes with the credits a search spends.",
+        href: "/portal/plan",
+        cta: "Go to plan",
+      }
+    : standing === "empty"
+      ? {
+          /* Not "you have run out": empty covers a balance still showing a
+             figure that is under the price of one search, and telling somebody
+             holding 1 credit that they have none invites a support call. */
+          text: "Your balance is too low for a search, so searching is paused until you top up.",
+          href: TOPUP_HREF,
+          cta: "Top up",
+        }
+      : standing === "low"
+        ? {
+            text: `Running low — only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`,
+            href: TOPUP_HREF,
+            cta: "Top up",
+          }
+        : null;
 
   return (
     <>
@@ -67,10 +105,10 @@ export default async function SearchPage({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
           <p className="flex items-start gap-2.5 text-sm text-warn-500">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {notice}
+            {notice.text}
           </p>
-          <LinkButton href="/portal/plan" size="sm" variant="secondary">
-            Go to plan
+          <LinkButton href={notice.href} size="sm" variant="secondary">
+            {notice.cta}
           </LinkButton>
         </div>
       ) : null}
@@ -78,7 +116,12 @@ export default async function SearchPage({
       <Panel className="mb-3">
         {/* The hint under the input is the one number that decides whether the
             next tap works. The two rules that used to be crammed in beside it
-            are below, where they are read once instead of on every visit. */}
+            are below, where they are read once instead of on every visit.
+
+            Left as a bare figure on purpose. When the balance is low the notice
+            immediately above it already says so and offers the way out, and
+            repeating that a centimetre lower is how a warning stops being
+            read. */}
         <SearchBox autoFocus hint={`${formatCredits(overview.credits)} credits left.`} />
       </Panel>
 

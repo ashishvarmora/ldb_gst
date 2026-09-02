@@ -45,7 +45,12 @@ export type Tab = (typeof TABS)[number]["key"];
 
 export const BASE_PATH = "/admin/plans";
 
-/** Every query parameter this section reads, across all five tabs. */
+/**
+ * Every query parameter this section reads, plus the rewards ones it only ever
+ * forwards. The forwarding is why they are listed here: the compatibility
+ * redirect in page.tsx has to read ?code= off an old bookmark to pass it on,
+ * and a key missing from this type is a key the redirect silently drops.
+ */
 export type SectionParams = {
   tab?: string;
   /** Referrals tab. */
@@ -58,6 +63,11 @@ export type SectionParams = {
   cp?: string;
   code?: string;
   red?: string;
+  /* Forwarded to /admin/rewards, never read here. */
+  status?: string;
+  group?: string;
+  sort?: string;
+  dir?: string;
 };
 
 export function activeTab(raw: string | undefined): Tab {

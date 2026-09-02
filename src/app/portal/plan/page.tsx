@@ -16,14 +16,17 @@ import { Disclosure } from "@/components/Disclosure";
 import { Pager, pageFromParam, pagerHref } from "@/components/Pager";
 import { Badge, EmptyState, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import {
+  creditStanding,
   creditsForAmount,
   describeRate,
   formatCredits,
   loadCreditPacks,
   loadCreditRates,
+  searchesLeft,
+  searchesLeftLabel,
 } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRupees, istToday } from "@/lib/format";
-import { requirePortalSession } from "@/lib/officer";
+import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -73,7 +76,7 @@ export default async function PlanPage({
   const showPayments = params.show === "payments";
   const paymentsFrom = (paymentsPage - 1) * PAYMENTS_SIZE;
 
-  const [paymentResult, planResult, rates, packs, settings] = await Promise.all([
+  const [paymentResult, planResult, rates, packs, settings, searchCost] = await Promise.all([
     admin
       .from("payments")
       .select("*, plan:plans(name)", { count: "exact" })
@@ -89,6 +92,9 @@ export default async function PlanPage({
     loadCreditRates(admin),
     loadCreditPacks(admin),
     loadSettings(admin),
+    /* React-cached, so the layout's header pill and this page share one read
+       of the search rate rather than asking twice per request. */
+    loadSearchCost(),
   ]);
 
   const payments = (paymentResult.data ?? []) as unknown as PaymentRow[];
@@ -173,13 +179,15 @@ export default async function PlanPage({
           </Notice>
         ) : null}
 
+        {/* Nothing is running, so renewing the plan they were on is exactly
+            what this grid is for - see PlanStanding. */}
         <BuyPlans
           plans={plans}
           brandName={settings.brandName}
           currentPlanId={overview.plan_id}
           currentPlan={currentPlan}
           disabledReason={payBlocked}
-          renewing={returning}
+          standing={returning ? "expired" : "none"}
         />
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -229,7 +237,18 @@ export default async function PlanPage({
   /* ---------------------------------------------------------------------- */
   /* has a plan: balance, top-up, then everything else folded away           */
   /* ---------------------------------------------------------------------- */
-  const lowCredits = overview.credits <= 0;
+  /*
+   * The three-way standing, not a two-way one.
+   *
+   * This was `overview.credits <= 0` under the name lowCredits, so "low" only
+   * ever meant "empty" - and it drove both the balance colour and the notice
+   * below. A customer holding four credits read a healthy blue number ON THE
+   * TOP-UP PAGE ITSELF, which is the one screen where being nearly out is the
+   * whole reason they are looking. The floor comes from what a search actually
+   * costs, so it follows the admin's rate instead of guessing.
+   */
+  const standing = creditStanding(overview.credits, searchCost);
+  const outOfCredits = standing === "empty";
 
   /**
    * Out of truck slots, and the plan is the only thing that fixes it - credits
@@ -259,10 +278,14 @@ export default async function PlanPage({
         subtitle="What you have left, and how to add more."
       />
 
+      {/* This used to say "renew it below", which is no longer a thing that can
+          be done from here: renewal opens once the plan has actually run out.
+          So it names the date and says when the button appears, rather than
+          pointing at one that is not there. */}
       {daysLeft !== null && daysLeft <= 14 ? (
         <Notice tone="warn">
-          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}. Renew
-          it below to keep watching without a gap.
+          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}.
+          Renewing opens on that date — come back then, or move to a different plan now.
         </Notice>
       ) : null}
 
@@ -277,7 +300,11 @@ export default async function PlanPage({
             <p
               className={cx(
                 "mt-1.5 text-3xl font-semibold tabular-nums",
-                lowCredits ? "text-bad-500" : "text-brand-500",
+                standing === "empty"
+                  ? "text-bad-500"
+                  : standing === "low"
+                    ? "text-warn-500"
+                    : "text-brand-500",
               )}
             >
               {formatCredits(overview.credits)}
@@ -342,10 +369,18 @@ export default async function PlanPage({
         </div>
       </Panel>
 
-      {lowCredits ? (
+      {/* "Run out" was untrue for a balance of 1 where a search costs 2 - the
+          next search is refused either way, so the notice says too low rather
+          than nought. Low gets its own, quieter line: nothing is broken yet. */}
+      {outOfCredits ? (
         <Notice tone="bad">
-          You have run out of credits. Searching and automatic checks are refused until you top up -
-          your plan and your trucks are untouched.
+          Your balance is too low to search. Searching and automatic checks are refused until you
+          top up - your plan and your trucks are untouched.
+        </Notice>
+      ) : standing === "low" ? (
+        <Notice tone="warn">
+          Running low - about {searchesLeftLabel(searchesLeft(overview.credits, searchCost))} left at
+          today&apos;s rate. Topping up below keeps the automatic checks running.
         </Notice>
       ) : null}
 
@@ -379,7 +414,10 @@ export default async function PlanPage({
       */}
       <div id="plan" className="mb-3 scroll-mt-20">
         <Disclosure
-          title="Change, upgrade or renew your plan"
+          /* "or renew" has gone: while a plan is running the only thing on
+             offer here is a different one. Renewal comes back on the expiry
+             screen, which is a different branch of this page entirely. */
+          title="Change or upgrade your plan"
           hint="Sets how many trucks you can watch and when the plan ends. Not the way to get more credits."
           badge={
             outOfSlots ? (
@@ -415,6 +453,15 @@ export default async function PlanPage({
               : "The term you buy is counted on from today."}
           </p>
 
+          {/* Somebody who came here to renew has to be told where it went, or
+              they read the missing button as a fault. The card for the plan
+              they are on says "Your current plan" and does nothing, so this is
+              the sentence that explains it. */}
+          <p className="mb-3 text-xs leading-relaxed text-muted">
+            Staying on {overview.plan_name}? There is nothing to do — it runs until{" "}
+            {expiresOn ? fmtDate(expiresOn) : "it is cancelled"}, and renewing it opens on that day.
+          </p>
+
           {/*
             An override on user_limit_overrides.truck_limit beats the plan's own
             in officer_effective_limits, so for these accounts a bigger plan may
@@ -434,7 +481,7 @@ export default async function PlanPage({
             currentPlanId={overview.plan_id}
             currentPlan={currentPlan}
             disabledReason={payBlocked}
-            renewing
+            standing="live"
           />
         </Disclosure>
       </div>

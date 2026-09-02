@@ -48,6 +48,93 @@ export function formatCredits(value: number | null | undefined): string {
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
 
+/* -------------------------------------------------------------------------- */
+/* when a balance is worth mentioning                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many manual searches' worth of credit counts as running low.
+ *
+ * A bare number would be a lie here. The admin sets what an action draws from
+ * the balance, so 100 credits is nearly empty on an account where a search
+ * costs 40 and months of work on one where it costs 1 - and the rate is edited
+ * in the console without anybody redeploying this file. So "low" is measured in
+ * work, and the number of credits it corresponds to is worked out per account
+ * from the rate in force.
+ *
+ * Five is one sitting: enough to notice before the next tap is refused, few
+ * enough that it is not warning somebody with a fortnight of credit left.
+ *
+ * Automatic checks are deliberately not part of this. A truck on a 15-minute
+ * beat spends a hundred-odd checks a day, so an account tracking anything at
+ * all would sit permanently below a threshold built from that - and a warning
+ * that is always on is a warning nobody reads. The manual search is the unit a
+ * customer spends on purpose and can therefore count.
+ */
+export const LOW_CREDIT_SEARCHES = 5;
+
+/**
+ * Which of the three things a balance can be saying.
+ *
+ * "empty" is not a stronger "low": it is a different fact. Low is a nudge with
+ * work left in it, empty means the next search is already being refused.
+ */
+export type CreditStanding = "ok" | "low" | "empty";
+
+/**
+ * Where a nudge sends somebody: the top-up panel on the plan page, not the top
+ * of it. The panel carries id="topup" and is never folded away.
+ */
+export const TOPUP_HREF = "/portal/plan#topup";
+
+/** Guards a rate that has gone missing, the way costOf() does. */
+function perSearch(searchCost: number): number {
+  return Number.isFinite(searchCost) && searchCost > 0 ? searchCost : 1;
+}
+
+/** The balance below which a top-up link appears, at today's search rate. */
+export function lowCreditFloor(searchCost: number): number {
+  return perSearch(searchCost) * LOW_CREDIT_SEARCHES;
+}
+
+/** Whole searches the balance still covers. Rounded down - a part is none. */
+export function searchesLeft(credits: number, searchCost: number): number {
+  return Math.floor(Math.max(Number(credits) || 0, 0) / perSearch(searchCost));
+}
+
+export function creditStanding(credits: number, searchCost: number): CreditStanding {
+  const balance = Number(credits);
+
+  /*
+   * Written as !(> 0) so a null or a NaN balance reads as empty rather than
+   * slipping through as healthy.
+   *
+   * Anything under the price of one search is empty too, not low. A balance of
+   * 1 where a search costs 2 is a blocker however encouraging the number looks
+   * - spend_credits() is going to refuse the next one - and rates above one
+   * credit per search are exactly what makes that reachable.
+   */
+  if (!(balance > 0) || balance < perSearch(searchCost)) return "empty";
+  return balance < lowCreditFloor(searchCost) ? "low" : "ok";
+}
+
+/**
+ * The balance in the unit that decides anything: searches. "12 credits left"
+ * only answers the question if you also know the rate, and nobody does.
+ *
+ * A lowercase fragment, so the one phrasing works as a line of its own after
+ * "Only" and in the middle of a sentence. Takes the count rather than the
+ * balance because the account sheet is a Client Component and is handed the
+ * count already worked out.
+ */
+export function searchesLeftLabel(left: number): string {
+  // Only ever reached for a "low" balance, where at least one search is
+  // affordable. The zero case is a fallback, not a state anything renders.
+  if (left <= 0) return "nothing left to search with";
+  if (left === 1) return "one more search";
+  return `about ${left.toLocaleString("en-IN")} more searches`;
+}
+
 export async function loadCreditRates(admin: Admin): Promise<CreditRate[]> {
   const { data } = await admin.from("credit_rates").select("*").order("action");
   return (data ?? []) as CreditRate[];
