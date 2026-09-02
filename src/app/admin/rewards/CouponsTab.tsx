@@ -296,13 +296,16 @@ export async function CouponsTab({ params }: { params: RewardParams }) {
         ) : (
           <>
             <TableWrap>
+              {/* whitespace-nowrap, the way DataTable writes its own headers.
+                  Without it "What it does" stacked into three lines inside a
+                  narrow column on a phone and dragged every row down with it. */}
               <Thead>
-                <th className="th">Code</th>
-                <th className="th">What it does</th>
-                <th className="th">Claims</th>
-                <th className="th text-right">Handed out</th>
-                <th className="th">Status</th>
-                <th className="th text-right">Manage</th>
+                <th className="th whitespace-nowrap">Code</th>
+                <th className="th whitespace-nowrap">What it does</th>
+                <th className="th whitespace-nowrap">Claims</th>
+                <th className="th whitespace-nowrap text-right">Handed out</th>
+                <th className="th whitespace-nowrap">Status</th>
+                <th className="th whitespace-nowrap text-right">Manage</th>
               </Thead>
               <Tbody>
                 {rows.map((coupon) => (

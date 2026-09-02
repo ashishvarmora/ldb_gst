@@ -47,15 +47,25 @@ const REWARD_SECTIONS: Section[] = [
   },
 ];
 
+/*
+ * The two sorts of code, said in the heading of the section that sets them.
+ *
+ * They were described only in passing, and the owner's word for the result is
+ * "messy": a discount code and a free credit code are paid in different units,
+ * so a figure that does not say which unit it is in is a figure nobody can
+ * check. Both coupon views now carry a classification filter that survives the
+ * link between them.
+ */
+
 const INTRO: Record<string, string> = {
   referrals:
     "What an invite is worth, and when it counts. Changing these terms affects invites from now on — anything already earned stays earned.",
   coupons:
-    "The codes themselves: what each takes off, who may use it and how often. A discount code reduces what somebody pays; a bonus code adds credits instead and changes no price.",
+    "The codes themselves, in two sorts. A discount code takes rupees off a payment; a free credit code hands over credits, is claimed on its own with nothing bought, and is refused at a checkout.",
   "referral-claims":
     "Every invite ever sent, both sides named, and how long the invitee took to pay. Sortable and exportable.",
   "coupon-claims":
-    "Every claim on every code — who, when, what came off the price and what credits were granted. Group by code to see which one is doing the work.",
+    "Every claim on every code — who, when, what actually came off a price and what credits were actually granted. Filter by sort of code, by outcome and by date; group by account to see one person against several codes.",
 };
 
 export default async function RewardsPage({

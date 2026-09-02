@@ -755,7 +755,7 @@ function ClaimTable({
       ),
       sortBy: (row) => row.created_at,
       className: "whitespace-nowrap",
-      total: (all) => `${fmtNumber(all.length)} claims`,
+      total: (all) => `${fmtNumber(all.length)} claim${all.length === 1 ? "" : "s"}`,
     },
     {
       key: "code",
