@@ -1,138 +1,198 @@
 import Link from "next/link";
-import { AlertTriangle, Download, Search } from "lucide-react";
+import { AlertTriangle, Download, Gauge, Search, Timer, Users, Wallet, Zap } from "lucide-react";
 
-import { loadDailyCalls } from "./ledger";
-import { balanceTone } from "../tables";
-import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
-import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
-  Avatar,
-  Badge,
-  EmptyState,
-  LinkCard,
-  PageHeader,
-  Panel,
-  PanelAction,
-  StatCard,
-  TableWrap,
-  Tbody,
-  Thead,
-  Tr,
-  buttonClass,
-  cx,
-} from "@/components/ui";
+  ChartTable,
+  MetricCard,
+  ShareBreakdown,
+  StackedBars,
+  type Series,
+  type Slice,
+} from "@/components/charts";
+import { DateRangeBar } from "@/components/DateRangeBar";
+import { LinkCard, PageHeader, Panel, PanelAction, buttonClass } from "@/components/ui";
+import {
+  bucketLabel,
+  fillBuckets,
+  loadCreditSeries,
+  percentChange,
+  previousRange,
+  rangeParams,
+  resolveRange,
+  sumBy,
+} from "@/lib/analytics";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtNumber, fmtRelative, initials, istMonthStart } from "@/lib/format";
+import { fmtNumber } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { OfficerOverview } from "@/lib/types";
 
 export const metadata = { title: "Usage — Admin" };
 
-/** One list on this page now; the call log lives on the log screen. */
-const ACCOUNTS_PAGE = 25;
-
 /**
- * Consumption, per account and then call by call.
+ * What the platform is asking the upstream toll network for, and what that
+ * costs in credits.
  *
- * This page owns what accounts have SPENT. Who they are, what plan they are on
- * and how to reach them is the Accounts page's answer, so those columns are not
- * repeated here - the customer's name links across instead. The call table is
- * the shared one, the same component an account's own Activity tab renders.
+ * This page used to carry a per-account consumption table: account, credits
+ * left, spent today, spent this month, last active. Three other screens carried
+ * the same table with four of the same columns, each with its own sort
+ * vocabulary, and an admin could not tell which one to open. Per-account
+ * comparison is /admin/users now, and every column that made this a fourth copy
+ * is gone.
+ *
+ * What is left is the thing no other screen answers: call volume, the manual
+ * against automatic split, how often the upstream API refuses, how slow it is,
+ * and what a call actually costs. That is a capacity question, not a customer
+ * question, and it belongs on its own.
  */
-type UsageSearchParams = {
-  accounts?: string;
-  sort?: string;
+type UsageParams = {
+  range?: string;
+  from?: string;
+  to?: string;
+  bucket?: string;
 };
 
-/**
- * Four ways to rank the same accounts.
- *
- * Credits spent is the default because it is the money question, but "who has
- * nearly run out" and "who has gone quiet" are the two that lead to action, and
- * neither is visible when the list is only ever sorted by spending.
- */
-const USAGE_SORTS = [
-  { key: "spent", label: "Spent this month" },
-  { key: "today", label: "Spent today" },
-  { key: "low", label: "Lowest balance" },
-  { key: "quiet", label: "Least active" },
-] as const;
-
-type UsageSort = (typeof USAGE_SORTS)[number]["key"];
+/** Above this, the upstream API is having a bad day rather than a bad call. */
+const FAILURE_ALARM = 0.05;
 
 export default async function UsagePage({
   searchParams,
 }: {
-  searchParams: Promise<UsageSearchParams>;
+  searchParams: Promise<UsageParams>;
 }) {
   await requireSuperAdmin();
   const params = await searchParams;
+  const range = resolveRange(params);
   const admin = getSupabaseAdmin();
 
-  const sort: UsageSort =
-    (USAGE_SORTS.find((option) => option.key === params.sort)?.key ?? "spent") as UsageSort;
+  const previous = previousRange(range);
 
-  const accountsPage = pageFromParam(params.accounts);
-  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  /*
+   * Two different sources on purpose, and the page says which is which.
+   *
+   * credit_transactions is the authority on how many calls were CHARGED - it
+   * is the same ledger the customer is billed from, and it is never trimmed.
+   * search_logs is the only record of how each call WENT: the status code, the
+   * latency, whether it came back at all. It is retention-trimmed, and the
+   * tracking worker only writes a row for a successful automatic check when
+   * new crossings were found, so its totals are lower by design. Reading one
+   * for the other is why "Automatic: 40" once sat beside "Automatic: 333" on
+   * the same screen.
+   */
+  const fromAt = `${range.from}T00:00:00+05:30`;
+  const toAt = `${nextDay(range.to)}T00:00:00+05:30`;
 
-  const [{ data: overview }, dailyCalls, { count: failedDay }] =
-    await Promise.all([
-      // Every account, because the totals below are sums of these rows and a
-      // page of them would not add up. The table itself is still paged.
-      admin.from("officer_overview").select("*").eq("role", "officer"),
-      loadDailyCalls(admin, { days: 30 }),
-      // Counted over a day rather than over the page on screen: "failures on
-      // this page" changed meaning every time somebody turned a page.
-      admin
-        .from("search_logs")
-        .select("id", { count: "exact", head: true })
-        .eq("ok", false)
-        .gte("created_at", dayAgo),
-    ]);
+  const [credits, creditsPrev, { data: logs, error: logError }] = await Promise.all([
+    loadCreditSeries(admin, range),
+    loadCreditSeries(admin, { ...previous, bucket: "month" }),
+    admin
+      .from("search_logs")
+      .select("ok, response_ms, source")
+      .gte("created_at", fromAt)
+      .lt("created_at", toAt)
+      .limit(20_000),
+  ]);
 
-  const rows = (overview ?? []) as OfficerOverview[];
-  const failures = failedDay ?? 0;
+  const callRows = credits.filter(
+    (row) => row.reason === "manual_search" || row.reason === "auto_check",
+  );
+  const manualCalls = sumBy(
+    callRows.filter((row) => row.reason === "manual_search"),
+    (row) => row.entries,
+  );
+  const autoCalls = sumBy(
+    callRows.filter((row) => row.reason === "auto_check"),
+    (row) => row.entries,
+  );
+  const calls = manualCalls + autoCalls;
 
-  const monthStart = istMonthStart();
-
-  const creditsToday = rows.reduce((sum, row) => sum + Number(row.credits_spent_today ?? 0), 0);
-  const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
-  const outstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
-
-  // Month-to-date call counts come from the same view the account holder sees,
-  // so a per-account row and the platform total can never disagree.
-  const monthCalls = rows.reduce(
-    (acc, row) => {
-      acc.manual += Number(row.manual_searches_month ?? 0);
-      acc.auto += Number(row.tracking_queries_month ?? 0);
-      return acc;
-    },
-    { manual: 0, auto: 0 },
+  const spent = Math.abs(sumBy(callRows, (row) => row.credits));
+  const spentPrev = Math.abs(
+    sumBy(
+      creditsPrev.filter(
+        (row) => row.reason === "manual_search" || row.reason === "auto_check",
+      ),
+      (row) => row.credits,
+    ),
+  );
+  const callsPrev = sumBy(
+    creditsPrev.filter((row) => row.reason === "manual_search" || row.reason === "auto_check"),
+    (row) => row.entries,
   );
 
-  const series = buildUsageSeries(dailyCalls, 30);
+  /* Distinct accounts that spent anything, taken as the max across buckets
+     rather than summed - an account active on two days is one account. */
+  const busiestBucketAccounts = Math.max(0, ...callRows.map((row) => Number(row.accounts) || 0));
 
-  const num = (value: unknown) => Number(value ?? 0);
-  const ranked = [...rows].sort((a, b) => {
-    if (sort === "today") return num(b.credits_spent_today) - num(a.credits_spent_today);
-    if (sort === "low") return num(a.credits) - num(b.credits);
-    if (sort === "quiet") {
-      // Never-active accounts first: they are the ones worth a phone call.
-      const at = a.last_active_at ? Date.parse(a.last_active_at) : 0;
-      const bt = b.last_active_at ? Date.parse(b.last_active_at) : 0;
-      return at - bt;
-    }
-    return num(b.credits_spent_month) - num(a.credits_spent_month);
-  });
-  const shown = pageSlice(ranked, accountsPage, ACCOUNTS_PAGE);
+  const logRows = (logs ?? []) as { ok: boolean; response_ms: number | null; source: string }[];
+  const logged = logRows.length;
+  const failures = logRows.filter((row) => !row.ok).length;
+  const failureRate = logged > 0 ? failures / logged : 0;
 
+  const latencies = logRows
+    .map((row) => Number(row.response_ms))
+    .filter((ms) => Number.isFinite(ms) && ms > 0)
+    .sort((a, b) => a - b);
+  const median = latencies.length > 0 ? latencies[Math.floor(latencies.length / 2)] : 0;
+  // The 95th percentile, because a median hides the tail that people actually
+  // complain about - a search that takes eight seconds is the one they mention.
+  const p95 = latencies.length > 0 ? latencies[Math.floor(latencies.length * 0.95)] : 0;
+
+  const series: Series[] = [
+    {
+      key: "manual",
+      label: "Manual searches",
+      values: fillBuckets(
+        callRows.filter((row) => row.reason === "manual_search"),
+        range,
+        (row) => Number(row.entries) || 0,
+      ).map((point) => point.value),
+    },
+    {
+      key: "auto",
+      label: "Automatic checks",
+      values: fillBuckets(
+        callRows.filter((row) => row.reason === "auto_check"),
+        range,
+        (row) => Number(row.entries) || 0,
+      ).map((point) => point.value),
+    },
+  ];
+  const buckets = fillBuckets(callRows, range, (row) => Number(row.entries) || 0).map((point) =>
+    bucketLabel(point.bucket, range.bucket),
+  );
+
+  const spendSlices: Slice[] = [
+    {
+      key: "manual",
+      label: "Manual searches",
+      value: Math.abs(
+        sumBy(
+          callRows.filter((row) => row.reason === "manual_search"),
+          (row) => row.credits,
+        ),
+      ),
+      hint: `${fmtNumber(manualCalls)} calls`,
+    },
+    {
+      key: "auto",
+      label: "Automatic checks",
+      value: Math.abs(
+        sumBy(
+          callRows.filter((row) => row.reason === "auto_check"),
+          (row) => row.credits,
+        ),
+      ),
+      hint: `${fmtNumber(autoCalls)} calls`,
+    },
+  ];
+
+  const perCall = calls > 0 ? spent / calls : 0;
 
   return (
     <>
       <PageHeader
         title="Usage"
-        subtitle={`Credits consumed in ${monthStart.slice(0, 7)}. There are no per-day or per-month allowances any more — an account works until its balance runs out.`}
+        subtitle="Every charged call to the toll network, what it cost, and how the upstream API behaved. Per-account comparison is on the Users report."
         actions={
           <a href="/admin/usage/export" className={buttonClass("secondary")}>
             <Download size={14} />
@@ -141,164 +201,150 @@ export default async function UsagePage({
         }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="Credits spent this month"
-          value={formatCredits(creditsMonth)}
-          sub={`${formatCredits(creditsToday)} today`}
-          tone="brand"
+      <DateRangeBar range={range} />
+
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
+        <MetricCard
+          label="Charged calls"
+          value={fmtNumber(calls)}
+          change={percentChange(calls, callsPrev)}
+          hint={`${fmtNumber(manualCalls)} manual · ${fmtNumber(autoCalls)} auto`}
+          goodWhen="neither"
+          icon={<Gauge size={15} />}
         />
-        <StatCard
-          label="Credits outstanding"
-          value={formatCredits(outstanding)}
-          sub="Still held by accounts"
-          tone="good"
+        <MetricCard
+          label="Credits spent"
+          value={formatCredits(spent)}
+          change={percentChange(spent, spentPrev)}
+          hint={`vs ${formatCredits(spentPrev)} before`}
+          goodWhen="neither"
+          icon={<Wallet size={15} />}
         />
-        <StatCard
-          label="LDB calls this month"
-          value={fmtNumber(monthCalls.manual + monthCalls.auto)}
-          sub={`${fmtNumber(monthCalls.manual)} manual · ${fmtNumber(monthCalls.auto)} automatic`}
+        <MetricCard
+          label="Cost per call"
+          value={formatCredits(Math.round(perCall * 100) / 100)}
+          hint="credits, averaged over both kinds"
+          goodWhen="neither"
+          icon={<Zap size={15} />}
         />
-        <StatCard
-          label="Failed calls (24h)"
+        <MetricCard
+          label="Accounts active"
+          value={fmtNumber(busiestBucketAccounts)}
+          hint="on the busiest day in range"
+          icon={<Users size={15} />}
+          href="/admin/users?sort=spent"
+        />
+        <MetricCard
+          label="Failed calls"
           value={fmtNumber(failures)}
-          tone={failures > 0 ? "warn" : "neutral"}
-          sub={failures > 0 ? "Filter the log below to failures" : "Every call in the last day worked"}
+          hint={
+            logged > 0
+              ? `${(failureRate * 100).toFixed(1)}% of ${fmtNumber(logged)} logged`
+              : "nothing logged in range"
+          }
+          goodWhen="down"
+          icon={<AlertTriangle size={15} />}
+          href="/admin/logs?type=searches&status=failed"
+        />
+        <MetricCard
+          label="Response time"
+          value={median > 0 ? `${fmtNumber(median)} ms` : "—"}
+          hint={p95 > 0 ? `95th percentile ${fmtNumber(p95)} ms` : "no timings recorded"}
+          goodWhen="down"
+          icon={<Timer size={15} />}
         />
       </div>
 
-      <Panel
-        className="mb-5"
-        title="LDB calls, last 30 days"
-        description="Counted from the credit ledger, so this is exactly what was charged, across every account."
-      >
-        <UsageChart series={series} />
-      </Panel>
-
-      <Panel
-        className="mb-2"
-        title="Per-account consumption"
-        description="Plans, contact details and truck limits are on the Accounts page; top an account up from its own page."
-        bodyClassName="p-0"
-        actions={<PanelAction href="/admin/officers?sort=spending">Accounts page</PanelAction>}
-      >
-        {/* Four ways to rank the same accounts. Which one matters depends on
-            the question - who owes attention, who is busiest, who has stopped. */}
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-divider px-4 py-2.5">
-          <span className="mr-0.5 text-[11px] font-semibold tracking-wider text-faint uppercase">
-            Rank by
-          </span>
-          {USAGE_SORTS.map(({ key, label }) => (
-            <Link
-              key={key}
-              href={`/admin/usage?sort=${key}`}
-              className={cx(
-                "inline-flex min-h-8 items-center rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition",
-                sort === key
-                  ? "border-brand-500 bg-brand-500/10 text-brand-500"
-                  : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink",
-              )}
-            >
-              {label}
-            </Link>
-          ))}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="space-y-5 xl:col-span-2">
+          <Panel
+            title={`Calls, by ${range.bucket}`}
+            description="Counted from the credit ledger, so this is exactly what was charged, across every customer account."
+            actions={<PanelAction href="/admin/logs?type=searches">Call by call</PanelAction>}
+          >
+            <StackedBars
+              buckets={buckets}
+              series={series}
+              emptyLabel="No charged calls in this range"
+            />
+            <ChartTable buckets={buckets} series={series} />
+          </Panel>
         </div>
 
-        {shown.length === 0 ? (
-          <EmptyState
-            title={ranked.length > 0 ? "That page is past the end of the list" : "No accounts yet"}
-            description={ranked.length > 0 ? "Use the page links below to get back." : undefined}
-          />
-        ) : (
-          <TableWrap>
-            <Thead>
-              <th className="th">Account</th>
-              <th className="th text-right">Credits left</th>
-              <th className="th text-right">Spent today</th>
-              <th className="th text-right">Spent this month</th>
-              <th className="th text-right">Searches</th>
-              <th className="th text-right">Auto checks</th>
-              <th className="th">Last active</th>
-            </Thead>
-            <Tbody>
-              {shown.map((account) => (
-                <Tr key={account.id}>
-                  <td className="td">
-                    <Link
-                      href={`/admin/officers/${account.id}?tab=activity`}
-                      className="group flex items-center gap-2.5"
-                    >
-                      <Avatar size="sm" text={initials(account.full_name, account.email)} />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                          {account.full_name ?? account.email}
-                        </span>
-                        <span className="block truncate text-xs text-faint">{account.email}</span>
-                      </span>
-                    </Link>
-                  </td>
-                  <td className="td text-right">
-                    <Badge tone={balanceTone(account.credits)}>
-                      {formatCredits(account.credits)}
-                    </Badge>
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {formatCredits(account.credits_spent_today)}
-                  </td>
-                  <td className="td text-right text-sm font-medium tabular-nums text-ink">
-                    {formatCredits(account.credits_spent_month)}
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {fmtNumber(account.manual_searches_month)}
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {fmtNumber(account.tracking_queries_month)}
-                  </td>
-                  <td className="td text-xs whitespace-nowrap text-muted">
-                    {fmtRelative(account.last_active_at)}
-                  </td>
-                </Tr>
-              ))}
-            </Tbody>
-          </TableWrap>
-        )}
-      </Panel>
+        <div className="space-y-5">
+          <Panel
+            title="What the credits went on"
+            description="The same calls, priced. A manual search and an automatic check cost different amounts."
+          >
+            <ShareBreakdown
+              slices={spendSlices}
+              format={formatCredits}
+              emptyLabel="Nothing spent in this range"
+            />
+            <p className="mt-3 text-xs text-muted">
+              The rates behind these figures are on{" "}
+              <Link href="/admin/plans?tab=rules" className="text-brand-500 hover:text-brand-600">
+                Plans &amp; credits
+              </Link>
+              . Changing one changes what every future call costs, not what past ones did.
+            </p>
+          </Panel>
 
-      <Pager
-        className="mt-3 mb-5"
-        page={accountsPage}
-        pageSize={ACCOUNTS_PAGE}
-        total={ranked.length}
-        noun="accounts"
-        // Two lists on one page, so each keeps the other's page number and the
-        // call filters.
-        href={{ path: "/admin/usage", params: { sort }, pageKey: "accounts" }}
-      />
+          {logError ? (
+            <Panel className="border-warn-500/40" bodyClassName="px-5 py-3">
+              <p className="text-xs text-warn-500">
+                Call outcomes could not be read: {logError.message}. The call counts above come from
+                the credit ledger and are unaffected.
+              </p>
+            </Panel>
+          ) : null}
+
+          {failureRate >= FAILURE_ALARM && logged > 0 ? (
+            <LinkCard
+              href="/admin/logs?type=searches&status=failed"
+              icon={<AlertTriangle size={16} />}
+              title="The upstream API is refusing more than usual"
+              description={`${(failureRate * 100).toFixed(1)}% of logged calls failed in this range. Usually a registration number the toll network cannot answer for — but a sustained rise is worth checking.`}
+              value={fmtNumber(failures)}
+              tone="warn"
+            />
+          ) : null}
+
+          <LinkCard
+            href="/admin/users?sort=spent"
+            icon={<Users size={16} />}
+            title="Who is spending it"
+            description="Consumption per account, alongside what each has paid and where they stand."
+          />
+
+          <LinkCard
+            href="/admin/logs?type=searches"
+            icon={<Search size={16} />}
+            title="Every search and background check"
+            description="Across all accounts, filterable by account, truck or day."
+          />
+        </div>
+      </div>
 
       {/*
-        "Every LDB call" was here as a filtered search_logs list with its own
-        source and outcome dropdowns - a fourth copy of a list that now has one
-        home. Naming it and carrying the number that would make somebody look is
-        more use than the list itself in a page about consumption.
+        The one honest caveat on this page. The ledger figures above are exact;
+        the outcome figures are a sample of a trimmed table, and saying so is
+        cheaper than someone reconciling two numbers that were never meant to
+        match.
       */}
-      <div className="space-y-2">
-        <LinkCard
-          href="/admin/logs?type=searches"
-          icon={<Search size={16} />}
-          title="Every search and background check"
-          description="Across all accounts, filterable by account, truck or day."
-        />
-        {failures > 0 ? (
-          <LinkCard
-            href="/admin/logs?type=searches&status=failed"
-            icon={<AlertTriangle size={16} />}
-            title="Failed calls in the last day"
-            description="Usually a registration number the toll network cannot answer for."
-            value={fmtNumber(failures)}
-            tone="warn"
-          />
-        ) : null}
-      </div>
+      {logged >= 20_000 ? (
+        <p className="mt-3 text-xs text-faint">
+          Failure rate and response times are measured over the most recent 20,000 logged calls in
+          this range. The call and credit figures above are complete.
+        </p>
+      ) : null}
     </>
   );
+}
+
+/** The day after a YYYY-MM-DD, for a half-open upper bound. */
+function nextDay(date: string): string {
+  const at = new Date(`${date}T12:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + 1);
+  return at.toISOString().slice(0, 10);
 }

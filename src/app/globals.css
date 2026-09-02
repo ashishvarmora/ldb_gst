@@ -40,6 +40,18 @@
   --color-warn-500: var(--c-warn);
   --color-bad-500: var(--c-bad);
 
+  /* Chart series. Four identity hues plus a residual grey for "Other", kept
+     apart from good/warn/bad so a status colour never doubles as "series 3" -
+     a red bar would read as a problem rather than as a category. Both sets
+     were run through the palette validator against their own surface: every
+     pair separates for normal, deuteranopic, protanopic and tritanopic vision,
+     so a stacked bar is legible whichever two segments end up touching. */
+  --color-series-1: var(--c-series-1);
+  --color-series-2: var(--c-series-2);
+  --color-series-3: var(--c-series-3);
+  --color-series-4: var(--c-series-4);
+  --color-series-rest: var(--c-series-rest);
+
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
 }
@@ -73,6 +85,14 @@
   --c-good: #2fbf71;
   --c-warn: #f0a92b;
   --c-bad: #f0524d;
+
+  /* Validated against the dark panel (#0b1020). Darker than instinct suggests:
+     a fill on a near-black surface wants the mid lightness band, not a pastel. */
+  --c-series-1: #5b86f7;
+  --c-series-2: #c96a10;
+  --c-series-3: #0e9c8e;
+  --c-series-4: #b32cc4;
+  --c-series-rest: #7c879b;
 
   --app-bg-image:
     radial-gradient(70rem 40rem at 15% -10%, rgba(79, 125, 255, 0.13), transparent 60%),
@@ -113,6 +133,13 @@
   --c-good: #0b7a44;
   --c-warn: #9f4a07;
   --c-bad: #c22217;
+
+  /* Validated against the white panel the console actually renders on. */
+  --c-series-1: #2563eb;
+  --c-series-2: #c2410c;
+  --c-series-3: #0d9488;
+  --c-series-4: #a21caf;
+  --c-series-rest: #64748b;
 
   --app-bg-image:
     radial-gradient(60rem 32rem at 12% -8%, rgba(37, 99, 235, 0.07), transparent 62%),

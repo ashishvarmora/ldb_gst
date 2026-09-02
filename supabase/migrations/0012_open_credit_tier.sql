@@ -110,4 +110,10 @@ begin
 end $fn$;
 
 revoke all on function public.credits_for_amount(uuid, numeric) from public;
-grant execute on function public.credits_for_amount(uuid, numeric) to authenticated, service_role;
+-- Granted to service_role only. An earlier version of this line also named
+-- `authenticated`, on the assumption that the browser would call this directly.
+-- It never has - every .rpc() in this codebase goes through the server-side
+-- service client - so the grant only widened the attack surface, and
+-- 0025_security_hardening.sql revoked it again on every run. Removed here so
+-- the file says what is actually intended.
+grant execute on function public.credits_for_amount(uuid, numeric) to service_role;

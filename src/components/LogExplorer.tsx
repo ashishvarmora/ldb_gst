@@ -275,22 +275,39 @@ async function SearchRows({ basePath, query, page, since, bounds, nameOf }: List
    * actually been charged, and a fraction is not an audit trail.
    * credit_transactions is retention-protected and holds exactly one row per
    * charged action, which makes it the only honest answer to "every lookup".
+   *
+   * Built by a function rather than as a value because it is run twice - once
+   * to count what matches, once for the rows - and the two have to see exactly
+   * the same filters.
    */
-  let request = admin
-    .from("credit_transactions")
-    .select("id,created_at,user_id,reason,delta,truck_number,note", { count: "exact" })
-    .lt("delta", 0)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false });
+  const build = (head: boolean) => {
+    let request = admin
+      .from("credit_transactions")
+      // The same column list either way: with head the rows are not sent, so
+      // asking for fewer of them would buy nothing and give the two reads two
+      // shapes to keep in step.
+      .select("id,created_at,user_id,reason,delta,truck_number,note", { count: "exact", head })
+      .lt("delta", 0)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
 
-  if (query.officer) request = request.eq("user_id", query.officer);
-  if (query.truck) request = request.ilike("truck_number", `%${query.truck}%`);
-  if (query.status === "manual") request = request.eq("reason", "manual_search");
-  if (query.status === "automatic") request = request.eq("reason", "auto_check");
-  if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
+    if (query.officer) request = request.eq("user_id", query.officer);
+    if (query.truck) request = request.ilike("truck_number", `%${query.truck}%`);
+    if (query.status === "manual") request = request.eq("reason", "manual_search");
+    if (query.status === "automatic") request = request.eq("reason", "auto_check");
+    if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
 
-  const from = (page - 1) * PAGE_SIZE;
-  const { data, count } = await request.range(from, from + PAGE_SIZE - 1);
+    return request;
+  };
+
+  const { count, error: countError } = await build(true);
+  if (countError) return <LoadFailed table="credit_transactions" message={countError.message} />;
+
+  const total = count ?? 0;
+  const { current, from } = pageWindow(page, total);
+  const { data, error } = await build(false).range(from, from + PAGE_SIZE - 1);
+  if (error) return <LoadFailed table="credit_transactions" message={error.message} />;
+
   const rows = (data ?? []) as {
     id: number;
     created_at: string;
@@ -385,26 +402,36 @@ async function SearchRows({ basePath, query, page, since, bounds, nameOf }: List
           );
         })}
       </ul>
-      <Pager basePath={basePath} query={query} page={page} count={count ?? rows.length} />
+      <Pager basePath={basePath} query={query} page={current} count={total} />
     </>
   );
 }
 
 async function AlertRows({ basePath, query, page, since, bounds, nameOf }: ListProps) {
-  let request = getSupabaseAdmin()
-    .from("alert_logs")
-    .select("*", { count: "exact" })
-    .gte("created_at", since)
-    .order("created_at", { ascending: false });
+  const build = (head: boolean) => {
+    let request = getSupabaseAdmin()
+      .from("alert_logs")
+      .select("*", { count: "exact", head })
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
 
-  if (query.officer) request = request.eq("user_id", query.officer);
-  if (query.truck) request = request.ilike("truck_number", `%${query.truck}%`);
-  if (query.status === "ok") request = request.eq("delivered", true);
-  if (query.status === "failed") request = request.eq("delivered", false);
-  if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
+    if (query.officer) request = request.eq("user_id", query.officer);
+    if (query.truck) request = request.ilike("truck_number", `%${query.truck}%`);
+    if (query.status === "ok") request = request.eq("delivered", true);
+    if (query.status === "failed") request = request.eq("delivered", false);
+    if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
 
-  const from = (page - 1) * PAGE_SIZE;
-  const { data, count } = await request.range(from, from + PAGE_SIZE - 1);
+    return request;
+  };
+
+  const { count, error: countError } = await build(true);
+  if (countError) return <LoadFailed table="alert_logs" message={countError.message} />;
+
+  const total = count ?? 0;
+  const { current, from } = pageWindow(page, total);
+  const { data, error } = await build(false).range(from, from + PAGE_SIZE - 1);
+  if (error) return <LoadFailed table="alert_logs" message={error.message} />;
+
   const rows = (data ?? []) as AlertLog[];
 
   if (rows.length === 0) return <NoRows />;
@@ -442,7 +469,7 @@ async function AlertRows({ basePath, query, page, since, bounds, nameOf }: ListP
           </li>
         ))}
       </ul>
-      <Pager basePath={basePath} query={query} page={page} count={count ?? rows.length} />
+      <Pager basePath={basePath} query={query} page={current} count={total} />
     </>
   );
 }
@@ -454,18 +481,28 @@ async function AdminRows({
   since,
   bounds,
 }: Omit<ListProps, "nameOf">) {
-  let request = getSupabaseAdmin()
-    .from("audit_logs")
-    .select("*", { count: "exact" })
-    .gte("created_at", since)
-    .order("created_at", { ascending: false });
+  const build = (head: boolean) => {
+    let request = getSupabaseAdmin()
+      .from("audit_logs")
+      .select("*", { count: "exact", head })
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
 
-  if (query.officer) request = request.eq("actor_id", query.officer);
-  if (query.action) request = request.eq("action", query.action);
-  if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
+    if (query.officer) request = request.eq("actor_id", query.officer);
+    if (query.action) request = request.eq("action", query.action);
+    if (bounds) request = request.gte("created_at", bounds.from).lt("created_at", bounds.to);
 
-  const from = (page - 1) * PAGE_SIZE;
-  const { data, count } = await request.range(from, from + PAGE_SIZE - 1);
+    return request;
+  };
+
+  const { count, error: countError } = await build(true);
+  if (countError) return <LoadFailed table="audit_logs" message={countError.message} />;
+
+  const total = count ?? 0;
+  const { current, from } = pageWindow(page, total);
+  const { data, error } = await build(false).range(from, from + PAGE_SIZE - 1);
+  if (error) return <LoadFailed table="audit_logs" message={error.message} />;
+
   const rows = (data ?? []) as AuditLog[];
 
   if (rows.length === 0) return <NoRows />;
@@ -493,7 +530,7 @@ async function AdminRows({
           </li>
         ))}
       </ul>
-      <Pager basePath={basePath} query={query} page={page} count={count ?? rows.length} />
+      <Pager basePath={basePath} query={query} page={current} count={total} />
     </>
   );
 }
@@ -501,6 +538,37 @@ async function AdminRows({
 /* -------------------------------------------------------------------------- */
 /* small pieces                                                                */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The page to show and where it starts, once the total is known.
+ *
+ * Every list here counts before it fetches, because PostgREST answers a range
+ * that begins past the last row with 416 and no rows at all - so a link to page
+ * 7 of a log that has since been purged down to two pages would otherwise show
+ * an empty screen. Clamping lands the reader on the last page instead.
+ */
+function pageWindow(page: number, total: number): { current: number; from: number } {
+  const pages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
+  const current = Math.min(Math.max(page, 1), pages);
+  return { current, from: (current - 1) * PAGE_SIZE };
+}
+
+/**
+ * A failed read, said out loud.
+ *
+ * The three lists kept only { data, count } and dropped the error, so a table
+ * that could not be read looked exactly like a log with nothing in it. The one
+ * thing that must never read as "there are no records" is a query that never
+ * ran.
+ */
+function LoadFailed({ table, message }: { table: string; message: string }) {
+  return (
+    <EmptyState
+      title="Could not read this log"
+      description={`${message}. That is ${table} failing to answer, not an empty log — nothing has been lost.`}
+    />
+  );
+}
 
 /**
  * Officer, truck and day as a GET form.

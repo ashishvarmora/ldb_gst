@@ -41,8 +41,17 @@ export const config = {
    * refreshing an auth cookie on those requests is a Supabase round trip that
    * nothing reads - and one that would attach Set-Cookie to a response the
    * service worker may cache.
+   *
+   * The webhook and the cron worker are excluded on top of that. Neither is a
+   * browser and neither carries a session, so the refresh above can only fail;
+   * more to the point, both authenticate themselves - Razorpay with an HMAC
+   * over the raw body, the scheduler with CRON_SECRET - and neither should have
+   * a Set-Cookie attached to a reply that Razorpay stores and replays. Running
+   * a Supabase round trip in front of a webhook that Razorpay retries on
+   * timeout is also the wrong latency to add to the one path where a timeout
+   * costs somebody their credits.
    */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

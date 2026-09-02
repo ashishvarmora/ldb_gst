@@ -1,12 +1,13 @@
 import type { AccountParams } from "./TabStrip";
-import { pageRange } from "../../pager";
+import { pageWindow } from "../../pager";
 import { PaymentsTable } from "../../tables";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { Pager } from "@/components/Pager";
 import { DescRow, Panel } from "@/components/ui";
+import { PAYMENT_METHODS, methodLabel } from "@/lib/analytics";
 import { fmtNumber, fmtRupees } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { CreditPack, OfficerOverview, Payment, Plan } from "@/lib/types";
+import type { CreditPack, OfficerOverview, Payment, PaymentMethod, Plan } from "@/lib/types";
 
 const PER_PAGE = 15;
 
@@ -19,9 +20,11 @@ const PER_PAGE = 15;
  * and a payment can sit at "created" having moved no credits - so reading one
  * for the other quietly misled. Its own tab now.
  *
- * Captured is the only status that is money in hand. A row at "created" is an
- * intention and a "failed" one is nothing, so the totals count only captured -
- * anything else on this screen would overstate what the account has paid.
+ * 'paid' is the only status that is money in hand, and it is the only status
+ * settle_payment() ever writes. The summary used to filter on 'captured', a
+ * value this schema has never stored, so every figure in this panel read Rs 0
+ * regardless of what the account had paid. A check constraint on the column now
+ * makes that spelling impossible to reintroduce.
  */
 export async function PaymentsTab({
   id,
@@ -33,27 +36,41 @@ export async function PaymentsTab({
 }) {
   const admin = getSupabaseAdmin();
 
-  const page = pageFromParam(params.ppage);
-  const range = pageRange(page, PER_PAGE);
+  /*
+   * The count first, in its own head request, so the page number can be clamped
+   * against it. A range that starts past the last row is not an empty page -
+   * PostgREST answers it with 416, which arrives as a null count, reads as zero
+   * rows, and leaves the Pager hiding itself with no link back.
+   */
+  const { count: total } = await admin
+    .from("payments")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", id);
 
-  const [{ data: payments, count }, { data: captured }, { data: plans }, { data: packs }, settings] =
+  const { page, from, to } = pageWindow(params.ppage, total ?? 0, PER_PAGE);
+
+  const [{ data: payments, count }, { data: settled }, { data: plans }, { data: packs }, settings] =
     await Promise.all([
       admin
         .from("payments")
         .select("*", { count: "exact" })
         .eq("user_id", id)
         .order("created_at", { ascending: false })
-        .range(range.from, range.to),
-      /* Every captured payment, for the summary - the page above is only a
+        .range(from, to),
+      /* Every settled payment, for the summary - the page above is only a
          slice, and a total from a slice is not a total. */
-      admin.from("payments").select("amount_inr, credits, razorpay_payment_id").eq("user_id", id).eq("status", "captured"),
+      admin
+        .from("payments")
+        .select("amount_inr, credits, method")
+        .eq("user_id", id)
+        .eq("status", "paid"),
       admin.from("plans").select("id, name"),
       admin.from("credit_packs").select("id, name"),
       loadSettings(admin),
     ]);
 
   const rows = (payments ?? []) as Payment[];
-  const capturedRows = (captured ?? []) as Pick<Payment, "amount_inr" | "credits" | "razorpay_payment_id">[];
+  const settledRows = (settled ?? []) as Pick<Payment, "amount_inr" | "credits" | "method">[];
 
   const planName = new Map(
     ((plans ?? []) as Pick<Plan, "id" | "name">[]).map((plan) => [plan.id, plan.name]),
@@ -63,13 +80,24 @@ export async function PaymentsTab({
   );
 
   /*
-   * Split by how the money arrived. A Razorpay payment carries a payment id; one
-   * an admin recorded by hand does not, which is the only reliable way to tell
-   * "paid through the gateway" from "entered here" without a second column.
+   * Split by how the money arrived, from the method column rather than by
+   * guessing from a missing Razorpay id. The guess was wrong in both
+   * directions: a gateway payment settled before that id was stored looked
+   * offline, and a cash receipt could not say it was cash.
+   *
+   * Only the methods this account has actually used get a row - a customer who
+   * has only ever paid by card should not read five zeroes.
    */
-  const gateway = capturedRows.filter((row) => row.razorpay_payment_id);
-  const offline = capturedRows.filter((row) => !row.razorpay_payment_id);
-  const sum = (list: typeof capturedRows) => list.reduce((acc, row) => acc + (Number(row.amount_inr) || 0), 0);
+  const byMethod = new Map<PaymentMethod, { total: number; count: number }>();
+  for (const row of settledRows) {
+    const bucket = byMethod.get(row.method) ?? { total: 0, count: 0 };
+    bucket.total += Number(row.amount_inr) || 0;
+    bucket.count += 1;
+    byMethod.set(row.method, bucket);
+  }
+
+  const received = settledRows.reduce((acc, row) => acc + (Number(row.amount_inr) || 0), 0);
+  const creditsSold = settledRows.reduce((acc, row) => acc + (Number(row.credits) || 0), 0);
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -83,7 +111,9 @@ export async function PaymentsTab({
             rows={rows}
             planName={planName}
             packName={packName}
-            emptyTitle={(count ?? 0) > 0 ? "That page is past the end of the list" : "No payments yet"}
+            emptyTitle={
+              (count ?? 0) > 0 ? "That page is past the end of the list" : "No payments yet"
+            }
             emptyDescription={
               (count ?? 0) > 0
                 ? "Use the page links below to get back."
@@ -106,19 +136,23 @@ export async function PaymentsTab({
       </div>
 
       <div className="space-y-5">
-        <Panel title="Received" description="Captured payments only — intentions and failures are not money.">
+        <Panel
+          title="Received"
+          description="Settled payments only — an intention and a failure are not money."
+        >
           <dl>
-            <DescRow label="Through the gateway">{fmtRupees(sum(gateway))}</DescRow>
-            <DescRow label="Recorded by hand">{fmtRupees(sum(offline))}</DescRow>
-            <DescRow label="Total received">{fmtRupees(sum(capturedRows))}</DescRow>
-            <DescRow label="Payments">{fmtNumber(capturedRows.length)}</DescRow>
-            <DescRow label="Credits sold">
-              {fmtNumber(capturedRows.reduce((acc, row) => acc + (Number(row.credits) || 0), 0))}
-            </DescRow>
+            {PAYMENT_METHODS.filter((method) => byMethod.has(method.key)).map((method) => (
+              <DescRow key={method.key} label={methodLabel(method.key)}>
+                {fmtRupees(byMethod.get(method.key)?.total ?? 0)}
+              </DescRow>
+            ))}
+            <DescRow label="Total received">{fmtRupees(received)}</DescRow>
+            <DescRow label="Payments">{fmtNumber(settledRows.length)}</DescRow>
+            <DescRow label="Credits sold">{fmtNumber(creditsSold)}</DescRow>
           </dl>
           <p className="mt-3 text-[11px] leading-relaxed text-faint">
-            &ldquo;Recorded by hand&rdquo; is a captured payment with no Razorpay id — money you
-            entered here for a bank transfer or cash, rather than one the gateway took.
+            Cash, bank transfers and cheques are recorded from Finance, and settle exactly like a
+            gateway payment — the same credits, the same plan, the same referral reward.
           </p>
         </Panel>
       </div>

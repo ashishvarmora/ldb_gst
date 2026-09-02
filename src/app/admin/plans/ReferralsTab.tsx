@@ -3,9 +3,10 @@ import { Clock, Gift, Users, Wallet } from "lucide-react";
 
 import { BASE_PATH, type SectionParams } from "./TabStrip";
 import { saveReferralSettings } from "../credits/actions";
+import { CapNote, pageWindow } from "../pager";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormGrid, Input } from "@/components/form";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { Pager } from "@/components/Pager";
 import {
   Avatar,
   Badge,
@@ -19,7 +20,7 @@ import {
   Tr,
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
-import { fmtNumber, initials } from "@/lib/format";
+import { fmtNumber, fmtRupees, initials } from "@/lib/format";
 import { describeReferralReward } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -40,62 +41,111 @@ import type { Referral, ReferralSummary } from "@/lib/types";
 
 const REFERRERS_PER_PAGE = 25;
 
+/**
+ * How many rewarded referrals are added up for "credits handed out".
+ *
+ * The other three figures are counted by the database and are exact however
+ * large the scheme gets. This one cannot be: aggregate functions are switched
+ * off on this project, so a total means reading the rows and summing them here,
+ * and one select is capped by the project's max-rows regardless. Only rewarded
+ * referrals carry credits, which keeps the read as small as it can be - and
+ * when the cap does bite the page says so, because a floor shown as an exact
+ * total is worse than a slow page.
+ */
+const REWARDED_SCANNED = 2000;
+
 export async function ReferralsTab({ params }: { params: SectionParams }) {
-  const page = pageFromParam(params.ref);
   const admin = getSupabaseAdmin();
 
-  const [settings, { data: summary, count }, { data: all }] = await Promise.all([
-    loadSettings(admin),
-    // Only people who have actually invited someone. The view has a row per
-    // account, and a table of hundreds of zeroes answers nothing.
-    admin
-      .from("referral_summary")
-      .select("*", { count: "exact" })
-      .gt("invited", 0)
-      .order("credits_earned", { ascending: false })
-      .order("invited", { ascending: false })
-      .range((page - 1) * REFERRERS_PER_PAGE, page * REFERRERS_PER_PAGE - 1),
-    // Totals across the whole scheme, not just the page listed - the same
-    // approach the payments totals take, for the same reason.
-    admin.from("referrals").select("status, reward_credits").limit(2000),
-  ]);
+  const [settings, { count: referrerCount }, { count: invited }, { count: rewarded }, { data: paid }] =
+    await Promise.all([
+      loadSettings(admin),
+      // Only people who have actually invited someone. The view has a row per
+      // account, and a table of hundreds of zeroes answers nothing.
+      admin
+        .from("referral_summary")
+        .select("referrer_id", { count: "exact", head: true })
+        .gt("invited", 0),
+      // Totals across the whole scheme, not just the page listed - a figure
+      // that changes when you turn the page answers nothing.
+      admin.from("referrals").select("id", { count: "exact", head: true }),
+      admin
+        .from("referrals")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "rewarded"),
+      admin
+        .from("referrals")
+        .select("reward_credits")
+        .eq("status", "rewarded")
+        .limit(REWARDED_SCANNED),
+    ]);
+
+  // The referrer count comes first so the page number can be clamped to a page
+  // that exists. A range starting past the last row is not an empty page:
+  // PostgREST answers it with an error, no rows and no total, which would leave
+  // a stale ?ref= showing an empty table and no link back.
+  const total = referrerCount ?? 0;
+  const { page, from, to } = pageWindow(params.ref, total, REFERRERS_PER_PAGE);
+
+  const { data: summary } = await admin
+    .from("referral_summary")
+    .select("*")
+    .gt("invited", 0)
+    .order("credits_earned", { ascending: false })
+    .order("invited", { ascending: false })
+    // A unique tie-break, so two referrers with the same score cannot swap
+    // places between pages and hide one of themselves.
+    .order("referrer_id", { ascending: true })
+    .range(from, to);
 
   const rows = (summary ?? []) as ReferralSummary[];
-  const referrals = (all ?? []) as Pick<Referral, "status" | "reward_credits">[];
+  const rewardRows = (paid ?? []) as Pick<Referral, "reward_credits">[];
 
-  const rewarded = referrals.filter((row) => row.status === "rewarded");
-  const waiting = referrals.length - rewarded.length;
-  const earned = rewarded.reduce((sum, row) => sum + Number(row.reward_credits ?? 0), 0);
+  const invitedTotal = invited ?? 0;
+  const rewardedTotal = rewarded ?? 0;
+  const waiting = Math.max(invitedTotal - rewardedTotal, 0);
+  const earned = rewardRows.reduce((sum, row) => sum + Number(row.reward_credits ?? 0), 0);
+  const earnedCapped = rewardRows.length >= REWARDED_SCANNED;
 
   return (
     <>
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="People invited"
-          value={fmtNumber(referrals.length)}
-          sub="Signed up through someone's link"
-          icon={<Users size={15} />}
-        />
-        <StatCard
-          label="Waiting on a first payment"
-          value={fmtNumber(waiting)}
-          sub={waiting > 0 ? "Earning nobody anything yet" : "Nothing outstanding"}
-          tone={waiting > 0 ? "warn" : "neutral"}
-          icon={<Clock size={15} />}
-        />
-        <StatCard
-          label="Paid, and rewarded"
-          value={fmtNumber(rewarded.length)}
-          sub="Made their first payment"
-          tone="brand"
-          icon={<Gift size={15} />}
-        />
-        <StatCard
-          label="Credits handed out"
-          value={formatCredits(earned)}
-          sub="To referrers, through the ledger"
-          icon={<Wallet size={15} />}
-        />
+      <div className="mb-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            label="People invited"
+            value={fmtNumber(invitedTotal)}
+            sub="Signed up through someone's link"
+            icon={<Users size={15} />}
+          />
+          <StatCard
+            label="Waiting on a first payment"
+            value={fmtNumber(waiting)}
+            sub={waiting > 0 ? "Earning nobody anything yet" : "Nothing outstanding"}
+            tone={waiting > 0 ? "warn" : "neutral"}
+            icon={<Clock size={15} />}
+          />
+          <StatCard
+            label="Paid, and rewarded"
+            value={fmtNumber(rewardedTotal)}
+            sub="Made their first payment"
+            tone="brand"
+            icon={<Gift size={15} />}
+          />
+          <StatCard
+            label="Credits handed out"
+            value={formatCredits(earned)}
+            sub="To referrers, through the ledger"
+            icon={<Wallet size={15} />}
+          />
+        </div>
+
+        {earnedCapped ? (
+          <CapNote>
+            Credits handed out was added up over the {fmtNumber(REWARDED_SCANNED)} most recent
+            rewarded referrals, so it is a floor rather than the exact figure. The three counts
+            beside it are exact.
+          </CapNote>
+        ) : null}
       </div>
 
       <Panel
@@ -112,7 +162,26 @@ export async function ReferralsTab({ params }: { params: SectionParams }) {
               defaultChecked={settings.referralEnabled}
             />
 
-            <FormGrid cols={3}>
+            <FormGrid cols={2}>
+              {/* First, because it decides whether anything below it applies at
+                  all. Checked against what was actually charged, after any
+                  discount - otherwise a deep coupon would be a way to
+                  manufacture a qualifying payment out of a few rupees. */}
+              <Field
+                label="Qualifying payment (₹)"
+                name="referral_min_payment"
+                hint="What the person invited has to actually pay, after any discount, before the referrer earns anything. 0 means no minimum."
+              >
+                <Input
+                  name="referral_min_payment"
+                  type="number"
+                  required
+                  min={0}
+                  max={1000000}
+                  step="any"
+                  defaultValue={settings.referralMinPayment}
+                />
+              </Field>
               <Field
                 label="Share of the first payment (%)"
                 name="referral_percent"
@@ -173,6 +242,9 @@ export async function ReferralsTab({ params }: { params: SectionParams }) {
               <span className="mt-0.5 block text-xs text-muted">
                 Nothing is earned at sign-up. A referral stays waiting — visible to both sides,
                 worth nothing — until the person invited pays for the first time.
+                {settings.referralMinPayment > 0
+                  ? ` A first payment under ${fmtRupees(settings.referralMinPayment)} earns nothing and leaves the referral waiting, so a later payment that does clear the floor can still qualify it.`
+                  : ""}
               </span>
             </p>
 
@@ -190,8 +262,12 @@ export async function ReferralsTab({ params }: { params: SectionParams }) {
       >
         {rows.length === 0 ? (
           <EmptyState
-            title="Nobody has invited anyone yet"
-            description="Each customer gets a link on their own plan page. The first reward lands when someone they invited pays."
+            title={total > 0 ? "That page is past the end of the list" : "Nobody has invited anyone yet"}
+            description={
+              total > 0
+                ? "Use the page links below to get back."
+                : "Each customer gets a link on their own plan page. The first reward lands when someone they invited pays."
+            }
           />
         ) : (
           <>
@@ -250,17 +326,19 @@ export async function ReferralsTab({ params }: { params: SectionParams }) {
                 ))}
               </Tbody>
             </TableWrap>
-
-            <Pager
-              className="border-t border-divider px-5 py-3"
-              page={page}
-              total={count ?? rows.length}
-              pageSize={REFERRERS_PER_PAGE}
-              noun="referrers"
-              href={{ path: BASE_PATH, params: { tab: "referrals" }, pageKey: "ref" }}
-            />
           </>
         )}
+
+        {/* Outside the branch above: a page with no rows on it is exactly when
+            the reader needs the link back to the pages that have some. */}
+        <Pager
+          className="border-t border-divider px-5 py-3"
+          page={page}
+          total={total}
+          pageSize={REFERRERS_PER_PAGE}
+          noun="referrers"
+          href={{ path: BASE_PATH, params: { tab: "referrals" }, pageKey: "ref" }}
+        />
       </Panel>
     </>
   );

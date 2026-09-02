@@ -123,10 +123,22 @@ export function deriveStatus(
   return "no_activity";
 }
 
+/**
+ * Runs `worker` over the items, a few at a time, and never lets one of them
+ * take the rest down with it.
+ *
+ * The catch is the whole point. A worker that threw - a network error, a null
+ * where none was expected - rejected the Promise.all every other worker was
+ * waiting in, so the sweep threw before it could return anything. The trucks it
+ * had already checked had been charged and had their crossings written; the
+ * caller got a 500 and no record of any of it. Every failure is a result now,
+ * so the sweep always finishes and always says what happened.
+ */
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   worker: (item: T) => Promise<R>,
+  onFailure: (item: T, error: unknown) => R,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let cursor = 0;
@@ -135,7 +147,11 @@ async function mapWithConcurrency<T, R>(
     while (cursor < items.length) {
       const index = cursor;
       cursor += 1;
-      results[index] = await worker(items[index]);
+      try {
+        results[index] = await worker(items[index]);
+      } catch (error) {
+        results[index] = onFailure(items[index], error);
+      }
     }
   }
 
@@ -748,15 +764,39 @@ export async function runTrackingSweep(
     contexts.set(userId, await loadOfficerContext(admin, userId));
   }
 
-  const outcomes = await mapWithConcurrency(selected, CONCURRENCY, ({ truck, alerts }) =>
-    checkTruck({
-      admin,
-      truck,
-      alerts,
-      context: contexts.get(truck.user_id)!,
-      settings,
-      now: new Date(),
-    }),
+  const outcomes = await mapWithConcurrency(
+    selected,
+    CONCURRENCY,
+    ({ truck, alerts }) =>
+      checkTruck({
+        admin,
+        truck,
+        alerts,
+        context: contexts.get(truck.user_id)!,
+        settings,
+        now: new Date(),
+      }),
+    /*
+     * A truck that threw is reported as a failed check rather than ending the
+     * sweep. It has almost certainly been charged - spend_credits runs before
+     * the upstream call - so losing the whole summary would leave credits spent
+     * and events written with nothing anywhere saying it happened.
+     */
+    ({ truck }, error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`checkTruck threw for ${truck.truck_number}`, error);
+      return {
+        truckId: truck.id,
+        truckNumber: truck.truck_number,
+        userId: truck.user_id,
+        status: "failed" as const,
+        reason: "unexpected_error",
+        newEvents: 0,
+        alerts: 0,
+        alertsDelivered: 0,
+        error: message,
+      };
+    },
   );
 
   const errors: string[] = [];

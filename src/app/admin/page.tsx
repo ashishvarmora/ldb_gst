@@ -1,10 +1,13 @@
 import Link from "next/link";
 import {
   AlertTriangle,
-  ClipboardList,
   Bell,
+  ClipboardList,
   Coins,
   CreditCard,
+  Gauge,
+  Gift,
+  IndianRupee,
   Search,
   Truck,
   UserPlus,
@@ -13,35 +16,52 @@ import {
 } from "lucide-react";
 
 import { loadDailyCalls } from "./usage/ledger";
-import { LOW_BALANCE, balanceTone } from "./tables";
+import { LOW_BALANCE } from "./tables";
+import { MetricCard } from "@/components/charts";
 import { ShowMore } from "@/components/Pager";
 import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import {
-  Avatar,
-  Badge,
-  DescRow,
   EmptyState,
   LinkButton,
   LinkCard,
   PageHeader,
   Panel,
   PanelAction,
-  QuotaBar,
-  StatCard,
-  TableWrap,
-  Tbody,
-  Thead,
-  Tr,
 } from "@/components/ui";
+import {
+  loadFunnel,
+  loadRevenueSeries,
+  percentChange,
+  resolveRange,
+  shiftDate,
+  sumBy,
+} from "@/lib/analytics";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtNumber, fmtRelative, fmtRupees, initials, istToday } from "@/lib/format";
+import { fmtNumber, fmtRelative, fmtRupees, istToday } from "@/lib/format";
 import { usageRatio } from "@/lib/limits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview, Payment } from "@/lib/types";
 
 export const metadata = { title: "Overview — Admin" };
+
+/**
+ * The way in, and nothing more.
+ *
+ * This page used to carry a money panel, a credit-source panel and a busiest-
+ * accounts table, each a smaller and slightly different copy of a report that
+ * already existed elsewhere - and two of them summed a payment status this
+ * schema never writes, so they showed Rs 0 for ever without anybody noticing.
+ * A number that appears in two places is a number that can be wrong in one of
+ * them.
+ *
+ * So: every figure here is a headline with a link under it, and the report it
+ * links to is the only place that figure is worked out. What stays in full is
+ * the attention list, because it is the one thing on this console that is not
+ * available anywhere else - it is a judgement about which accounts are stuck,
+ * assembled from four different tables.
+ */
 
 /**
  * A payment sits at 'created' for the few seconds between opening the checkout
@@ -54,7 +74,6 @@ const PAYMENT_STUCK_MINUTES = 30;
 const ATTENTION_STEP = 12;
 
 type Tone = "bad" | "warn" | "neutral";
-
 type Attention = { key: string; href: string; who: string; reason: string; tone: Tone };
 
 /** Worst first, so the row that stops someone working is never below the noise. */
@@ -73,22 +92,26 @@ export default async function AdminOverviewPage({
 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
   const stuckBefore = new Date(Date.now() - PAYMENT_STUCK_MINUTES * 60_000).toISOString();
-  /* IST boundaries, so "today" and "this month" mean what they mean in the
-     office rather than in UTC - a payment at 3am IST belongs to that day. */
-  const istNow = new Date(Date.now() + 5.5 * 3_600_000);
-  const todayStart = new Date(
-    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - 5.5 * 3_600_000,
-  ).toISOString();
-  const monthStart = new Date(
-    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - 5.5 * 3_600_000,
-  ).toISOString();
+
+  /*
+   * "Today" and "this month" in IST, resolved by the same function the reports
+   * use rather than by hand-rolled arithmetic here. The old version built the
+   * boundaries out of Date.UTC and a 5.5-hour offset in three places, which is
+   * three places to get the half-hour wrong.
+   */
+  const today = istToday();
+  const todayRange = resolveRange({ range: "today" });
+  const monthRange = resolveRange({ range: "mtd" });
+  const lastMonthRange = resolveRange({ range: "lastmonth" });
 
   const [
     { data: overview, error: overviewError },
     dailyCalls,
     { count: failedCalls },
-    { data: revenueRows },
-    { data: sourceRows },
+    todayRevenue,
+    monthRevenue,
+    lastMonthRevenue,
+    funnel,
     { count: alertsToday },
     { data: stuckPayments, count: stuckCount },
     settings,
@@ -100,16 +123,10 @@ export default async function AdminOverviewPage({
       .select("id", { count: "exact", head: true })
       .eq("ok", false)
       .gte("created_at", dayAgo),
-    // Money. Captured payments only - a "created" row is an intention, not
-    // revenue, and counting it would overstate every figure on the dashboard.
-    admin
-      .from("payments")
-      .select("amount_inr, credits, created_at")
-      .eq("status", "captured")
-      .gte("created_at", monthStart),
-    // Where every credit ever issued came from, bucketed once in the database
-    // so no screen re-classifies ten reasons by hand.
-    admin.from("credit_source_totals").select("source, reason, credits, entries, accounts"),
+    loadRevenueSeries(admin, todayRange),
+    loadRevenueSeries(admin, monthRange),
+    loadRevenueSeries(admin, lastMonthRange),
+    loadFunnel(admin),
     admin
       .from("alert_logs")
       .select("id", { count: "exact", head: true })
@@ -125,63 +142,14 @@ export default async function AdminOverviewPage({
     loadSettings(admin),
   ]);
 
-  /*
-   * The financial picture, worked out from captured payments in one pass. Kept
-   * here rather than in a view: it is three sums over a month of rows, and
-   * another aggregate is another thing that can disagree with the payments
-   * table it came from.
-   */
-  const revenue = ((revenueRows ?? []) as { amount_inr: number; credits: number; created_at: string }[])
-    .reduce(
-      (acc, row) => {
-        const amount = Number(row.amount_inr) || 0;
-        acc.month += amount;
-        acc.creditsSold += Number(row.credits) || 0;
-        acc.payments += 1;
-        if (row.created_at >= todayStart) acc.today += amount;
-        return acc;
-      },
-      { month: 0, today: 0, creditsSold: 0, payments: 0 },
-    );
-
-  /*
-   * X credits exist. Who paid for them?
-   *
-   *   paid   money taken through the gateway, plus the plans that followed one
-   *   admin  credits an operator handed over directly, gateway not involved
-   *   free   the signup tier, referral rewards and bonus coupon codes
-   *
-   * The mapping is credit_source() in the database, so this screen and the
-   * customer's own ledger cannot disagree about which bucket a row is in.
-   */
-  const bySource = ((sourceRows ?? []) as {
-    source: string;
-    reason: string;
-    credits: number;
-    entries: number;
-  }[]).reduce<Record<string, { credits: number; entries: number }>>((acc, row) => {
-    const bucket = (acc[row.source] ??= { credits: 0, entries: 0 });
-    bucket.credits += Number(row.credits) || 0;
-    bucket.entries += Number(row.entries) || 0;
-    return acc;
-  }, {});
-
-  const issued =
-    (bySource.paid?.credits ?? 0) + (bySource.admin?.credits ?? 0) + (bySource.free?.credits ?? 0);
-  const spent = Math.abs(bySource.spend?.credits ?? 0);
+  const receivedToday = sumBy(todayRevenue, (row) => row.gross_inr);
+  const receivedMonth = sumBy(monthRevenue, (row) => row.gross_inr);
+  const receivedLastMonth = sumBy(lastMonthRevenue, (row) => row.gross_inr);
 
   const rows = (overview ?? []) as OfficerOverview[];
   const stuck = (stuckPayments ?? []) as PaymentRow[];
 
-  const active = rows.filter((row) => row.status === "active").length;
-  const suspended = rows.length - active;
   const trucks = rows.reduce((sum, row) => sum + row.active_trucks, 0);
-  // A signup with no plan is the ordinary starting state now that the
-  // default-plan trigger is gone, so it is counted, not flagged as broken.
-  const planless = rows.filter((row) => !row.plan_id).length;
-
-  const today = istToday();
-  const creditsOutstanding = rows.reduce((sum, row) => sum + Number(row.credits ?? 0), 0);
   const creditsToday = rows.reduce((sum, row) => sum + Number(row.credits_spent_today ?? 0), 0);
   const creditsMonth = rows.reduce((sum, row) => sum + Number(row.credits_spent_month ?? 0), 0);
   const callsMonth = rows.reduce(
@@ -192,6 +160,10 @@ export default async function AdminOverviewPage({
 
   const series = buildUsageSeries(dailyCalls, 30);
 
+  /* ----------------------------------------------------------------------- */
+  /* What is stuck                                                            */
+  /* ----------------------------------------------------------------------- */
+
   const attention: Attention[] = [];
 
   for (const account of rows) {
@@ -199,7 +171,13 @@ export default async function AdminOverviewPage({
     const href = `/admin/officers/${account.id}`;
 
     if (account.status === "suspended") {
-      attention.push({ key: `${account.id}-suspended`, href, who, reason: "Account suspended", tone: "warn" });
+      attention.push({
+        key: `${account.id}-suspended`,
+        href,
+        who,
+        reason: "Account suspended",
+        tone: "warn",
+      });
       continue;
     }
     if (!account.plan_id) {
@@ -273,15 +251,11 @@ export default async function AdminOverviewPage({
       ? Math.min(wanted, attention.length)
       : ATTENTION_STEP;
 
-  const busiest = [...rows]
-    .sort((a, b) => Number(b.credits_spent_month ?? 0) - Number(a.credits_spent_month ?? 0))
-    .slice(0, 6);
-
   return (
     <>
       <PageHeader
         title="Overview"
-        subtitle={`Everything running on ${settings.brandName} right now, across every account.`}
+        subtitle={`Everything running on ${settings.brandName} right now. Every figure below opens the report it comes from.`}
         actions={
           <>
             <LinkButton href="/admin/explore" variant="secondary">
@@ -306,50 +280,54 @@ export default async function AdminOverviewPage({
         </Panel>
       ) : null}
 
+      {/* Money first. It is the question that gets asked most, and it was the
+          one this page got wrong for longest. */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
-        <StatCard
+        <MetricCard
+          label="Received today"
+          value={fmtRupees(receivedToday)}
+          hint="all methods"
+          icon={<IndianRupee size={15} />}
+          href="/admin/finance?range=today"
+        />
+        <MetricCard
+          label="Received this month"
+          value={fmtRupees(receivedMonth)}
+          change={percentChange(receivedMonth, receivedLastMonth)}
+          hint={`vs ${fmtRupees(receivedLastMonth)} last month`}
+          icon={<CreditCard size={15} />}
+          href="/admin/finance?range=mtd"
+        />
+        <MetricCard
           label="Accounts"
-          value={rows.length}
-          sub={`${active} active · ${suspended} suspended`}
+          value={fmtNumber(funnel.total)}
+          hint={`${fmtNumber(funnel.paying)} have ever paid`}
           icon={<Users size={15} />}
+          href="/admin/users"
         />
-        <StatCard
-          label="Waiting on a plan"
-          value={fmtNumber(planless)}
-          sub={planless > 0 ? "Signed up, nothing bought yet" : "Everyone has a plan"}
-          tone={planless > 0 ? "warn" : "neutral"}
+        <MetricCard
+          label="Never bought"
+          value={fmtNumber(funnel.never_bought)}
+          hint={funnel.never_bought > 0 ? "signed up, nothing bought" : "everyone has bought"}
+          goodWhen="down"
           icon={<UserPlus size={15} />}
+          href="/admin/users?stage=never_bought"
         />
-        <StatCard
-          label="Trucks tracked"
-          value={fmtNumber(trucks)}
-          sub="Across all accounts"
-          tone="brand"
-          icon={<Truck size={15} />}
-        />
-        <StatCard
+        <MetricCard
           label="Credits outstanding"
-          value={formatCredits(creditsOutstanding)}
-          sub="Held by accounts right now"
-          tone="brand"
+          value={formatCredits(funnel.credits_held)}
+          hint="held by accounts right now"
+          goodWhen="neither"
           icon={<Wallet size={15} />}
+          href="/admin/finance?section=credits"
         />
-        <StatCard
+        <MetricCard
           label="Credits spent today"
           value={formatCredits(creditsToday)}
-          sub={`${formatCredits(creditsMonth)} this month`}
+          hint={`${formatCredits(creditsMonth)} this month`}
+          goodWhen="neither"
           icon={<Coins size={15} />}
-        />
-        <StatCard
-          label="Alerts (24h)"
-          value={fmtNumber(alertsToday ?? 0)}
-          sub={
-            (failedCalls ?? 0) > 0
-              ? `${fmtNumber(failedCalls ?? 0)} failed LDB call${failedCalls === 1 ? "" : "s"}`
-              : "No failed LDB calls"
-          }
-          tone={(failedCalls ?? 0) > 0 ? "warn" : "neutral"}
-          icon={<Bell size={15} />}
+          href="/admin/usage"
         />
       </div>
 
@@ -363,62 +341,38 @@ export default async function AdminOverviewPage({
             <UsageChart series={series} />
           </Panel>
 
-          <Panel
-            title="Busiest accounts this month"
-            description="The top six by credits spent. The usage report has the rest, and their plans and contact details are on the Accounts page."
-            bodyClassName="p-0"
-            actions={<PanelAction href="/admin/usage">Full usage report</PanelAction>}
-          >
-            {busiest.length === 0 ? (
-              <EmptyState
-                title="No accounts yet"
-                description="Create an account to get started."
-                action={<LinkButton href="/admin/officers">Go to accounts</LinkButton>}
-              />
-            ) : (
-              <TableWrap>
-                <Thead>
-                  <th className="th">Account</th>
-                  <th className="th">Trucks</th>
-                  <th className="th text-right">Credits left</th>
-                  <th className="th text-right">Spent this month</th>
-                </Thead>
-                <Tbody>
-                  {busiest.map((account) => (
-                    <Tr key={account.id}>
-                      <td className="td">
-                        <Link
-                          href={`/admin/officers/${account.id}`}
-                          className="group flex items-center gap-2.5"
-                        >
-                          <Avatar size="sm" text={initials(account.full_name, account.email)} />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                              {account.full_name ?? account.email}
-                            </span>
-                            <span className="block truncate text-xs text-faint">
-                              {account.office ?? account.district ?? "--"}
-                            </span>
-                          </span>
-                        </Link>
-                      </td>
-                      <td className="td">
-                        <QuotaBar used={account.active_trucks} limit={account.truck_limit} />
-                      </td>
-                      <td className="td text-right">
-                        <Badge tone={balanceTone(account.credits)}>
-                          {formatCredits(account.credits)}
-                        </Badge>
-                      </td>
-                      <td className="td text-right text-sm tabular-nums text-muted">
-                        {formatCredits(account.credits_spent_month)}
-                      </td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </TableWrap>
-            )}
-          </Panel>
+          {/* The four reports, named rather than half-copied. Each carries the
+              one number that says whether it is worth opening today. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <LinkCard
+              href="/admin/finance"
+              icon={<IndianRupee size={16} />}
+              title="Finance"
+              description="Revenue by day and by method, the credit economy, and every receipt."
+              value={fmtRupees(receivedMonth)}
+            />
+            <LinkCard
+              href="/admin/users"
+              icon={<Users size={16} />}
+              title="Users"
+              description="Sign-ups, conversion, and where every account stands right now."
+              value={fmtNumber(funnel.total)}
+            />
+            <LinkCard
+              href="/admin/usage"
+              icon={<Gauge size={16} />}
+              title="Usage"
+              description="Who is spending credits, on what, and which calls are failing."
+              value={formatCredits(creditsMonth)}
+            />
+            <LinkCard
+              href="/admin/trucks"
+              icon={<Truck size={16} />}
+              title="Trucks"
+              description="Every truck under automatic checking, across all accounts."
+              value={fmtNumber(trucks)}
+            />
+          </div>
         </div>
 
         <div className="space-y-5">
@@ -443,7 +397,7 @@ export default async function AdminOverviewPage({
                     <li key={item.key}>
                       <Link
                         href={item.href}
-                        className="flex items-start gap-3 px-5 py-3 transition hover:bg-raised/60"
+                        className="flex items-start gap-3 px-4 py-3 transition hover:bg-raised/60 sm:px-5"
                       >
                         {item.key.startsWith("payment-") ? (
                           <CreditCard size={15} className="mt-0.5 shrink-0 text-bad-500" />
@@ -488,63 +442,25 @@ export default async function AdminOverviewPage({
             </Panel>
           ) : null}
 
-          {/*
-            The last eight audit entries used to sit here. A dashboard is for
-            deciding whether to look closer, not for reading a log eight lines
-            at a time - so this names the log and links to it, and the space
-            goes to the money instead.
-          */}
-          <Panel
-            title="Money this month"
-            description="Captured payments only. A payment still at “created” is an intention, not revenue."
-          >
-            <dl className="space-y-0">
-              <DescRow label="Received today">{fmtRupees(revenue.today)}</DescRow>
-              <DescRow label="Received this month">{fmtRupees(revenue.month)}</DescRow>
-              <DescRow label="Payments this month">{fmtNumber(revenue.payments)}</DescRow>
-              <DescRow label="Credits sold">{fmtNumber(revenue.creditsSold)}</DescRow>
-              <DescRow label="Credits held by accounts">{fmtNumber(creditsOutstanding)}</DescRow>
-            </dl>
-          </Panel>
+          <LinkCard
+            href="/admin/alerts/log"
+            icon={<Bell size={16} />}
+            title="Alerts, last 24 hours"
+            description={
+              (failedCalls ?? 0) > 0
+                ? `${fmtNumber(failedCalls ?? 0)} LDB call${failedCalls === 1 ? "" : "s"} failed in the same period.`
+                : "No failed LDB calls in the same period."
+            }
+            value={fmtNumber(alertsToday ?? 0)}
+            tone={(failedCalls ?? 0) > 0 ? "warn" : "neutral"}
+          />
 
-          {/*
-            Where the credits came from, which is a different question from how
-            much money arrived: an admin top-up and a bonus code both add credits
-            and neither is revenue. Percentages of what has been issued, because
-            "4,300 free" means nothing without the total beside it.
-          */}
-          <Panel
-            title="Where the credits came from"
-            description="Every credit ever issued, by source. Spending is shown against the total issued."
-          >
-            <dl className="space-y-0">
-              {[
-                { key: "paid", label: "Bought through the gateway" },
-                { key: "admin", label: "Added by an administrator" },
-                { key: "free", label: "Given free — signup, referrals, coupons" },
-                { key: "other", label: "Unclassified" },
-              ].map(({ key, label }) => {
-                const credits = bySource[key]?.credits ?? 0;
-                // Unclassified is only worth a line when it is not empty: a zero
-                // there is the normal case and reads as a problem.
-                if (key === "other" && credits === 0) return null;
-                const share = issued > 0 ? Math.round((credits / issued) * 100) : 0;
-                return (
-                  <DescRow key={key} label={label}>
-                    {fmtNumber(credits)}
-                    <span className="ml-1.5 text-xs text-faint tabular-nums">{share}%</span>
-                  </DescRow>
-                );
-              })}
-              <DescRow label="Total issued">{fmtNumber(issued)}</DescRow>
-              <DescRow label="Spent so far">
-                {fmtNumber(spent)}
-                <span className="ml-1.5 text-xs text-faint tabular-nums">
-                  {issued > 0 ? Math.round((spent / issued) * 100) : 0}%
-                </span>
-              </DescRow>
-            </dl>
-          </Panel>
+          <LinkCard
+            href="/admin/rewards"
+            icon={<Gift size={16} />}
+            title="Rewards"
+            description="Referral terms and discount codes, and what each has cost."
+          />
 
           <LinkCard
             href="/admin/logs"

@@ -136,7 +136,13 @@ as $fn$
 $fn$;
 
 revoke all on function public.release_stale_coupon_holds(integer) from public;
-grant execute on function public.release_stale_coupon_holds(integer) to authenticated, service_role;
+-- Granted to service_role only. An earlier version of this line also named
+-- `authenticated`, on the assumption that the browser would call this directly.
+-- It never has - every .rpc() in this codebase goes through the server-side
+-- service client - so the grant only widened the attack surface, and
+-- 0025_security_hardening.sql revoked it again on every run. Removed here so
+-- the file says what is actually intended.
+grant execute on function public.release_stale_coupon_holds(integer) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5. validate_coupon - the single authority on a code
@@ -262,7 +268,13 @@ begin
 end $fn$;
 
 revoke all on function public.validate_coupon(text, uuid, numeric, text) from public;
-grant execute on function public.validate_coupon(text, uuid, numeric, text) to authenticated, service_role;
+-- Granted to service_role only. An earlier version of this line also named
+-- `authenticated`, on the assumption that the browser would call this directly.
+-- It never has - every .rpc() in this codebase goes through the server-side
+-- service client - so the grant only widened the attack surface, and
+-- 0025_security_hardening.sql revoked it again on every run. Removed here so
+-- the file says what is actually intended.
+grant execute on function public.validate_coupon(text, uuid, numeric, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 6. reserve_coupon - hold the claim while checkout is in flight
@@ -403,7 +415,8 @@ grant execute on function public.settle_payment(text, text) to service_role;
 -- ---------------------------------------------------------------------------
 -- 9. How a coupon is doing, for the admin
 -- ---------------------------------------------------------------------------
-create or replace view public.coupon_usage with (security_invoker = on) as
+drop view if exists public.coupon_usage;
+create view public.coupon_usage with (security_invoker = on) as
 select
   c.id,
   c.code,

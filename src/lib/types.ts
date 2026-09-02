@@ -339,6 +339,12 @@ export type AppSettings = {
   referralEnabled: boolean;
   /** Share of a referred person's first payment, paid to the referrer. */
   referralPercent: number;
+  /**
+   * The smallest payment that earns the inviter anything, in rupees, tested
+   * against what was actually charged after any discount. 0 means no floor,
+   * which is how this behaved before the setting existed.
+   */
+  referralMinPayment: number;
   referralMilestoneCount: number;
   referralMilestoneBonus: number;
   /** Shown wherever the product names itself. */
@@ -391,6 +397,20 @@ export type PaymentStatus = "created" | "paid" | "failed";
 /** A payment buys credits, or it buys a plan. */
 export type PaymentKind = "credits" | "plan";
 
+/**
+ * How money reached the business. Mirrors the payments_method_check constraint
+ * in 0024_admin_analytics.sql; the labels a screen shows live in
+ * @/lib/analytics, which is the only place that turns one of these into words.
+ */
+export type PaymentMethod =
+  | "razorpay"
+  | "cash"
+  | "bank_transfer"
+  | "upi"
+  | "cheque"
+  | "manual"
+  | "other";
+
 export type Payment = {
   id: string;
   user_id: string;
@@ -409,6 +429,18 @@ export type Payment = {
   failure_reason: string | null;
   created_at: string;
   paid_at: string | null;
+  /**
+   * How the money arrived. 'razorpay' for anything the gateway settled;
+   * cash, bank_transfer, upi or cheque for a receipt an administrator entered
+   * by hand. 'manual' is the historical bucket for payments recorded before
+   * this column existed, where all that is honestly known is that no gateway
+   * was involved.
+   */
+  method: PaymentMethod;
+  /** The administrator who entered an offline receipt. Null for a gateway payment. */
+  recorded_by: string | null;
+  /** Free text on an offline receipt: a cheque number, who handed the cash over. */
+  note: string | null;
 };
 
 /** One row of public.truck_directory - a truck with the officer watching it. */

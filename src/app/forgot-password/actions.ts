@@ -6,6 +6,7 @@ import { publicSettings } from "@/components/SiteFooter";
 import { emailSenderProblem, passwordResetEmail, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { done, fail, str } from "@/lib/forms";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
@@ -37,9 +38,33 @@ export async function requestPasswordReset(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
+  /*
+   * Throttled from two directions, because this form sends real mail from our
+   * domain to an address somebody else typed. Unlimited, it is a way of pointing
+   * our sending reputation at whoever you dislike, and a way of grinding through
+   * a list of addresses looking for accounts.
+   *
+   * A refusal here says nothing SAME_ANSWER is protecting. The counter is keyed
+   * on the address as typed and is written whether or not that address has an
+   * account, so "too many requests for this address" is true of an address that
+   * has never existed - and the only person who can see it is the one who just
+   * made those requests.
+   */
+  const throttle = await rateLimit("forgot:ip", await clientIp());
+  if (!throttle.allowed) {
+    return fail("Too many reset requests from here. Please try again later.");
+  }
+
   const email = str(fd, "email")?.toLowerCase() ?? "";
   const parsed = z.string().email().safeParse(email);
   if (!parsed.success) return fail("Enter a valid email address.");
+
+  const perAddress = await rateLimit("forgot:email", email);
+  if (!perAddress.allowed) {
+    return fail(
+      "A reset link has already been requested for that address. Check the inbox and the spam folder, then try again in an hour.",
+    );
+  }
 
   const { brandName, supportEmail } = await publicSettings();
 

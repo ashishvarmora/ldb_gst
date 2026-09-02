@@ -10,6 +10,7 @@ import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
 import { assertPortalUser, loadOverview } from "@/lib/officer";
+import { rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import { createOrder, razorpayConfigured, verifyCheckoutSignature } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -507,6 +508,18 @@ export async function previewCoupon(
 
     const session = await assertPortalUser();
 
+    /*
+     * This reads rather than charges, but it still answers "is this a real
+     * code" - which is the entire content of a brute-force attack on a discount
+     * code. Throttled generously, because the box is genuinely re-asked every
+     * time the amount changes and a buyer editing an open-tier figure must not
+     * be told off for it.
+     */
+    const throttle = await rateLimit("coupon:preview", session.id);
+    if (!throttle.allowed) {
+      return { ok: false, reason: "unknown", message: rateLimitMessage(throttle, "codes checked") };
+    }
+
     return await checkCoupon({
       admin: getSupabaseAdmin(),
       code,
@@ -539,6 +552,10 @@ export async function startCheckout(
 ): Promise<CheckoutStart> {
   try {
     const session = await assertPortalUser();
+
+    const throttle = await rateLimit("checkout:user", session.id);
+    if (!throttle.allowed) return refuse(rateLimitMessage(throttle, "payments started"));
+
     const admin = getSupabaseAdmin();
 
     const [overview, blocked] = await Promise.all([loadOverview(session.id), paymentBlocked()]);
@@ -581,6 +598,16 @@ export async function startPlanCheckout(
 ): Promise<CheckoutStart> {
   try {
     const session = await assertPortalUser();
+
+    /*
+     * Shares the bucket with the credit checkout on purpose. Both open a real
+     * Razorpay order and both can hold a coupon claim while they do, so the
+     * thing worth capping is orders opened per account, not orders of one
+     * particular sort.
+     */
+    const throttle = await rateLimit("checkout:user", session.id);
+    if (!throttle.allowed) return refuse(rateLimitMessage(throttle, "payments started"));
+
     const admin = getSupabaseAdmin();
 
     const blocked = await paymentBlocked();
@@ -709,6 +736,19 @@ export async function redeemBonusCode(
   fd: FormData,
 ): Promise<ActionResult> {
   const session = await assertPortalUser();
+
+  /*
+   * The tightest limit in the app, because this is the only form where a
+   * correct guess is worth money on the spot. It is also an oracle: the
+   * refusals below distinguish "we have no code called that" from every other
+   * reason, which is exactly what a guesser needs to know.
+   *
+   * Counted before the code is even read from the form, so an empty submission
+   * is not a free probe, and counted per account rather than per address
+   * because the reward lands in an account.
+   */
+  const throttle = await rateLimit("coupon:user", session.id);
+  if (!throttle.allowed) return fail(rateLimitMessage(throttle, "codes tried"));
 
   const code = (str(fd, "code") ?? "").toUpperCase();
   if (!code) return fail("Enter the code you were given.");

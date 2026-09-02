@@ -1,49 +1,26 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2 } from "lucide-react";
 
+import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, Input } from "@/components/form";
-import { buttonClass } from "@/components/ui";
-import { friendlyError } from "@/lib/errors";
-import { getSupabaseBrowser } from "@/lib/supabase/browser";
+import { signIn } from "./actions";
 
+/**
+ * The sign-in form.
+ *
+ * Deliberately holds no state of its own any more. It used to call
+ * supabase.auth.signInWithPassword() from the browser and manage its own
+ * pending and error flags; the sign-in now runs as a Server Action so that the
+ * attempt can be counted and throttled, and ActionForm already draws the error
+ * and the pending button exactly as this file used to.
+ *
+ * closeOnSuccess is off because there is no modal here, and a successful
+ * sign-in redirects from the server rather than returning a result to show.
+ */
 export function LoginForm() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
-
-    const supabase = getSupabaseBrowser();
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (signInError) {
-      // Checked before friendlyError, which reads "invalid login" as an expired
-      // session and would tell someone with a typo'd password to sign in again.
-      setError(
-        signInError.message === "Invalid login credentials"
-          ? "That email and password combination does not match an account."
-          : friendlyError(signInError),
-      );
-      setPending(false);
-      return;
-    }
-
-    // Let the server decide where this account belongs.
-    router.replace("/");
-    router.refresh();
-  }
-
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <ActionForm action={signIn} className="space-y-4" closeOnSuccess={false}>
       <Field label="Email" name="email">
         <Input
           name="email"
@@ -51,8 +28,6 @@ export function LoginForm() {
           autoComplete="email"
           required
           autoFocus
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
           placeholder="you@company.com"
         />
       </Field>
@@ -64,8 +39,6 @@ export function LoginForm() {
             type="password"
             autoComplete="current-password"
             required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
             placeholder="Your password"
           />
         </Field>
@@ -79,17 +52,9 @@ export function LoginForm() {
         </div>
       </div>
 
-      {error ? (
-        <p className="flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
-          <AlertCircle size={15} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ) : null}
-
-      <button type="submit" disabled={pending} className={buttonClass("primary", "md", "w-full")}>
-        {pending ? <Loader2 size={15} className="animate-spin" /> : null}
-        {pending ? "Signing in..." : "Sign in"}
-      </button>
-    </form>
+      <SubmitButton className="w-full" pendingLabel="Signing in...">
+        Sign in
+      </SubmitButton>
+    </ActionForm>
   );
 }

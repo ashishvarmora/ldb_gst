@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Coins, Eye, Search, Truck, User } from "lucide-react";
 
+import { safeTerm } from "../pager";
 import {
   Avatar,
   Badge,
@@ -51,11 +52,6 @@ type SearchSummary = {
   failed: number;
   last_at: string;
 };
-
-/** Strips what would otherwise break a PostgREST or/ilike filter. */
-function safeTerm(raw: string): string {
-  return raw.replace(/[(),*%\\]/g, " ").trim();
-}
 
 export default async function ExplorePage({
   searchParams,
@@ -197,7 +193,11 @@ export default async function ExplorePage({
             return (
               <Panel key={number} bodyClassName="p-0">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-divider px-4 py-3">
-                  <span className="flex items-center gap-2">
+                  {/* Wraps like the row around it. The registration number is
+                      one unbreakable token and both badges refuse to break, so
+                      on a narrow phone the last badge was cut off by the
+                      panel's overflow-hidden with no way to reach it. */}
+                  <span className="flex flex-wrap items-center gap-2">
                     <Truck size={15} className="shrink-0 text-faint" />
                     <Mono className="text-base font-semibold text-strong">{number}</Mono>
                     {trackers.length > 0 ? (

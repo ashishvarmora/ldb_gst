@@ -284,7 +284,8 @@ grant execute on function public.settle_payment(text, text) to service_role;
 -- One row per referrer, so neither the admin table nor the customer's own page
 -- has to count across joins.
 -- ---------------------------------------------------------------------------
-create or replace view public.referral_summary with (security_invoker = on) as
+drop view if exists public.referral_summary;
+create view public.referral_summary with (security_invoker = on) as
 select
   p.id as referrer_id,
   p.email,

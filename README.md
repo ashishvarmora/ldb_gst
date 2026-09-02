@@ -24,17 +24,36 @@ Next.js 15 (App Router) · Supabase (Postgres + Auth + RLS) · Tailwind CSS v4.
 
 ### Admin console — `/admin`
 
+The sidebar is in three groups, by what you came to do. **Analyse** is
+read-only and safe to click on; **Operate** is the day's work; **Configure** is
+the settings that decide how the other two behave.
+
+Every report shares one date-range control - Today, 7/30/90 days, this month,
+last month, 12 months, all time, or a custom range - and one day/week/month
+grouping toggle. Both live in the URL, so a report can be bookmarked, linked to,
+or opened twice side by side on two ranges. All dates are IST.
+
 | Page | What you can do |
 | --- | --- |
-| **Overview** | Platform totals, 30-day usage chart, "needs attention" list (no plan yet, expired, out of credits, truck limit hit), credits outstanding |
-| **Accounts** | Every registered account: contact details, plan, credit balance, top-ups, suspend, reset password. You can still create one by hand. |
-| **Account detail** | Tabbed: overview, credits and full history, their trucks, their activity, settings. Assign a plan, add credits, set an individual truck limit. |
-| **Plans** | Create, edit, archive. A plan sets a truck limit, the credits it includes and its price - all of it customer-facing |
-| **Trucks** | Every tracked truck across all accounts, filtered by account, status or number |
-| **Usage** | Credits spent per account, recent upstream calls with latency and failures, CSV export |
-| **Alert rules** | The catalogue of alerts people may attach to a truck, plus the delivery log of everything sent |
-| **Audit log** | What customers have been doing, with admin changes behind a filter |
-| **Settings** | Site name, support details and policy links, open or close sign-up, payment keys, backup sheet and retention, the upstream endpoint, the global pause switch, **run the worker now**, **run the backup now** |
+| **Overview** | The way in. Six headline figures, each a link to the report it comes from, the 30-day usage chart, and the "needs attention" list - the one thing here that exists nowhere else (no plan yet, expired, out of credits, truck limit hit, payment stuck at "started"). |
+| **Analyse › Finance** | Three sections. *Revenue*: money received, by day and by method (Razorpay, cash, bank transfer, UPI, cheque), what it bought, average payment, discounts given, who paid most. *Credit economy*: credits issued against credits spent, split by source, what the giveaway cost in rupees, biggest spenders and biggest receivers of free credits. *Receipts*: every payment, filterable by status, method and kind. **Record a payment** logs cash or a bank transfer, and it settles exactly like a gateway payment. |
+| **Analyse › Users** | Sign-ups by day, split by whether somebody invited them, and how many of each cohort have since paid. Every account in one of seven lifecycle stages - active, plan expired, never bought, credits but no plan, dormant, never signed in, suspended - searchable, filterable by stage and sortable seven ways. |
+| **Analyse › Usage** | Charged calls to the toll network, manual against automatic, what a call costs, and how the upstream API is behaving: failure rate, median and 95th-percentile response time. CSV export. |
+| **Operate › Customers** | Every registered account: contact details, plan, credit balance, top-ups, suspend, reset password. You can still create one by hand. |
+| **Operate › Customer detail** | Tabbed: overview, credits and full history, payments, their trucks, settings. Assign a plan, add credits, set an individual truck limit. |
+| **Operate › Trucks** | Every tracked truck across all accounts, filtered by account, status or number |
+| **Operate › Explore** | Look up one truck or one account across everything |
+| **Operate › Logs** | Every search, alert and console change - filter by account, truck or day |
+| **Configure › Plans & credits** | Create, edit, archive a plan; set what a credit buys and what a rupee buys |
+| **Configure › Rewards** | Referral terms and discount codes, and what each has cost |
+| **Configure › Alert rules** | The catalogue of alerts people may attach to a truck, plus the delivery log |
+| **Configure › Storage** | Retention rules per table, with each table's current size |
+| **Configure › Settings** | Site name, support details and policy links, open or close sign-up, payment keys, backup sheet, the upstream endpoint, the global pause switch, **run the worker now**, **run the backup now** |
+
+Every figure on a report is computed by the database, through the `admin_*`
+functions in `0024_admin_analytics.sql`, and no figure is computed in two
+places. A number that appears on two screens is a number that can be wrong on
+one of them.
 
 ### Customer dashboard — `/portal`
 
@@ -442,9 +461,13 @@ ten-minute interval would otherwise write over 200,000 rows a month saying
 
 ## Security model
 
-- **RLS is on for every table.** Accounts only ever read rows where
-  `user_id = auth.uid()`. Log tables (`truck_events`, `search_logs`, `alert_logs`,
-  `usage_counters`) are read-only to them; only the worker writes those.
+- **RLS is on for every table**, verified rather than assumed. Accounts only ever
+  read rows where `user_id = auth.uid()`. Log tables (`truck_events`,
+  `search_logs`, `alert_logs`, `credit_transactions`) are read-only to them; only
+  the worker writes those. `rate_limits` and `retention_rules` have RLS on with
+  no policy at all, which denies everyone but the service role - that is
+  deliberate, and `0025` says so out loud on every run so it reads as a decision
+  rather than an oversight.
 - **Accounts cannot write `profiles`.** No self-promotion to admin, no editing their
   own plan.
 - **The service-role key never reaches the browser.** It is used only inside Server
@@ -454,9 +477,34 @@ ten-minute interval would otherwise write over 200,000 rows a month saying
 - **`is_super_admin()`** is `SECURITY DEFINER` so policies can call it without
   recursing through the `profiles` policy.
 - **Every admin mutation is audited** with actor, timestamp and a field-level diff.
-- **The cron route requires `CRON_SECRET`** and refuses to run if it is unset.
+- **The cron route requires `CRON_SECRET`**, compared in constant time, and
+  refuses to run if it is unset.
 - **Suspending an account** pauses its background tracking, so a suspended account
   cannot keep burning LDB quota.
+- **No database function is callable from the browser.** Every `SECURITY DEFINER`
+  function is granted to `service_role` only, and the schema's default privilege
+  for new functions has been narrowed so the next one written does not inherit a
+  grant. This was not true before `0025_security_hardening.sql`: earlier
+  migrations wrote `revoke all ... from public`, and `PUBLIC` is not the roles
+  `anon` and `authenticated`, so Supabase's default privilege had already handed
+  both an explicit grant. Anyone with the anon key that ships in the browser
+  bundle could call `grant_credits` and mint themselves credits. Verified closed
+  by probing every one of them with that key.
+- **Rate limits** on sign-in (per IP and per email), sign-up, password reset,
+  checkout, coupon redemption, search and export. Counted in Postgres through
+  `rate_limit_hit()`, so the limit holds across serverless instances; it fails
+  open with a log line rather than locking real users out if the database is
+  unreachable. Sign-in moved from the browser to a Server Action for this - an
+  attempt the application never sees is an attempt it cannot count.
+- **Security headers** on every response: HSTS, `nosniff`, `X-Frame-Options:
+  DENY`, a Referrer-Policy, a Permissions-Policy, and a CSP. The CSP ships in two
+  halves - the directives that cannot break a page (`object-src`, `base-uri`,
+  `form-action`, `frame-ancestors`) are enforced; the full policy including
+  `script-src` is Report-Only until it has been exercised against a real
+  checkout, because a wrong `script-src` fails as a dead payment page.
+- **A referral pays out only above `referral_min_payment`**, tested against what
+  was actually charged after any discount. Without a floor, a deep coupon made a
+  qualifying payment cost a few rupees, and referrals could be farmed.
 
 ---
 

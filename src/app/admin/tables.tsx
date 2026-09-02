@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { MapPin } from "lucide-react";
 
+import type { AdminQuery } from "./pager";
 import {
   Badge,
   EmptyState,
@@ -10,22 +12,27 @@ import {
   Tr,
   type BadgeTone,
 } from "@/components/ui";
-import { CREDIT_REASON_LABEL, formatCredits } from "@/lib/credits";
+import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
-import type { Payment, PaymentStatus, SearchLog } from "@/lib/types";
+import type { Payment, PaymentStatus, TruckDirectoryRow, TruckStatus } from "@/lib/types";
 
 /**
- * The three lists this console shows in more than one place, owned once.
+ * The lists this console shows in more than one place, owned once.
  *
- * Payments, credit movements and upstream calls each answer a question at two
- * scales - "across everyone" on a global page, and "for this customer" on their
- * own page - and each had grown a second near-copy with its own columns, its own
- * status wording and its own idea of what to do with a discount. One of those
- * copies is always the stale one.
+ * Payments and trucks each answer a question at two scales - "across everyone"
+ * on a global page, and "for this customer" on their own page - and each had
+ * grown a second near-copy with its own columns, its own wording and its own
+ * idea of what to filter on. One of those copies is always the stale one.
  *
  * So each table lives here and takes the account column as a flag: a global
  * list names the customer and links through, an account's own page does not
- * repeat a name that is already in the page title.
+ * repeat a name that is already in the page title. The words a truck list
+ * filters and sorts by live here too, for the same reason - two screens
+ * offering different options for the same underlying column is the drift
+ * starting again.
+ *
+ * There was a third list, of upstream calls. LogExplorer replaced it, and
+ * nothing rendered it after that, so it has gone.
  */
 
 /** Below this a balance is worth chasing before the customer stops mid-job. */
@@ -181,82 +188,236 @@ export function PaymentsTable({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Credit movements                                                            */
+/* Trucks                                                                      */
 /* -------------------------------------------------------------------------- */
 
-
-/* -------------------------------------------------------------------------- */
-/* Upstream calls                                                              */
-/* -------------------------------------------------------------------------- */
-
-/** The global log joins the account in so a row can name itself. */
-export type SearchLogRow = SearchLog & {
-  profiles?: { full_name: string | null; email: string } | null;
+/**
+ * How the lorry is MOVING, worked out from its last crossing.
+ *
+ * Deliberately not the same question as whether it is being checked at all: a
+ * paused truck reports "unknown" for ever, so a movement filter could never
+ * answer "which of these are switched off". That is TRUCK_TRACKING below.
+ */
+export const TRUCK_STATUS_LABEL: Record<TruckStatus, string> = {
+  moving: "Moving",
+  idle: "Idle",
+  no_activity: "No activity",
+  unknown: "Never seen",
 };
 
-export function SearchLogTable({
+export const TRUCK_STATUS_TONE: Record<TruckStatus, BadgeTone> = {
+  moving: "good",
+  idle: "warn",
+  no_activity: "bad",
+  unknown: "neutral",
+};
+
+/**
+ * Whether the platform is checking this truck at all, which is the question
+ * that comes first: everything below it is meaningless for a lorry nothing
+ * looks at. A truck with no alert switched on is never checked either - it
+ * costs nothing and never moves - so it belongs in this list rather than
+ * alongside the movement states, where it used to sit.
+ */
+export const TRUCK_TRACKING_LABEL = {
+  live: "Live only",
+  paused: "Paused only",
+  unwatched: "No alert switched on",
+} as const;
+
+export type TruckTracking = keyof typeof TRUCK_TRACKING_LABEL;
+
+/**
+ * The orders that answer a real question about a fleet: what moved last, what
+ * has gone quiet, what nobody is watching, and what was added when.
+ */
+export const TRUCK_SORTS = {
+  event: { label: "Last crossing", column: "last_event_at", ascending: false },
+  added: { label: "Recently added", column: "created_at", ascending: false },
+  number: { label: "Truck number", column: "truck_number", ascending: true },
+  alerts: { label: "Fewest alerts", column: "alert_count", ascending: true },
+  events: { label: "Most crossings", column: "event_count", ascending: false },
+} as const;
+
+export type TruckSort = keyof typeof TRUCK_SORTS;
+
+export function isTruckStatus(value: string | undefined | null): value is TruckStatus {
+  return value !== undefined && value !== null && value in TRUCK_STATUS_LABEL;
+}
+
+export function isTruckTracking(value: string | undefined | null): value is TruckTracking {
+  return value !== undefined && value !== null && value in TRUCK_TRACKING_LABEL;
+}
+
+export function isTruckSort(value: string | undefined | null): value is TruckSort {
+  return value !== undefined && value !== null && value in TRUCK_SORTS;
+}
+
+export type TruckFilters = {
+  /** One account's trucks. Absent means every account's. */
+  officerId?: string;
+  /** Registration number, already normalised to letters and digits. */
+  plate?: string;
+  status?: TruckStatus | "";
+  tracking?: TruckTracking | "";
+};
+
+/**
+ * The filters, applied to every read a truck list makes.
+ *
+ * Both screens count before they page - see pageWindow - and the count and the
+ * rows have to see exactly the same filters. Writing the chain out twice per
+ * screen, four times in all, is how the two lists drifted apart in the first
+ * place.
+ */
+export function narrowTrucks(query: AdminQuery, filters: TruckFilters): AdminQuery {
+  let narrowed = query;
+
+  if (filters.officerId) narrowed = narrowed.eq("officer_id", filters.officerId);
+  if (filters.plate) narrowed = narrowed.ilike("truck_number", `%${filters.plate}%`);
+  if (filters.status) narrowed = narrowed.eq("status", filters.status);
+  if (filters.tracking === "live") narrowed = narrowed.eq("is_active", true);
+  else if (filters.tracking === "paused") narrowed = narrowed.eq("is_active", false);
+  else if (filters.tracking === "unwatched") narrowed = narrowed.eq("alert_count", 0);
+
+  return narrowed;
+}
+
+/**
+ * One truck under tracking, at either scale.
+ *
+ * The account columns appear only on the global list, where naming the customer
+ * is the point; an account's own page has that name in its title already and
+ * shows what the lorry has cost instead, which is the figure only that page can
+ * work out.
+ */
+export function TrucksTable({
   rows,
   showAccount = false,
-  emptyTitle,
-  emptyDescription,
+  watchers,
+  spentByTruck,
 }: {
-  rows: SearchLogRow[];
+  rows: TruckDirectoryRow[];
+  /** True, and the table names the account watching each truck and its posting. */
   showAccount?: boolean;
-  emptyTitle: string;
-  emptyDescription?: string;
+  /** Truck number -> how many accounts watch it. Over one is worth flagging. */
+  watchers?: ReadonlyMap<string, number>;
+  /** Truck number -> credits it has cost, across the whole ledger. */
+  spentByTruck?: ReadonlyMap<string, number>;
 }) {
-  if (rows.length === 0) {
-    return <EmptyState title={emptyTitle} description={emptyDescription} />;
-  }
-
   return (
     <TableWrap>
       <Thead>
-        <th className="th">When</th>
-        {showAccount ? <th className="th">Customer</th> : null}
         <th className="th">Truck</th>
-        <th className="th">Kind</th>
-        <th className="th">Result</th>
-        <th className="th text-right">Latency</th>
+        {showAccount ? <th className="th">Account</th> : null}
+        {showAccount ? <th className="th">Posting</th> : null}
+        <th className="th">Status</th>
+        <th className="th">Last toll plaza</th>
+        {spentByTruck ? <th className="th text-right">Credits used</th> : null}
+        <th className="th text-right">Alerts</th>
+        <th className="th text-right">Crossings</th>
+        <th className="th">Last check</th>
+        <th className="th">Added</th>
       </Thead>
       <Tbody>
-        {rows.map((row) => (
-          <Tr key={row.id}>
-            <WhenCell at={row.created_at} />
-            {showAccount ? (
-              <td className="td text-sm">
+        {rows.map((truck) => (
+          <Tr key={truck.tracked_truck_id}>
+            <td className="td">
+              <span className="flex flex-wrap items-center gap-1.5">
                 <Link
-                  href={`/admin/officers/${row.user_id}`}
-                  className="transition hover:text-brand-400"
+                  href={`/admin/explore?q=${truck.truck_number}`}
+                  className="transition hover:text-brand-500"
                 >
-                  {row.profiles?.full_name ?? row.profiles?.email ?? "--"}
+                  <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
                 </Link>
+                {(watchers?.get(truck.truck_number) ?? 0) > 1 ? (
+                  <Badge tone="warn">also watched elsewhere</Badge>
+                ) : null}
+              </span>
+              {truck.label ? (
+                <span className="block text-xs text-faint">{truck.label}</span>
+              ) : null}
+            </td>
+
+            {showAccount ? (
+              <td className="td">
+                <Link
+                  href={`/admin/officers/${truck.officer_id}`}
+                  className="block text-sm text-ink transition hover:text-brand-400"
+                >
+                  {truck.officer_name ?? truck.officer_email}
+                </Link>
+                <span className="block truncate text-xs text-faint">
+                  {truck.officer_phone ?? truck.officer_email}
+                </span>
               </td>
             ) : null}
-            <td className="td">
-              <Link href={`/admin/explore?q=${row.truck_number}`} className="hover:text-brand-500">
-                <Mono className="text-ink">{row.truck_number}</Mono>
-              </Link>
-            </td>
-            <td className="td">
-              <Badge tone={row.source === "manual" ? "brand" : "neutral"}>
-                {row.source === "manual" ? "manual" : "automatic"}
-              </Badge>
-            </td>
-            <td className="td">
-              {row.ok ? (
-                <span className="text-sm text-ink">
-                  {fmtNumber(row.new_events)} new / {fmtNumber(row.events_found)} found
+
+            {showAccount ? (
+              <td className="td">
+                <span className="block text-sm text-ink">{truck.office ?? "--"}</span>
+                <span className="block text-xs text-faint">
+                  {[truck.district, truck.state].filter(Boolean).join(", ") || "--"}
                 </span>
-              ) : (
-                <Badge tone="bad">
-                  {row.http_status ? `HTTP ${row.http_status}` : "error"}
-                  {row.error ? ` · ${row.error.slice(0, 40)}` : ""}
+              </td>
+            ) : null}
+
+            {/* Paused wins over the movement status rather than sitting beside
+                it. A truck nothing checks keeps whatever it last reported, so
+                showing "Idle" for it would be reporting a stale reading as
+                current. */}
+            <td className="td">
+              {truck.is_active ? (
+                <Badge tone={TRUCK_STATUS_TONE[truck.status]}>
+                  {TRUCK_STATUS_LABEL[truck.status]}
                 </Badge>
+              ) : (
+                <Badge>paused</Badge>
               )}
             </td>
+
+            <td className="td">
+              {truck.last_location ? (
+                <span className="flex items-center gap-1.5 text-sm text-ink">
+                  <MapPin size={13} className="shrink-0 text-faint" />
+                  {truck.last_location}
+                </span>
+              ) : (
+                <span className="text-sm text-faint">--</span>
+              )}
+              <span className="block text-xs whitespace-nowrap text-faint">
+                {fmtDateTime(truck.last_event_at)}
+              </span>
+            </td>
+
+            {spentByTruck ? (
+              <td className="td text-right text-sm tabular-nums text-ink">
+                {spentByTruck.get(truck.truck_number) ? (
+                  formatCredits(spentByTruck.get(truck.truck_number)!)
+                ) : (
+                  <span className="text-faint">0</span>
+                )}
+              </td>
+            ) : null}
+
+            <td className="td text-right whitespace-nowrap">
+              {truck.alert_count === 0 ? (
+                <Badge tone="warn">never checked</Badge>
+              ) : (
+                <span className="text-sm tabular-nums text-ink">{truck.alert_count}</span>
+              )}
+            </td>
+
             <td className="td text-right text-sm tabular-nums text-muted">
-              {row.response_ms ? `${fmtNumber(row.response_ms)} ms` : "--"}
+              {fmtNumber(truck.event_count)}
+            </td>
+
+            <td className="td text-xs whitespace-nowrap text-muted">
+              {fmtRelative(truck.last_polled_at)}
+            </td>
+
+            <td className="td text-xs whitespace-nowrap text-muted">
+              {fmtDate(truck.created_at)}
             </td>
           </Tr>
         ))}

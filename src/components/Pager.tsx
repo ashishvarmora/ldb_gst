@@ -67,7 +67,13 @@ export function pagerHref(href: PagerHref, page: number): string {
   return search ? `${href.path}?${search}` : href.path;
 }
 
-/** How many pages `total` rows make. Never below 1, so an empty list has page 1. */
+/**
+ * How many pages `total` rows make. Never below 1, so an empty list has page 1.
+ *
+ * Worth pairing with pageFromParam before a server-paged query runs: PostgREST
+ * refuses a range that starts past the last row outright, so the page number
+ * has to be clamped against a real count rather than corrected afterwards.
+ */
 export function pageCount(total: number, pageSize: number): number {
   if (!Number.isFinite(total) || !Number.isFinite(pageSize) || pageSize <= 0) return 1;
   return Math.max(1, Math.ceil(total / pageSize));
@@ -113,6 +119,33 @@ export function Pager({
   const totalPages =
     pages ?? (total !== undefined && pageSize ? pageCount(total, pageSize) : 1);
   const current = Math.min(Math.max(1, page), totalPages);
+
+  /*
+   * A page past the end always gets a way back.
+   *
+   * A list paged in the database cannot be relied on to know its own total
+   * here: PostgREST answers a .range() that begins past the last row with an
+   * error and no count at all, so `total` arrives as 0, this works out one
+   * page, hides itself - and the reader is left on an empty screen with nothing
+   * to click. Callers should clamp the page number before they query, and this
+   * is what happens when one has not.
+   */
+  if (page > totalPages) {
+    return (
+      <nav
+        aria-label="Pagination"
+        className={cx("flex flex-wrap items-center gap-x-3 gap-y-2", className ?? "mt-3")}
+      >
+        <p className="text-xs tabular-nums text-muted">
+          Page {fmtNumber(page)} is past the end of this list.
+        </p>
+        <Link href={pagerHref(href, 1)} className={buttonClass("secondary", "sm")}>
+          <ChevronLeft size={14} />
+          Back to the first page
+        </Link>
+      </nav>
+    );
+  }
 
   if (totalPages <= 1 && !alwaysShow) return null;
 

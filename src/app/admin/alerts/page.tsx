@@ -18,8 +18,8 @@ import {
   setAlertRuleActive,
   updateAlertRule,
 } from "./actions";
-import { CapNote, pageRange } from "../pager";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { CapNote, pageWindow } from "../pager";
+import { Pager } from "@/components/Pager";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -111,18 +111,15 @@ export default async function AlertRulesPage({
   const { page: pageParam } = await searchParams;
   const admin = getSupabaseAdmin();
 
-  const requested = pageFromParam(pageParam);
-  const { from, to } = pageRange(requested, PAGE_SIZE);
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
-  const [{ data: rules, error, count }, { count: attachedTotal }, { count: activeRules }, { count: sent24h }] =
+  // The catalogue is counted before a page of it is asked for. PostgREST
+  // answers a range that starts past the last rule with an error and no count
+  // at all, which would leave a stale ?page= showing an empty catalogue and no
+  // link back to the rules that are there.
+  const [{ count: ruleCount, error: countError }, { count: attachedTotal }, { count: activeRules }, { count: sent24h }] =
     await Promise.all([
-      admin
-        .from("alert_rule_templates")
-        .select("*", { count: "exact" })
-        .order("sort_order")
-        .order("name")
-        .range(from, to),
+      admin.from("alert_rule_templates").select("id", { count: "exact", head: true }),
       admin.from("truck_alerts").select("id", { count: "exact", head: true }),
       admin
         .from("alert_rule_templates")
@@ -131,8 +128,18 @@ export default async function AlertRulesPage({
       admin.from("alert_logs").select("id", { count: "exact", head: true }).gte("created_at", dayAgo),
     ]);
 
+  const total = ruleCount ?? 0;
+  const { page: requested, from, to } = pageWindow(pageParam, total, PAGE_SIZE);
+
+  const { data: rules, error: rulesError } = await admin
+    .from("alert_rule_templates")
+    .select("*")
+    .order("sort_order")
+    .order("name")
+    .range(from, to);
+
+  const error = countError ?? rulesError;
   const list = (rules ?? []) as AlertRuleTemplate[];
-  const total = count ?? list.length;
   const { usage, capped } = await loadUsage(
     admin,
     list.map((rule) => rule.id),
@@ -305,7 +312,10 @@ function RuleCard({
           </p>
         </div>
 
-        <dl className="flex shrink-0 flex-wrap gap-x-6 gap-y-1 text-right">
+        {/* No shrink-0: it pinned the list at its widest, so its own flex-wrap
+            could never engage and an interval that reads "1 hour 30 minutes"
+            was clipped by the card's overflow-hidden on a narrow phone. */}
+        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-right">
           <div>
             <dt className="text-[11px] tracking-wide text-muted uppercase">Fastest</dt>
             <dd className="text-sm tabular-nums text-ink">

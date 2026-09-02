@@ -1,5 +1,6 @@
 import type { UsageDayRow } from "@/components/UsageChart";
-import { istDaysAgo } from "@/lib/format";
+import { loadCreditSeries, shiftDate } from "@/lib/analytics";
+import { istToday } from "@/lib/format";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
@@ -11,39 +12,17 @@ type Admin = ReturnType<typeof getSupabaseAdmin>;
  * credit_transactions and could disagree with the money. Every chargeable call
  * is a ledger row with a timestamp, so the same chart is built by counting
  * those rows per day instead.
+ *
+ * The counting itself happens in the database now, through
+ * admin_credit_series(). It used to happen here: twenty pages of a thousand
+ * ledger rows were walked over PostgREST and folded in JavaScript, which capped
+ * silently at twenty thousand rows and said nothing when it bit - so past
+ * roughly 650 charged calls a day the chart quietly under-reported against the
+ * total printed beside it, for ever. The database has no such ceiling, and it
+ * applies the same role filter as every other figure on the console, so an
+ * administrator's own test searches no longer land in a chart of customer
+ * usage while being left out of the count above it.
  */
-
-/** The ledger reasons that are an LDB call. Top-ups and purchases are not. */
-const CALL_REASONS = ["manual_search", "auto_check"] as const;
-
-/** PostgREST caps one select at the project's max-rows, so pages are keyset-walked. */
-const PAGE = 1000;
-const MAX_PAGES = 20;
-
-type LedgerCall = { id: number; reason: string; created_at: string };
-
-/**
- * Fold ledger rows into one row per IST day, in the shape the chart wants.
- * Days with no calls are left out - the chart fills those in itself.
- */
-export function foldDailyCalls(rows: LedgerCall[]): UsageDayRow[] {
-  const byDate = new Map<string, UsageDayRow>();
-
-  for (const row of rows) {
-    const date = new Date(row.created_at).toLocaleDateString("en-CA", {
-      timeZone: "Asia/Kolkata",
-    });
-    let day = byDate.get(date);
-    if (!day) {
-      day = { usage_date: date, manual_searches: 0, tracking_queries: 0 };
-      byDate.set(date, day);
-    }
-    if (row.reason === "manual_search") day.manual_searches += 1;
-    else day.tracking_queries += 1;
-  }
-
-  return [...byDate.values()];
-}
 
 /**
  * Every charged call in the last `days` days, one row per day. Pass `userId`
@@ -53,32 +32,25 @@ export async function loadDailyCalls(
   admin: Admin,
   { days = 30, userId }: { days?: number; userId?: string } = {},
 ): Promise<UsageDayRow[]> {
-  // A day of margin: the window is counted in IST days but cut in UTC, and the
-  // extra rows fall outside the chart's range anyway.
-  const since = `${istDaysAgo(days)}T00:00:00Z`;
-  const rows: LedgerCall[] = [];
-  let after = 0;
+  const to = istToday();
+  const from = shiftDate(to, -(days - 1));
 
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    let query = admin
-      .from("credit_transactions")
-      .select("id, reason, created_at")
-      .in("reason", [...CALL_REASONS])
-      .gte("created_at", since)
-      .gt("id", after)
-      .order("id", { ascending: true })
-      .limit(PAGE);
+  const rows = await loadCreditSeries(admin, { from, to, bucket: "day" }, userId);
+  const byDate = new Map<string, UsageDayRow>();
 
-    if (userId) query = query.eq("user_id", userId);
+  for (const row of rows) {
+    if (row.reason !== "manual_search" && row.reason !== "auto_check") continue;
 
-    const { data, error } = await query;
-    if (error || !data || data.length === 0) break;
-
-    const batch = data as LedgerCall[];
-    rows.push(...batch);
-    after = batch[batch.length - 1].id;
-    if (batch.length < PAGE) break;
+    let day = byDate.get(row.bucket);
+    if (!day) {
+      day = { usage_date: row.bucket, manual_searches: 0, tracking_queries: 0 };
+      byDate.set(row.bucket, day);
+    }
+    // entries, not credits: one row is one call whatever the rate charges for
+    // it, and a chart of calls must not move when a price does.
+    if (row.reason === "manual_search") day.manual_searches += Number(row.entries) || 0;
+    else day.tracking_queries += Number(row.entries) || 0;
   }
 
-  return foldDailyCalls(rows);
+  return [...byDate.values()];
 }

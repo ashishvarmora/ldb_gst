@@ -20,7 +20,8 @@
 -- Run after 0020_exact_table_sizes.sql.
 -- ===========================================================================
 
-create or replace view public.truck_search_summary as
+drop view if exists public.truck_search_summary;
+create view public.truck_search_summary as
 select
   s.truck_number,
   s.user_id,

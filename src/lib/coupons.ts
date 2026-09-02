@@ -61,6 +61,15 @@ export async function checkCoupon({
  * Re-validates inside the database rather than trusting what the preview said:
  * between the preview and the order, someone else may have taken the last
  * claim on a single-use code, and this is the moment that has to be right.
+ *
+ * Re-validating was not by itself enough, and 0025 is where that was fixed.
+ * Counting the claims and inserting one were two statements with nothing
+ * holding the coupon still between them, so two checkouts opened in the same
+ * instant both read "one claim left" and both took it - and the same from two
+ * tabs against max_per_user. reserve_coupon now takes the coupon's own row lock
+ * before it counts, so the second caller waits and then sees the first one's
+ * reservation. Nothing about that is visible from here; it is noted because
+ * "it re-validates" reads like the whole story and is not.
  */
 export async function reserveCoupon({
   admin,

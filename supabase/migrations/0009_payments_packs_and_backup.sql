@@ -396,7 +396,8 @@ left join lateral (
 -- The admin's question is "which officer is watching this number", which
 -- otherwise means joining trucks to profiles on every search.
 -- ---------------------------------------------------------------------------
-create or replace view public.truck_directory with (security_invoker = on) as
+drop view if exists public.truck_directory;
+create view public.truck_directory with (security_invoker = on) as
 select
   t.id as tracked_truck_id,
   t.truck_number,

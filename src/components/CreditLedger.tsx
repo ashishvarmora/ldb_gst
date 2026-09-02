@@ -495,8 +495,14 @@ export async function CreditLedger({
  * Read at credit_ledger_daily's own grain - account, day, reason, truck - and
  * folded here. A coarser grouping is a sum of finer rows, so a second database
  * aggregate would only be another thing that could disagree with the ledger.
+ *
+ * The error comes back with the rows rather than being dropped: a read that
+ * failed and a ledger with nothing in it are not the same thing, and this
+ * screen is where somebody checks what they were charged.
  */
-async function loadRollups(filters: LedgerFilters): Promise<RollupRow[]> {
+async function loadRollups(
+  filters: LedgerFilters,
+): Promise<{ rows: RollupRow[]; error: string | null }> {
   let request = getSupabaseAdmin()
     .from("credit_ledger_daily")
     .select("user_id,ist_date,reason,truck_number,entries,credits,last_at,balance_after")
@@ -511,8 +517,24 @@ async function loadRollups(filters: LedgerFilters): Promise<RollupRow[]> {
   if (filters.kind === "used") request = request.lt("credits", 0);
   if (filters.kind === "added") request = request.gt("credits", 0);
 
-  const { data } = await request;
-  return (data ?? []) as RollupRow[];
+  const { data, error } = await request;
+  return { rows: (data ?? []) as RollupRow[], error: error?.message ?? null };
+}
+
+/**
+ * A failed read, said out loud.
+ *
+ * Both lists used to keep only the data and throw the error away, which turned
+ * "the query never ran" into "you have never been charged for anything" - the
+ * one answer a ledger must never give by accident.
+ */
+function LoadFailed({ message }: { message: string }) {
+  return (
+    <EmptyState
+      title="Could not read the ledger"
+      description={`${message}. Nothing has been lost — this is the screen failing to read the ledger, not the ledger being empty.`}
+    />
+  );
 }
 
 /** Added, spent and charge count across everything the filters match. */
@@ -595,7 +617,9 @@ async function RollupList({
   page: number;
   nameOf: Map<string, string>;
 }) {
-  const rows = await loadRollups(filters);
+  const { rows, error } = await loadRollups(filters);
+  if (error) return <LoadFailed message={error} />;
+
   const totals = totalsOf(rows);
 
   /* Fold onto whichever dimensions are on. A dimension that is off becomes null
@@ -774,33 +798,83 @@ async function EntryList({
   nameOf: Map<string, string>;
   platformWide: boolean;
 }) {
-  let request = getSupabaseAdmin()
-    .from("credit_transactions")
-    .select("id,created_at,user_id,reason,delta,balance_after,truck_number,note", {
-      count: "exact",
-    })
-    .gte("created_at", filters.since)
-    .order(sort === "largest" ? "delta" : "created_at", { ascending: sort !== "newest" });
+  /* Built by a function because it is run twice - once to count what matches,
+     once for the rows - and both have to see exactly the same filters. */
+  const build = (head: boolean) => {
+    let request = getSupabaseAdmin()
+      .from("credit_transactions")
+      .select("id,created_at,user_id,reason,delta,balance_after,truck_number,note", {
+        count: "exact",
+        head,
+      })
+      .gte("created_at", filters.since);
 
-  if (filters.userId) request = request.eq("user_id", filters.userId);
-  if (filters.until) request = request.lt("created_at", filters.until);
-  if (filters.reason) request = request.eq("reason", filters.reason);
-  if (filters.truck) request = request.eq("truck_number", filters.truck);
-  if (filters.kind === "used") request = request.lt("delta", 0);
-  if (filters.kind === "added") request = request.gt("delta", 0);
+    if (filters.userId) request = request.eq("user_id", filters.userId);
+    if (filters.until) request = request.lt("created_at", filters.until);
+    if (filters.reason) request = request.eq("reason", filters.reason);
+    if (filters.truck) request = request.eq("truck_number", filters.truck);
+    if (filters.kind === "used") request = request.lt("delta", 0);
+    if (filters.kind === "added") request = request.gt("delta", 0);
 
-  const from = (page - 1) * ENTRY_PAGE;
-  const [{ data, count }, rollups] = await Promise.all([
-    request.range(from, from + ENTRY_PAGE - 1),
-    /* The totals describe the whole filtered set, not this page, so they come
-       from the rollup - which already has every matching row summed. */
-    loadRollups(filters),
-  ]);
+    return request;
+  };
 
-  const rows = (data ?? []) as EntryRow[];
-  const total = count ?? rows.length;
+  /* The totals describe the whole filtered set, not this page, so they come
+     from the rollup - which already has every matching row summed. */
+  const rollups = await loadRollups(filters);
+  if (rollups.error) return <LoadFailed message={rollups.error} />;
+
+  let rows: EntryRow[];
+  let total: number;
+  let current: number;
+  let capped = false;
+
+  if (sort === "largest") {
+    /*
+     * Biggest means biggest by SIZE, and a 5,000-credit purchase and a
+     * 5,000-credit spend are the same size. This used to order by delta itself,
+     * which with "Credits added" on - every delta positive - listed a 1-credit
+     * bonus above a 5,000-credit purchase, the exact opposite of what was
+     * asked for.
+     *
+     * Postgres would answer it with abs(delta), but PostgREST cannot order by
+     * an expression, so the charges are read once and sorted here, the same way
+     * the grouped view has always done it. Capped like the rollups are, and the
+     * count line says so when the cap bites.
+     */
+    const { data, error } = await build(false)
+      .order("created_at", { ascending: false })
+      .limit(FOLD_CAP);
+    if (error) return <LoadFailed message={error.message} />;
+
+    const scanned = (data ?? []) as EntryRow[];
+    capped = scanned.length >= FOLD_CAP;
+    scanned.sort((a, b) => Math.abs(Number(b.delta)) - Math.abs(Number(a.delta)));
+
+    total = scanned.length;
+    current = Math.min(page, Math.max(Math.ceil(total / ENTRY_PAGE), 1));
+    rows = scanned.slice((current - 1) * ENTRY_PAGE, current * ENTRY_PAGE);
+  } else {
+    // Counted before the page is fetched: PostgREST answers a range that starts
+    // past the last charge with an error and no rows at all, so a stale link to
+    // page 9 read as "you have no charges" instead of "that page has gone".
+    const { count, error: countError } = await build(true);
+    if (countError) return <LoadFailed message={countError.message} />;
+
+    total = count ?? 0;
+    current = Math.min(page, Math.max(Math.ceil(total / ENTRY_PAGE), 1));
+    const from = (current - 1) * ENTRY_PAGE;
+
+    const { data, error } = await build(false)
+      .order("created_at", { ascending: sort === "oldest" })
+      .range(from, from + ENTRY_PAGE - 1);
+    if (error) return <LoadFailed message={error.message} />;
+
+    rows = (data ?? []) as EntryRow[];
+  }
+
   const pageCount = Math.max(Math.ceil(total / ENTRY_PAGE), 1);
-  const totals = totalsOf(rollups);
+  const totals = totalsOf(rollups.rows);
 
   if (rows.length === 0) {
     return (
@@ -817,7 +891,11 @@ async function EntryList({
         added={totals.added}
         spent={totals.spent}
         entries={totals.entries}
-        scope={`${total.toLocaleString("en-IN")} individual charge${total === 1 ? "" : "s"}`}
+        scope={`${total.toLocaleString("en-IN")} individual charge${total === 1 ? "" : "s"}${
+          capped
+            ? ` — the ${FOLD_CAP.toLocaleString("en-IN")} most recent, sorted by size, so narrow the dates for the whole ledger`
+            : ""
+        }`}
       />
 
       <ul className="divide-y divide-divider">
@@ -865,7 +943,7 @@ async function EntryList({
         basePath={basePath}
         query={query}
         keep={keep}
-        page={page}
+        page={current}
         pageCount={pageCount}
         total={total}
         noun="charges"

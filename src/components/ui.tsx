@@ -19,10 +19,20 @@ export function PageHeader({
   subtitle?: ReactNode;
   actions?: ReactNode;
 }) {
+  /*
+   * min-w-0 and break-words together, because the account page passes
+   * `full_name ?? email` as the title and full_name is nullable. An email
+   * address is one unbreakable token: without these, a flex child refuses to
+   * shrink below its content, the heading runs past the viewport, and the
+   * WHOLE page scrolls sideways - sticky header, stat cards and tab strip
+   * included - for any account whose owner never filled in a name.
+   */
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-strong sm:text-2xl">{title}</h1>
+      <div className="min-w-0 flex-1">
+        <h1 className="text-xl font-semibold tracking-tight break-words text-strong sm:text-2xl">
+          {title}
+        </h1>
         {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -48,15 +58,23 @@ export function Panel({
   className?: string;
   bodyClassName?: string;
 }) {
+  /*
+   * The actions row wraps as well as the header. A panel whose header carries
+   * three filter selects has more than a phone's width of controls in it, and
+   * without flex-wrap they are clipped by the panel's own overflow-hidden
+   * rather than moving to a second line.
+   */
   return (
     <section id={id} className={cx("panel overflow-hidden", className)}>
       {title ? (
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-4 py-3.5 sm:px-5">
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink">{title}</h2>
             {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
           </div>
-          {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>
+          ) : null}
         </header>
       ) : null}
       <div className={cx(bodyClassName ?? "p-4 sm:p-5")}>{children}</div>
@@ -245,7 +263,10 @@ export function StatCard({
         <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</p>
         {icon ? <span className="text-faint">{icon}</span> : null}
       </div>
-      <p className={cx("mt-2 text-2xl font-semibold tabular-nums", accent)}>{value}</p>
+      {/* break-words on the value: "Rs 12,34,56,789" in a two-column grid on a
+          360px phone is wider than its card, and a number that overflows its
+          own panel is worse than one that wraps. */}
+      <p className={cx("mt-2 text-2xl font-semibold break-words tabular-nums", accent)}>{value}</p>
       {sub ? <p className="mt-1 text-xs text-muted">{sub}</p> : null}
     </div>
   );

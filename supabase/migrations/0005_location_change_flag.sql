@@ -48,7 +48,8 @@ create index if not exists truck_events_user_change_time_idx
 -- A single place to ask "where has this truck actually been", used by the
 -- officer's timeline and records view so both agree on what counts as a move.
 -- ---------------------------------------------------------------------------
-create or replace view public.truck_movements with (security_invoker = on) as
+drop view if exists public.truck_movements;
+create view public.truck_movements with (security_invoker = on) as
 select
   e.id,
   e.user_id,

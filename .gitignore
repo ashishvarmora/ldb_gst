@@ -27,3 +27,6 @@ vercel-env.txt
 
 # Word lock files
 ~$*
+
+# Throwaway DB/inspection scripts, never shipped.
+.tmpwork/

@@ -20,6 +20,7 @@ import {
   saveCoupon,
   setCouponActive,
 } from "../credits/actions";
+import { pageWindow } from "../pager";
 import {
   ActionForm,
   ConfirmSubmitButton,
@@ -213,7 +214,7 @@ export async function CouponsTab({ params }: { params: SectionParams }) {
       </Panel>
 
       {selected ? (
-        <RedemptionsPanel coupon={selected} page={redPage} couponsPage={page} />
+        <RedemptionsPanel coupon={selected} pageParam={params.red} couponsPage={page} />
       ) : coupons.length > 0 ? (
         <Panel title="Who used a code" bodyClassName="p-0">
           <EmptyState
@@ -416,21 +417,34 @@ const REDEMPTION_LABEL = {
 
 async function RedemptionsPanel({
   coupon,
-  page,
+  pageParam,
   couponsPage,
 }: {
   coupon: CouponUsage;
-  page: number;
+  /** The raw ?red=, clamped here once this code's claims have been counted. */
+  pageParam: string | undefined;
   couponsPage: number;
 }) {
   const admin = getSupabaseAdmin();
 
-  const { data, count } = await admin
+  // Counted before a page of claims is asked for, the same way the code list
+  // above is clamped: PostgREST answers a range that starts past the last claim
+  // with an error and no total, so a stale ?red= would show an empty panel with
+  // nothing to click back to.
+  const { count } = await admin
     .from("coupon_redemptions")
-    .select("*", { count: "exact" })
+    .select("id", { count: "exact", head: true })
+    .eq("coupon_id", coupon.id);
+
+  const total = count ?? 0;
+  const { page, from, to } = pageWindow(pageParam, total, REDEMPTIONS_PER_PAGE);
+
+  const { data } = await admin
+    .from("coupon_redemptions")
+    .select("*")
     .eq("coupon_id", coupon.id)
     .order("created_at", { ascending: false })
-    .range((page - 1) * REDEMPTIONS_PER_PAGE, page * REDEMPTIONS_PER_PAGE - 1);
+    .range(from, to);
 
   const rows = (data ?? []) as CouponRedemption[];
   const nameOf = await namesFor(admin, rows.map((row) => row.user_id));
@@ -444,8 +458,16 @@ async function RedemptionsPanel({
     >
       {rows.length === 0 ? (
         <EmptyState
-          title={`Nobody has claimed ${coupon.code}`}
-          description="A row appears here the moment a checkout opens with this code, before any money arrives."
+          title={
+            total > 0
+              ? "That page is past the end of the claims"
+              : `Nobody has claimed ${coupon.code}`
+          }
+          description={
+            total > 0
+              ? "Use the page links below to get back."
+              : "A row appears here the moment a checkout opens with this code, before any money arrives."
+          }
         />
       ) : (
         <>
@@ -495,21 +517,23 @@ async function RedemptionsPanel({
               ))}
             </Tbody>
           </TableWrap>
-
-          <Pager
-            className="border-t border-divider px-5 py-3"
-            page={page}
-            total={count ?? rows.length}
-            pageSize={REDEMPTIONS_PER_PAGE}
-            noun="claims"
-            href={{
-              path: BASE_PATH,
-              params: { tab: "coupons", code: coupon.code, cp: couponsPage },
-              pageKey: "red",
-            }}
-          />
         </>
       )}
+
+      {/* Outside the branch above: a page with no claims on it is exactly when
+          the reader needs the link back to the pages that have some. */}
+      <Pager
+        className="border-t border-divider px-5 py-3"
+        page={page}
+        total={total}
+        pageSize={REDEMPTIONS_PER_PAGE}
+        noun="claims"
+        href={{
+          path: BASE_PATH,
+          params: { tab: "coupons", code: coupon.code, cp: couponsPage },
+          pageKey: "red",
+        }}
+      />
     </Panel>
   );
 }

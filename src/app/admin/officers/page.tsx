@@ -3,11 +3,12 @@ import { Filter, MessageCircle, Phone, Plus, Search, UserPlus } from "lucide-rea
 
 import { AccountFields } from "./AccountFields";
 import { createAccount } from "./actions";
+import { pageWindow, safeTerm, type AdminQuery } from "../pager";
 import { balanceTone } from "../tables";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { FormActions, Input, Select } from "@/components/form";
 import { Modal } from "@/components/Modal";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { Pager } from "@/components/Pager";
 import {
   Avatar,
   Badge,
@@ -70,40 +71,56 @@ export default async function AccountsPage({
   const params = await searchParams;
   const { q, status, plan } = params;
   const sort: SortKey = isSort(params.sort) ? params.sort : "recent";
-  const page = pageFromParam(params.page);
 
   const admin = getSupabaseAdmin();
 
   const { column, ascending } = SORTS[sort];
+  // What was typed goes into an .or(), where a comma separates the branches -
+  // so "Sharma, Rajesh" would split the filter mid-word and come back as a
+  // parse error rather than as a search.
+  const term = q ? safeTerm(q) : "";
 
-  // "officer" is the role name the database has always used for a customer
-  // account. It is a stored value, not wording, so it stays as it is.
-  let query = admin
-    .from("officer_overview")
-    .select("*", { count: "exact" })
-    .eq("role", "officer")
-    .order(column, { ascending, nullsFirst: false })
-    .range((page - 1) * PER_PAGE, page * PER_PAGE - 1);
+  /**
+   * The search, applied to the count and then to the page of rows. Both reads
+   * have to see exactly the same filters, and writing the chain twice is how
+   * one of them eventually stops matching the other.
+   */
+  const narrow = (query: AdminQuery): AdminQuery => {
+    // "officer" is the role name the database has always used for a customer
+    // account. It is a stored value, not wording, so it stays as it is.
+    let narrowed = query.eq("role", "officer");
 
-  if (status === "active" || status === "suspended") query = query.eq("status", status);
-  if (plan === "none") query = query.is("plan_id", null);
-  else if (plan) query = query.eq("plan_id", plan);
-  if (q) {
-    const term = `%${q}%`;
-    query = query.or(
-      `full_name.ilike.${term},email.ilike.${term},office.ilike.${term},district.ilike.${term}`,
-    );
-  }
+    if (status === "active" || status === "suspended") narrowed = narrowed.eq("status", status);
+    if (plan === "none") narrowed = narrowed.is("plan_id", null);
+    else if (plan) narrowed = narrowed.eq("plan_id", plan);
+    if (term) {
+      const like = `%${term}%`;
+      narrowed = narrowed.or(
+        `full_name.ilike.${like},email.ilike.${like},office.ilike.${like},district.ilike.${like}`,
+      );
+    }
 
-  const [{ data: accounts, error, count }, { data: plans }, settings] = await Promise.all([
-    query,
+    return narrowed;
+  };
+
+  // The count first, so the page number can be clamped to a page that exists.
+  const { count, error: countError } = await narrow(
+    admin.from("officer_overview").select("id", { count: "exact", head: true }),
+  );
+  const { page, from, to } = pageWindow(params.page, count ?? 0, PER_PAGE);
+
+  const [{ data: accounts, error: rowsError }, { data: plans }, settings] = await Promise.all([
+    narrow(admin.from("officer_overview").select("*"))
+      .order(column, { ascending, nullsFirst: false })
+      .range(from, to),
     admin.from("plans").select("*").order("sort_order"),
     loadSettings(admin),
   ]);
 
+  const error = countError ?? rowsError;
   const rows = (accounts ?? []) as OfficerOverview[];
   const planList = (plans ?? []) as Plan[];
-  const filtered = Boolean(q || status || plan);
+  const filtered = Boolean(term || status || plan);
   const total = count ?? rows.length;
 
   return (

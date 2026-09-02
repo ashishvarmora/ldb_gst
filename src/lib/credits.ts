@@ -122,6 +122,32 @@ export async function grantCredits({
   actorId?: string | null;
   note?: string | null;
 }): Promise<{ ok: boolean; balance?: number; error?: string }> {
+  /*
+   * Refused here rather than left to the database, because of how far it gets
+   * before anything stops it.
+   *
+   * JSON has no NaN and no Infinity, so a non-finite amount is serialised as
+   * null on the way out. grant_credits then evaluates `p_amount = 0` as NULL
+   * rather than false, falls straight through its own zero guard, and computes
+   * `greatest(credits + null, 0)` - which is greatest(null, 0), which is zero.
+   * The balance is set to nothing.
+   *
+   * What saves the account is two statements later and entirely by luck:
+   * credit_transactions.delta is NOT NULL, so the ledger insert raises and the
+   * whole function rolls back. Tested against the live database - the balance
+   * survives, and the aborted row shows balance_after = 0.00, which is what the
+   * update had already worked out. So the balance is protected by a constraint
+   * on a different table, and the caller gets a constraint violation instead of
+   * an answer. Both are worth fixing here.
+   *
+   * Negative amounts are deliberately still allowed. An administrator
+   * correcting a mistaken grant is the reason admin_adjust exists, and that
+   * correction is a negative delta.
+   */
+  if (!Number.isFinite(amount)) {
+    return { ok: false, error: "That is not a number of credits." };
+  }
+
   const { data, error } = await admin.rpc("grant_credits", {
     p_user: userId,
     p_amount: amount,

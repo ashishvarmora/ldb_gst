@@ -66,6 +66,16 @@ export async function resolveReferralCode(
  * Records the referral. Deliberately separate from account creation, and
  * deliberately swallowing its own errors: the account is what matters, the
  * attribution is not, and a failed insert here must never fail a sign-up.
+ *
+ * WHY A REFERRAL RING CANNOT FORM, which is worth writing down because it is a
+ * property of WHERE this is called from rather than of anything it checks:
+ * this runs once, during sign-up, for an account that did not exist a moment
+ * ago. A and B can only refer each other if each was invited by the other, and
+ * the second of those invitations would have to be attached to an account that
+ * already existed. Add a way to set a referrer after sign-up - an admin field,
+ * a "who invited you?" prompt on the settings page - and rings become possible
+ * immediately, at which point this needs a real cycle check and not just the
+ * self-referral guard below.
  */
 export async function attachReferral(
   admin: Admin,

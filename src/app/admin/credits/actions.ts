@@ -452,6 +452,22 @@ export async function saveReferralSettings(
     return fail("The share of a first payment must be between 0 and 100 percent.");
   }
 
+  /*
+   * The floor a payment has to clear before it earns the inviter anything.
+   *
+   * Without one, a referral could be manufactured: register throwaway accounts
+   * under your own code, buy the cheapest thing on the price list with the
+   * loudest coupon running, and collect the percentage plus the milestone
+   * bonus for a few rupees of real spend. 0 is allowed and is the default,
+   * because withholding a reward somebody was already promised is its own kind
+   * of wrong - a floor is a decision an administrator makes deliberately.
+   */
+  const minPaymentRaw = str(fd, "referral_min_payment");
+  const minPayment = minPaymentRaw === null ? null : Number(minPaymentRaw);
+  if (minPayment !== null && (!Number.isFinite(minPayment) || minPayment < 0 || minPayment > 1_000_000)) {
+    return fail("The qualifying payment must be between 0 and 10,00,000 rupees. Use 0 for no minimum.");
+  }
+
   const milestoneCount = number("referral_milestone_count");
   if (!Number.isInteger(milestoneCount) || milestoneCount < 0 || milestoneCount > 1_000) {
     return fail("The milestone is a whole number of referrals between 0 and 1,000. Use 0 for none.");
@@ -469,6 +485,16 @@ export async function saveReferralSettings(
     referral_milestone_count: milestoneCount,
     referral_milestone_bonus: Math.round(milestoneBonus * 100) / 100,
   };
+
+  /*
+   * Written only when the form actually carried the field. An absent box means
+   * "this form does not know about this setting", not "set it to nothing" -
+   * and a settings action that resets a value it was never shown is how a
+   * fraud control quietly turns itself off.
+   */
+  if (minPayment !== null) {
+    values.referral_min_payment = Math.round(minPayment * 100) / 100;
+  }
 
   const { data: existing } = await admin
     .from("app_settings")

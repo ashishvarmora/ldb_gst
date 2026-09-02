@@ -102,7 +102,8 @@ comment on view public.credit_ledger_daily is
 -- Not security_invoker: this looks across every account, which is exactly what
 -- row-level security would prevent, and only the console reads it.
 -- ---------------------------------------------------------------------------
-create or replace view public.credit_source_totals as
+drop view if exists public.credit_source_totals;
+create view public.credit_source_totals as
 select
   public.credit_source(c.reason, c.delta, c.actor_id) as source,
   c.reason,

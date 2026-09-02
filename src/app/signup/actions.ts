@@ -9,6 +9,7 @@ import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { fail, str } from "@/lib/forms";
 import { PHONE_ERROR, normaliseIndianMobile } from "@/lib/phone";
+import { clientIp, rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import { grantCredits } from "@/lib/credits";
 import { attachReferral, resolveReferralCode } from "@/lib/referrals";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -34,6 +35,23 @@ const schema = z.object({
 });
 
 export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  /*
+   * Counted first, before the settings read and before anything is written.
+   *
+   * A registration is not free to us even though it is free to the person
+   * making one: it creates an auth user, and it hands over the free-tier
+   * credits below. Somebody scripting this form mints accounts and, with them,
+   * credits - and one bonus code that is "once per account" becomes once per
+   * account they can be bothered to create.
+   *
+   * The address is the only thing there is to count at this point, since there
+   * is no session and the email is chosen by whoever is asking.
+   */
+  const throttle = await rateLimit("signup:ip", await clientIp());
+  if (!throttle.allowed) {
+    return fail(rateLimitMessage(throttle, "accounts created from here"));
+  }
+
   const settings = await publicSettings();
   // Checked again here, not only on the page: a closed sign-up that only hides
   // the form is still open to anyone who posts to the action directly.

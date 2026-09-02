@@ -2,69 +2,53 @@ import Link from "next/link";
 import { Filter, Search } from "lucide-react";
 
 import type { AccountParams } from "./TabStrip";
-import { Input, Select } from "@/components/form";
-import { Pager, pageFromParam } from "@/components/Pager";
+import { pageWindow } from "../../pager";
 import {
-  Badge,
+  TRUCK_SORTS,
+  TRUCK_STATUS_LABEL,
+  TRUCK_TRACKING_LABEL,
+  TrucksTable,
+  isTruckSort,
+  isTruckStatus,
+  isTruckTracking,
+  narrowTrucks,
+  type TruckFilters,
+} from "../../tables";
+import { Input, Select } from "@/components/form";
+import { Pager } from "@/components/Pager";
+import {
   EmptyState,
-  Mono,
   Panel,
   QuotaBar,
-  TableWrap,
-  Tbody,
-  Thead,
-  Tr,
   buttonClass,
 } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
-import { fmtDate, fmtNumber, fmtRelative } from "@/lib/format";
+import { normalizeTruckNumber } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { BadgeTone } from "@/components/ui";
-import type { OfficerOverview, TruckDirectoryRow, TruckStatus } from "@/lib/types";
+import type { OfficerOverview, TruckDirectoryRow } from "@/lib/types";
 
 const PER_PAGE = 25;
 
-const STATUS_TONE: Record<TruckStatus, BadgeTone> = {
-  moving: "good",
-  idle: "warn",
-  no_activity: "bad",
-  unknown: "neutral",
-};
-
-const STATUS_LABEL: Record<TruckStatus, string> = {
-  moving: "Moving",
-  idle: "Idle",
-  no_activity: "No activity",
-  unknown: "Unknown",
-};
-
 /**
- * The orders that answer a real question about a fleet: what moved last, what
- * has gone quiet, what nobody is watching, and what was added when.
+ * What this tab reads out of the query string.
+ *
+ * AccountParams lives beside the tab strip and lists what the account page's
+ * tabs were known to use; ttracking is new here. Next hands every query
+ * parameter through whether or not that type mentions it, so naming the shape
+ * this tab needs is honest about the extra one rather than casting at the point
+ * of use.
  */
-const SORTS = {
-  event: { label: "Last crossing", column: "last_event_at", ascending: false },
-  added: { label: "Recently added", column: "created_at", ascending: false },
-  number: { label: "Truck number", column: "truck_number", ascending: true },
-  alerts: { label: "Fewest alerts", column: "alert_count", ascending: true },
-  events: { label: "Most crossings", column: "event_count", ascending: false },
-} as const;
-
-type SortKey = keyof typeof SORTS;
-
-function isSort(value: string | undefined): value is SortKey {
-  return value !== undefined && value in SORTS;
-}
-
-function isStatus(value: string | undefined): value is TruckStatus {
-  return value === "moving" || value === "idle" || value === "no_activity" || value === "unknown";
-}
+type TruckTabParams = AccountParams & { ttracking?: string };
 
 /**
  * Every truck this account has under tracking. Read-only here - trucks are
  * added and removed from the customer's own dashboard, and an admin quietly
  * deleting one would be a surprise nobody can explain.
+ *
+ * The same list as /admin/trucks, narrowed to one account, so the filters, the
+ * sorts and the rows come from ../../tables rather than being written a second
+ * time here. The parameters keep their t- prefix because this tab shares a
+ * query string with the other four.
  */
 export async function TrucksTab({
   id,
@@ -73,40 +57,55 @@ export async function TrucksTab({
 }: {
   id: string;
   overview: OfficerOverview;
-  params: AccountParams;
+  params: TruckTabParams;
 }) {
   const admin = getSupabaseAdmin();
 
   const q = params.tq?.trim() || undefined;
-  const status = params.tstatus;
-  const sort: SortKey = isSort(params.tsort) ? params.tsort : "event";
-  const page = pageFromParam(params.tpage);
-  const { column, ascending } = SORTS[sort];
+  const plate = q ? normalizeTruckNumber(q) : "";
+  const status = isTruckStatus(params.tstatus) ? params.tstatus : "";
+  /*
+   * tstatus used to carry "paused" and "unwatched" alongside the movement
+   * states. Those are tracking states now - whether the platform checks this
+   * lorry at all is a different question from how it last moved - so an old
+   * link is read as the filter it meant rather than silently losing it.
+   */
+  const tracking = isTruckTracking(params.ttracking)
+    ? params.ttracking
+    : isTruckTracking(params.tstatus)
+      ? params.tstatus
+      : "";
+  const sort = isTruckSort(params.tsort) ? params.tsort : "event";
+  const { column, ascending } = TRUCK_SORTS[sort];
+
+  const filters: TruckFilters = { officerId: id, plate, status, tracking };
+
+  // The count first, so a stale ?tpage= is clamped to a page that exists:
+  // PostgREST answers a range past the last row with an error and no total,
+  // which would render as an empty tab with no link back.
+  const { count } = await narrowTrucks(
+    admin.from("truck_directory").select("tracked_truck_id", { count: "exact", head: true }),
+    filters,
+  );
+  const total = count ?? 0;
+  const { page, from, to } = pageWindow(params.tpage, total, PER_PAGE);
 
   // truck_directory already carries the alert and event counts, so the table is
   // one query rather than one per truck.
-  let query = admin
-    .from("truck_directory")
-    .select("*", { count: "exact" })
-    .eq("officer_id", id)
-    .order(column, { ascending, nullsFirst: false })
-    .range((page - 1) * PER_PAGE, page * PER_PAGE - 1);
-
-  if (isStatus(status)) query = query.eq("status", status);
-  else if (status === "paused") query = query.eq("is_active", false);
-  else if (status === "unwatched") query = query.eq("alert_count", 0);
-  if (q) query = query.ilike("truck_number", `%${q.toUpperCase().replace(/[^A-Z0-9]/g, "")}%`);
-
-  const [{ data, count }, { data: spendRows }] = await Promise.all([
-    query,
+  const [{ data }, { data: spendRows }] = await Promise.all([
+    narrowTrucks(admin.from("truck_directory").select("*"), filters)
+      .order(column, { ascending, nullsFirst: false })
+      .order("tracked_truck_id", { ascending: true })
+      .range(from, to),
     admin
       .from("credit_ledger_daily")
       .select("truck_number, credits")
       .eq("user_id", id)
       .lt("credits", 0),
   ]);
+
   const trucks = (data ?? []) as TruckDirectoryRow[];
-  const filtered = Boolean(q || status);
+  const filtered = Boolean(q || status || tracking);
 
   /* Credits spent per truck, across the whole ledger - the admin's question is
      "what has this lorry cost", not "what did it cost this page". */
@@ -153,18 +152,28 @@ export async function TrucksTab({
           />
         </div>
 
-        <Select name="tstatus" defaultValue={status ?? ""} className="w-44 py-1.5 text-xs">
-          <option value="">Any state</option>
-          <option value="moving">Moving</option>
-          <option value="idle">Idle</option>
-          <option value="no_activity">No activity</option>
-          <option value="unknown">Never seen</option>
-          <option value="paused">Paused</option>
-          <option value="unwatched">No alert switched on</option>
+        {/* Whether it is being checked at all comes before how it last moved,
+            the same order the platform-wide list puts them in. */}
+        <Select name="ttracking" defaultValue={tracking} className="w-48 py-1.5 text-xs">
+          <option value="">Live and paused</option>
+          {Object.entries(TRUCK_TRACKING_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+
+        <Select name="tstatus" defaultValue={status} className="w-40 py-1.5 text-xs">
+          <option value="">Any status</option>
+          {Object.entries(TRUCK_STATUS_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </Select>
 
         <Select name="tsort" defaultValue={sort} className="w-48 py-1.5 text-xs">
-          {Object.entries(SORTS).map(([key, option]) => (
+          {Object.entries(TRUCK_SORTS).map(([key, option]) => (
             <option key={key} value={key}>
               Sort by {option.label.toLowerCase()}
             </option>
@@ -175,11 +184,8 @@ export async function TrucksTab({
           <Filter size={13} />
           Apply
         </button>
-        {filtered ? (
-          <Link
-            href={`/admin/officers/${id}?tab=trucks`}
-            className={buttonClass("ghost", "sm")}
-          >
+        {filtered || sort !== "event" ? (
+          <Link href={`/admin/officers/${id}?tab=trucks`} className={buttonClass("ghost", "sm")}>
             Clear
           </Link>
         ) : null}
@@ -187,89 +193,39 @@ export async function TrucksTab({
 
       {trucks.length === 0 ? (
         <EmptyState
-          title={filtered ? "No trucks match those filters" : "No trucks under tracking"}
+          title={
+            total > 0
+              ? "That page is past the end of the list"
+              : filtered
+                ? "No trucks match those filters"
+                : "No trucks under tracking"
+          }
           description={
-            filtered
-              ? "Try clearing the filters."
-              : "Nothing is being checked for this account yet."
+            total > 0
+              ? "Use the page links below to get back."
+              : filtered
+                ? "Try clearing the filters."
+                : "Nothing is being checked for this account yet."
           }
         />
       ) : (
-        <>
-          <TableWrap>
-            <Thead>
-              <th className="th">Truck</th>
-              <th className="th">Tracking</th>
-              <th className="th text-right">Credits used</th>
-              <th className="th text-right">Alerts on</th>
-              <th className="th">Last checked</th>
-              <th className="th text-right">Crossings</th>
-              <th className="th">Added</th>
-            </Thead>
-            <Tbody>
-              {trucks.map((truck) => (
-                <Tr key={truck.tracked_truck_id}>
-                  <td className="td">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Link
-                        href={`/admin/explore?q=${truck.truck_number}`}
-                        className="transition hover:text-brand-500"
-                      >
-                        <Mono className="font-semibold text-ink">{truck.truck_number}</Mono>
-                      </Link>
-                      {truck.is_active ? null : <Badge>paused</Badge>}
-                    </span>
-                    {truck.label ? (
-                      <span className="block text-xs text-faint">{truck.label}</span>
-                    ) : null}
-                  </td>
-                  <td className="td">
-                    {truck.is_active ? (
-                      <Badge tone={STATUS_TONE[truck.status]}>{STATUS_LABEL[truck.status]}</Badge>
-                    ) : (
-                      <Badge>paused</Badge>
-                    )}
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-ink">
-                    {spentByTruck.get(truck.truck_number)
-                      ? formatCredits(spentByTruck.get(truck.truck_number)!)
-                      : <span className="text-faint">0</span>}
-                  </td>
-                  <td className="td text-right">
-                    {truck.alert_count === 0 ? (
-                      <Badge tone="warn">none</Badge>
-                    ) : (
-                      <span className="text-sm tabular-nums text-ink">{truck.alert_count}</span>
-                    )}
-                  </td>
-                  <td className="td text-xs whitespace-nowrap text-muted">
-                    {fmtRelative(truck.last_polled_at)}
-                  </td>
-                  <td className="td text-right text-sm tabular-nums text-muted">
-                    {fmtNumber(truck.event_count)}
-                  </td>
-                  <td className="td text-xs whitespace-nowrap text-muted">
-                    {fmtDate(truck.created_at)}
-                  </td>
-                </Tr>
-              ))}
-            </Tbody>
-          </TableWrap>
-
-          <Pager
-            className="border-t border-divider px-5 py-3"
-            page={page}
-            total={count ?? trucks.length}
-            pageSize={PER_PAGE}
-            noun="trucks"
-            href={{
-              path: `/admin/officers/${id}`,
-              params: { tab: "trucks", tq: q, tstatus: status, tsort: sort },
-              pageKey: "tpage",
-            }}
-          />
-        </>
+        <TrucksTable rows={trucks} spentByTruck={spentByTruck} />
       )}
+
+      {/* Outside the branch above: a page with no rows on it is exactly when
+          the reader needs the link back to the pages that have some. */}
+      <Pager
+        className="border-t border-divider px-5 py-3"
+        page={page}
+        total={total}
+        pageSize={PER_PAGE}
+        noun="trucks"
+        href={{
+          path: `/admin/officers/${id}`,
+          params: { tab: "trucks", tq: q, tstatus: status, ttracking: tracking, tsort: sort },
+          pageKey: "tpage",
+        }}
+      />
 
       <p className="border-t border-divider px-5 py-3 text-xs leading-relaxed text-muted">
         A truck with no alert switched on is never checked, so it costs nothing and never moves.

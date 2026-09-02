@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
+import { rateLimit } from "@/lib/ratelimit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -59,6 +60,30 @@ export async function GET(request: NextRequest) {
   const session = await getSessionUser();
   if (!session) {
     return new Response("Sign in first.", { status: 401 });
+  }
+
+  /*
+   * A suspended account keeps its session cookie until it expires, so "signed
+   * in" is not the same question as "still allowed". Every Server Action goes
+   * through assertPortalUser(), which asks both; this route only asked the
+   * first, and so kept handing a suspended account its own history on request.
+   */
+  if (session.profile.status !== "active") {
+    return new Response("This account has been suspended.", { status: 403 });
+  }
+
+  /*
+   * One request assembles up to fifty thousand rows and then looks up a profile
+   * for every distinct account in them. Nobody downloads the same spreadsheet
+   * five times in five minutes on purpose, and a loop that does is expensive
+   * for everyone else on the database.
+   */
+  const throttle = await rateLimit("export:user", session.id);
+  if (!throttle.allowed) {
+    return new Response("Too many exports. Please wait a moment and try again.", {
+      status: 429,
+      headers: { "Retry-After": String(throttle.retryAfter) },
+    });
   }
 
   const params = request.nextUrl.searchParams;

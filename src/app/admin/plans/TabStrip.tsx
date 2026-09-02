@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Coins, History, Package } from "lucide-react";
+import { Coins, Package } from "lucide-react";
 
 import { cx } from "@/components/ui";
 
@@ -15,8 +15,13 @@ import { cx } from "@/components/ui";
  * Referrals and Coupons used to be tabs four and five here. They are their own
  * section now - /admin/rewards - because they are levers for getting customers
  * rather than for pricing the product, and mixing them in made this heading
- * cover two unrelated jobs. What is left reads as one straight line: set the
- * plans, set the rules, read what happened.
+ * cover two unrelated jobs.
+ *
+ * History was tab three, and is now /admin/finance. It was a revenue report
+ * living behind a price list: it summed payments over a capped scan of two
+ * thousand rows in JavaScript, filtered on a payment status the schema never
+ * writes, and answered half of what the Finance section answers properly. Two
+ * reports of the same money is one report that is wrong. Old links redirect.
  *
  * The tab lives in the query string rather than in client state, the same way
  * the account page does it: every tab is server-rendered from its own queries,
@@ -28,7 +33,6 @@ import { cx } from "@/components/ui";
 export const TABS = [
   { key: "plans", label: "Plans", icon: Package },
   { key: "rules", label: "Credit rules", icon: Coins },
-  { key: "history", label: "History", icon: History },
 ] as const;
 
 export type Tab = (typeof TABS)[number]["key"];
@@ -38,15 +42,6 @@ export const BASE_PATH = "/admin/plans";
 /** Every query parameter this section reads, across all five tabs. */
 export type SectionParams = {
   tab?: string;
-  /**
-   * History tab: the payment filters, how the per-customer list is ordered, and
-   * a page number for each of the two lists.
-   */
-  status?: string;
-  kind?: string;
-  csort?: string;
-  pay?: string;
-  cust?: string;
   /** Referrals tab. */
   ref?: string;
   /**

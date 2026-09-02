@@ -158,7 +158,13 @@ as $fn$
 $fn$;
 
 revoke all on function public.search_plazas(text, integer) from public;
-grant execute on function public.search_plazas(text, integer) to authenticated, service_role;
+-- Granted to service_role only. An earlier version of this line also named
+-- `authenticated`, on the assumption that the browser would call this directly.
+-- It never has - every .rpc() in this codebase goes through the server-side
+-- service client - so the grant only widened the attack surface, and
+-- 0025_security_hardening.sql revoked it again on every run. Removed here so
+-- the file says what is actually intended.
+grant execute on function public.search_plazas(text, integer) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. Credit history that a person can read
@@ -167,7 +173,8 @@ grant execute on function public.search_plazas(text, integer) to authenticated, 
 -- for. Usage is grouped per day and per kind, so a week of half-credit checks
 -- is seven lines instead of seven hundred.
 -- ---------------------------------------------------------------------------
-create or replace view public.credit_activity with (security_invoker = on) as
+drop view if exists public.credit_activity;
+create view public.credit_activity with (security_invoker = on) as
 select
   c.user_id,
   c.created_at,

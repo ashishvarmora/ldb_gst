@@ -1,9 +1,8 @@
-import { HistoryTab } from "./HistoryTab";
 import { PlansTab } from "./PlansTab";
 import { RulesTab } from "./RulesTab";
 import { TabStrip, activeTab, type SectionParams, type Tab } from "./TabStrip";
 import { redirect } from "next/navigation";
-import { Gift } from "lucide-react";
+import { Gift, IndianRupee } from "lucide-react";
 import { LinkCard, PageHeader } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 
@@ -19,8 +18,6 @@ const INTRO: Record<Tab, string> = {
     "What a customer buys first. A plan sets the monthly price, the credits the account opens with, and how many trucks may be tracked automatically.",
   rules:
     "Two conversions, both set here, both live from the moment you save. Money becomes credits at the pack prices; credits become work at the rates below.",
-  history:
-    "What has already happened, one customer per row. Open a customer for their own credit history; the payment list underneath is the platform-wide record. Nothing on this tab can be edited.",
 };
 
 export default async function PlansAndCreditsPage({
@@ -31,11 +28,14 @@ export default async function PlansAndCreditsPage({
   await requireSuperAdmin();
   const params = await searchParams;
 
-  /* Referrals and coupons moved to their own section. Old links and bookmarks
-     land there rather than on a tab that silently became Plans. */
+  /* Referrals and coupons moved to their own section, and History became the
+     Finance report. Old links and bookmarks land where the thing they were
+     looking for actually lives, rather than on a tab that silently became
+     Plans. */
   if (params.tab === "referrals" || params.tab === "coupons") {
     redirect(`/admin/rewards?section=${params.tab}`);
   }
+  if (params.tab === "history") redirect("/admin/finance");
 
   const tab = activeTab(params.tab);
 
@@ -46,16 +46,21 @@ export default async function PlansAndCreditsPage({
 
       {tab === "plans" ? <PlansTab /> : null}
       {tab === "rules" ? <RulesTab /> : null}
-      {tab === "history" ? <HistoryTab params={params} /> : null}
 
-      {/* Named and linked rather than embedded: they are a different job, and
-          somebody who came here looking for them should find the way. */}
-      <div className="mt-5">
+      {/* Named and linked rather than embedded: each is a different job, and
+          somebody who came here looking for one should find the way. */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <LinkCard
           href="/admin/rewards"
           icon={<Gift size={16} />}
           title="Referrals and coupons"
           description="Invite-and-earn terms, discount codes, and what each has cost — in their own section."
+        />
+        <LinkCard
+          href="/admin/finance"
+          icon={<IndianRupee size={16} />}
+          title="What these prices have earned"
+          description="Revenue by day and by method, the credit economy, and every receipt — in Finance."
         />
       </div>
     </>

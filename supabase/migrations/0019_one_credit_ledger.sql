@@ -36,7 +36,8 @@
 -- ---------------------------------------------------------------------------
 -- 1. The one rollup
 -- ---------------------------------------------------------------------------
-create or replace view public.credit_ledger_daily with (security_invoker = on) as
+drop view if exists public.credit_ledger_daily;
+create view public.credit_ledger_daily with (security_invoker = on) as
 select
   c.user_id,
   (c.created_at at time zone 'Asia/Kolkata')::date as ist_date,

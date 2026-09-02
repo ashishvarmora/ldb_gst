@@ -6,7 +6,19 @@ import { redirect } from "next/navigation";
 import { fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { runManualLookup } from "@/lib/manual-search";
 import { assertPortalUser } from "@/lib/officer";
+import { rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import type { ActionResult } from "@/lib/types";
+
+/**
+ * Both lookups here are throttled per account, and neither limit is about
+ * abuse of the balance: the credit charge already caps how many searches
+ * somebody may run, and spend_credits decides that atomically. This exists for
+ * the two things a balance does not cover - a client stuck in a retry loop,
+ * which would empty that balance in seconds before anybody noticed, and the
+ * toll portal upstream, which rate-limits this platform as a whole and so lets
+ * one runaway account degrade every other officer's searches.
+ */
+const SEARCH_SUBJECT = "searches at once";
 
 /**
  * Manual lookup from the search box. On success it lands on a permanent URL for
@@ -17,6 +29,9 @@ export async function manualSearch(
   fd: FormData,
 ): Promise<ActionResult> {
   const session = await assertPortalUser();
+
+  const throttle = await rateLimit("search:user", session.id);
+  if (!throttle.allowed) return fail(rateLimitMessage(throttle, SEARCH_SUBJECT));
 
   const raw = str(fd, "truck_number");
   if (!raw) return fail("Enter a truck number.");
@@ -44,6 +59,9 @@ export async function searchAgain(
   fd: FormData,
 ): Promise<ActionResult> {
   const session = await assertPortalUser();
+
+  const throttle = await rateLimit("search:user", session.id);
+  if (!throttle.allowed) return fail(rateLimitMessage(throttle, SEARCH_SUBJECT));
 
   const raw = str(fd, "truck_number");
   if (!raw) return fail("Missing truck number.");

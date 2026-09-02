@@ -130,7 +130,8 @@ on conflict (key) do nothing;
 -- summary readable, and this exists to be specific. Both are wanted, for
 -- different questions.
 -- ---------------------------------------------------------------------------
-create or replace view public.my_activity with (security_invoker = on) as
+drop view if exists public.my_activity;
+create view public.my_activity with (security_invoker = on) as
 select
   s.user_id,
   s.created_at,
