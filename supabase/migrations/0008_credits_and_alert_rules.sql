@@ -146,7 +146,21 @@ grant execute on function public.spend_credits(uuid, text, integer, text) to ser
 -- ---------------------------------------------------------------------------
 -- grant_credits - the only way credits come in. Used by the admin panel and,
 -- later, by the payment webhook.
+--
+-- THE DROP KEEPS THIS FILE RE-RUNNABLE, and it is not defensive noise. 0034
+-- adds a sixth argument, and `create or replace` with a different argument list
+-- OVERLOADS rather than replaces - so on every re-run this file recreated the
+-- five-argument version beside 0034's six, and the five-argument call at the
+-- foot of this file then bound to neither (42725, "is not unique"). That failed
+-- the whole chain HERE, at 0008, so nothing after it applied - including the
+-- files that would have fixed it.
+--
+-- Dropping first is safe in both directions because migrations run in filename
+-- order: this file leaves exactly one five-argument function, and 0034 then
+-- turns that into exactly one six-argument function. Never two.
 -- ---------------------------------------------------------------------------
+drop function if exists public.grant_credits(uuid, numeric, text, uuid, text, uuid);
+
 create or replace function public.grant_credits(
   p_user   uuid,
   p_amount numeric,
