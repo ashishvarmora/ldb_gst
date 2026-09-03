@@ -1,14 +1,25 @@
 import Link from "next/link";
-import { Bell, CheckCircle2, ExternalLink, KeyRound, Send, Sheet, User } from "lucide-react";
+import {
+  Bell,
+  CheckCircle2,
+  ExternalLink,
+  KeyRound,
+  MessageCircle,
+  Send,
+  Sheet,
+  User,
+} from "lucide-react";
 
 import { CopyAddress } from "./CopyAddress";
 import { saveMySheet, saveMyTelegram, testMyTelegram, updateMyProfile } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Disclosure } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form";
+import { LabelWithInfo } from "@/components/InfoTip";
 import { PhoneField } from "@/components/PhoneInput";
 import { publicSettings } from "@/components/SiteFooter";
-import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
+import { TelegramChatIdInfo } from "@/components/TelegramChatIdInfo";
+import { Badge, DescRow, PageHeader, Panel } from "@/components/ui";
 import { env, integrationHealth } from "@/lib/env";
 import { friendlyError } from "@/lib/errors";
 import { fmtDate, fmtRelative } from "@/lib/format";
@@ -43,7 +54,7 @@ export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ brandName, supportEmail }, { data: telegram }, { data: sheet }] = await Promise.all([
+  const [{ supportEmail }, { data: telegram }, { data: sheet }] = await Promise.all([
     publicSettings(),
     admin.from("telegram_configs").select("*").eq("user_id", overview.id).maybeSingle<TelegramConfig>(),
     admin
@@ -229,15 +240,27 @@ export default async function PortalSettingsPage() {
           >
             <ActionForm action={saveMyTelegram} closeOnSuccess={false}>
               <div className="space-y-4">
-                <Field label="Chat id" name="chat_id" hint="A plain number. Your phone number is never used.">
+                {/* The steps used to be a Disclosure under the whole panel,
+                    which put the answer three rows below the question and left
+                    a heading of prose on screen for everyone who already knew.
+                    Behind the (i) beside the field it is in reach of the box it
+                    describes, and invisible until asked for. */}
+                <div>
+                  <LabelWithInfo
+                    label="Chat id"
+                    htmlFor="chat_id"
+                    info={<TelegramChatIdInfo />}
+                  />
                   <Input
+                    id="chat_id"
                     name="chat_id"
                     defaultValue={telegram?.chat_id ?? ""}
                     inputMode="numeric"
                     placeholder="e.g. 123456789"
-                    className="font-mono"
+                    className="mt-1.5 font-mono"
                   />
-                </Field>
+                  <p className="field-hint">A plain number. Your phone number is never used.</p>
+                </div>
                 <Checkbox
                   name="is_enabled"
                   label="Send me alerts on Telegram"
@@ -291,38 +314,20 @@ export default async function PortalSettingsPage() {
               </p>
             </div>
 
-            {/* Three steps most people do once and never read again. */}
-            <Disclosure title="How do I find my chat id?" className="mt-4">
-              <ol className="space-y-2 text-xs leading-relaxed text-muted">
-                <li className="flex gap-2">
-                  <span className="font-mono text-brand-500">1.</span>
-                  <span>
-                    Send <Mono className="text-ink">/start</Mono> to the {brandName} alerts bot on
-                    Telegram. A bot cannot message you until you have started it.
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-mono text-brand-500">2.</span>
-                  <span>
-                    Send <Mono className="text-ink">/start</Mono> to{" "}
-                    <Mono className="text-ink">@userinfobot</Mono>. It replies with your{" "}
-                    <strong className="text-ink">Id</strong> — a plain number.
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-mono text-brand-500">3.</span>
-                  <span>Paste it above, save, then send a test.</span>
-                </li>
-              </ol>
-              {supportEmail ? (
-                <p className="mt-2.5 text-xs text-faint">
-                  Not sure which bot?{" "}
-                  <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
-                    {supportEmail}
-                  </a>
-                </p>
-              ) : null}
-            </Disclosure>
+            {/*
+              The second channel, visible and unusable.
+              It is built and switched off - there is no WhatsApp account behind
+              it yet - and saying so is better than either hiding it, which
+              turns "can I get these on WhatsApp?" into a support email, or
+              offering a switch that silently sends nothing.
+            */}
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
+              <span className="flex min-w-0 items-center gap-2 text-sm text-muted">
+                <MessageCircle size={14} className="shrink-0 text-faint" />
+                WhatsApp alerts
+              </span>
+              <Badge tone="neutral">coming soon</Badge>
+            </div>
           </Panel>
 
           {/* ================= where history is kept ================= */}

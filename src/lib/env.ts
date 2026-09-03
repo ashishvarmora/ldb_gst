@@ -28,6 +28,22 @@ export const env = {
   get telegramBotToken() {
     return process.env.TELEGRAM_BOT_TOKEN ?? "";
   },
+  /**
+   * WhatsApp Cloud API, the second alert channel. Nothing is set yet - there is
+   * no business account - so these are empty, whatsappConfigured() is false and
+   * every send is a logged no-op. The url has a default because only the token
+   * and the phone number id are ever account-specific; override it to move to a
+   * newer Graph version without a code change.
+   */
+  get whatsappApiUrl() {
+    return process.env.WHATSAPP_API_URL ?? "https://graph.facebook.com/v21.0";
+  },
+  get whatsappToken() {
+    return process.env.WHATSAPP_TOKEN ?? "";
+  },
+  get whatsappPhoneId() {
+    return process.env.WHATSAPP_PHONE_ID ?? "";
+  },
   get googleServiceAccountEmail() {
     return process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
   },
@@ -82,6 +98,10 @@ export function integrationHealth() {
     ),
     serviceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    // False everywhere today, and expected to be: the channel is built but
+    // unbought. Shown on the health panel so it reads as "not yet" rather than
+    // as a feature nobody knows exists.
+    whatsapp: Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID),
     googleSheets: Boolean(
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
     ),

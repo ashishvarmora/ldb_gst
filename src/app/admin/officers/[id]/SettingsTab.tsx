@@ -5,7 +5,9 @@ import { AccountFields } from "../AccountFields";
 import { assignPlan, deleteAccount, saveAccountIntegrations, updateAccount } from "../actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
+import { LabelWithInfo } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
+import { TelegramChatIdInfo } from "@/components/TelegramChatIdInfo";
 import { Badge, DescRow, Panel } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
@@ -78,17 +80,23 @@ export async function SettingsTab({
           <ActionForm action={saveAccountIntegrations} closeOnSuccess={false}>
             <input type="hidden" name="user_id" value={id} />
             <div className="space-y-4">
-              <Field
-                label="Telegram chat id"
-                name="telegram_chat_id"
-                hint="They send /start to your bot; the bot replies with this number."
-              >
+              {/* The same three steps the customer sees on their own settings
+                  page, so an admin filling this in for somebody can read them
+                  the identical instructions instead of a paraphrase. */}
+              <div>
+                <LabelWithInfo
+                  label="Telegram chat id"
+                  htmlFor="telegram_chat_id"
+                  info={<TelegramChatIdInfo />}
+                />
                 <Input
+                  id="telegram_chat_id"
                   name="telegram_chat_id"
                   defaultValue={telegram?.chat_id ?? ""}
                   placeholder="123456789"
+                  className="mt-1.5"
                 />
-              </Field>
+              </div>
 
               <Field
                 label="Own bot token"

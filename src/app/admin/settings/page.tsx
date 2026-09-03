@@ -686,6 +686,14 @@ export default async function SettingsPage({
                 label="Platform Telegram bot"
                 detail="TELEGRAM_BOT_TOKEN"
               />
+              {/* Expected to be red, and here anyway: the channel is built and
+                  waiting on an account, so this row is the only place that says
+                  what is missing before WhatsApp alerts can be switched on. */}
+              <HealthRow
+                ok={health.whatsapp}
+                label="WhatsApp alerts"
+                detail="WHATSAPP_TOKEN + WHATSAPP_PHONE_ID. Until both are set, WhatsApp is shown to customers as coming soon and sends nothing — Telegram is unaffected"
+              />
               <HealthRow
                 ok={health.googleSheets}
                 label="Google service account"

@@ -1,5 +1,7 @@
 import { Field, FormGrid, Input, Select, Textarea } from "@/components/form";
+import { LabelWithInfo } from "@/components/InfoTip";
 import { PhoneField } from "@/components/PhoneInput";
+import { TelegramChatIdInfo } from "@/components/TelegramChatIdInfo";
 import { formatCredits } from "@/lib/credits";
 import type { Plan, Profile } from "@/lib/types";
 
@@ -119,13 +121,17 @@ export function AccountFields({
       ) : null}
 
       {mode === "create" ? (
-        <Field
-          label="Telegram chat id"
-          name="telegram_chat_id"
-          hint="Optional now. They send /start to your bot to get it, and can fill it in themselves later."
-        >
-          <Input name="telegram_chat_id" placeholder="123456789" />
-        </Field>
+        <div>
+          <LabelWithInfo
+            label="Telegram chat id"
+            htmlFor="telegram_chat_id"
+            info={<TelegramChatIdInfo />}
+          />
+          <Input id="telegram_chat_id" name="telegram_chat_id" placeholder="123456789" className="mt-1.5" />
+          <p className="field-hint">
+            Optional now — they can fill it in themselves from their own settings later.
+          </p>
+        </div>
       ) : null}
 
       <Field label="Internal notes" name="notes" hint="Only you can see this.">
