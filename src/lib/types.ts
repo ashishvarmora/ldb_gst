@@ -16,19 +16,40 @@ export type Plan = {
   description: string | null;
   /** How many trucks may be under automatic checking at once. */
   truck_limit: number;
+  /**
+   * The same number as truck_limit, under the word the product uses. Generated
+   * in the database (0038), so it can never disagree with it - and so nothing
+   * writes here: a change is written to truck_limit, which is where every
+   * writer already writes.
+   */
+  tracking_slots: number;
   /** Credits handed over when the plan is assigned. */
   included_credits: number;
+  /**
+   * The price of ONE TERM, not of a month, whatever the column is called.
+   *
+   * duration_months is 1 on every paid plan, so pricePlan()'s
+   * price_per_month x months charges this figure once - Rs 999 for ninety
+   * days rather than Rs 999 three times. Renaming the column would mean
+   * rewriting the checkout, the admin form and every screen that quotes it;
+   * 0038 documents the meaning instead.
+   */
   price_per_month: number;
   /**
-   * How long the plan runs from the day it is bought. Null is no expiry.
+   * What the CHARGE is multiplied by. 1 on every plan sold today.
    *
-   * settle_payment() is the authority: it reads this column, not the term on
-   * the payment row, so the plan decides its own length and the buyer cannot.
-   * Restricted to 1, 3, 6 or 12 by a check constraint, because the checkout
-   * charges price_per_month x this and only prices those four terms - see
-   * PLAN_MONTHS in BuyCredits.tsx and ALLOWED_MONTHS in checkout-actions.ts.
+   * Not the term any more - see duration_days, which is. Kept because
+   * pricePlan() charges price_per_month x this and its check constraint only
+   * admits 1, 3, 6 or 12; a seven-day plan has no number of months to give it.
    */
   duration_months: number | null;
+  /**
+   * How long access lasts, in days, from the day it is bought. THE authority
+   * on the term - settle_payment() reads this first and only falls back to
+   * duration_months for a plan row 0038 did not convert. Null on the trial,
+   * which carries trial_days instead.
+   */
+  duration_days: number | null;
   /**
    * The free trial row, of which there is at most one. It is free by
    * constraint, so it can never be bought; start_free_trial() hands it over.

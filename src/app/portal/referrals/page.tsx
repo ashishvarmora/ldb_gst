@@ -17,7 +17,16 @@ import { env } from "@/lib/env";
 import { HelpNote } from "@/components/Disclosure";
 import { fmtDate, fmtNumber, fmtRupees } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
-import { describeReferralReward, describeWelcomeBonus, loadReferrals, loadReferralSummary, referralLink } from "@/lib/referrals";
+import {
+  describeReferralReward,
+  describeWelcomeBonus,
+  loadReferrals,
+  loadReferralSummary,
+  loadReferralTerms,
+  referralLink,
+  referralStage,
+  type ReferralRow,
+} from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Referral, ReferralSummary } from "@/lib/types";
@@ -50,8 +59,9 @@ export default async function ReferralsPage({
   const { overview, profile } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [settings, summary, referrals, milestoneRows, params] = await Promise.all([
+  const [settings, terms, summary, referrals, milestoneRows, params] = await Promise.all([
     loadSettings(admin),
+    loadReferralTerms(admin),
     loadReferralSummary(admin, overview.id),
     loadReferrals(admin, overview.id),
     // The milestone bonus is granted straight to the balance and is not part of
@@ -90,8 +100,8 @@ export default async function ReferralsPage({
   const page = pageFromParam(params.page, pages);
   const visible = pageSlice(ordered, page, PAGE_SIZE);
 
-  /* Null when the welcome share is 0, and the line simply disappears. */
-  const welcomeLine = describeWelcomeBonus(settings.referralInviteePercent);
+  /* Null when both welcome amounts are 0, and the line simply disappears. */
+  const welcomeLine = describeWelcomeBonus(terms);
 
   return (
     <>
@@ -111,7 +121,7 @@ export default async function ReferralsPage({
       <Panel
         title="Your invite link"
         description={describeReferralReward(
-          settings.referralPercent,
+          terms,
           settings.referralMilestoneCount,
           settings.referralMilestoneBonus,
         )}
@@ -135,8 +145,9 @@ export default async function ReferralsPage({
         <p className="mt-3 flex items-start gap-2 rounded-lg border border-brand-500/25 bg-brand-500/8 px-3 py-2.5 text-xs leading-relaxed text-ink">
           <Gift size={14} className="mt-0.5 shrink-0 text-brand-500" />
           <span>
-            A sign-up on its own earns nothing. The credits arrive when the person you invited pays
-            for their first plan or top-up, and they land straight on your balance.
+            A sign-up on its own earns nothing. You are paid twice for each person you invite —
+            when they buy their first plan, and again when they first top up — and the credits land
+            straight on your balance.
             {welcomeLine ? <span className="mt-1 block text-muted">{welcomeLine}</span> : null}
           </span>
         </p>
@@ -146,13 +157,17 @@ export default async function ReferralsPage({
             matters is in the callout above, and everything an accountant would
             ask is behind one small disclosure. */}
         <HelpNote title="How the reward is worked out">
-          Both rewards are a percentage of the first payment the person you invited actually
-          completes — a plan, a top-up, or both bought together — worked out on the amount after
-          any coupon, and rounded down to whole credits. One reward per person invited, on their
-          first payment only{settings.referralMinPayment > 0
-            ? `, and only when that payment is at least ${fmtRupees(settings.referralMinPayment)}`
-            : ""}. Credits are added to balances and are not money; they cannot be withdrawn or
-          transferred. Percentages can change, but a reward already earned is never taken back.
+          Two rewards per person invited, each paid once: {formatCredits(terms.planReferrer)}{" "}
+          credits to you and {formatCredits(terms.planInvitee)} to them when they buy their first
+          plan, then {formatCredits(terms.topupReferrer)} to you and{" "}
+          {formatCredits(terms.topupInvitee)} to them when they first top up. Fixed amounts, not a
+          share of what they spend. A payment that buys a plan and credits together settles both at
+          once
+          {settings.referralMinPayment > 0
+            ? `, and a payment under ${fmtRupees(settings.referralMinPayment)} settles neither — a later, larger one still can`
+            : ""}
+          . Credits are added to balances and are not money; they cannot be withdrawn or
+          transferred. The amounts can change, but a reward already earned is never taken back.
         </HelpNote>
       </Panel>
 
@@ -284,7 +299,7 @@ function tally(
   };
 }
 
-/** What the two badges under it mean, said once above the list. */
+/** What the badges under it mean, said once above the list. */
 function Legend() {
   return (
     <div className="flex flex-col gap-1.5 border-b border-divider bg-raised/50 px-4 py-3 text-xs leading-relaxed text-muted">
@@ -293,20 +308,42 @@ function Legend() {
         <span>signed up, has not paid — earns you nothing yet.</span>
       </p>
       <p className="flex flex-wrap items-baseline gap-1.5">
-        <Badge tone="good">Paid</Badge>
-        <span>first payment arrived — the credits are already yours.</span>
+        <Badge tone="brand">Part paid</Badge>
+        <span>one of the two rewards has landed; the other is still to come.</span>
+      </p>
+      <p className="flex flex-wrap items-baseline gap-1.5">
+        <Badge tone="good">Both paid</Badge>
+        <span>plan and top-up — everything this invite is worth is yours.</span>
       </p>
     </div>
   );
 }
 
 /**
+ * The badge and the one line under the name, for each of the four states a
+ * referral can be in.
+ *
+ * Kept as a table rather than nested ternaries because it is exactly what the
+ * two-event scheme added: "paid" is no longer one thing, and a reader who has
+ * had 50 credits needs to know the other 100 is still coming rather than that
+ * they have been paid.
+ */
+const STAGE = {
+  waiting: { tone: "warn", badge: "Waiting", next: "waiting for their first payment" },
+  plan: { tone: "brand", badge: "Part paid", next: "bought a plan — more when they first top up" },
+  topup: { tone: "brand", badge: "Part paid", next: "topped up — more when they buy a plan" },
+  both: { tone: "good", badge: "Both paid", next: "plan and top-up, both rewarded" },
+} as const;
+
+/**
  * One person invited. The status has to survive being read at arm's length on
  * a phone, so it is said three ways at once: the colour of the edge, the badge,
  * and what the row is worth in credits.
  */
-function InviteRow({ referral }: { referral: Referral }) {
-  const paid = referral.status === "rewarded";
+function InviteRow({ referral }: { referral: ReferralRow }) {
+  const stage = referralStage(referral);
+  const { tone, badge, next } = STAGE[stage];
+  const paid = stage !== "waiting";
   const name = referral.referred?.full_name?.trim();
   const email = referral.referred?.email;
 
@@ -314,7 +351,7 @@ function InviteRow({ referral }: { referral: Referral }) {
     <li
       className={cx(
         "flex items-start justify-between gap-3 border-l-2 px-4 py-3",
-        paid ? "border-l-good-500" : "border-l-warn-500",
+        stage === "both" ? "border-l-good-500" : paid ? "border-l-brand-500" : "border-l-warn-500",
       )}
     >
       <div className="min-w-0">
@@ -325,20 +362,26 @@ function InviteRow({ referral }: { referral: Referral }) {
         <p className={cx("mt-1 text-xs leading-relaxed", paid ? "text-muted" : "text-warn-500")}>
           {paid ? (
             <>
-              Paid {referral.first_amount ? `${fmtRupees(referral.first_amount)} ` : ""}on{" "}
+              {next}
+              {referral.first_amount ? ` — first paid ${fmtRupees(referral.first_amount)}` : ""} on{" "}
               {fmtDate(referral.rewarded_at)}
             </>
           ) : (
-            <>Signed up {fmtDate(referral.created_at)} — waiting for their first payment</>
+            <>Signed up {fmtDate(referral.created_at)} — {next}</>
           )}
         </p>
       </div>
 
       <div className="shrink-0 text-right">
-        <Badge tone={paid ? "good" : "warn"}>{paid ? "Paid" : "Waiting"}</Badge>
+        <Badge tone={tone}>{badge}</Badge>
         {paid ? (
           <>
-            <p className="mt-1.5 text-sm font-semibold tabular-nums text-good-500">
+            <p
+              className={cx(
+                "mt-1.5 text-sm font-semibold tabular-nums",
+                stage === "both" ? "text-good-500" : "text-brand-500",
+              )}
+            >
               +{formatCredits(referral.reward_credits)}
             </p>
             <p className="text-[11px] text-faint">credits</p>

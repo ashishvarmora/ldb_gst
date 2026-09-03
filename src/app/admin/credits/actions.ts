@@ -8,7 +8,7 @@ import { describeCoupon, normaliseCode } from "@/lib/coupons";
 import { creditsForAmount, describeRate, formatCredits, grantCredits } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
 import { bool, fail, str } from "@/lib/forms";
-import { describeReferralReward } from "@/lib/referrals";
+import { describeReferralReward, loadReferralTerms } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
@@ -447,24 +447,35 @@ export async function saveReferralSettings(
     return raw === null ? Number.NaN : Number(raw);
   };
 
-  const percent = number("referral_percent");
-  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
-    return fail("The inviter's share of a first payment must be between 0 and 100 percent.");
-  }
-
   /*
-   * The invitee's side, absent-tolerated like the floor below: this action also
-   * serves any older form that has never heard of the field, and resetting a
-   * percentage a form was never shown is how a promotion quietly switches
-   * itself off.
+   * The four fixed amounts, two events by two sides.
+   *
+   * Absent-tolerated, like the floor below: this action also serves any older
+   * form that has never heard of a field, and resetting a reward a form was
+   * never shown is how a promotion quietly switches itself off. A field that
+   * IS present must be a real number - a blank box is a mistake, not a zero.
+   *
+   * referral_percent and referral_invitee_percent are gone from the form and
+   * are no longer written. Their rows stay in app_settings because a settings
+   * loader owned elsewhere still reads them into a typed object; nothing
+   * computes a reward from them any more.
    */
-  const inviteeRaw = str(fd, "referral_invitee_percent");
-  const inviteePercent = inviteeRaw === null ? null : Number(inviteeRaw);
-  if (
-    inviteePercent !== null &&
-    (!Number.isFinite(inviteePercent) || inviteePercent < 0 || inviteePercent > 100)
-  ) {
-    return fail("The new customer's welcome share must be between 0 and 100 percent.");
+  const TERMS = [
+    ["referral_plan_referrer_credits", "The inviter's reward for a first plan"],
+    ["referral_plan_invitee_credits", "The new customer's reward for their first plan"],
+    ["referral_topup_referrer_credits", "The inviter's reward for a first top-up"],
+    ["referral_topup_invitee_credits", "The new customer's reward for their first top-up"],
+  ] as const;
+
+  const terms: Record<string, number> = {};
+  for (const [key, label] of TERMS) {
+    const raw = str(fd, key);
+    if (raw === null) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
+      return fail(`${label} must be between 0 and 10,00,000 credits. Use 0 to pay nothing.`);
+    }
+    terms[key] = Math.round(value * 100) / 100;
   }
 
   /*
@@ -496,9 +507,9 @@ export async function saveReferralSettings(
   const enabled = bool(fd, "referral_enabled");
   const values: Record<string, unknown> = {
     referral_enabled: enabled,
-    referral_percent: Math.round(percent * 100) / 100,
     referral_milestone_count: milestoneCount,
     referral_milestone_bonus: Math.round(milestoneBonus * 100) / 100,
+    ...terms,
   };
 
   /*
@@ -510,10 +521,6 @@ export async function saveReferralSettings(
   if (minPayment !== null) {
     values.referral_min_payment = Math.round(minPayment * 100) / 100;
   }
-  if (inviteePercent !== null) {
-    values.referral_invitee_percent = Math.round(inviteePercent * 100) / 100;
-  }
-
   const { data: existing } = await admin
     .from("app_settings")
     .select("key, value")
@@ -539,13 +546,21 @@ export async function saveReferralSettings(
   });
 
   revalidatePath("/admin/plans");
+  revalidatePath("/admin/rewards");
   // Customers read their own referral link and its terms on the plan page.
   revalidatePath("/portal/plan");
+  revalidatePath("/portal/referrals");
+  revalidatePath("/pricing");
+
+  // Read back rather than echo the form: a field the form did not carry was
+  // left alone above, so what was posted is not always what the scheme now
+  // says, and the confirmation has to be the second of those.
+  const saved = await loadReferralTerms(admin);
 
   return {
     ok: true,
     message: enabled
-      ? `Saved. ${describeReferralReward(Math.round(percent * 100) / 100, milestoneCount, milestoneBonus)} Referrals already rewarded keep what they earned.`
+      ? `Saved. ${describeReferralReward(saved, milestoneCount, milestoneBonus)} Referrals already rewarded keep what they earned.`
       : "Saved. Referrals are switched off, so no new one earns anything. Anything already earned stays.",
   };
 }

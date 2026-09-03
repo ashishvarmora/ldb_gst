@@ -104,40 +104,56 @@ export function RecordPaymentForm({
       </Field>
 
       {kind === "plan" ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Plan"
-            name="plan_id"
-            required
-            hint="Its included credits are granted automatically."
-          >
-            <Select
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Plan"
               name="plan_id"
               required
-              defaultValue=""
-              onChange={(event) => onPlanChange(event.target.value)}
+              hint="Its included credits are granted automatically."
             >
-              <option value="" disabled>
-                Choose a plan
-              </option>
-              {plans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.name}
+              <Select
+                name="plan_id"
+                required
+                defaultValue=""
+                onChange={(event) => onPlanChange(event.target.value)}
+              >
+                <option value="" disabled>
+                  Choose a plan
                 </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Months" name="months" hint="How long the plan runs for.">
-            <Input
+                {plans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Months"
               name="months"
-              type="number"
-              min={1}
-              max={36}
-              defaultValue={1}
-              className="tabular-nums"
-            />
+              hint="The term charged for. How long it actually runs comes off the plan itself."
+            >
+              <Input
+                name="months"
+                type="number"
+                min={1}
+                max={36}
+                defaultValue={1}
+                className="tabular-nums"
+              />
+            </Field>
+          </div>
+          {/* The offline twin of the portal's combined checkout: one receipt,
+              plan plus a credit top-up, so a cash customer's first payment can
+              carry both - and the referral pays on the whole of it. */}
+          <Field
+            label="Credits sold on top"
+            name="credits"
+            hint="Optional. Leave empty for a plan-only sale; the amount above stays the full sum received."
+          >
+            <Input name="credits" inputMode="decimal" placeholder="0" className="tabular-nums" />
           </Field>
-        </div>
+        </>
       ) : (
         <Field
           label="Credits bought"

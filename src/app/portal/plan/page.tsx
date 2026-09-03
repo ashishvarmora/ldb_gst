@@ -31,7 +31,7 @@ import {
   searchesLeftLabel,
 } from "@/lib/credits";
 import { fmtDate, fmtNumber, fmtRupees, istToday } from "@/lib/format";
-import { loadSearchCost, requirePortalSession } from "@/lib/officer";
+import { graceDaysLeft, loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -105,6 +105,10 @@ export default async function PlanPage() {
   const today = istToday();
   const expiresOn = overview.plan_expires_on;
   const expired = expiresOn !== null && expiresOn < today;
+  /* Days left to renew and find everything as it was. Null when there is no
+     lapsed plan to count from - including a plan with no expiry, which is what
+     the founding customers hold and which must never show a countdown. */
+  const graceLeft = graceDaysLeft(overview);
   const daysLeft = expiresOn
     ? Math.max(0, Math.ceil((new Date(`${expiresOn}T23:59:59+05:30`).getTime() - Date.now()) / 86_400_000))
     : null;
@@ -120,9 +124,15 @@ export default async function PlanPage() {
       ? "Online payment is not available yet. Please try again later, or contact support."
       : null;
 
-  const creditsBlocked = !overview.plan_active
-    ? "Choose a plan first. Credits top up an account that already has one."
-    : payBlocked;
+  /*
+   * Credits are sold to anyone, plan or no plan. This used to refuse a top-up
+   * without a live plan - "Credits top up an account that already has one" -
+   * which made sense when one balance paid for both products. It no longer
+   * does: credits buy MANUAL SEARCH, which works with no plan at all, so
+   * refusing the sale refused somebody money in exchange for a thing that
+   * works. Only the gateway being unavailable blocks it now.
+   */
+  const creditsBlocked = payBlocked;
 
   /**
    * Whether the trial is worth offering. The database has the final say -
@@ -166,7 +176,17 @@ export default async function PlanPage() {
      * A lapsed TRIAL is the opposite case: buying a first plan is exactly what
      * should happen next, so the grid stays.
      */
-    const lapsedPaidPlan = expired && currentPlan !== null && !onTrial;
+    /*
+     * Renewal is self-service now, and this is where it happens.
+     *
+     * The grid used to be replaced with "Renewing is done by us" for a lapsed
+     * paid plan. That was right when a renewal needed a term and a price
+     * negotiating; a plan now carries its own term and its own price, so the
+     * one thing a lapsed customer wants - the same plan again, today - is a
+     * button. Renewal is only offered once the plan HAS ended, which is the
+     * owner's rule and is why this lives in the !plan_active branch.
+     */
+    const lapsedPaidPlan = false;
 
     return (
       <>
@@ -181,17 +201,21 @@ export default async function PlanPage() {
 
         {expired ? (
           <Notice tone="bad">
-            {onTrial ? "Your free trial ended" : "Your plan ended"} on {fmtDate(expiresOn)}.
-            Searching and automatic checks stay off until{" "}
-            {lapsedPaidPlan ? "it is put back on" : "a plan is active"}. Nothing you saved has been
-            lost.
+            {onTrial ? "Your free trial ended" : "Your plan ended"} on {fmtDate(expiresOn)}, so
+            automatic checking and alerts have paused.{" "}
+            {graceLeft !== null && graceLeft > 0
+              ? `Your trucks are still here - renew within ${graceLeft} ${graceLeft === 1 ? "day" : "days"} and everything carries on exactly where it stopped.`
+              : "Your trucks have been switched off, but nothing has been deleted - renew and switch them back on from My trucks."}{" "}
+            Manual search still works: your credits never expire.
           </Notice>
         ) : null}
 
         {overview.credits > 0 ? (
           <Notice tone="warn">
-            You still have {formatCredits(overview.credits)} credits. They can be spent again as soon
-            as a plan is active.
+            You still have {formatCredits(overview.credits)} credits, and they are yours to keep -
+            credits never expire and never freeze. Every one of them still buys a manual search
+            right now. What a plan adds is automatic checking: trucks watched for you, around the
+            clock, and alerts when they move.
           </Notice>
         ) : null}
 
@@ -214,6 +238,11 @@ export default async function PlanPage() {
 
             <BuyPlans
               plans={onSale}
+              /* The ladder rides along for the optional "add credits to this
+                 payment" step - one payment buys both, and a referred buyer's
+                 first payment is then the whole figure. */
+              packs={packs}
+              creditsPerRupee={settings.creditsPerRupee}
               brandName={settings.brandName}
               currentPlan={currentPlan}
               disabledReason={payBlocked}
@@ -224,11 +253,11 @@ export default async function PlanPage() {
               <Step n={1} title="Pick a plan">
                 It decides how many trucks may be watched at once, and how long for.
               </Step>
-              <Step n={2} title="Spend the credits">
-                Every search and automatic check draws from one balance.
+              <Step n={2} title="Watching is included">
+                Automatic checks cost no credits. The plan decides how many trucks at once.
               </Step>
-              <Step n={3} title="Top up when low">
-                Buy more credits at any time. The plan stays as it is.
+              <Step n={3} title="Credits are for searching">
+                They never expire. Top up at any time, with a plan or without one.
               </Step>
             </div>
           </>
@@ -454,6 +483,10 @@ export default async function PlanPage() {
 
             <BuyPlans
               plans={onSale}
+              /* Same optional top-up step as the first purchase: converting
+                 from the trial is the other moment one payment buys both. */
+              packs={packs}
+              creditsPerRupee={settings.creditsPerRupee}
               brandName={settings.brandName}
               currentPlan={currentPlan}
               disabledReason={payBlocked}

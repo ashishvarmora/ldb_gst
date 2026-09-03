@@ -40,6 +40,22 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_TONE = { pending: "warn", rewarded: "good", disqualified: "neutral" } as const;
 
+/*
+ * Which of the two events a referral has been paid for. Its own column rather
+ * than folded into the status badge: status answers "has this earned anything
+ * at all", and after the scheme became two events that is no longer the same
+ * question as "is this referral finished". A referrer looking at a wall of
+ * "Paid out" needs to see which of them still owe a top-up reward.
+ */
+const EVENT_LABEL = {
+  none: "—",
+  plan: "Plan",
+  topup: "Top-up",
+  both: "Both",
+} as const;
+
+const EVENT_TONE = { none: "neutral", plan: "brand", topup: "brand", both: "good" } as const;
+
 const CAP = 5000;
 
 type ReferralRow = {
@@ -53,6 +69,17 @@ type ReferralRow = {
   status: string;
   reward_credits: number;
   welcome_credits: number | null;
+  /* The two-event columns. The timestamps are the authority on whether an
+     event has paid; a null amount beside a set timestamp means the referral
+     settled under the old percentage scheme, where the split between the two
+     events is not knowable. */
+  plan_rewarded_at: string | null;
+  topup_rewarded_at: string | null;
+  plan_referrer_credits: number | null;
+  plan_invitee_credits: number | null;
+  topup_referrer_credits: number | null;
+  topup_invitee_credits: number | null;
+  events_paid: "none" | "plan" | "topup" | "both";
   first_amount: number;
   days_to_reward: number | null;
   created_at: string;
@@ -117,6 +144,9 @@ export async function ReferralClaimsSection({ params }: { params: RewardParams }
     welcome: rows.reduce((sum, row) => sum + (Number(row.welcome_credits ?? 0) || 0), 0),
     revenue: rows.reduce((sum, row) => sum + (Number(row.first_amount) || 0), 0),
     referrers: new Set(rows.map((row) => row.referrer_id)).size,
+    /* How many invites have run all the way through the scheme. The gap
+       between this and "paid out" is the money still on the table. */
+    both: rows.filter((row) => row.events_paid === "both").length,
   };
 
   /* Averaged over the invites that actually paid out - including the pending
@@ -148,8 +178,8 @@ export async function ReferralClaimsSection({ params }: { params: RewardParams }
           label="Paid out"
           value={fmtNumber(totals.rewarded)}
           hint={
-            totals.invites > 0
-              ? `${Math.round((totals.rewarded / totals.invites) * 100)}% of invites`
+            totals.rewarded > 0
+              ? `${fmtNumber(totals.both)} of them on both events`
               : "nothing yet"
           }
           icon={<UserCheck size={15} />}
@@ -467,6 +497,18 @@ function InviteTable({
         ),
       sortBy: (row) => Number(row.welcome_credits ?? 0) || 0,
       total: (all) => formatCredits(all.reduce((s, r) => s + (Number(r.welcome_credits ?? 0) || 0), 0)),
+    },
+    {
+      key: "events_paid",
+      label: "Rewarded for",
+      cell: (row) =>
+        row.events_paid === "none" ? (
+          <span className="text-faint">—</span>
+        ) : (
+          <Badge tone={EVENT_TONE[row.events_paid]}>{EVENT_LABEL[row.events_paid]}</Badge>
+        ),
+      sortBy: (row) => row.events_paid,
+      total: (all) => `${fmtNumber(all.filter((r) => r.events_paid === "both").length)} both`,
     },
     {
       key: "days_to_reward",

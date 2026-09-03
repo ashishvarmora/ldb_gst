@@ -194,6 +194,14 @@ type Priced =
       listInr: number;
       /** What the buyer receives. From listInr, never from what is paid. */
       credits: number;
+      /**
+       * A combined plan-plus-top-up only: the pack's share of listInr, and the
+       * credits it buys. Absent everywhere else. The split has to travel with
+       * the price because a scoped coupon discounts one part and not the other
+       * - see couponBase().
+       */
+      topupInr?: number;
+      topupCredits?: number;
       itemName: string;
       itemDetail: string;
       /** payments columns particular to this purchase. */
@@ -339,6 +347,76 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
 }
 
 /* -------------------------------------------------------------------------- */
+/* what a code discounts on a combined order                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A discount code on a plan-plus-top-up payment covers the part it names.
+ *
+ * validate_coupon() takes one amount and one kind, and a combined payment has
+ * two of each inside it. The decision, made here and shown in the pay panel:
+ *
+ *   applies_to 'all'      the whole sum. "20% off" means 20% off what is paid.
+ *   applies_to 'plan'     the plan's share only. A "50% off plans" code that
+ *                         also halved Rs 10,000 of attached credits would give
+ *                         away far more than the code ever said - the coupon
+ *                         names what it discounts, so that is what it
+ *                         discounts.
+ *   applies_to 'credits'  the top-up's share only, and the code is checked as
+ *                         a credits purchase - so a credits-only code is NOT
+ *                         refused on a combined payment, it just leaves the
+ *                         plan price alone. Refusing it would push the buyer
+ *                         into two separate payments, which is the flow this
+ *                         whole feature exists to remove. With no top-up
+ *                         attached it is refused with the database's own
+ *                         "only applies to credit top-ups".
+ *
+ * The minimum-spend rule follows the base: "spend at least X" on a credits
+ * code means X on credits, which is the honest reading of the code's own
+ * terms. The redemption row records the base it was judged on.
+ */
+function couponBase(
+  appliesTo: CouponScope | null,
+  kind: PaymentKind,
+  listInr: number,
+  topupInr: number,
+): { amountInr: number; kind: PaymentKind } {
+  if (kind !== "plan" || topupInr <= 0) return { amountInr: listInr, kind };
+  if (appliesTo === "plan") return { amountInr: rupees(listInr - topupInr), kind: "plan" };
+  if (appliesTo === "credits") return { amountInr: topupInr, kind: "credits" };
+  return { amountInr: listInr, kind: "plan" };
+}
+
+/** Rounded the way every price here is rounded, to the paisa. */
+function rupees(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
+/**
+ * The coupon's own scope, straight off its row. Null for a code we do not
+ * have, in which case the base defaults to the whole amount and
+ * validate_coupon() words the refusal - this must never invent a second
+ * "unknown code" answer beside the database's.
+ *
+ * Read with the service client rather than through validate_coupon because the
+ * scope is needed BEFORE validation: it decides which amount to validate. RLS
+ * keeps coupons unreadable to customers; this read happens server-side only,
+ * and nothing from it reaches the browser except the discount it leads to.
+ */
+async function couponAppliesTo(admin: Admin, code: string): Promise<CouponScope | null> {
+  const trimmed = code.trim().toUpperCase();
+  if (!trimmed) return null;
+
+  const { data } = await admin
+    .from("coupons")
+    .select("applies_to")
+    .eq("code", trimmed)
+    .maybeSingle<{ applies_to: CouponScope }>();
+
+  return data?.applies_to ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* opening the order                                                           */
 /* -------------------------------------------------------------------------- */
 
@@ -420,13 +498,22 @@ async function openOrder({
   let couponCode: string | null = null;
 
   if (code) {
+    /*
+     * On a combined order the code is judged against the part it names - see
+     * couponBase(). The hold, the discount and the redemption row all carry
+     * that base; only the payable figure is worked back out against the whole.
+     */
+    const topupInr = priced.topupInr ?? 0;
+    const appliesTo = topupInr > 0 ? await couponAppliesTo(admin, code) : null;
+    const base = couponBase(appliesTo, kind, listInr, topupInr);
+
     const verdict = await reserveCoupon({
       admin,
       code,
       userId,
       paymentId: row.id,
-      amountInr: listInr,
-      kind,
+      amountInr: base.amountInr,
+      kind: base.kind,
     });
 
     if (!verdict.ok) {
@@ -437,7 +524,12 @@ async function openOrder({
     }
 
     discountInr = Number(verdict.discount_inr);
-    payableInr = Number(verdict.payable_inr);
+    /*
+     * From the whole price, not from verdict.payable_inr - the verdict only
+     * knows the base it judged. validate_coupon caps the discount below its
+     * base, and the base is never more than the whole, so this stays >= 1.
+     */
+    payableInr = rupees(listInr - discountInr);
     couponId = verdict.coupon_id;
     couponCode = verdict.code;
 
@@ -558,6 +650,20 @@ export async function previewCoupon(
       };
     }
 
+    /*
+     * The top-up's share of a combined plan-plus-credits amount, when there is
+     * one. Posted so the preview can judge the code against the same base the
+     * checkout will - couponBase() - and quote the same figure. Clamped into
+     * the amount because both halves come from the form and this must not be
+     * talked into a negative plan price. A lie here misleads only the preview;
+     * the checkout re-derives the split from what it prices itself.
+     */
+    const topupRaw = Number(str(fd, "topup_inr") ?? "");
+    const topupInr =
+      kind === "plan" && Number.isFinite(topupRaw)
+        ? Math.min(Math.max(topupRaw, 0), amountInr)
+        : 0;
+
     const session = await assertPortalUser();
 
     /*
@@ -572,8 +678,34 @@ export async function previewCoupon(
       return { ok: false, reason: "unknown", message: rateLimitMessage(throttle, "codes checked") };
     }
 
+    const admin = getSupabaseAdmin();
+
+    if (topupInr > 0) {
+      const appliesTo = await couponAppliesTo(admin, code);
+      const base = couponBase(appliesTo, kind, amountInr, topupInr);
+
+      const verdict = await checkCoupon({
+        admin,
+        code,
+        userId: session.id,
+        amountInr: base.amountInr,
+        kind: base.kind,
+      });
+
+      if (!verdict.ok) return verdict;
+
+      // The discount came off the base; what is payable is the whole sum less
+      // that. applies_to rides along so the pay panel can say which part the
+      // code covered - the on-screen half of the couponBase() decision.
+      return {
+        ...verdict,
+        payable_inr: rupees(amountInr - Number(verdict.discount_inr)),
+        applies_to: appliesTo ?? "all",
+      };
+    }
+
     return await checkCoupon({
-      admin: getSupabaseAdmin(),
+      admin,
       code,
       userId: session.id,
       amountInr,
@@ -613,11 +745,13 @@ export async function startCheckout(
     const [overview, blocked] = await Promise.all([loadOverview(session.id), paymentBlocked()]);
     if (!overview) return refuse("Could not read your account. Please sign in again.");
 
-    // Credits top up a plan that is already running. Without one there is no
-    // truck limit to spend them against, so a plan is the thing to buy first.
-    if (!overview.plan_active) {
-      return refuse("Choose a plan first. Credits top up an account that already has one.");
-    }
+    /*
+     * No plan gate. Credits buy MANUAL SEARCH, which works whether or not a
+     * plan is running, so refusing the sale without one refused money for a
+     * thing that works - and left a lapsed customer unable to spend the
+     * balance they had already paid for. overview is still loaded: it is what
+     * priceCredits() and the coupon check read.
+     */
     if (blocked) return refuse(blocked);
 
     const priced = await priceCredits(admin, session.id, fd);
@@ -663,11 +797,70 @@ export async function startPlanCheckout(
 
     const admin = getSupabaseAdmin();
 
-    const blocked = await paymentBlocked();
+    const [overview, blocked] = await Promise.all([loadOverview(session.id), paymentBlocked()]);
     if (blocked) return refuse(blocked);
 
-    const priced = await pricePlan(admin, session.id, fd);
+    let priced = await pricePlan(admin, session.id, fd);
     if (!priced.ok) return refuse(priced.error);
+
+    /*
+     * RENEWAL ONLY WHEN EXPIRED - the owner's rule, enforced here because this
+     * is the only door a plan can be bought through.
+     *
+     * Only the SAME plan is refused, and only while it is still running. A
+     * customer buying a DIFFERENT plan is upgrading, not renewing early, and
+     * settle_payment() counts their new term on from the expiry they have
+     * already paid for rather than throwing those days away - so nothing is
+     * lost by letting it through. A trial is never a renewal either: moving
+     * off it onto a paid plan is the entire point of it, and the trial itself
+     * can never be bought because it is free and pricePlan() refuses a zero
+     * price.
+     */
+    if (overview?.plan_active && overview.plan_id === priced.columns.plan_id) {
+      return refuse(
+        overview.plan_expires_on
+          ? `This plan is already running until ${overview.plan_expires_on}. You can renew it once it ends.`
+          : "This plan is already running on your account.",
+      );
+    }
+
+    /*
+     * An optional credit top-up, bought in the same payment.
+     *
+     * The pack part is priced by priceCredits() - the same function, the same
+     * bounds and the same credits_for_amount() recompute the top-up shop uses -
+     * so a figure that could not be bought alone cannot be bought here either.
+     * The two parts are then one order and one payment row: settle_payment()
+     * grants both, and the referral reads the combined amount, which is the
+     * whole reason the owner asked for this.
+     *
+     * topup_credits on the row is the INSTRUCTION for the top-up, fixed now so
+     * the ladder moving before the webhook lands cannot change what was paid
+     * for. credits keeps recording the plan's included allowance, exactly as a
+     * plan-only payment does.
+     */
+    if (str(fd, "pack_id")) {
+      const pack = await priceCredits(admin, session.id, fd);
+      if (!pack.ok) return refuse(pack.error);
+
+      priced = {
+        ok: true,
+        listInr: rupees(priced.listInr + pack.listInr),
+        credits: priced.credits,
+        topupInr: pack.listInr,
+        topupCredits: pack.credits,
+        itemName: priced.itemName,
+        itemDetail: `${priced.itemDetail} + ${formatCredits(pack.credits)} credits`,
+        columns: { ...priced.columns, ...pack.columns, topup_credits: pack.credits },
+        notes: {
+          ...priced.notes,
+          pack_id: String(pack.columns.pack_id ?? ""),
+          pack_name: pack.itemName,
+          topup_inr: String(pack.listInr),
+          topup_credits: String(pack.credits),
+        },
+      };
+    }
 
     return await openOrder({
       admin,

@@ -7,9 +7,10 @@ import {
   type Position,
 } from "@/lib/alerts";
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
-import { istToday } from "@/lib/format";
+import { istDaysAgo, istToday } from "@/lib/format";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
+import { PLAN_GRACE_DAYS } from "@/lib/officer";
 import { dueForAutoPause } from "@/lib/pause";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -100,6 +101,15 @@ export type SweepSummary = {
   alertsDelivered: number;
   /** Set when the batch cap cut the sweep short, so it is never silent. */
   deferred: number;
+  /**
+   * Trucks switched off because their plan ended more than the grace period
+   * ago, and how many accounts that was.
+   *
+   * Reported for the same reason autoPaused is: it is a sweep REDUCING what
+   * the platform does, and an admin needs to be able to tell "quiet week" from
+   * "sixty trucks just lapsed".
+   */
+  planExpired: { trucks: number; accounts: number };
   /**
    * Trucks this sweep stopped by itself, and why.
    *
@@ -769,6 +779,121 @@ async function applyAutoPauses(
   return { ids: paused, counts };
 }
 
+/**
+ * Switches off every truck whose plan ended more than the grace period ago,
+ * and tells its owner once.
+ *
+ * The plan lapsing already stops the checking - the candidate query below
+ * filters on plan_expires_on, so not a single upstream call is made for a
+ * lapsed account from the day it lapses. What this adds is the ending of that
+ * state.
+ *
+ * WHY THE TWO STEPS ARE SEPARATE, AND WHY THE GAP IS SEVEN DAYS
+ *
+ * Between the plan ending and this running, the trucks stay switched on and
+ * are simply not checked. That is what makes "renew and carry on" true: the
+ * account comes back with the same trucks, the same alerts and the same
+ * schedules, and there is nothing to set up again. Switching them off on day
+ * zero would be tidier and would cost the customer an afternoon of clicking to
+ * come back - which is an afternoon in which they do not come back.
+ *
+ * After seven days it is no longer a pause, it is a lapsed account, and a
+ * truck that is switched on and has not been checked for a week is a lie on
+ * the page. So the rows are made honest: is_active false, paused_reason
+ * 'plan_expired' (added to the check constraint in 0038), and one message
+ * saying nothing is lost.
+ *
+ * A NULL plan_expires_on can never reach here. The filter is a date comparison
+ * and null fails it, which is exactly right: null means no expiry, it is the
+ * state both founding customers are in, and neither of them is ever counted
+ * down or switched off by this.
+ *
+ * Guarded on is_active still being true, like applyAutoPauses - an officer can
+ * be pausing a truck by hand at the same moment, and whoever gets there first
+ * owns the reason.
+ */
+async function applyPlanExpiryTeardown(
+  admin: Admin,
+  now: Date,
+): Promise<{ trucks: number; accounts: number }> {
+  /*
+   * The last day that is still inside the grace period, in IST - the same
+   * timezone the plan was sold in. A plan that ended exactly seven days ago
+   * matches this date and `<` is false, so the seventh day is a full day to
+   * renew in rather than the day the trucks stop.
+   */
+  const lastDay = istDaysAgo(PLAN_GRACE_DAYS);
+
+  const { data: lapsed, error } = await admin
+    .from("tracked_trucks")
+    .select("id, user_id, truck_number, profiles!inner(plan_expires_on)")
+    .eq("is_active", true)
+    .lt("profiles.plan_expires_on", lastDay)
+    .limit(500);
+
+  if (error) {
+    console.error("plan-expiry teardown could not list trucks", error.message);
+    return { trucks: 0, accounts: 0 };
+  }
+
+  const rows = (lapsed ?? []) as { id: string; user_id: string; truck_number: string }[];
+  if (rows.length === 0) return { trucks: 0, accounts: 0 };
+
+  const contexts = new Map<string, OfficerContext>();
+  let trucks = 0;
+
+  for (const row of rows) {
+    const { data: stopped, error: updateError } = await admin
+      .from("tracked_trucks")
+      .update({
+        is_active: false,
+        paused_reason: "plan_expired",
+        paused_at: now.toISOString(),
+      })
+      .eq("id", row.id)
+      .eq("is_active", true)
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (updateError) {
+      console.error(`plan-expiry teardown failed for ${row.truck_number}`, updateError.message);
+      continue;
+    }
+    if (!stopped) continue;
+    trucks += 1;
+
+    /*
+     * Once per ACCOUNT, not once per truck. A lapsed fleet of forty stops in
+     * one sweep, and forty identical messages saying the same thing about the
+     * same plan is the fastest way to have the next one ignored. notToldToday
+     * is keyed on the account and the kind, so the first truck's message is
+     * the account's message.
+     */
+    let context = contexts.get(row.user_id);
+    if (!context) {
+      context = await loadOfficerContext(admin, row.user_id);
+      contexts.set(row.user_id, context);
+    }
+    if (!(await notToldToday(admin, row.user_id, "plan_expired"))) continue;
+
+    await sendSystemAlert({
+      admin,
+      context,
+      truckNumber: null,
+      kind: "plan_expired",
+      title: "Your trucks have been switched off",
+      message:
+        `Your plan ended more than ${PLAN_GRACE_DAYS} days ago, so automatic checking has been ` +
+        "switched off on every truck. Nothing has been deleted - your trucks, their alerts and " +
+        "every crossing they recorded are all still here, and so are your credits, which never " +
+        "expire and still pay for manual searches. Renew the plan and switch the trucks back on " +
+        "from My trucks.",
+    });
+  }
+
+  return { trucks, accounts: contexts.size };
+}
+
 /** "6 hours", "3 days" - the same duration the officer typed, read back to them. */
 export function describeHours(hours: number): string {
   if (!Number.isFinite(hours) || hours <= 0) return "no time at all";
@@ -819,6 +944,7 @@ export async function runTrackingSweep(
     alerts: 0,
     alertsDelivered: 0,
     deferred: 0,
+    planExpired: { trucks: 0, accounts: 0 },
     autoPaused: { schedule: 0, inactive: 0 },
     errors: [] as string[],
     outcomes: [] as PollOutcome[],
@@ -835,6 +961,14 @@ export async function runTrackingSweep(
   };
 
   if (!settings.trackingEnabled) return finish(base);
+
+  /*
+   * Lapsed accounts are tidied first, and deliberately before the candidate
+   * list is read: a truck switched off here must not also be picked up as a
+   * candidate in the same sweep. It could not be checked anyway - the plan
+   * filter below excludes it - but it would be counted as one.
+   */
+  const planExpired = await applyPlanExpiryTeardown(admin, startedAt);
 
   /*
    * Active trucks, belonging to active officers, WHOSE PLAN HAS NOT RUN OUT.
@@ -874,11 +1008,11 @@ export async function runTrackingSweep(
 
   const { data: candidates, error } = await query;
   if (error) {
-    return finish({ ...base, errors: [`Could not list trucks: ${error.message}`] });
+    return finish({ ...base, planExpired, errors: [`Could not list trucks: ${error.message}`] });
   }
 
   const all = (candidates ?? []) as TrackedTruck[];
-  if (all.length === 0) return finish(base);
+  if (all.length === 0) return finish({ ...base, planExpired });
 
   /*
    * The trucks that have reached a stop of their own, dealt with before
@@ -897,7 +1031,7 @@ export async function runTrackingSweep(
   // Every candidate stopped itself. Still a complete sweep, and the summary has
   // to say what it did rather than reading as "nothing happened".
   if (running.length === 0) {
-    return finish({ ...base, candidates: all.length, autoPaused: autoPaused.counts });
+    return finish({ ...base, planExpired, candidates: all.length, autoPaused: autoPaused.counts });
   }
 
   // A truck is checked because one of its alerts came due. Nothing else calls
@@ -994,6 +1128,7 @@ export async function runTrackingSweep(
 
   return finish({
     ...base,
+    planExpired,
     candidates: all.length,
     autoPaused: autoPaused.counts,
     due: due.length,

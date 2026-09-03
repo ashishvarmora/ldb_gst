@@ -65,25 +65,87 @@ export async function loadOverview(userId: string): Promise<OfficerOverview | nu
 }
 
 /**
- * Plain-language reason a search would be refused, or null when it is fine.
+ * Days after a plan ends before its trucks are actually switched off.
  *
- * Usage itself is not checked here: spend_credits() decides that atomically at
- * the moment of spending, and duplicating the balance test would only add a
- * second answer that can disagree with it.
+ * The mirror of plan_grace_days() in 0038, and it has to stay the mirror: the
+ * database tears tracking down on this number and the portal promises it, so
+ * two different sevens would be a promise one half could break.
+ */
+export const PLAN_GRACE_DAYS = 7;
+
+/**
+ * Plain-language reason a MANUAL SEARCH would be refused, or null when it is
+ * fine.
+ *
+ * NO LONGER GATED ON THE PLAN, and that is the point of the change 0038 makes.
+ * Credits are a lifetime wallet: they are bought outright, they never expire,
+ * and what they buy is manual search. Refusing a search because a subscription
+ * lapsed would be confiscating something already paid for - and it was the
+ * old behaviour, so an account with 440 credits and a finished plan could not
+ * spend a single one of them.
+ *
+ * The balance itself is still not checked here: spend_credits() decides that
+ * atomically at the moment of spending, and duplicating the test would only add
+ * a second answer free to disagree with it. What is checked is the one thing a
+ * screen can usefully say in advance - an empty wallet.
  */
 export function blockedReason(overview: OfficerOverview): string | null {
-  if (!overview.plan_active) {
-    return overview.plan_expires_on && new Date(overview.plan_expires_on) < new Date()
-      ? `Your plan ended on ${overview.plan_expires_on}. Renew it on the Plan and credits page.`
-      : "Choose a plan to get started. You can pick one on the Plan and credits page.";
-  }
   if (overview.credits <= 0) {
     return "You have run out of credits. Top up on the Plan and credits page.";
   }
   return null;
 }
 
-/** Whether another truck can go under tracking right now. */
+/**
+ * Why automatic tracking is not running, or null when it is.
+ *
+ * The other half of the split. Tracking is the subscription: it needs a plan
+ * that has not ended, and it stops the day the plan does. Nothing is deleted
+ * when it stops - see the grace period below - so this is written as a pause
+ * with a way back, not as a loss.
+ */
+export function trackingBlockedReason(overview: OfficerOverview): string | null {
+  if (overview.plan_active) return null;
+
+  const days = graceDaysLeft(overview);
+  if (days === null) {
+    return "Automatic checking needs a plan. Manual search still works, and your credits are safe.";
+  }
+  if (days > 0) {
+    return (
+      `Your plan ended on ${overview.plan_expires_on}, so automatic checking and alerts have ` +
+      `paused. Your trucks are still here - renew within ${days} ${days === 1 ? "day" : "days"} ` +
+      "and everything carries on exactly where it stopped."
+    );
+  }
+  return (
+    `Your plan ended on ${overview.plan_expires_on} and your trucks have been switched off. ` +
+    "Nothing has been deleted - renew and switch them back on from My trucks."
+  );
+}
+
+/**
+ * Days left to renew before the trucks are switched off, or null when there is
+ * no lapsed plan to count from.
+ *
+ * Null covers two different accounts that need the same answer here: one that
+ * has never had a plan, and one whose plan has no expiry at all - which is the
+ * state both founding customers are in, and they must never be counted down.
+ */
+export function graceDaysLeft(overview: OfficerOverview): number | null {
+  const expires = overview.plan_expires_on;
+  if (!expires) return null;
+  const end = new Date(`${expires}T23:59:59+05:30`).getTime();
+  if (Number.isNaN(end) || end >= Date.now()) return null;
+  const gone = Math.floor((Date.now() - end) / 86_400_000);
+  return Math.max(PLAN_GRACE_DAYS - gone, 0);
+}
+
+/**
+ * Tracking slots still free. The plan's cap on trucks watched AT ONCE, minus
+ * the ones already being watched - truck_limit is the column, tracking_slots
+ * is the word for it.
+ */
 export function truckSlotsLeft(overview: OfficerOverview): number {
   if (overview.truck_limit === -1) return Number.POSITIVE_INFINITY;
   return Math.max(overview.truck_limit - overview.active_trucks, 0);

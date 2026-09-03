@@ -65,8 +65,19 @@ export async function GET(request: NextRequest) {
       Number(row.reward_credits) || 0,
       /* Blank, not 0, for referrals rewarded before the welcome bonus existed -
          a spreadsheet must be able to tell "paid nothing" from "predates the
-         scheme". */
+         scheme". The four per-event columns below carry the same convention,
+         and for the same reason: a referral settled under the old percentage
+         scheme has no honest split between the two events. */
       row.welcome_credits === null ? "" : Number(row.welcome_credits) || 0,
+      /* Which of the two events have paid, and what each one paid whom. The
+         totals above are the sum of these, so a sheet can check itself. */
+      row.events_paid,
+      row.plan_rewarded_at ?? "",
+      row.plan_referrer_credits === null ? "" : Number(row.plan_referrer_credits) || 0,
+      row.plan_invitee_credits === null ? "" : Number(row.plan_invitee_credits) || 0,
+      row.topup_rewarded_at ?? "",
+      row.topup_referrer_credits === null ? "" : Number(row.topup_referrer_credits) || 0,
+      row.topup_invitee_credits === null ? "" : Number(row.topup_invitee_credits) || 0,
       row.days_to_reward === null ? "" : Number(row.days_to_reward).toFixed(2),
       row.rewarded_at ?? "",
     ]);
@@ -88,6 +99,13 @@ export async function GET(request: NextRequest) {
           "First payment (INR)",
           "Reward credits",
           "Welcome credits",
+          "Events paid",
+          "Plan rewarded at",
+          "Plan - inviter credits",
+          "Plan - new customer credits",
+          "Top-up rewarded at",
+          "Top-up - inviter credits",
+          "Top-up - new customer credits",
           "Days to reward",
           "Rewarded at",
         ],

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtNumber, fmtRupees, initials } from "@/lib/format";
-import { describeReferralReward } from "@/lib/referrals";
+import { describeReferralReward, loadReferralTerms } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Referral, ReferralSummary } from "@/lib/types";
@@ -54,12 +54,69 @@ const REFERRERS_PER_PAGE = 25;
  */
 const REWARDED_SCANNED = 2000;
 
+/**
+ * One of the two events, with both sides' amounts on the same line.
+ *
+ * The pair belongs together on screen for the same reason it belongs together
+ * in the head: setting the inviter's reward while blind to the invitee's is
+ * how a scheme ends up costing 250 credits a head without anyone deciding
+ * that.
+ */
+function EventRow({
+  title,
+  hint,
+  inviteeName,
+  inviteeValue,
+  referrerName,
+  referrerValue,
+}: {
+  title: string;
+  hint: string;
+  inviteeName: string;
+  inviteeValue: number;
+  referrerName: string;
+  referrerValue: number;
+}) {
+  const box = (name: string, value: number) => (
+    <Input
+      name={name}
+      type="number"
+      required
+      min={0}
+      max={1000000}
+      step="any"
+      defaultValue={value}
+      className="w-24 text-right tabular-nums sm:w-28"
+      aria-label={`${title} — ${name.includes("invitee") ? "new customer" : "inviter"}`}
+    />
+  );
+
+  return (
+    <div className="grid grid-cols-[1fr_auto_auto] items-start gap-3 border-b border-divider px-3 py-3 last:border-b-0 sm:gap-4 sm:px-4">
+      <div className="min-w-0 pt-1.5">
+        <p className="text-sm font-medium text-ink">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</p>
+      </div>
+      {box(inviteeName, inviteeValue)}
+      {box(referrerName, referrerValue)}
+    </div>
+  );
+}
+
 export async function ReferralsTab({ params }: { params: RewardParams }) {
   const admin = getSupabaseAdmin();
 
-  const [settings, { count: referrerCount }, { count: invited }, { count: rewarded }, { data: paid }] =
+  const [
+    settings,
+    terms,
+    { count: referrerCount },
+    { count: invited },
+    { count: rewarded },
+    { data: paid },
+  ] =
     await Promise.all([
       loadSettings(admin),
+      loadReferralTerms(admin),
       // Only people who have actually invited someone. The view has a row per
       // account, and a table of hundreds of zeroes answers nothing.
       admin
@@ -182,43 +239,6 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
                   defaultValue={settings.referralMinPayment}
                 />
               </Field>
-              {/* Two shares of one payment, side by side so an admin sets the
-                  scheme as a whole. They answer different questions - the
-                  inviter's share is what makes people share the link, the
-                  welcome share is what makes the invited person actually pay -
-                  and pricing one while blind to the other is how a scheme ends
-                  up costing 25% of a first payment without anyone deciding
-                  that. */}
-              <Field
-                label="Inviter's share (%)"
-                name="referral_percent"
-                hint="Of the first payment, paid to whoever shared the link. Credits, rounded down."
-              >
-                <Input
-                  name="referral_percent"
-                  type="number"
-                  required
-                  min={0}
-                  max={100}
-                  step="any"
-                  defaultValue={settings.referralPercent}
-                />
-              </Field>
-              <Field
-                label="New customer's share (%)"
-                name="referral_invitee_percent"
-                hint="Of the same payment, paid to the person who joined. 0 pays them nothing."
-              >
-                <Input
-                  name="referral_invitee_percent"
-                  type="number"
-                  required
-                  min={0}
-                  max={100}
-                  step="any"
-                  defaultValue={settings.referralInviteePercent}
-                />
-              </Field>
               <Field
                 label="Milestone at"
                 name="referral_milestone_count"
@@ -251,19 +271,57 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
               </Field>
             </FormGrid>
 
+            {/* ---------------------------------------------------------------
+                The two events.
+
+                Laid out as two rows with the event named down the side, rather
+                than four boxes in a grid, because the shape IS the scheme: a
+                referral pays twice, once when the invited account buys a plan
+                and once when it first tops up, and an admin who reads this as
+                four independent numbers will price them as four independent
+                numbers. The top-up row deliberately carries the larger figures
+                - the point of the scheme is an invited account that spends,
+                not one that merely registers - and that is only obvious when
+                the rows sit one above the other.
+                --------------------------------------------------------------- */}
+            <div className="rounded-xl border border-divider">
+              <div className="grid grid-cols-[1fr_auto_auto] items-baseline gap-3 border-b border-divider px-3 py-2 text-xs font-medium text-muted sm:gap-4 sm:px-4">
+                <span>Paid once each, per person invited</span>
+                <span className="w-24 text-right sm:w-28">They get</span>
+                <span className="w-24 text-right sm:w-28">Inviter gets</span>
+              </div>
+
+              <EventRow
+                title="Buys their first plan"
+                hint="The invite has converted. Both sides paid the moment the plan payment settles."
+                inviteeName="referral_plan_invitee_credits"
+                inviteeValue={terms.planInvitee}
+                referrerName="referral_plan_referrer_credits"
+                referrerValue={terms.planReferrer}
+              />
+              <EventRow
+                title="Tops up for the first time"
+                hint="They have spent beyond the plan. Worth more on purpose — this is the behaviour the scheme is buying."
+                inviteeName="referral_topup_invitee_credits"
+                inviteeValue={terms.topupInvitee}
+                referrerName="referral_topup_referrer_credits"
+                referrerValue={terms.topupReferrer}
+              />
+            </div>
+
             <p className="rounded-lg border border-brand-500/35 bg-brand-500/8 px-3 py-2.5 text-sm text-ink">
               <span className="font-medium">
                 {settings.referralEnabled
                   ? describeReferralReward(
-                      settings.referralPercent,
+                      terms,
                       settings.referralMilestoneCount,
                       settings.referralMilestoneBonus,
                     )
                   : "Referrals are switched off, so nothing new is rewarded."}
               </span>
               <span className="mt-0.5 block text-xs text-muted">
-                Nothing is earned at sign-up. A referral stays waiting — visible to both sides,
-                worth nothing — until the person invited pays for the first time.
+                Nothing is earned at sign-up. Each event pays once per person invited, and a
+                payment that buys a plan and credits together settles both at once.
                 {settings.referralMinPayment > 0
                   ? ` A first payment under ${fmtRupees(settings.referralMinPayment)} earns nothing and leaves the referral waiting, so a later payment that does clear the floor can still qualify it.`
                   : ""}

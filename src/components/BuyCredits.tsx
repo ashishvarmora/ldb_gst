@@ -179,7 +179,16 @@ function brandColour(): string {
 /* -------------------------------------------------------------------------- */
 
 /** What a code takes off one price. Both figures came back from the server. */
-type Cut = { discountInr: number; payableInr: number };
+type Cut = {
+  discountInr: number;
+  payableInr: number;
+  /**
+   * On a combined plan-plus-top-up price: which part the discount was computed
+   * on ('plan' / 'credits' / 'all'), so the sum can say so beside the figure.
+   * Absent on a plain purchase.
+   */
+  appliesTo?: "all" | "plan" | "credits";
+};
 
 /**
  * Nothing in this file works a discount out.
@@ -210,6 +219,13 @@ async function askAbout(
   code: string,
   kind: "credits" | "plan",
   amounts: number[],
+  /**
+   * For a combined plan-plus-top-up amount, the top-up's share, keyed by
+   * priceKey. Sent so the server judges a scoped code against the same part
+   * the checkout will - a 'plan' code against the plan price, a 'credits' code
+   * against the top-up - and the figure previewed is the figure charged.
+   */
+  topups?: Record<string, number>,
 ): Promise<Record<string, CouponVerdict>> {
   const answers = await Promise.all(
     amounts.map(async (amount) => {
@@ -217,6 +233,8 @@ async function askAbout(
       fd.set("coupon_code", code);
       fd.set("kind", kind);
       fd.set("amount_inr", String(amount));
+      const topup = topups?.[priceKey(amount)];
+      if (topup && topup > 0) fd.set("topup_inr", String(topup));
       return [priceKey(amount), await previewCoupon(null, fd)] as const;
     }),
   );
@@ -269,7 +287,12 @@ function isBonusCode(verdicts: Record<string, CouponVerdict>): boolean {
  * that silently stops counting while the buyer is still looking at the old total
  * is the worst thing this could do to them.
  */
-function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
+function useCoupon(
+  kind: "credits" | "plan",
+  listAmounts: number[],
+  /** Top-up share per combined price - see askAbout. Only the plan grid has one. */
+  topups?: Record<string, number>,
+) {
   const uid = useId();
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
@@ -282,26 +305,45 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
   const [pricedFor, setPricedFor] = useState("");
 
   const amountKey = pricesKey(listAmounts);
+  /**
+   * The split matters as much as the total: the same combined figure with a
+   * different top-up inside it is a different question for a scoped code, so
+   * the ask-again key carries both. Serialised the same way amountKey is, for
+   * the same reason - a fresh object every render must not re-ask by itself.
+   */
+  const topupKey = Object.entries(topups ?? {})
+    .filter(([, share]) => share > 0)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([key, share]) => `${key}=${share}`)
+    .join(",");
+  const askKey = `${amountKey}#${topupKey}`;
 
   useEffect(() => {
     if (!applied) return;
     // Already answered for exactly these prices - applying a code asks once,
     // and this must not ask a second time for the same figures.
-    if (pricedFor === amountKey) return;
+    if (pricedFor === askKey) return;
 
     const amounts = amountKey ? amountKey.split("|").map(Number) : [];
     if (amounts.length === 0) return;
+
+    const shares: Record<string, number> = Object.fromEntries(
+      topupKey ? topupKey.split(",").map((pair) => {
+        const [key, share] = pair.split("=");
+        return [key, Number(share)] as const;
+      }) : [],
+    );
 
     let live = true;
     // A moment's wait: this fires on every keystroke in the open tier's amount
     // box, and each pass is a round trip on somebody's phone.
     const timer = setTimeout(() => {
       setChecking(true);
-      void askAbout(applied, kind, amounts)
+      void askAbout(applied, kind, amounts, shares)
         .then((next) => {
           if (!live) return;
           setVerdicts(next);
-          setPricedFor(amountKey);
+          setPricedFor(askKey);
           // The code stays applied either way. It has not gone away, it just
           // does nothing at this amount, and each card says so for itself.
           setMessage(
@@ -322,7 +364,8 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
       live = false;
       clearTimeout(timer);
     };
-  }, [applied, amountKey, pricedFor, kind]);
+    // askKey folds amountKey and topupKey together, so both re-ask through it.
+  }, [applied, askKey, amountKey, topupKey, pricedFor, kind]);
 
   async function apply() {
     const code = typed.trim().toUpperCase();
@@ -341,7 +384,7 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
     setMessage(null);
 
     try {
-      const next = await askAbout(code, kind, amounts);
+      const next = await askAbout(code, kind, amounts, topups);
 
       // Never applied, so formValue stays empty and the code cannot travel to
       // openOrder even if the buyer leaves it sitting in the box.
@@ -356,7 +399,7 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
       if (Object.values(next).some((verdict) => verdict.ok)) {
         setApplied(code);
         setVerdicts(next);
-        setPricedFor(amountKey);
+        setPricedFor(askKey);
       } else {
         // It buys nothing anywhere, so the prices stay as they were and the
         // reason is shown exactly as the server worded it.
@@ -417,6 +460,7 @@ function useCoupon(kind: "credits" | "plan", listAmounts: number[]) {
       return {
         discountInr: Number(verdict.discount_inr),
         payableInr: Number(verdict.payable_inr),
+        appliesTo: verdict.applies_to,
       };
     },
     /** Why the code does nothing at this price, in the server's own words. */
@@ -612,6 +656,13 @@ type Chosen = {
   /** Before any code. The panel's arithmetic starts here. */
   listInr: number;
   /**
+   * The parts of listInr, when it has parts - a plan with a credit top-up
+   * attached. Rendered as their own rows so the total is a sum somebody can
+   * check, not a figure to take on trust. Absent for a single-item purchase,
+   * where one "Price" row says everything.
+   */
+  breakdown?: { label: string; inr: number }[];
+  /**
    * What the buyer actually gets, as one line. Worked out from the list price
    * and never from what is paid, which is the whole reason it is shown next to
    * the discount: a code that takes rupees off must visibly take nothing else.
@@ -666,6 +717,8 @@ function PayPanel({
   busy,
   onPay,
   onCancel,
+  addon,
+  blocked,
 }: {
   chosen: Chosen;
   coupon: CouponBox;
@@ -673,12 +726,36 @@ function PayPanel({
   busy: string | null;
   onPay: () => void;
   onCancel: () => void;
+  /**
+   * An optional step between choosing and paying - the plan grid puts its
+   * "add credits to this payment" picker here. Rendered above the code box
+   * because it changes the amount every row below is about.
+   */
+  addon?: React.ReactNode;
+  /**
+   * Why the button will not spend money right now - an open top-up typed below
+   * its minimum. Shown beside the button rather than silently dropping the
+   * top-up from the sum: a figure that shrank without saying why is how the
+   * wrong thing gets bought.
+   */
+  blocked?: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const cut = coupon.cutFor(chosen.listInr);
   const whyNot = coupon.whyNot(chosen.listInr);
   const payable = cut ? cut.payableInr : chosen.listInr;
   const working = busy === chosen.key;
+  /*
+   * Which part a scoped code covered, said beside its row. Only worth a word
+   * on a combined sum - with one item there is only one thing to cover - and
+   * only when the code did NOT cover the whole of it.
+   */
+  const codeScope =
+    chosen.breakdown && cut?.appliesTo === "plan"
+      ? "plan price only"
+      : chosen.breakdown && cut?.appliesTo === "credits"
+        ? "top-up only"
+        : null;
 
   /* On a phone the grid is taller than the screen, so a panel that appears
      under it appears out of sight. "nearest" rather than "center" so a panel
@@ -711,16 +788,24 @@ function PayPanel({
         </button>
       </div>
 
+      {addon}
+
       <CouponField coupon={coupon} className="mt-3" />
 
       {/* Spelled out as rows rather than a struck-through price. A card being
           compared with three others only needs the new figure; the moment
           before paying is the moment to show where that figure came from. */}
       <dl className="mt-3 space-y-1.5 border-t border-divider pt-3">
-        <Sum label="Price" value={fmtRupees(chosen.listInr)} />
+        {chosen.breakdown ? (
+          chosen.breakdown.map((part) => (
+            <Sum key={part.label} label={part.label} value={fmtRupees(part.inr)} />
+          ))
+        ) : (
+          <Sum label="Price" value={fmtRupees(chosen.listInr)} />
+        )}
         {cut && coupon.applied ? (
           <Sum
-            label={`Code ${coupon.applied}`}
+            label={`Code ${coupon.applied}${codeScope ? ` · ${codeScope}` : ""}`}
             value={`− ${fmtRupees(cut.discountInr)}`}
             tone="good"
           />
@@ -738,10 +823,17 @@ function PayPanel({
         </p>
       ) : null}
 
+      {blocked ? (
+        <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warn-500">
+          <AlertCircle size={13} className="mt-0.5 shrink-0" />
+          <span>{blocked}</span>
+        </p>
+      ) : null}
+
       <button
         type="button"
         onClick={onPay}
-        disabled={working}
+        disabled={working || Boolean(blocked)}
         className={buttonClass("primary", "md", "mt-3 w-full")}
       >
         {working ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -974,26 +1066,151 @@ function truckChange(plan: Plan, current: Plan): { better: boolean; text: string
  */
 export type PlanStanding = "none" | "trial";
 
-/** What a plan hands over, as one line for the total. */
-function planReceipt(plan: Plan): string {
+/**
+ * What a plan hands over, as one line for the total. With a top-up attached the
+ * credits read as a visible sum - "1,500 + 750 credits" - because the one thing
+ * a buyer checks at this moment is that adding money added credits.
+ */
+function planReceipt(plan: Plan, topupCredits = 0): string {
   const trucks =
     plan.truck_limit === -1
       ? "Unlimited trucks"
       : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"}`;
   const parts = [trucks];
-  if (plan.included_credits > 0) parts.push(`${formatCredits(plan.included_credits)} credits`);
+  if (plan.included_credits > 0 && topupCredits > 0) {
+    parts.push(`${formatCredits(plan.included_credits)} + ${formatCredits(topupCredits)} credits`);
+  } else if (plan.included_credits > 0 || topupCredits > 0) {
+    parts.push(`${formatCredits(plan.included_credits + topupCredits)} credits`);
+  }
   parts.push(planTermLabel(plan).toLowerCase());
   return parts.join(" · ");
 }
 
+/**
+ * The optional third thing on a plan purchase: credits in the same payment.
+ *
+ * The owner's ask - "500 rupee plan + 1500 credit topup, so first payment
+ * become 2000" - and the referral pays on the payment, so bundling is worth
+ * real money to an invited customer's referrer. It lives INSIDE the pay panel,
+ * after a plan is chosen, because it is an add-on to a decision already made:
+ * offered any earlier it competes with the plan choice itself.
+ *
+ * Chips rather than the shop's full cards - the ladder is already priced, and
+ * this step must stay skippable at a glance. Skipped IS the default: nothing
+ * is selected until tapped, and tapping the selected chip takes it off again.
+ */
+function TopupAddon({
+  packs,
+  creditsPerRupee,
+  selectedId,
+  amount,
+  disabled,
+  onToggle,
+  onAmount,
+}: {
+  packs: CreditPack[];
+  creditsPerRupee: number;
+  selectedId: string | null;
+  /** What is typed in the open tier's box. Shared with the parent, which prices it. */
+  amount: string;
+  disabled: boolean;
+  onToggle: (packId: string) => void;
+  onAmount: (value: string) => void;
+}) {
+  const open = selectedId
+    ? (packs.find((pack) => pack.id === selectedId && pack.is_open_ended) ?? null)
+    : null;
+  const openCredits = open ? creditsForAmount(open, rupees(Number(amount)), creditsPerRupee) : null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-line bg-raised p-3">
+      <p className="flex items-baseline justify-between gap-2 text-xs font-medium text-ink">
+        Add credits to this payment
+        <span className="shrink-0 text-[11px] font-normal text-faint">optional</span>
+      </p>
+
+      {/* Two across on a phone: each chip keeps a full thumb's width. */}
+      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        {packs.map((pack) => {
+          const picked = pack.id === selectedId;
+          return (
+            <button
+              key={pack.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggle(pack.id)}
+              aria-pressed={picked}
+              className={cx(
+                "min-h-12 rounded-lg border px-2 py-1.5 text-left transition",
+                picked
+                  ? "border-brand-500 bg-brand-500/8 ring-1 ring-brand-500/25"
+                  : "border-line bg-panel hover:border-line-strong",
+              )}
+            >
+              <span className="block truncate text-sm font-semibold tabular-nums text-strong">
+                {pack.is_open_ended ? (
+                  "Any amount"
+                ) : (
+                  <>
+                    {formatCredits(pack.credits)}
+                    <span className="ml-1 text-[11px] font-normal text-muted">credits</span>
+                  </>
+                )}
+              </span>
+              <span className="mt-0.5 block text-[11px] tabular-nums text-muted">
+                {pack.is_open_ended
+                  ? `${fmtRupees(pack.price_inr)} or more`
+                  : fmtRupees(pack.price_inr)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {open ? (
+        <div className="mt-2">
+          <Field label="Amount to add (Rs)" name="addon_amount">
+            <Input
+              id="addon_amount"
+              type="number"
+              inputMode="numeric"
+              min={open.price_inr}
+              step="100"
+              value={amount}
+              disabled={disabled}
+              onChange={(event) => onAmount(event.target.value)}
+              className="tabular-nums"
+            />
+          </Field>
+          <p className="mt-1 text-[11px] tabular-nums leading-relaxed text-faint">
+            {openCredits === null
+              ? `Minimum ${fmtRupees(open.price_inr)}. Type that or more.`
+              : `Buys ${formatCredits(openCredits)} credits.`}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function BuyPlans({
   plans,
+  packs = [],
+  creditsPerRupee = 1,
   brandName,
   currentPlan = null,
   disabledReason,
   standing = "none",
 }: {
   plans: Plan[];
+  /**
+   * The credit ladder, for the optional "add credits to this payment" step in
+   * the pay panel. Empty means the step is simply not offered - the plan grid
+   * must keep selling plans even if the packs fail to load.
+   */
+  packs?: CreditPack[];
+  /** The base rate, so the open tier can price itself as the buyer types. */
+  creditsPerRupee?: number;
   brandName: string;
   /**
    * The plan row the account is on. Only used to say what a card would change
@@ -1012,6 +1229,14 @@ export function BuyPlans({
    */
   const [chosenId, setChosenId] = useState<string | null>(null);
 
+  /**
+   * The optional top-up riding on this purchase, as a pack id plus whatever is
+   * typed into the open tier. Ids rather than copies, for the same reason as
+   * chosenId - the pay panel must price the row the order will be opened from.
+   */
+  const [addonPackId, setAddonPackId] = useState<string | null>(null);
+  const [addonAmount, setAddonAmount] = useState("");
+
   /*
    * The trial is never on this grid.
    *
@@ -1023,16 +1248,53 @@ export function BuyPlans({
    */
   const sellable = plans.filter((plan) => !plan.is_trial);
 
-  // Every total a code could apply to on this grid. A free plan has no order to
-  // open, so it has no price to discount either.
+  const chosenPlan = chosenId ? (sellable.find((plan) => plan.id === chosenId) ?? null) : null;
+
+  /*
+   * The top-up as it stands right now, priced the way the shop prices it -
+   * creditsForAmount mirrors the database's credits_for_amount, and null is
+   * its honest answer for an open amount below the minimum. addon null with a
+   * pack selected is therefore "chosen but not yet buyable", which blocks the
+   * pay button below rather than quietly charging the plan alone.
+   */
+  const addonPack = addonPackId ? (packs.find((pack) => pack.id === addonPackId) ?? null) : null;
+  const addonAsked = addonPack?.is_open_ended ? rupees(Number(addonAmount)) : (addonPack?.price_inr ?? 0);
+  const addonCredits = addonPack ? creditsForAmount(addonPack, addonAsked, creditsPerRupee) : null;
+  const addon =
+    addonPack && addonCredits !== null
+      ? { pack: addonPack, priceInr: addonAsked, credits: addonCredits }
+      : null;
+  const addonBlocked =
+    addonPack && !addon
+      ? `The open top-up starts at ${fmtRupees(addonPack.price_inr)}. Type that or more, or tap it off.`
+      : null;
+
+  function toggleAddon(packId: string) {
+    setAddonPackId((current) => (current === packId ? null : packId));
+    const pack = packs.find((entry) => entry.id === packId);
+    // The open tier starts at its own minimum, like the top-up shop: the first
+    // tap shows a real figure rather than a refusal to correct.
+    if (pack?.is_open_ended) {
+      setAddonAmount((current) => (current === "" ? String(pack.price_inr) : current));
+    }
+  }
+
+  const combinedTotal =
+    chosenPlan && addon ? rupees(planChargeInr(chosenPlan) + addon.priceInr) : null;
+
+  // Every total a code could apply to on this grid: each card's own price, and
+  // the combined figure when a top-up is attached - with its split alongside,
+  // so a scoped code is previewed against the part it will actually discount.
+  const planTotals = sellable
+    .filter((plan) => planChargeInr(plan) > 0)
+    .map((plan) => rupees(planChargeInr(plan)));
   const coupon = useCoupon(
     "plan",
-    sellable.filter((plan) => planChargeInr(plan) > 0).map((plan) => rupees(planChargeInr(plan))),
+    combinedTotal !== null ? [...planTotals, combinedTotal] : planTotals,
+    combinedTotal !== null && addon ? { [priceKey(combinedTotal)]: addon.priceInr } : undefined,
   );
   const { busy, error, notice, pay } = useCheckout(brandName, coupon.remove);
   const locked = disabledReason !== null;
-
-  const chosenPlan = chosenId ? (sellable.find((plan) => plan.id === chosenId) ?? null) : null;
 
   /*
    * The term posted is the PLAN's, not the buyer's.
@@ -1043,18 +1305,40 @@ export function BuyPlans({
    * two in step: the money charged and the time granted come from one number.
    * A plan with no term posts 1, so it is charged its unit price once - and
    * settlement gives it no expiry, which is what "no term" means.
+   *
+   * The top-up travels as its pack id (and the typed amount, for the open
+   * tier); the server re-prices both parts itself, so the panel's figures and
+   * the order's cannot drift apart.
    */
   const purchase: Chosen | null = chosenPlan
     ? {
         key: chosenPlan.id,
         name: `${chosenPlan.name} plan`,
-        detail: planTermLabel(chosenPlan),
-        listInr: planChargeInr(chosenPlan),
-        receive: planReceipt(chosenPlan),
+        detail: addon
+          ? `${planTermLabel(chosenPlan)} + ${formatCredits(addon.credits)} credits`
+          : planTermLabel(chosenPlan),
+        listInr: combinedTotal ?? planChargeInr(chosenPlan),
+        breakdown: addon
+          ? [
+              {
+                label: `${chosenPlan.name} plan · ${planTermLabel(chosenPlan).toLowerCase()}`,
+                inr: planChargeInr(chosenPlan),
+              },
+              {
+                label: `Credit top-up · ${formatCredits(addon.credits)} credits`,
+                inr: addon.priceInr,
+              },
+            ]
+          : undefined,
+        receive: planReceipt(chosenPlan, addon?.credits ?? 0),
         start: () => {
           const fd = new FormData();
           fd.set("plan_id", chosenPlan.id);
           fd.set("months", String(planMonths(chosenPlan) ?? 1));
+          if (addon) {
+            fd.set("pack_id", addon.pack.id);
+            if (addon.pack.is_open_ended) fd.set("amount_inr", addonAmount);
+          }
           // The code goes with the purchase, so the server holds the claim and
           // charges the figure the panel was showing.
           fd.set("coupon_code", coupon.formValue);
@@ -1215,7 +1499,26 @@ export function BuyPlans({
           coupon={coupon}
           busy={busy}
           onPay={() => void pay(purchase.key, purchase.start, coupon.refused)}
-          onCancel={() => setChosenId(null)}
+          onCancel={() => {
+            setChosenId(null);
+            // The top-up was an add-on to THAT purchase. Carrying it silently
+            // into the next choice is how someone buys credits by accident.
+            setAddonPackId(null);
+          }}
+          addon={
+            packs.length > 0 ? (
+              <TopupAddon
+                packs={packs}
+                creditsPerRupee={creditsPerRupee}
+                selectedId={addonPackId}
+                amount={addonAmount}
+                disabled={busy !== null}
+                onToggle={toggleAddon}
+                onAmount={setAddonAmount}
+              />
+            ) : undefined
+          }
+          blocked={addonBlocked}
         />
       ) : null}
 

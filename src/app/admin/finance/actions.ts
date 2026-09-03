@@ -83,9 +83,21 @@ export async function recordOfflinePayment(
   const planId = kind === "plan" ? str(fd, "plan_id") : null;
   if (kind === "plan" && !planId) return fail("Pick which plan this paid for.");
 
-  const credits = kind === "credits" ? readCredits(str(fd, "credits")) : 0;
-  if (kind === "credits" && credits === null) {
-    return fail("Enter how many credits this payment bought.");
+  /*
+   * For a credits sale the count IS the purchase, so it is required. For a
+   * plan sale it is the optional top-up sold in the same receipt - the offline
+   * twin of the portal's combined checkout, for the customer paying cash
+   * across a desk - so a blank box is a plan-only sale, and only a box with
+   * something unusable in it is an error.
+   */
+  const creditsRaw = str(fd, "credits");
+  const credits = kind === "credits" || creditsRaw !== null ? readCredits(creditsRaw) : 0;
+  if (credits === null) {
+    return fail(
+      kind === "credits"
+        ? "Enter how many credits this payment bought."
+        : "Credits on top must be a number above zero — or leave the box empty.",
+    );
   }
 
   /*
@@ -154,7 +166,9 @@ export async function recordOfflinePayment(
 
   const bought =
     kind === "plan"
-      ? `a plan for ${months} month${months === 1 ? "" : "s"}`
+      ? `a plan for ${months} month${months === 1 ? "" : "s"}${
+          credits > 0 ? ` plus ${formatCredits(credits)} credits on top` : ""
+        }`
       : `${formatCredits(result.credits ?? credits ?? 0)} credits`;
 
   return done(

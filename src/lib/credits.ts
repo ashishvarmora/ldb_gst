@@ -349,12 +349,39 @@ export function creditsForAmount(
  * A plan with no term still charges price_per_month, once. That is the honest
  * reading of "no expiry": there is no second payment to spread it over.
  */
-export type PlanTerm = Pick<Plan, "price_per_month" | "duration_months">;
+export type PlanTerm = Pick<Plan, "price_per_month" | "duration_months"> &
+  Partial<Pick<Plan, "duration_days" | "trial_days" | "is_trial">>;
 
-/** Months the plan runs for, or null for no expiry. */
+/**
+ * Months the CHARGE is multiplied by - not the term. 1 on every plan sold.
+ *
+ * The two came apart in 0038, because a seven-day plan has no number of months
+ * to charge by. price_per_month x this is still what the checkout takes; how
+ * long the plan then runs is planDays().
+ */
 export function planMonths(plan: PlanTerm): number | null {
   const months = plan.duration_months;
   return typeof months === "number" && Number.isFinite(months) && months > 0 ? months : null;
+}
+
+/**
+ * Days the plan runs for, or null for no expiry.
+ *
+ * The trial's days live in their own column - start_free_trial() reads
+ * trial_days, and 0035 keeps days and months on separate sides of a check
+ * constraint so "7" can never be read as seven months. Both are read here so
+ * one function answers "how long is this plan" for every row on the grid.
+ *
+ * duration_months is the last resort, for a plan row 0038 did not convert. It
+ * is approximated at 30 days a month deliberately: settle_payment() adds a
+ * real interval, so this is a label, and a label that says "about a month" is
+ * closer than one that says nothing.
+ */
+export function planDays(plan: PlanTerm): number | null {
+  const days = plan.is_trial ? (plan.trial_days ?? plan.duration_days) : plan.duration_days;
+  if (typeof days === "number" && Number.isFinite(days) && days > 0) return days;
+  const months = planMonths(plan);
+  return months === null ? null : months * 30;
 }
 
 /** Rupees taken at the checkout: the unit price times the term. */
@@ -363,11 +390,23 @@ export function planChargeInr(plan: PlanTerm): number {
   return Math.round(plan.price_per_month * months * 100) / 100;
 }
 
-/** "12 months" · "1 month" · "No expiry". */
+/**
+ * "7 days" · "30 days" · "3 months" · "No expiry".
+ *
+ * Days up to a fortnight, because that is how a seven-day plan is spoken of;
+ * whole months above that, because "90 days" is a figure to work out and
+ * "3 months" is one to recognise. A term that is not a whole number of months
+ * stays in days rather than being rounded into a lie.
+ */
 export function planTermLabel(plan: PlanTerm): string {
-  const months = planMonths(plan);
-  if (months === null) return "No expiry";
-  return months === 1 ? "1 month" : `${months} months`;
+  const days = planDays(plan);
+  if (days === null) return "No expiry";
+  if (days <= 14) return days === 1 ? "1 day" : `${days} days`;
+  if (days % 30 === 0) {
+    const months = days / 30;
+    return months === 1 ? "1 month" : `${months} months`;
+  }
+  return `${days} days`;
 }
 
 /**
@@ -375,9 +414,9 @@ export function planTermLabel(plan: PlanTerm): string {
  * "Rs 2,388 for 12 months", "Rs 199 once - the plan never expires".
  */
 export function planTermSuffix(plan: PlanTerm): string {
-  const months = planMonths(plan);
-  if (months === null) return "once - the plan never expires";
-  return months === 1 ? "for 1 month" : `for ${months} months`;
+  const days = planDays(plan);
+  if (days === null) return "once - the plan never expires";
+  return `for ${planTermLabel(plan).toLowerCase()}`;
 }
 
 /** "250% of what you pay" - the open tier stated as a sentence. */

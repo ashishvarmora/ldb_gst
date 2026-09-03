@@ -16,7 +16,11 @@ import {
 } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
 import { fmtRupees } from "@/lib/format";
-import { describeReferralReward } from "@/lib/referrals";
+import {
+  describeReferralReward,
+  describeWelcomeBonus,
+  loadReferralTerms,
+} from "@/lib/referrals";
 import { getSessionUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertRuleTemplate, CreditPack, CreditRate, Plan } from "@/lib/types";
@@ -45,15 +49,21 @@ const FALLBACK_EXAMPLE_CREDITS = 100;
  * how many trucks may be watched, credits are what the watching spends.
  */
 export default async function PricingPage() {
-  const [session, settings, { plans, packs, rates, alertRule }] = await Promise.all([
-    getSessionUser(),
-    publicSettings(),
-    loadCatalogue(),
-  ]);
+  const [session, settings, referralTerms, { plans, packs, rates, alertRule }] =
+    await Promise.all([
+      getSessionUser(),
+      publicSettings(),
+      // Read straight from app_settings rather than through publicSettings, so
+      // the referral scheme's own four amounts stay with the referral code.
+      loadReferralTerms(getSupabaseAdmin()),
+      loadCatalogue(),
+    ]);
 
   // Where a signed-in reader goes from here, and where a signed-out one does.
   // The page itself is the same for both - only the way out of it differs.
   const signedIn = session !== null && session.profile.status === "active";
+  /* Null when both welcome amounts are 0, and the line simply disappears. */
+  const welcomeLine = describeWelcomeBonus(referralTerms);
   const home = signedIn && session.profile.role === "super_admin" ? "/admin" : "/portal";
   const headerAction = signedIn
     ? { href: home, label: "Your account" }
@@ -221,7 +231,7 @@ export default async function PricingPage() {
                   <h2 className="text-sm font-semibold text-strong">Invite someone, earn credits</h2>
                   <p className="mt-1.5 text-sm leading-relaxed text-ink">
                     {describeReferralReward(
-                      settings.referralPercent,
+                      referralTerms,
                       settings.referralMilestoneCount,
                       settings.referralMilestoneBonus,
                     )}
@@ -229,18 +239,17 @@ export default async function PricingPage() {
                   {/* Said plainly because it is the condition, not the small
                       print: a sign-up on its own earns nothing at all. */}
                   <p className="mt-2 text-sm leading-relaxed text-muted">
-                    The credits arrive when the person you invited makes their first payment — not
-                    when they register. Until then the invitation is simply waiting.
+                    Fixed credits, twice over: once when they buy their first plan, and again when
+                    they first top up. Nothing arrives when they merely register.
                   </p>
                   {/* The invitee's half. This is the public page a person
                       holding an invite link reads before deciding, so the half
                       of the offer addressed to THEM belongs here - it was
                       previously said to nobody. Rendered only while the share
                       is switched on. */}
-                  {settings.referralInviteePercent > 0 ? (
+                  {welcomeLine ? (
                     <p className="mt-2 text-sm leading-relaxed text-muted">
-                      And it pays both ways: joining through an invite gives the new account{" "}
-                      {settings.referralInviteePercent}% of that first payment back as credits.
+                      And it pays both ways. {welcomeLine}
                     </p>
                   ) : null}
                   <p className="mt-2 text-xs leading-relaxed text-faint">
