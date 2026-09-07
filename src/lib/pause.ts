@@ -205,8 +205,34 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "bad",
     line: "Stopped automatically — the failure limit was reached on this number",
     detail:
-      "The portal could not answer for this registration number often enough in a row to reach this truck's failure limit, so checking was paused rather than left paying a credit per error. The usual cause is a typo in the number, or a lorry the portal has stopped reporting. Correct the number first — going live without changing anything will most likely fail again, and each failed check still costs.",
-    resumable: false,
+      "The portal could not answer for this registration number often enough in a row to reach this truck's failure limit, so checking was paused rather than left paying a credit per error. The usual cause is a typo in the number, or a lorry the portal has stopped reporting. Check the number before going live again — nothing will have changed if the number is wrong, and each failed check still costs a credit.",
+    /*
+     * RESUMABLE, unlike no_credits, and the difference is whether the officer
+     * can see the blocking condition clear.
+     *
+     * An empty balance is objectively checkable: either there are credits or
+     * there are not, so refusing until there are is honest and the officer can
+     * fix it themselves.
+     *
+     * A failure run is not. It is caused either by a typo, which the officer
+     * CAN fix, or by the portal being down or having dropped that lorry, which
+     * they cannot - and we have no way to detect the portal recovering, because
+     * we stopped asking. Blocking "until the cause is gone" therefore means a
+     * truck that is dead for ever whenever the cause was an outage rather than
+     * a mistake.
+     *
+     * The analogy is a number that will not connect. A system that tells you it
+     * has failed ten times and suggests checking the number is useful; one that
+     * refuses to let you dial again is broken. So going live is allowed and the
+     * warning is loud.
+     *
+     * The cost of being wrong is asymmetric and small. A retry is one credit,
+     * and the failure budget re-pauses the truck after the same number of
+     * failures again - so the loop is self-limiting at roughly ten credits,
+     * which is precisely what the budget is for. A permanently unusable truck
+     * costs the officer the reason they bought the product.
+     */
+    resumable: true,
     automatic: true,
   },
   account_suspended: {

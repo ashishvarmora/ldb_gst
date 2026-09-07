@@ -120,6 +120,12 @@ export type SweepSummary = {
    */
   planExpired: { trucks: number; accounts: number };
   /**
+   * Expired trials whose leftover balance was cleared. Trial credits are not
+   * lifetime credits, so when the trial ends the unused ones are taken back
+   * rather than left frozen on the row promising something no action can spend.
+   */
+  trialCreditsCleared: { accounts: number; credits: number };
+  /**
    * Trucks this sweep stopped by itself, and why.
    *
    * Reported rather than left implicit because it is the one thing in a sweep
@@ -1019,6 +1025,28 @@ async function applyAutoPauses(
  * be pausing a truck by hand at the same moment, and whoever gets there first
  * owns the reason.
  */
+/**
+ * Clears the leftover balance of an expired trial that never paid.
+ *
+ * Thin on purpose: every rule about who qualifies lives in
+ * expire_trial_credits(), because a rule in a worker is a rule the admin
+ * console and any future caller do not share.
+ */
+async function clearExpiredTrialCredits(
+  admin: Admin,
+): Promise<{ accounts: number; credits: number }> {
+  const { data, error } = await admin.rpc("expire_trial_credits");
+  if (error) {
+    console.error("could not clear expired trial credits", error.message);
+    return { accounts: 0, credits: 0 };
+  }
+  const result = (data ?? {}) as { accounts?: number; credits_cleared?: number };
+  return {
+    accounts: Number(result.accounts) || 0,
+    credits: Number(result.credits_cleared) || 0,
+  };
+}
+
 async function applyPlanExpiryTeardown(
   admin: Admin,
   now: Date,
@@ -1152,6 +1180,7 @@ export async function runTrackingSweep(
     alertsDelivered: 0,
     deferred: 0,
     planExpired: { trucks: 0, accounts: 0 },
+    trialCreditsCleared: { accounts: 0, credits: 0 },
     autoPaused: { schedule: 0, inactive: 0 },
     noCreditsPaused: { trucks: 0, accounts: 0 },
     errors: [] as string[],
@@ -1177,6 +1206,18 @@ export async function runTrackingSweep(
    * filter below excludes it - but it would be counted as one.
    */
   const planExpired = await applyPlanExpiryTeardown(admin, startedAt);
+
+  /*
+   * Trial credits die with the trial, and this is where they are taken.
+   *
+   * Beside the plan-expiry teardown because they answer the same question a day
+   * apart - what stops being true when a term ends - and running them together
+   * means one sweep decides both rather than two schedules drifting. The
+   * function does its own filtering (expired trial, never paid, balance above
+   * zero), writes through the ledger so the drop is explained, and is
+   * idempotent, so a second sweep in the same minute finds nothing.
+   */
+  const trialCredits = await clearExpiredTrialCredits(admin);
 
   /*
    * Active trucks, belonging to active officers, WHOSE PLAN HAS NOT RUN OUT.
@@ -1232,11 +1273,11 @@ export async function runTrackingSweep(
 
   const { data: candidates, error } = await query;
   if (error) {
-    return finish({ ...base, planExpired, errors: [`Could not list trucks: ${error.message}`] });
+    return finish({ ...base, planExpired, trialCreditsCleared: trialCredits, errors: [`Could not list trucks: ${error.message}`] });
   }
 
   const all = (candidates ?? []) as TrackedTruck[];
-  if (all.length === 0) return finish({ ...base, planExpired });
+  if (all.length === 0) return finish({ ...base, planExpired, trialCreditsCleared: trialCredits });
 
   /*
    * The trucks that have reached a stop of their own, dealt with before
@@ -1255,7 +1296,7 @@ export async function runTrackingSweep(
   // Every candidate stopped itself. Still a complete sweep, and the summary has
   // to say what it did rather than reading as "nothing happened".
   if (running.length === 0) {
-    return finish({ ...base, planExpired, candidates: all.length, autoPaused: autoPaused.counts });
+    return finish({ ...base, planExpired, trialCreditsCleared: trialCredits, candidates: all.length, autoPaused: autoPaused.counts });
   }
 
   // A truck is checked because one of its alerts came due. Nothing else calls
