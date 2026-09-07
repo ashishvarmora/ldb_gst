@@ -183,7 +183,7 @@ export default async function PricingPage() {
         <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="What credits are spent on"
-            body="A search you run yourself is the only thing that draws on the balance. Automatic checks are included in your plan, however often a truck is checked — the plan caps how many trucks you may track at once, not how closely."
+            body="Both kinds of look cost the same: a search you type, and each automatic check of a truck you are watching. So how closely you watch a lorry is what it costs — a faster alert is more checks a day — and pausing a truck stops the meter. Your plan caps how many trucks you may watch at once and for how long; the balance is what the looking is paid from."
           />
 
           {rates.length === 0 ? (

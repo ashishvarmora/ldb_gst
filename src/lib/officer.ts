@@ -75,22 +75,49 @@ export const loadOverview = cache(async (userId: string): Promise<OfficerOvervie
 export const PLAN_GRACE_DAYS = 7;
 
 /**
+ * True when the free trial has ended and nothing has been bought since.
+ *
+ * The one account state where a balance exists and cannot be spent. A trial is
+ * not a purchase - "only free trial expire all" - so when the seventh day
+ * passes its credits finish with it.
+ *
+ * The `credits_purchased` escape is the same escape spend_credits() makes, and
+ * for the same reason: the top-up panel is open to lapsed accounts on purpose,
+ * and freezing credits somebody has just paid for would be taking their money.
+ * The database tests "has this account any paid payment"; this tests the sum of
+ * its 'purchase' ledger rows, which officer_overview already carries and which
+ * is non-zero for exactly those accounts. Two readings of one rule, but only
+ * this one is load-bearing on a screen - spend_credits() is what enforces it,
+ * and it reads payments directly.
+ */
+export function trialSpentOut(overview: OfficerOverview): boolean {
+  return overview.plan_is_trial && !overview.plan_active && overview.credits_purchased <= 0;
+}
+
+/**
  * Plain-language reason a MANUAL SEARCH would be refused, or null when it is
  * fine.
  *
- * NO LONGER GATED ON THE PLAN, and that is the point of the change 0038 makes.
- * Credits are a lifetime wallet: they are bought outright, they never expire,
- * and what they buy is manual search. Refusing a search because a subscription
- * lapsed would be confiscating something already paid for - and it was the
- * old behaviour, so an account with 440 credits and a finished plan could not
- * spend a single one of them.
+ * NOT GATED ON THE PLAN, and that is the point of the change 0038 made and
+ * 0041 keeps. Credits are a lifetime wallet: they are bought outright, they
+ * never expire, and what they buy is manual search. Refusing a search because
+ * a subscription lapsed would be confiscating something already paid for - and
+ * it was the old behaviour, so an account with 440 credits and a finished plan
+ * could not spend a single one of them.
  *
- * The balance itself is still not checked here: spend_credits() decides that
- * atomically at the moment of spending, and duplicating the test would only add
- * a second answer free to disagree with it. What is checked is the one thing a
- * screen can usefully say in advance - an empty wallet.
+ * THE FREE TRIAL IS THE EXCEPTION, and the only one. It is checked before the
+ * balance because it is the stronger fact: an ended trial with 14 credits left
+ * would otherwise be told it has plenty and then refused at the tap.
+ *
+ * The balance itself is still not checked beyond empty: spend_credits() decides
+ * affordability atomically at the moment of spending, and duplicating the test
+ * would only add a second answer free to disagree with it. What is checked here
+ * is what a screen can usefully say in advance.
  */
 export function blockedReason(overview: OfficerOverview): string | null {
+  if (trialSpentOut(overview)) {
+    return "Your free trial has ended, so its credits have finished with it. Choose a plan or top up to carry on.";
+  }
   if (overview.credits <= 0) {
     return "You have run out of credits. Top up on the Plan and credits page.";
   }

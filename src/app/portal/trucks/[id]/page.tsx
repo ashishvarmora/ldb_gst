@@ -30,8 +30,8 @@ import {
   InlineActionForm,
   SubmitButton,
 } from "@/components/ActionForm";
-import { Disclosure } from "@/components/Disclosure";
-import { LabelWithInfo } from "@/components/InfoTip";
+import { Disclosure, HelpNote } from "@/components/Disclosure";
+import { InfoTip, LabelWithInfo } from "@/components/InfoTip";
 import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
 import { TruckAlertForm } from "@/components/TruckAlertForm";
@@ -42,7 +42,13 @@ import { intervalLabel } from "@/lib/intervals";
 import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
-import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
+import {
+  AUTO_PAUSE_RULES,
+  PAUSE_HELP_LINE,
+  autoPauseCountdown,
+  pauseCopyFor,
+  pauseWhy,
+} from "@/lib/pause";
 import { getSessionUser } from "@/lib/auth";
 import { SupportLine } from "@/components/SupportLine";
 import { loadSettings } from "@/lib/settings";
@@ -183,6 +189,7 @@ export default async function TruckDetailPage({
   /* Why it stopped, and - if it has not - when it is going to. Both read from
      the shared table so this page and the fleet card agree. */
   const pausedCopy = pauseCopyFor(truck);
+  const pauseNote = pauseWhy(truck, settings);
   const countdown = autoPauseCountdown(truck);
 
   const eventList = (events ?? []) as TruckEvent[];
@@ -213,7 +220,34 @@ export default async function TruckDetailPage({
             {truck.truck_number}
           </h1>
           <Badge tone={TRUCK_STATUS_TONE[status]}>{TRUCK_STATUS_LABEL[status]}</Badge>
-          {pausedCopy ? <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge> : null}
+          {/*
+            The badge answers "is it running"; the (i) answers the question that
+            immediately follows it - paused since when, and for how long an
+            idle window or how many failures. The full paragraph is in Settings
+            further down the page, which is the right place to read it and the
+            wrong place to have to scroll to for one number.
+          */}
+          {pausedCopy && pauseNote ? (
+            <InfoTip
+              label={`why ${truck.truck_number} is paused`}
+              info={
+                <>
+                  <p>{pauseNote}</p>
+                  <p>
+                    {PAUSE_HELP_LINE}{" "}
+                    <Link href="#tracking" className="font-medium text-brand-500 hover:underline">
+                      Change when it stops by itself
+                    </Link>
+                    .
+                  </p>
+                </>
+              }
+            >
+              <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge>
+            </InfoTip>
+          ) : pausedCopy ? (
+            <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge>
+          ) : null}
         </div>
         <p className="mt-1 text-xs text-muted">
           {truck.label ? `${truck.label} · ` : ""}
@@ -237,9 +271,12 @@ export default async function TruckDetailPage({
             action={setTruckPaused}
             hidden={{ truck_id: truck.id, is_active: truck.is_active ? "false" : "true" }}
           >
+            {/* "Go live" is the owner's word for resuming, and the one that
+                says what happens: checking restarts and the credits start
+                again. "Resume" reads as undoing a UI state. */}
             <SubmitButton variant="ghost" size="sm">
               {truck.is_active ? <PauseCircle size={13} /> : <PlayCircle size={13} />}
-              {truck.is_active ? "Pause" : "Resume"}
+              {truck.is_active ? "Pause" : "Go live"}
             </SubmitButton>
           </InlineActionForm>
         </div>
@@ -268,7 +305,7 @@ export default async function TruckDetailPage({
 
       <Panel
         title="Alerts on this truck"
-        description="Checked only when one of these is due. Automatic checks are included in your plan."
+        description="Checked only when one of these is due, and every automatic check costs one credit."
       >
         {ruleList.length === 0 ? (
           <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
@@ -439,7 +476,14 @@ export default async function TruckDetailPage({
       {/* Not folded away like the sections above it. There are only two fields
           and a remove button, and hiding them behind a dropdown made people
           hunt for the pause switch. */}
-      <Panel title="Settings" description="Label, pause, failure limit, and removing this truck.">
+      {/* id, because the pause (i) at the top of the page and the auto-pause
+          help on My trucks both need to land on these fields rather than on
+          the page - the route and the alert history sit between them. */}
+      <Panel
+        id="tracking"
+        title="Settings"
+        description="Label, pause, the limits that stop it by itself, and removing this truck."
+      >
         {/*
           Why it stopped, said here where the switch to restart it is - not only
           on the card in a list the officer may not go back to.
@@ -512,7 +556,7 @@ export default async function TruckDetailPage({
             <Checkbox
               name="is_active"
               label="Tracking active"
-              hint="Uncheck to pause every alert on this truck without losing its history."
+              hint="Uncheck to pause every alert on this truck. Its history is kept and no credits are spent while it is paused."
               defaultChecked={truck.is_active}
             />
           </div>
@@ -523,10 +567,10 @@ export default async function TruckDetailPage({
               htmlFor="max_consecutive_failures"
               info={
                 <>
-                  A check fails when the toll network cannot answer for this number. After five
-                  failures in a row we message you; at this number the truck is paused rather than
-                  left asking a question with no answer, and its tracking slot is handed back.
-                  Nothing is deleted.
+                  A check fails when the portal cannot answer for this number. After five failures
+                  in a row we message you; at this number the truck is paused, because a failed
+                  check costs a credit like any other and retrying a number the portal will not
+                  answer only buys errors. Nothing is deleted.
                   <span className="mt-1.5 block text-faint">
                     Leave it empty to follow the platform default, currently {defaultFailureCutoff}.
                     Setting your own here fixes it for this truck only, and it will not move when
@@ -563,8 +607,9 @@ export default async function TruckDetailPage({
                 info={
                   <>
                     A countdown that starts when you save. Use it when you only need to follow this
-                    truck for a while — when the time is up it is paused, you are told, and its
-                    tracking slot is free for another lorry.
+                    truck for a while — when the time is up it is paused and you are told, so it
+                    stops spending credits whether or not you remembered to come back. Its
+                    tracking slot goes back to your plan at the same moment.
                     <span className="mt-1.5 block text-faint">
                       Leave it empty to keep checking until you pause it yourself. Saving with a
                       number in the box restarts the countdown from now.
@@ -598,8 +643,8 @@ export default async function TruckDetailPage({
                 info={
                   <>
                     Counted from the last toll crossing that came through. A parked lorry answers
-                    every check with the same crossing as yesterday, so this pauses it and hands its
-                    tracking slot back rather than holding a slot to be told nothing.
+                    every check with the same crossing as yesterday, so this pauses it rather than
+                    spending a credit every fifteen minutes to be told nothing new.
                     <span className="mt-1.5 block text-faint">
                       Leave it empty to follow the platform default, currently{" "}
                       {defaultInactiveHours} hours. Set it longer for a truck you expect to be
@@ -623,6 +668,37 @@ export default async function TruckDetailPage({
             </div>
           </div>
 
+          {/*
+            The fuller explanation the (i)s elsewhere link to, folded so it is
+            one line until somebody wants it. It belongs beside the three boxes
+            that cause it rather than on the support site, because this is where
+            an officer decides how patient to be with a lorry - and the decision
+            is only sensible once you know a check costs a credit.
+          */}
+          <HelpNote title="What stops this truck by itself" className="mt-4">
+            <p>
+              A tracked truck is checked every fifteen minutes and each check costs one credit —
+              about 96 credits a day for one lorry. Four things stop the checks:
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {AUTO_PAUSE_RULES.map((rule) => (
+                <li key={rule.label}>
+                  <span className="font-medium text-ink">{rule.label}.</span> {rule.body}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2">
+              {PAUSE_HELP_LINE}{" "}
+              <Link
+                href="/portal/trucks?filter=watchlist"
+                className="font-medium text-brand-500 hover:underline"
+              >
+                See every paused truck
+              </Link>
+              .
+            </p>
+          </HelpNote>
+
           <FormActions>
             <SubmitButton>Save</SubmitButton>
           </FormActions>
@@ -630,8 +706,9 @@ export default async function TruckDetailPage({
 
         <div className="mt-5 border-t border-divider pt-4">
           <p className="text-xs leading-relaxed text-muted">
-            Removing frees a tracking slot and deletes this truck&apos;s alerts. Its{" "}
-            {totalCrossings} toll crossing{totalCrossings === 1 ? "" : "s"} on record are kept.
+            Removing stops the checks, deletes this truck&apos;s alerts and frees its tracking slot.
+            Its {totalCrossings} toll crossing{totalCrossings === 1 ? "" : "s"} on record are kept.
+            Pausing does the same to the checks and the credits, and keeps the alerts.
           </p>
           <ActionForm action={removeTruck} closeOnSuccess={false} className="mt-3">
             <input type="hidden" name="truck_id" value={truck.id} />

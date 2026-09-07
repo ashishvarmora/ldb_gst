@@ -2,9 +2,11 @@ import Link from "next/link";
 import { BellOff, Download, Plus } from "lucide-react";
 
 import { AddTruckForm } from "./AddTruckForm";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { TruckCard, isWatching } from "@/components/TruckCard";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
+import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE } from "@/lib/pause";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -39,8 +41,23 @@ const FILTER_LABEL: Record<Filter, string> = {
 
 /** What each tab means, for the empty state and the tab's own title. */
 const FILTER_NOTE: Record<Filter, string> = {
-  live: "Being checked automatically",
-  watchlist: "On your list, not being checked",
+  live: "Being checked automatically, and spending credits",
+  watchlist: "On your list, not being checked and not spending credits",
+};
+
+/**
+ * The one line under the tabs, and the only place on this screen where what
+ * pausing is FOR gets any words at all.
+ *
+ * One line per tab rather than a paragraph, because the rest of the answer is
+ * behind the (i) beside it. An officer arriving on the watchlist is asking "have
+ * I lost anything by pausing these?" and the answer is the owner's own sentence;
+ * an officer on the live tab is being told, once, that these lorries are the
+ * ones costing money and that they can stop themselves.
+ */
+const FILTER_LEAD: Record<Filter, string> = {
+  live: "Each of these is being checked and charged a credit a check.",
+  watchlist: "Paused trucks keep their history but do not consume tracking credits.",
 };
 
 /*
@@ -215,6 +232,70 @@ export default async function TrucksPage({
           </div>
 
           {/*
+            One line, and the whole of the auto-pause explanation behind the (i)
+            beside it.
+
+            The four rules used to be nowhere on this screen, which meant the
+            first time an officer met one was a truck that had gone quiet on its
+            own. Putting them on the page would cost a paragraph on the screen
+            that is scanned more than any other, and the owner has asked
+            repeatedly for this list to stay short - so the rules, the links and
+            the arithmetic live in the panel, and the row keeps one sentence.
+          */}
+          <InfoTip
+            label="auto-pause"
+            rowClassName="gap-x-1.5"
+            info={
+              <>
+                <p className="font-medium text-ink">Auto-pause rules</p>
+                <p>
+                  A tracked truck is checked every fifteen minutes and each check costs one credit
+                  — about 96 credits a day for one lorry. So checking stops by itself in four
+                  situations, and each one is there to stop credits going on an answer you already
+                  have:
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {AUTO_PAUSE_RULES.map((rule) => (
+                    <li key={rule.label}>
+                      <span className="font-medium text-ink">{rule.label}.</span> {rule.body}
+                    </li>
+                  ))}
+                </ul>
+                {/* mt-2 by hand: InfoTip's panel spaces p+p for itself, and the
+                    list above this one breaks that adjacency. */}
+                <p className="mt-2">{PAUSE_HELP_LINE}</p>
+                <p className="flex flex-wrap gap-x-3 gap-y-1">
+                  <Link
+                    href={hrefFor("watchlist", 1)}
+                    className="font-medium text-brand-500 hover:underline"
+                  >
+                    See your watchlist
+                  </Link>
+                  {/* Where the two per-truck limits actually live. There is no
+                      account-wide page for them - they are set on the truck, or
+                      left to follow the platform default - so this points at
+                      the truck itself rather than inventing a settings URL. */}
+                  <span className="text-faint">
+                    Open any truck to set its own limits under Settings.
+                  </span>
+                  <Link
+                    href="/support#watching"
+                    className="font-medium text-brand-500 hover:underline"
+                  >
+                    More on pausing
+                  </Link>
+                </p>
+              </>
+            }
+          >
+            {/* flex-1 min-w-0 so the note wraps under itself and the (i) stays
+                on the first line beside it. A plain <p> here is a flex item as
+                wide as its text, which on a phone filled the row and left the
+                icon stranded alone on a third line. */}
+            <p className="min-w-0 flex-1 text-xs text-muted">{FILTER_LEAD[filter]}</p>
+          </InfoTip>
+
+          {/*
             The rule that surprises people, and the only place it still gets
             screen space: a truck is checked because an alert came due, so one
             with no alert is watched in name only. It used to be a folded
@@ -239,8 +320,8 @@ export default async function TrucksPage({
                 title={filter === "live" ? "Nothing is being tracked" : "Your watchlist is empty"}
                 description={
                   filter === "live"
-                    ? "Every truck on your list is paused. Switch one on to start checking it."
-                    : "Every truck on your list is being checked."
+                    ? "Every truck on your list is paused, so nothing is being checked and no credits are going out. Take one live to start checking it."
+                    : "Every truck on your list is being checked. Pause any that are parked — a checked lorry costs a credit a check."
                 }
               />
             </Panel>
@@ -250,7 +331,12 @@ export default async function TrucksPage({
                scan two places for the number it is looking for. */
             <div className="space-y-2">
               {shown.map((truck) => (
-                <TruckCard key={truck.id} truck={truck} alerts={byTruck.get(truck.id) ?? []} />
+                <TruckCard
+                  key={truck.id}
+                  truck={truck}
+                  alerts={byTruck.get(truck.id) ?? []}
+                  settings={settings}
+                />
               ))}
             </div>
           )}

@@ -65,12 +65,18 @@ export function formatCredits(value: number | null | undefined): string {
  * Five is one sitting: enough to notice before the next tap is refused, few
  * enough that it is not warning somebody with a fortnight of credit left.
  *
- * The manual search is the only unit this CAN be measured in, and since 0038
- * that is not merely a preference. Automatic checks are rated zero - included
- * in the plan, charged nothing, not even a ledger row - so "how many automatic
- * checks does this balance cover" divides by zero and the honest answer is all
- * of them. A balance no longer says anything at all about whether tracking
- * keeps running; a plan does. So this measures the one thing credits still buy.
+ * STILL MEASURED IN SEARCHES, and 0041 makes that a choice rather than the only
+ * option. Automatic checks cost a credit again, so a balance could now be
+ * quoted in those too - and it would be a worse number, not a better one. A
+ * truck on the default fifteen-minute beat is 96 checks a day, so any balance
+ * worth having is "under a day of tracking" and any balance under a hundred is
+ * "none", which would put an alarm on every screen permanently. Worse, the
+ * figure would depend on how many trucks are switched on, which this function
+ * is not told.
+ *
+ * A search is the unit the officer controls one tap at a time, so it is the one
+ * where "five left" is a fact they can act on. What tracking is costing is a
+ * different question and belongs where the trucks are.
  */
 export const LOW_CREDIT_SEARCHES = 5;
 
@@ -191,6 +197,14 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
       return `Not enough credits. This needs ${formatCredits(verdict.cost ?? 0)} and you have ${formatCredits(verdict.balance ?? 0)}.`;
     case "account_suspended":
       return "This account has been suspended. Contact support if you think that is wrong.";
+    case "trial_ended":
+      /*
+       * Says what ended and what to do, and deliberately does not quote the
+       * leftover balance. Those credits are not coming back - the trial was
+       * free and it is over - so printing "you still have 14" alongside a
+       * refusal reads as a fault to report rather than a trial that finished.
+       */
+      return "Your free trial has ended, so its credits have finished with it. Choose a plan or top up to carry on.";
     case "unknown_action":
       return "That is not something this account can be charged for yet. Contact support.";
     default:

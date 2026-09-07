@@ -367,7 +367,7 @@ export default async function UsagePage({
         <div className="space-y-5">
           <Panel
             title="What the credits went on"
-            description="The same charges, split by action. Only a manual search draws on a balance - automatic checks are included in the plan and are not charged."
+            description="The same charges, split by action. Both draw on the balance at one credit each as of 0041, so on any account with trucks switched on the automatic checks are the larger figure by a wide margin."
           >
             <ShareBreakdown
               slices={reasonSlices}

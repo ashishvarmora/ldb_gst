@@ -77,10 +77,11 @@ export default async function ActivityPage({
             the list is missing rows. */}
         <div className="space-y-2">
           <HelpNote title="What actually costs credits?">
-            Only a search you run yourself, at one credit each. Automatic checks are included in
-            your plan and cost nothing, however often a truck is checked — so slowing a truck down
-            no longer saves anything, and there is no reason to watch a lorry less closely than you
-            want to. Your plan caps how many trucks may be tracked at once, not how often.
+            Every look at a lorry, at one credit each — the searches you type, and each automatic
+            check of a truck you are watching. The automatic ones are almost always the bigger
+            number: a truck on a 15-minute alert is checked 96 times a day whether or not it moves.
+            So how closely you watch is what it costs, and pausing a truck stops it. Your plan caps
+            how many trucks may be watched at once and for how long, not what the looking costs.
           </HelpNote>
 
           <HelpNote title="How do I find one particular charge?">

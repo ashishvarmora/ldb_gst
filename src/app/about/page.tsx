@@ -118,10 +118,11 @@ export default async function AboutPage() {
 
         <Section id="how-paid" title="How it is paid for">
           <p>
-            A plan sets how many vehicles may be watched at once, and automatic checking is
-            included in it — however often a vehicle is checked. Credits are separate: they pay for
-            a lookup you run yourself, they never expire, and the price of every action is
-            published before you buy.
+            A plan sets how many vehicles may be watched at once, and until when. Credits pay for
+            the checking itself, at one credit per check — whether we ran it automatically or you
+            ran the lookup yourself. Credits never expire, and the price of every action is
+            published before you buy. That is also why a paused vehicle costs nothing: no checks,
+            no credits.
           </p>
           <p>
             <Link

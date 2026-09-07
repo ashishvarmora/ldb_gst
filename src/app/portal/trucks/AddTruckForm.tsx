@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { addTruck } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { HelpNote } from "@/components/Disclosure";
 import { Field, FormActions, Input, Select } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
 import { AlertChooser } from "@/components/TruckAlertForm";
+import { PAUSE_HELP_LINE } from "@/lib/pause";
 import type { AlertRuleTemplate } from "@/lib/types";
 
 /**
@@ -82,8 +85,9 @@ export function AddTruckForm({
             info={
               <>
                 Set this if you only need to follow this truck for a while. When the time is up it
-                is paused, you are told, and its tracking slot is free for another lorry — nothing
-                is deleted and every crossing it recorded stays.
+                is paused and you are told, so it stops spending credits at the moment you said it
+                should — even if you have long since forgotten about it. Nothing is deleted, every
+                crossing it recorded stays, and its tracking slot goes back to your plan.
                 <span className="mt-1.5 block text-faint">
                   Leave it empty to keep checking until you pause it yourself.
                 </span>
@@ -126,16 +130,35 @@ export function AddTruckForm({
 
           {showAdvanced ? (
             <div className="mt-3">
+              {/*
+                What both of these fields are FOR, said once above them instead
+                of twice inside their (i)s. They read as fiddly limits - a
+                failure count and an idle window - and the reason to touch
+                either is the same: an automatic check costs a credit, and both
+                of these stop the checks that were only ever going to spend one
+                to tell you nothing new.
+              */}
+              <HelpNote title="How automatic pausing protects your credits" className="mb-4">
+                A tracked truck is checked every fifteen minutes, and each check costs one credit —
+                roughly 96 a day for one lorry. These two limits stop that quietly running on: a
+                lorry parked in a yard, or a number the portal cannot answer, is paused instead of
+                charged. {PAUSE_HELP_LINE}{" "}
+                <Link href="/support#watching" className="font-medium text-brand-500 hover:underline">
+                  More on automatic pausing
+                </Link>
+                .
+              </HelpNote>
+
               <LabelWithInfo
                 label="Stop checking after this many failures"
                 htmlFor="max_consecutive_failures"
                 info={
                   <>
-                    A check fails when the toll network cannot answer for this number - usually a
-                    typo, or a lorry it has stopped reporting. After five failures in a row we
-                    message you. If they keep failing, the truck is paused so it stops spending
-                    credits on a question with no answer; nothing is deleted and its recorded
-                    crossings stay.
+                    A check fails when the portal cannot answer for this number - usually a typo,
+                    or a lorry it has stopped reporting. After five failures in a row we message
+                    you. At this many the truck is paused, because a failed check still costs a
+                    credit and retrying a number the portal will not answer just buys errors.
+                    Nothing is deleted and its recorded crossings stay.
                     <span className="mt-1.5 block text-faint">
                       Leave it empty to use the platform default, currently {defaultFailureCutoff}{" "}
                       failed checks. Change it here only for a truck you want more or less patience
@@ -172,8 +195,8 @@ export function AddTruckForm({
                     <>
                       Counted from the last toll crossing that came through. If the lorry is parked
                       and no new crossing arrives for this long, checking is paused and you are
-                      told — so a vehicle standing in a yard stops quietly holding a tracking slot
-                      to be given the same answer.
+                      told — so a vehicle standing in a yard stops quietly spending a credit every
+                      fifteen minutes to be given yesterday's answer.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to use the platform default, currently{" "}
                         {defaultInactiveHours} hours. Set it longer for a truck you expect to be

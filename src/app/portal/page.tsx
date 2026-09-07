@@ -103,12 +103,13 @@ export default async function PortalHome() {
             {/* Not "you have run out": a balance still showing a figure can be
                 under the price of one search, and is refused just the same.
 
-                Searching only. Automatic checks are rated zero since 0038, so
-                the trucks carry on being watched on an empty wallet - and
-                telling somebody their tracking had stopped would be inventing
-                an emergency to sell against. */}
-            Your balance is too low to search, so searching is paused. Your trucks are still being
-            watched.
+                And no longer "your trucks are still being watched". 0038 rated
+                automatic checks zero and that sentence was true; 0041 charges
+                for them again, so an empty balance stops the watching as well.
+                A banner that says the trucks are fine while nothing is being
+                checked is the failure this whole screen exists to prevent. */}
+            Your balance is too low, so searching is paused and your trucks have stopped being
+            checked. Both start again the moment you top up.
           </p>
           {/* Straight to the top-up panel rather than the top of the plan page,
               which on a phone is two screens above the thing being asked for. */}
@@ -152,8 +153,7 @@ export default async function PortalHome() {
             */}
             {standing === "ok" ? (
               <p className="mt-1.5 text-xs text-muted">
-                Credits buy manual searches, and never expire. Automatic checks are included with
-                your plan.
+                Credits pay for every look at a lorry, typed or automatic, and never expire.
               </p>
             ) : (
               <p

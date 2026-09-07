@@ -413,19 +413,19 @@ export async function checkTruck({
       (await notToldToday(admin, truck.user_id, "out_of_credits"))
     ) {
       /*
-       * DORMANT while automatic checking is free, and deliberately kept.
+       * LIVE AGAIN AS OF 0041, and it is now the most important message the
+       * worker sends.
        *
-       * auto_check is rated 0, and spend_credits treats a zero rate as included
-       * in the plan - it returns allowed with cost 0 even on an empty balance,
-       * verified against the live database. So this branch cannot currently
-       * fire, and the message would be wrong if it did.
+       * 0038 rated auto_check 0 and this branch went dormant for a release -
+       * spend_credits allowed a free check on an empty balance, so the wallet
+       * could never stop tracking. The owner has reversed that: a check costs
+       * one credit, so an empty balance stops every truck on the account.
        *
-       * It stays because the rate is a row in credit_rates that an admin can
-       * edit without a deploy. The day somebody prices automatic checks again,
-       * this is the alert that stops the product failing in its quietest
-       * possible way: the balance empties, every check stops, and nothing on
-       * the phone changes. Deleting it would mean that failure returning
-       * silently alongside the price.
+       * Without this the product fails in its quietest possible way. The
+       * balance empties, every check stops, and nothing on the phone changes -
+       * the trucks are still listed, still switched on, still say they are
+       * being watched, and the crossing nobody was told about is the one that
+       * mattered. Said once a day per account, not once per truck per sweep.
        */
       await sendSystemAlert({
         admin,
@@ -495,8 +495,9 @@ export async function checkTruck({
         title: "Checking paused after repeated failures",
         message:
           `The last ${errors} checks in a row could not be completed, so this truck has been ` +
-          "paused and its tracking slot handed back. Its recorded crossings are untouched. " +
-          "Check the number is right, then switch it back on from My trucks.",
+          "paused. Every one of those checks cost a credit for an answer we never got, which is " +
+          "what the limit is there to stop. Its recorded crossings are untouched. Check the " +
+          "number is right, then take it live again from My trucks.",
       });
     } else if (warnNow) {
       await sendSystemAlert({
@@ -694,8 +695,8 @@ const AUTO_PAUSE_MESSAGE = {
     title: "Checking has finished as scheduled",
     body:
       "This truck was set to stop being checked automatically, and that time has now arrived. " +
-      "Its tracking slot is free for another lorry. Everything it recorded is still here, and you " +
-      "can start it again from My trucks whenever you want.",
+      "It is spending no more credits. Everything it recorded is still here, and you can take it " +
+      "live again from My trucks whenever you want.",
   },
   inactive: {
     title: "Checking paused - the lorry has stopped moving",

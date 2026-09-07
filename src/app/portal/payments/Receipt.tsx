@@ -94,11 +94,12 @@ export function Receipt({
    * are the LEDGER's rather than computed here: balance_after off the row this
    * payment wrote, and balance_before as that row's balance_after minus its
    * delta. Taking "before" from the live profile would be wrong the moment
-   * anything spends a credit in between - one search run in the seconds after
-   * a top-up settles is enough. (This used to cite an automatic check every
-   * fifteen minutes as the example; automatic checks are rated zero now and
-   * write no ledger row at all, so a manual search is the only thing that can
-   * move a balance under this panel.)
+   * anything spends a credit in between - and since 0041 charges an automatic
+   * check again, the example is back to being the sharpest one available: a
+   * customer with ten trucks on a fifteen-minute beat spends 960 credits a day
+   * without touching the phone, so a "before" taken from the live profile
+   * would be wrong within seconds of the top-up settling rather than merely
+   * eventually.
    *
    * Null when nothing settled, which is exactly when there is no movement.
    */

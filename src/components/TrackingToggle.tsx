@@ -2,26 +2,32 @@
 
 import { useActionState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 
 import { setTruckPaused } from "@/app/portal/trucks/actions";
 import { cx } from "@/components/ui";
 import type { ActionResult } from "@/lib/types";
 
 /**
- * Pause or resume one truck from the list, without opening it.
+ * Pause a truck, or take it live again, from the list without opening it.
  *
  * Pausing was two navigations and a scroll: open the truck, find the button,
  * come back. On a phone, with a dozen lorries, that is the difference between
- * turning four of them off and not bothering.
+ * turning four of them off and not bothering - and not bothering is expensive.
+ * An automatic check costs a credit and the platform's beat is fifteen minutes,
+ * so one lorry left switched on in a yard spends about 96 credits a day. Four of
+ * them is most of a small plan's monthly balance, gone on being told the same
+ * crossing over and over.
  *
- * What it saves is not money - automatic checking is part of the plan and costs
- * no credits. It is the tracking SLOT: the plan caps how many lorries may be
- * watched at once, so every parked truck left switched on is one the officer
- * cannot replace with a lorry that is actually moving. Reaching that from the
- * list is the difference between a plan that fits the fleet and one that
- * appears full.
+ * Freeing the truck's tracking SLOT is the second reason - the plan caps how
+ * many lorries may be watched at once, so a parked truck left on is one the
+ * officer cannot replace with a lorry that is moving - but it is the smaller
+ * one, and saying it first is how this control came to look optional.
+ *
+ * "Go live" rather than "Resume" in the labels, because that is the owner's own
+ * word for it and it is the one that reads as an action on a switch.
  *
  * WHY IT IS NOT INSIDE THE CARD'S LINK
  *
@@ -67,17 +73,43 @@ export function TrackingToggle({
     if (state?.ok) router.refresh();
   }, [state, router]);
 
+  /*
+   * A truck that cannot simply be switched back on gets a way IN instead of a
+   * dead end. It used to get the words "Open to fix" in grey, which was worse
+   * than saying nothing: the card's link is an overlay UNDERNEATH this control,
+   * so a span sitting here swallowed the tap and the one row in the list that
+   * needed opening was the one row that could not be opened by touching the
+   * only instruction on it.
+   *
+   * A real link, because the truck's own page is where both of these are
+   * fixable - it carries the reason in full, the registration number to correct
+   * and the support line for a suspended account - and because "go live" from a
+   * list, with no room to explain why it stopped again a minute later, teaches
+   * the officer that the switch is broken.
+   */
   if (!active && !resumable) {
     return (
-      <span className="text-[11px] leading-tight text-faint">
+      <Link
+        href={`/portal/trucks/${truckId}`}
+        className={cx(
+          "pointer-events-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2",
+          "text-[11px] leading-tight font-medium",
+          "text-brand-500 transition hover:bg-brand-500/10",
+          "focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:outline-none",
+        )}
+      >
         Open to fix
-        <span className="sr-only"> {truckNumber} before resuming it</span>
-      </span>
+        <span className="sr-only"> {truckNumber} before taking it live again</span>
+        <ArrowRight size={11} aria-hidden className="shrink-0" />
+      </Link>
     );
   }
 
   return (
-    <form action={formAction} className="flex flex-col items-end gap-1">
+    /* pointer-events-auto: the card's content layer takes none, so that its
+       link overlay underneath gets the tap. This is one of the two things on
+       the row that has to take its own. */
+    <form action={formAction} className="pointer-events-auto flex flex-col items-end gap-1">
       <input type="hidden" name="truck_id" value={truckId} />
       <input type="hidden" name="is_active" value={active ? "false" : "true"} />
       <Switch active={active} truckNumber={truckNumber} />
@@ -108,8 +140,8 @@ function Switch({ active, truckNumber }: { active: boolean; truckNumber: string 
       /* The truck number is in the label because a screen reader reading down
          this list would otherwise hear "tracking, switch, on" twelve times
          with nothing to tell them apart. */
-      aria-label={`${active ? "Pause" : "Resume"} tracking for ${truckNumber}`}
-      title={active ? "Pause tracking" : "Resume tracking"}
+      aria-label={active ? `Pause tracking for ${truckNumber}` : `Go live with ${truckNumber}`}
+      title={active ? "Pause tracking" : "Go live"}
       className={cx(
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition",
         "focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:outline-none",

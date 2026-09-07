@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { BellOff, ChevronRight, Timer } from "lucide-react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { TrackingToggle } from "@/components/TrackingToggle";
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
 import { fmtRelative } from "@/lib/format";
-import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
-import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
+import { PAUSE_HELP_LINE, autoPauseCountdown, pauseCopyFor, pauseWhy } from "@/lib/pause";
+import type {
+  AppSettings,
+  TrackedTruck,
+  TruckAlertWithTemplate,
+  TruckStatus,
+} from "@/lib/types";
 
 export const TRUCK_STATUS_TONE: Record<TruckStatus, BadgeTone> = {
   moving: "good",
@@ -96,21 +102,83 @@ export function lastCheckedLabel(
  * The whole card used to be an <a>. It cannot be any more: a <form> nested in
  * an anchor is invalid HTML and a button inside one navigates as well as
  * submitting, so the switch could never live inside it. The anchor is now an
- * absolutely positioned overlay covering the card, with the switch stacked
- * above it - which keeps the entire card tappable while leaving a live control
- * in it.
+ * absolutely positioned overlay covering the card, with the content stacked
+ * above it and taking no pointer events of its own - see the comment on that
+ * div, because the pointer-events half was missing and the card opened nothing.
  */
 export function TruckCard({
   truck,
   alerts = [],
+  settings,
 }: {
   truck: TrackedTruck;
   alerts?: TruckAlertWithTemplate[];
+  /** Only for the pause (i), which quotes the window this truck was judged on. */
+  settings: Pick<AppSettings, "inactivePauseHours">;
 }) {
   const status = truck.is_active ? truck.status : "unknown";
   const pausedCopy = pauseCopyFor(truck);
   const countdown = autoPauseCountdown(truck);
   const silent = truck.is_active && !isWatching(alerts);
+
+  /*
+   * Why this particular truck stopped, one tap away but not on the row.
+   *
+   * The badge names the reason and that is all a scan needs; the question it
+   * leaves - "no movement for how long?", "how many failures?" - has an answer
+   * on the row already, and putting it in words would cost every paused lorry
+   * a third line. So it goes behind the (i) at the end of the second line,
+   * which is the only place on the card where an icon can sit without forcing
+   * the registration number and its badge onto separate lines.
+   */
+  const why = pauseWhy(truck, settings);
+
+  /*
+   * The second line, as a fragment, because it is rendered either inside an
+   * InfoTip or in a plain div and the two must not drift apart.
+   *
+   * The words "Stopped automatically" used to lead it. They are gone for an
+   * automatic pause: the badge above says "No movement detected" in a warning
+   * colour, so repeating "stopped automatically" underneath it filled the line
+   * that the location needed and pushed a two-line card to three. A pause the
+   * officer made themselves has no badge, so there the words stay - they are
+   * the only thing saying the truck is off.
+   */
+  const secondLine = (
+    <>
+      {truck.is_active ? (
+        <span className={cx("font-medium", STATUS_TEXT[status])}>{TRUCK_STATUS_LABEL[status]}</span>
+      ) : pausedCopy?.automatic ? null : (
+        <span className="font-medium text-muted">Paused by you</span>
+      )}
+
+      {truck.last_location ? (
+        <span className="min-w-0 truncate text-muted">
+          {truck.last_location}
+          {truck.last_event_at ? ` · ${fmtRelative(truck.last_event_at)}` : ""}
+        </span>
+      ) : (
+        <span className="text-faint">No crossing yet</span>
+      )}
+
+      {/* A stop time already set, so nobody is surprised by it later. */}
+      {countdown ? (
+        <span className="inline-flex items-center gap-1 text-faint">
+          <Timer size={11} className="shrink-0" />
+          stops {countdown}
+        </span>
+      ) : null}
+
+      {/* The one thing worth interrupting a scan for: this truck is on,
+          and nothing will ever reach the officer about it. */}
+      {silent ? (
+        <span className="inline-flex items-center gap-1 text-warn-500">
+          <BellOff size={11} className="shrink-0" />
+          no alert
+        </span>
+      ) : null}
+    </>
+  );
 
   return (
     <div
@@ -135,7 +203,28 @@ export function TruckCard({
         <span className="sr-only">Open {truck.truck_number}</span>
       </Link>
 
-      <div className="relative z-10 flex items-center gap-3 py-2.5 pr-3 pl-4">
+      {/*
+        pointer-events-none, and it is the whole reason the overlay above works.
+
+        This div is painted ON TOP of that anchor - it has to be, or the switch
+        inside it could not be pressed - so every pixel of the card was landing
+        on a plain div and the anchor underneath was never hit. The card looked
+        like a link, was announced as a link, and opened nothing: the only way
+        into a truck was the browser's own focus ring and Enter. Made worse on
+        exactly the rows that needed opening most, where "Open to fix" sat here
+        swallowing the tap that was following its instruction.
+
+        So the wrapper takes no clicks and hands them down to the anchor, and
+        the two controls that need them - the switch and the pause (i) - take
+        them back explicitly. Selecting the registration number with a drag is
+        the price, and a list row that opens when tapped is worth more than
+        copying a number from it.
+      */}
+      {/* items-start, not items-center: the switch belongs beside the
+          registration number, and centring it against the whole row left it
+          floating in the middle of the card whenever the pause (i) was open or
+          the text ran to three lines. */}
+      <div className="pointer-events-none relative z-10 flex items-start gap-3 py-2.5 pr-3 pl-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <Mono className="text-sm font-semibold tracking-wide text-strong">
@@ -156,43 +245,31 @@ export function TruckCard({
             ) : null}
           </div>
 
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-            {truck.is_active ? (
-              <span className={cx("font-medium", STATUS_TEXT[status])}>
-                {TRUCK_STATUS_LABEL[status]}
-              </span>
-            ) : (
-              <span className="font-medium text-muted">
-                {pausedCopy?.automatic ? "Stopped automatically" : "Paused by you"}
-              </span>
-            )}
-
-            {truck.last_location ? (
-              <span className="min-w-0 truncate text-muted">
-                {truck.last_location}
-                {truck.last_event_at ? ` · ${fmtRelative(truck.last_event_at)}` : ""}
-              </span>
-            ) : (
-              <span className="text-faint">No crossing yet</span>
-            )}
-
-            {/* A stop time already set, so nobody is surprised by it later. */}
-            {countdown ? (
-              <span className="inline-flex items-center gap-1 text-faint">
-                <Timer size={11} className="shrink-0" />
-                stops {countdown}
-              </span>
-            ) : null}
-
-            {/* The one thing worth interrupting a scan for: this truck is on,
-                and nothing will ever reach the officer about it. */}
-            {silent ? (
-              <span className="inline-flex items-center gap-1 text-warn-500">
-                <BellOff size={11} className="shrink-0" />
-                no alert
-              </span>
-            ) : null}
-          </div>
+          {pausedCopy?.automatic && why ? (
+            <InfoTip
+              label={`why ${truck.truck_number} is paused`}
+              /* The panel takes clicks back (it is a div following a div - when
+                 the tip is shut there is only one, so this matches nothing),
+                 or reading it would navigate away mid-sentence. */
+              className="mt-0.5 [&>div+div]:pointer-events-auto"
+              /* -my-1 keeps the 28px icon from setting the height of a 16px
+                 line: the row stays 20px and the circle overlaps the padding
+                 above and below it. Its invisible 36px tap pad is unaffected. */
+              rowClassName="gap-x-2 gap-y-0.5 text-xs [&>button]:pointer-events-auto [&>button]:-my-1"
+              info={
+                <>
+                  <p>{why}</p>
+                  <p>{PAUSE_HELP_LINE} Open the truck to change when it stops by itself.</p>
+                </>
+              }
+            >
+              {secondLine}
+            </InfoTip>
+          ) : (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+              {secondLine}
+            </div>
+          )}
         </div>
 
         <TrackingToggle
@@ -205,7 +282,8 @@ export function TruckCard({
         <ChevronRight
           size={15}
           aria-hidden
-          className="shrink-0 text-faint transition group-hover:translate-x-0.5 group-hover:text-brand-500"
+          /* mt-1 centres a 15px chevron on the 20px line the number sits on. */
+          className="mt-1 shrink-0 text-faint transition group-hover:translate-x-0.5 group-hover:text-brand-500"
         />
       </div>
     </div>

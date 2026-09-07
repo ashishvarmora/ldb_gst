@@ -83,6 +83,11 @@ export function dueForAutoPause(
  * same word for a decision the officer made and a fault they need to act on.
  * An officer scanning a list of forty lorries has to be able to tell, without
  * opening anything, which of these is their own doing and which is a problem.
+ *
+ * They are also the owner's own words, and deliberately dull ones: "Tracking
+ * period ended" and "Portal not responding" are the labels an officer would
+ * write in a file note, where "time up" and "number not responding" read as
+ * this product's private shorthand.
  */
 export type PauseCopy = {
   /** Two or three words, for a Badge next to the truck number. */
@@ -112,20 +117,25 @@ export type PauseCopy = {
 };
 
 /*
- * WHAT PAUSING ACTUALLY DOES, because this copy used to say the wrong thing.
+ * WHAT PAUSING IS FOR: credits. This copy has now said both things and only
+ * one of them is true, so the reasoning is written down rather than left to be
+ * guessed at again.
  *
- * Every one of these details told the officer that a paused truck stops
- * spending credits. That was true until automatic checking became part of the
- * plan rather than something credits paid for: auto_check is rated 0, so a
- * checked truck costs nothing and pausing it saves nothing. Credits now buy
- * manual searches only.
+ * For a few days automatic checks were rated at zero, and every detail here was
+ * rewritten to say that pausing saves no money and only hands back a TRACKING
+ * SLOT. The owner has reversed that: an automatic check costs one credit again.
  *
- * What pausing does do is hand back the truck's TRACKING SLOT - truckSlotsLeft
- * counts active trucks against the plan's limit - and stop the alerts. Both are
- * real reasons to pause a parked lorry; neither is money. Leaving the old
- * wording in place would have been worse than vague: an officer told that
- * pausing preserves their balance, while also being nudged to top up, would
- * reasonably conclude that pausing protects their search budget. It does not.
+ * At one credit a check and the platform's fifteen-minute beat, one tracked
+ * lorry spends about 96 credits a day. Pausing a lorry that is parked in a yard
+ * is therefore not a tidiness feature - it is the largest lever the officer has
+ * on their balance, and it is why auto-pause exists at all. In the owner's
+ * words: auto pause mainly credit save karneke liye hai.
+ *
+ * So every detail leads with the credits and mentions the slot second, where
+ * the slot is the thing the reader actually needs (a plan that looks full). Say
+ * it the other way round and an officer being nudged to top up, while being
+ * told that pausing only frees a slot, would reasonably leave forty parked
+ * lorries switched on.
  */
 export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
   manual: {
@@ -133,34 +143,34 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "neutral",
     line: "Paused by you — not being checked",
     detail:
-      "You paused this truck. Nothing is being checked, so no alerts will reach you about it, and its tracking slot is free for another lorry. Its recorded crossings are all still here.",
+      "You paused this truck, so it is not being checked and it is not spending credits. Its recorded crossings are all still here, and its tracking slot is free for another lorry. Go live again whenever it is back on the road.",
     resumable: true,
     automatic: false,
   },
   schedule: {
-    badge: "Time limit reached",
+    badge: "Tracking period ended",
     tone: "brand",
-    line: "Stopped automatically — the time limit you set has passed",
+    line: "Stopped automatically — the tracking period you set has ended",
     detail:
-      "This truck was set to stop being checked automatically after a set time, and that time has passed. Its tracking slot is free for another lorry, and everything it recorded is still here. Switch it back on to carry on — you can set a new stop time at the same moment.",
+      "You set this truck to stop being checked automatically, and that time has passed — so it stopped spending credits at the moment you said it should, whether or not you were watching. Everything it recorded is still here and its tracking slot is free for another lorry. Go live to carry on, and set a new end time at the same moment.",
     resumable: true,
     automatic: true,
   },
   inactive: {
-    badge: "No movement",
+    badge: "No movement detected",
     tone: "warn",
     line: "Stopped automatically — no toll crossing for a long time",
     detail:
-      "No new toll crossing has arrived for this truck for long enough that checking it was only ever going to return the same answer, so it was paused and its tracking slot handed back. That usually means the lorry is parked. Switch it back on when it is on the road again.",
+      "No new toll crossing has arrived for long enough that every further check would have cost a credit to be told the same thing again, so checking was paused. That usually means the lorry is parked. Nothing is deleted, and its tracking slot is free for another lorry meanwhile. Go live when it is back on the road.",
     resumable: true,
     automatic: true,
   },
   repeated_failures: {
-    badge: "Number not responding",
+    badge: "Portal not responding",
     tone: "bad",
-    line: "Stopped automatically — the toll network keeps failing on this number",
+    line: "Stopped automatically — the failure limit was reached on this number",
     detail:
-      "The toll network could not answer for this registration number several times in a row, so checking was paused rather than left asking a question with no answer. The usual cause is a typo in the number, or a lorry the network has stopped reporting. Check the number first — switching it back on without changing anything will most likely fail again.",
+      "The portal could not answer for this registration number often enough in a row to reach this truck's failure limit, so checking was paused rather than left paying a credit per error. The usual cause is a typo in the number, or a lorry the portal has stopped reporting. Correct the number first — going live without changing anything will most likely fail again, and each failed check still costs.",
     resumable: false,
     automatic: true,
   },
@@ -169,11 +179,51 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "bad",
     line: "Stopped — this account is suspended",
     detail:
-      "Automatic checking is stopped for every truck on this account while it is suspended. Nothing has been lost. Contact support to have it switched back on.",
+      "Automatic checking is stopped for every truck on this account while it is suspended, so nothing is being checked and no credits are being spent. Nothing has been lost. Contact support to have the account switched back on; going live before that will not hold.",
     resumable: false,
     automatic: true,
   },
 };
+
+/**
+ * The one sentence the owner wants available wherever pausing is explained.
+ *
+ * A constant rather than a line of prose in five files: it is the promise the
+ * whole feature rests on - your history is safe AND your balance is safe - and
+ * the version of it that drifts is the one that stops being true.
+ */
+export const PAUSE_HELP_LINE =
+  "Paused trucks keep their history but do not consume tracking credits. Resume anytime when tracking is needed again.";
+
+/**
+ * The four situations that stop a truck by itself, as the officer meets them.
+ *
+ * Shared between the "Auto-pause rules" (i) on My trucks and the support page's
+ * answer to the same question, because those two are read by the same person a
+ * week apart and a difference between them reads as a change in the rules.
+ *
+ * Note what is NOT here: a suspended account. It stops every truck at once and
+ * has nothing to do with any lorry's own settings, so listing it beside "set an
+ * end time when you add a truck" would suggest it is something to configure.
+ */
+export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
+  {
+    label: "Paused by you",
+    body: "Track a lorry for the day, pause it tonight, go live again whenever you need it. Nothing is re-added and no history is lost.",
+  },
+  {
+    label: "Tracking period ended",
+    body: "Set an end time when you add a truck — checking stops there even if you forget about it, so a forgotten lorry cannot quietly spend a fortnight of credits.",
+  },
+  {
+    label: "No movement detected",
+    body: "A parked lorry answers every check with yesterday's crossing. Once no crossing has arrived for the hours you allow, checking pauses instead of paying for the same answer.",
+  },
+  {
+    label: "Portal not responding",
+    body: "If the portal cannot answer for a number enough times in a row, checking pauses rather than paying a credit per error. Usually a typo in the number.",
+  },
+];
 
 /** The copy for a truck, or null while it is running. */
 export function pauseCopyFor(
@@ -183,6 +233,64 @@ export function pauseCopyFor(
   // A paused truck with no reason recorded predates the column. "Paused" is
   // the honest answer there rather than a guess at which stop fired.
   return PAUSE_COPY[truck.paused_reason ?? "manual"] ?? PAUSE_COPY.manual;
+}
+
+/**
+ * Why THIS truck stopped, with its own numbers in it.
+ *
+ * PAUSE_COPY.detail explains the rule; this explains the instance. "No movement
+ * detected" on a badge is a category, and the question it provokes is always
+ * "detected for how long?" - a question the row already has the answer to. So
+ * the (i) beside the badge says "no toll crossing arrived for 8 hours" rather
+ * than repeating the paragraph the truck's own page carries.
+ *
+ * The failure count comes from consecutive_errors rather than from the truck's
+ * budget, because it is the number that actually happened: the worker leaves the
+ * counter standing when it pauses a truck, and the budget can be edited
+ * afterwards - which would make this sentence describe a limit the truck never
+ * hit.
+ *
+ * Null when there is nothing more specific to say than the badge already says,
+ * so a caller can leave the (i) off entirely rather than open it onto a
+ * restatement.
+ */
+export function pauseWhy(
+  truck: Pick<
+    TrackedTruck,
+    | "is_active"
+    | "paused_reason"
+    | "consecutive_errors"
+    | "inactive_pause_hours"
+    | "last_event_at"
+  >,
+  settings: Pick<AppSettings, "inactivePauseHours">,
+): string | null {
+  if (truck.is_active) return null;
+
+  switch (truck.paused_reason) {
+    case "inactive": {
+      const hours = resolveInactiveWindow(truck, settings);
+      const window =
+        hours === null
+          ? "long enough"
+          : hours % 24 === 0 && hours >= 24
+            ? `${hours / 24} day${hours === 24 ? "" : "s"}`
+            : `${hours} hour${hours === 1 ? "" : "s"}`;
+      return truck.last_event_at
+        ? `Paused because no toll crossing was recorded for ${window}.`
+        : `Paused because no toll crossing was ever recorded for it, for ${window}.`;
+    }
+    case "repeated_failures":
+      return truck.consecutive_errors > 0
+        ? `Paused because ${truck.consecutive_errors} checks in a row could not be answered for this number.`
+        : "Paused because the portal could not answer for this number often enough in a row to reach its failure limit.";
+    case "schedule":
+      return "Paused because the end time you set for it has passed.";
+    case "account_suspended":
+      return "Paused because this account is suspended — every truck on it is stopped.";
+    default:
+      return null;
+  }
 }
 
 /**

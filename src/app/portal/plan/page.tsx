@@ -31,7 +31,7 @@ import {
   searchesLeftLabel,
 } from "@/lib/credits";
 import { fmtDate, fmtNumber, fmtRupees, istToday } from "@/lib/format";
-import { graceDaysLeft, loadSearchCost, requirePortalSession } from "@/lib/officer";
+import { graceDaysLeft, loadSearchCost, requirePortalSession, trialSpentOut } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -99,6 +99,13 @@ export default async function PlanPage() {
   /** The plan row they are on, archived or not. Null when there is no plan. */
   const currentPlan = plans.find((plan) => plan.id === overview.plan_id) ?? null;
   const onTrial = currentPlan?.is_trial === true;
+  /*
+   * The trial has ended and nothing has been bought since, so its credits have
+   * ended with it - the one state in the product where a balance is showing a
+   * figure that cannot be spent. Read from the same helper spend_credits()
+   * mirrors, so the page and the refusal cannot disagree.
+   */
+  const trialOver = trialSpentOut(overview);
 
   const support = { email: settings.supportEmail, phone: settings.supportPhone };
 
@@ -127,10 +134,13 @@ export default async function PlanPage() {
   /*
    * Credits are sold to anyone, plan or no plan. This used to refuse a top-up
    * without a live plan - "Credits top up an account that already has one" -
-   * which made sense when one balance paid for both products. It no longer
-   * does: credits buy MANUAL SEARCH, which works with no plan at all, so
-   * refusing the sale refused somebody money in exchange for a thing that
-   * works. Only the gateway being unavailable blocks it now.
+   * and the reason it must not is that manual search works with no plan at
+   * all, so refusing the sale refused somebody money in exchange for a thing
+   * that works.
+   *
+   * It is also the only way out of a finished free trial, whose credits stop
+   * being spendable until something is bought. Only the gateway being
+   * unavailable blocks it now.
    */
   const creditsBlocked = payBlocked;
 
@@ -206,16 +216,26 @@ export default async function PlanPage() {
             {graceLeft !== null && graceLeft > 0
               ? `Your trucks are still here - renew within ${graceLeft} ${graceLeft === 1 ? "day" : "days"} and everything carries on exactly where it stopped.`
               : "Your trucks have been switched off, but nothing has been deleted - renew and switch them back on from My trucks."}{" "}
-            Manual search still works: your credits never expire.
+            {/* The trial is the one plan whose ending takes the credits with
+                it. Saying "your credits never expire" to somebody whose balance
+                has just stopped working would be the worst sentence on the
+                site. */}
+            {trialOver
+              ? "The trial's credits have finished with it - a plan or a top-up starts you again."
+              : "Manual search still works: credits you have bought never expire."}
           </Notice>
         ) : null}
 
-        {overview.credits > 0 ? (
+        {/* Only where the balance is actually spendable. On a finished trial the
+            figure is a leftover, not an asset, and the notice above has already
+            said so. */}
+        {overview.credits > 0 && !trialOver ? (
           <Notice tone="warn">
             You still have {formatCredits(overview.credits)} credits, and they are yours to keep -
-            credits never expire and never freeze. Every one of them still buys a manual search
-            right now. What a plan adds is automatic checking: trucks watched for you, around the
-            clock, and alerts when they move.
+            bought credits never expire and never freeze. Every one of them still buys a manual
+            search right now. What a plan adds is automatic checking: trucks watched for you,
+            around the clock, and alerts when they move - which spends from the same balance, at
+            one credit a check.
           </Notice>
         ) : null}
 
@@ -253,10 +273,10 @@ export default async function PlanPage() {
               <Step n={1} title="Pick a plan">
                 It decides how many trucks may be watched at once, and how long for.
               </Step>
-              <Step n={2} title="Watching is included">
-                Automatic checks cost no credits. The plan decides how many trucks at once.
+              <Step n={2} title="Watching spends credits">
+                One credit per check, so a faster alert costs more. Pause a truck to stop it.
               </Step>
-              <Step n={3} title="Credits are for searching">
+              <Step n={3} title="Credits pay for both">
                 They never expire. Top up at any time, with a plan or without one.
               </Step>
             </div>
@@ -282,7 +302,7 @@ export default async function PlanPage() {
         <Panel
           id="topup"
           title="Top up credits"
-          description={`Credits pay for manual searches and never expire. Buying them does not need a plan, and spending them does not either.${openPackLine}`}
+          description={`Credits pay for every look at a lorry - the ones you type and the automatic ones - and they never expire. Buying them does not need a plan, and searching with them does not either.${openPackLine}`}
           className="mt-3 scroll-mt-20"
         >
           <BuyCredits
@@ -454,21 +474,19 @@ export default async function PlanPage() {
           than nought. Low gets its own, quieter line: nothing is broken yet. */}
       {outOfCredits ? (
         <Notice tone="bad">
-          Your balance is too low to search, so searching is refused until you top up. Your plan and
-          your trucks are untouched.{" "}
-          {/* Only claim the checks are running when they actually are. This
-              notice can appear on a lapsed plan too - empty balance and expired
-              plan at once - and there the checks have stopped for a completely
-              different reason. */}
+          Your balance is too low to search, so searching is refused until you top up.{" "}
+          {/* Since 0041 an empty balance stops BOTH halves of the product, so
+              this can no longer reassure anybody that the trucks are fine. Two
+              branches because the trucks stop for two different reasons and the
+              way back is different: top up, or renew. */}
           {overview.plan_active
-            ? "Automatic checks cost no credits and are still running."
-            : "Automatic checks do not cost credits, but they are stopped because the plan has ended."}
+            ? "Your trucks have stopped being checked too, and start again the moment you top up."
+            : "Your plan has also ended, so nothing is being checked automatically until you renew."}
         </Notice>
       ) : standing === "low" ? (
         <Notice tone="warn">
           Running low - about {searchesLeftLabel(searchesLeft(overview.credits, searchCost))} left at
-          today&apos;s rate. Topping up below buys more searches; the automatic checks are not
-          affected either way.
+          today&apos;s rate, and the trucks you are watching are spending from the same balance.
         </Notice>
       ) : null}
 
@@ -478,7 +496,7 @@ export default async function PlanPage() {
         /* The "this does not touch your plan" half of this used to live here as
            well. It is said once now, in the contrast below, rather than twice
            within a screen of itself. */
-        description={`Credits pay for manual searches and never expire. Automatic checks are included with your plan.${openPackLine}`}
+        description={`Credits pay for every look at a lorry - the searches you type and the automatic checks of the trucks you are watching - and they never expire.${openPackLine}`}
         className="mb-3 scroll-mt-20"
       >
         <BuyCredits
@@ -668,13 +686,20 @@ function TrialCard({ plan, className }: { plan: Plan; className?: string }) {
       ) : null}
 
       <ul className="mt-3 space-y-1.5 border-t border-brand-500/20 pt-3">
+        {/* Not "enough for N searches" any more. Since 0041 the same balance
+            pays for the automatic checks as well, and a watched truck spends
+            far faster than anybody types - so quoting the credits as searches
+            would set an expectation the trial cannot meet. The honest framing
+            is that this is one small pot for both. */}
         <TrialPoint icon={<Wallet size={13} />}>
-          {formatCredits(plan.included_credits)} credits to spend — enough for{" "}
-          {formatCredits(plan.included_credits)} searches
+          {formatCredits(plan.included_credits)} credits — for searches you type or checks of the
+          truck you watch
         </TrialPoint>
-        <TrialPoint icon={<Truck size={13} />}>{trucks} watched automatically</TrialPoint>
+        <TrialPoint icon={<Truck size={13} />}>
+          {trucks} watched automatically, at one credit a check
+        </TrialPoint>
         <TrialPoint icon={<CalendarDays size={13} />}>
-          Ends by itself after {days} day{days === 1 ? "" : "s"} — nothing to cancel
+          Ends by itself after {days} day{days === 1 ? "" : "s"} — and the credits end with it
         </TrialPoint>
       </ul>
 

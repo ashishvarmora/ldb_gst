@@ -66,7 +66,8 @@ export default async function TermsPage() {
         <Section id="plans" title="3. Plans, credits and payment">
           <Bullets
             items={[
-              "A plan sets how many vehicles you may watch at the same time and includes their automatic checking, however often it runs. Credits are separate: they pay for a lookup you run yourself, at the published rate.",
+              "A plan sets how many vehicles you may watch at the same time, and for how long. Credits pay for each check of a vehicle at the published rate, whether that check was run automatically for a tracked vehicle or by you as a lookup.",
+              "Automatic checking of a tracked vehicle draws on your credits every time it runs, at the interval you chose. With no credits available, automatic checking stops until you top up. Pausing a vehicle stops its checks and the credits they would have spent.",
               "Topping up credits does not renew, extend or change your plan. The two are separate and are billed separately.",
               "Prices, credit rates and what each action costs are published before you buy, and may change. A change never alters the price of something you have already paid for.",
               "Credits are a prepaid entitlement to use this service. They have no cash value, cannot be transferred between accounts, and cannot be exchanged for money.",

@@ -135,10 +135,10 @@ export function AlertChooser({
           required
           info={
             <>
-              How soon you hear about a crossing. Automatic checks are included in your plan and
-              cost nothing, so a faster beat is free - pick what is useful rather than what is
-              cheap. A slower one still records every crossing the toll network reports. This rule
-              may run every {intervalLabel(floor)} at the fastest.
+              How soon you hear about a crossing, and what this truck costs. Every automatic check
+              spends one credit, so a fifteen-minute beat is about 96 credits a day and an hourly
+              one is 24 - and a slower beat still records every crossing the toll network reports,
+              just later. This rule may run every {intervalLabel(floor)} at the fastest.
             </>
           }
         />

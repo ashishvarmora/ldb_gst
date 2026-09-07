@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 
 import { checkCoupon, releaseCoupon, reserveCoupon } from "@/lib/coupons";
-import { formatCredits } from "@/lib/credits";
+import { formatCredits, planTermLabel } from "@/lib/credits";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
@@ -334,7 +334,20 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
     // row itself, so this column is a record rather than an instruction.
     credits: plan.included_credits,
     itemName: `${plan.name} plan`,
-    itemDetail: months === 1 ? "1 month" : `${months} months`,
+    /*
+     * The DELIVERED term, not the charged one.
+     *
+     * This used to read `months`, which is the multiplier the price is charged
+     * by and has been 1 on every paid plan since 0038 - so a ninety-day plan
+     * opened a Razorpay order that said "1 month" on it. Harmless while every
+     * plan really was a month; a lie the moment Base and Professional became
+     * three. planTermLabel() reads duration_days, which is what
+     * settle_payment() actually adds.
+     *
+     * The multiplier still decides the SUM (listInr above), so nothing about
+     * what is charged moves here - only what the order says it bought.
+     */
+    itemDetail: planTermLabel(plan),
     columns: { plan_id: plan.id, months },
     notes: {
       user_id: userId,
@@ -746,11 +759,16 @@ export async function startCheckout(
     if (!overview) return refuse("Could not read your account. Please sign in again.");
 
     /*
-     * No plan gate. Credits buy MANUAL SEARCH, which works whether or not a
-     * plan is running, so refusing the sale without one refused money for a
-     * thing that works - and left a lapsed customer unable to spend the
-     * balance they had already paid for. overview is still loaded: it is what
-     * priceCredits() and the coupon check read.
+     * No plan gate, and 0041 makes it matter more rather than less.
+     *
+     * Credits buy manual search whether or not a plan is running, so refusing
+     * the sale without one refused money for a thing that works - and left a
+     * lapsed customer unable to spend the balance they had already paid for.
+     * A finished FREE TRIAL is now the one account that cannot spend its
+     * balance, and this is precisely the route out of it: buying credits is
+     * what unfreezes the wallet, so gating the sale on a plan would be a dead
+     * end with no door. overview is still loaded: it is what priceCredits() and
+     * the coupon check read.
      */
     if (blocked) return refuse(blocked);
 

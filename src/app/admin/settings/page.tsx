@@ -324,7 +324,7 @@ export default async function SettingsPage({
                 <Field
                   label="Pause a truck after this many failed checks"
                   name="tracking_failure_cutoff"
-                  hint="A check fails when the toll network cannot answer for that number - usually a typo or a lorry it has stopped reporting. After five failures in a row the officer is messaged; at this number the truck is paused rather than left asking a question with no answer, and its tracking slot is handed back. Nothing is deleted. This is the fallback: an officer who set their own number for a truck keeps it."
+                  hint="A check fails when the toll network cannot answer for that number - usually a typo or a lorry it has stopped reporting. After five failures in a row the officer is messaged; at this number the truck is paused rather than left spending a credit per check on a question with no answer. Nothing is deleted. This is the fallback: an officer who set their own number for a truck keeps it."
                 >
                   <Input
                     name="tracking_failure_cutoff"

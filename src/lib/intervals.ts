@@ -5,9 +5,9 @@
  * The wording matters more than it looks. "Every 10 minutes" was read as "the
  * truck moves every 10 minutes" often enough to be a support question, so the
  * UI says what actually happens - we look, and you hear from us only when
- * there is something to say - and shows the daily count, because that is how
- * closely the truck is being followed. It is no longer what anything costs:
- * automatic checks are part of the plan, so a faster beat is free.
+ * there is something to say - and shows the daily count, because that is both
+ * how closely the truck is being followed and what it costs: an automatic check
+ * is one credit, so the daily count IS the daily spend on that lorry.
  */
 
 export type IntervalUnit = "minutes" | "hours";
@@ -49,7 +49,7 @@ export function toMinutes(value: number, unit: IntervalUnit): number | null {
   return minutes;
 }
 
-/** How many times a day this interval runs - how closely the truck is followed. */
+/** How many times a day this interval runs, and so what it costs in credits. */
 export function checksPerDay(minutes: number): number {
   if (!Number.isFinite(minutes) || minutes <= 0) return 0;
   return Math.round((24 * 60) / minutes);

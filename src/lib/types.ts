@@ -123,8 +123,17 @@ export type OfficerOverview = Profile & {
   included_credits: number | null;
   truck_limit: number;
   has_overrides: boolean;
-  /** Assigned, unexpired and not suspended - the gate on buying credits. */
+  /** Assigned, unexpired and not suspended - the gate on AUTOMATIC checking. */
   plan_active: boolean;
+  /**
+   * The plan running is the free trial. False when there is no plan at all, so
+   * this can be read without also testing plan_id.
+   *
+   * Paired with plan_active: trial and NOT active is the one state in which the
+   * wallet itself is frozen. Every other lapsed account keeps spending - see
+   * blockedReason() in src/lib/officer.ts.
+   */
+  plan_is_trial: boolean;
   active_trucks: number;
   total_trucks: number;
   manual_searches_today: number;
@@ -241,9 +250,25 @@ export type CreditTransaction = {
 /** Result of the spend_credits() RPC. */
 export type CreditVerdict = {
   allowed: boolean;
-  reason?: "no_such_user" | "account_suspended" | "unknown_action" | "out_of_credits";
+  reason?:
+    | "no_such_user"
+    | "account_suspended"
+    | "unknown_action"
+    | "out_of_credits"
+    /**
+     * The free trial has ended, so the credits it handed over are spent out.
+     *
+     * The one state in the product where a balance exists and cannot be used.
+     * A lapsed PAID plan is not this: credits are bought outright and never
+     * expire, and only automatic checking stops. Refused by spend_credits()
+     * from 0041, and only while the account has never made a paid payment -
+     * credits somebody has since bought are theirs.
+     */
+    | "trial_ended";
   cost?: number;
   balance?: number;
+  /** True when the rate is zero: allowed, charged nothing, no ledger row. */
+  free?: boolean;
 };
 
 /* -------------------------------------------------------------------------- */
