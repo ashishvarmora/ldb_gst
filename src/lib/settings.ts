@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { env } from "@/lib/env";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AppSettings } from "@/lib/types";
@@ -38,9 +39,27 @@ export const SETTINGS_FALLBACK: AppSettings = {
  * Reads app_settings into a typed object, filling anything missing from the
  * fallback above so a half-seeded table can never crash the worker.
  */
-export async function loadSettings(admin: Admin): Promise<AppSettings> {
+/*
+ * The one read, memoised for the length of a request.
+ *
+ * loadSettings takes the admin client as an argument, and cache() keys on its
+ * arguments - so wrapping loadSettings itself would key on a client object that
+ * is usually constructed fresh at each call site, and never hit. The query is
+ * what is worth caching, so the cache goes here and loadSettings stays the same
+ * shape for its twenty-odd callers.
+ *
+ * Three pages call loadSettings three times in one render (the plan page, the
+ * referrals page, admin settings). app_settings is thirty small rows that
+ * cannot change mid-render, and each of those calls was a separate round trip
+ * to Tokyo.
+ */
+const readSettingRows = cache(async (admin: Admin) => {
   const { data } = await admin.from("app_settings").select("key, value");
-  const map = new Map((data ?? []).map((row) => [row.key, row.value as unknown]));
+  return (data ?? []) as { key: string; value: unknown }[];
+});
+
+export async function loadSettings(admin: Admin): Promise<AppSettings> {
+  const map = new Map((await readSettingRows(admin)).map((row) => [row.key, row.value]));
 
   const number = (key: string, fallback: number): number => {
     const value = map.get(key);

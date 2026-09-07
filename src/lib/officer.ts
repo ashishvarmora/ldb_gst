@@ -27,21 +27,15 @@ export const loadSearchCost = cache(async (): Promise<number> => {
  * dashboard, including the super admin — handy for testing a plan before you
  * hand it to a real officer.
  */
-export async function requirePortalSession(): Promise<PortalSession> {
+export const requirePortalSession = cache(async (): Promise<PortalSession> => {
   const session = await getSessionUser();
   if (!session) redirect("/login");
   if (session.profile.status !== "active") redirect("/no-access?reason=suspended");
 
-  const admin = getSupabaseAdmin();
-  const { data: overview } = await admin
-    .from("officer_overview")
-    .select("*")
-    .eq("id", session.id)
-    .maybeSingle<OfficerOverview>();
-
+  const overview = await loadOverview(session.id);
   if (!overview) redirect("/no-access");
   return { ...session, overview };
-}
+});
 
 /** Same check for Server Actions: returns an error instead of redirecting. */
 export async function assertPortalUser(): Promise<SessionUser> {
@@ -53,8 +47,15 @@ export async function assertPortalUser(): Promise<SessionUser> {
   return session;
 }
 
-/** Effective limits + current consumption, for quota checks inside actions. */
-export async function loadOverview(userId: string): Promise<OfficerOverview | null> {
+/**
+ * Effective limits + current consumption, for quota checks inside actions.
+ *
+ * Cached per request and keyed on the id, so the portal gate, a page that wants
+ * the balance and an action checking a quota share one read. officer_overview
+ * is a view over four tables; asking for it three times in one render was three
+ * trans-Pacific round trips for an answer that cannot change mid-request.
+ */
+export const loadOverview = cache(async (userId: string): Promise<OfficerOverview | null> => {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("officer_overview")
@@ -62,7 +63,7 @@ export async function loadOverview(userId: string): Promise<OfficerOverview | nu
     .eq("id", userId)
     .maybeSingle<OfficerOverview>();
   return data ?? null;
-}
+});
 
 /**
  * Days after a plan ends before its trucks are actually switched off.
