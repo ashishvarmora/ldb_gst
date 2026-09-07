@@ -66,12 +66,12 @@ export default async function TermsPage() {
         <Section id="plans" title="3. Plans, credits and payment">
           <Bullets
             items={[
-              "A plan sets how many vehicles you may watch at the same time. Credits pay for the work: each lookup and each automatic check spends from your balance at the published rate.",
+              "A plan sets how many vehicles you may watch at the same time and includes their automatic checking, however often it runs. Credits are separate: they pay for a lookup you run yourself, at the published rate.",
               "Topping up credits does not renew, extend or change your plan. The two are separate and are billed separately.",
               "Prices, credit rates and what each action costs are published before you buy, and may change. A change never alters the price of something you have already paid for.",
               "Credits are a prepaid entitlement to use this service. They have no cash value, cannot be transferred between accounts, and cannot be exchanged for money.",
               "Payments are taken by our payment provider. We do not receive or store your card or bank details.",
-              "Unused credits remain available while your account is in good standing. We will give reasonable notice before any change that would cause credits to lapse.",
+              "Unused credits do not expire and remain available while your account is in good standing, whether or not you hold a current plan. We will give reasonable notice before any change that would cause credits to lapse.",
             ]}
           />
           <p>

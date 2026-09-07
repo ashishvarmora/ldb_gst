@@ -121,7 +121,12 @@ export async function saveRetentionRule(
 
   revalidatePath("/admin/storage");
   revalidatePath("/admin/settings");
-  if (entity === "truck_events") revalidatePath("/portal/records");
+  /* Crossings now show on a truck's own page and in a group's timeline; the
+     Records screen they used to be revalidated through is gone. */
+  if (entity === "truck_events") {
+    revalidatePath("/portal/trucks");
+    revalidatePath("/portal/cases");
+  }
 
   if (!isEnabled) {
     return {

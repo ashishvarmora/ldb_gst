@@ -9,7 +9,6 @@ import {
   History,
   Home,
   ReceiptText,
-  Rows3,
   Search,
   Truck,
   Wallet,
@@ -23,7 +22,15 @@ const NAV = [
   { href: "/portal", label: "Home", icon: Home },
   { href: "/portal/search", label: "Search", icon: Search },
   { href: "/portal/trucks", label: "My trucks", icon: Truck },
-  { href: "/portal/records", label: "Records", icon: Rows3 },
+  /*
+   * Records is gone, not moved. It was a fourth way to read the same
+   * truck_events rows - a view switch, four filters and a fold of pattern
+   * charts on top of a flat log - and the owner's verdict was that a customer
+   * does not need that complexity. What it was actually opened for survives in
+   * the three places that were already better at it: a truck's own page and its
+   * search result both list that truck's whole history, and a group lists every
+   * truck in it on one timeline.
+   */
   // The route keeps its /cases path - the table behind it is truck_groups and
   // the label is what a customer reads, so only the label is neutral wording.
   { href: "/portal/cases", label: "Groups", icon: FolderOpen },
@@ -49,26 +56,29 @@ const NAV = [
 ] as const;
 
 /**
- * Home, Search, My trucks, Records - then the account, which is not a route.
+ * Home, Search, My trucks - then the account, which is not a route.
  *
- * Five is the most a bottom bar can hold before the labels stop being legible
- * on a small phone, and every one of these four is daily work: Records is the
- * product, Search is how work starts, My trucks is what is being watched.
+ * FOUR SLOTS, NOT FIVE, and nothing is promoted to backfill the one Records
+ * left. Five was the ceiling before labels stop being legible on a small
+ * phone, not a quota to fill: the row divides itself with flex-1, so three
+ * links and the profile button take a quarter each - 97px on a 390px screen
+ * against the 78px they had at five - and "My trucks" stopped being the label
+ * closest to wrapping. The candidates for a fourth are all wrong for a thumb:
+ * a folder is set up once, and "where did my credits go" is asked when the
+ * balance looks wrong rather than several times a day.
  *
- * The fifth slot used to be My plan and is now the profile button, because My
- * plan was one of six account things competing for it - the settings gear was
- * stranded in the header, Invite and earn had no route at all on a phone, and
- * there was nowhere to change your own name. All six are behind the profile
- * button now, with the credit balance and a top-up on top of them, so the slot
- * carries more than the single page it used to.
+ * Every one of these three is daily work: Search is how work starts, My trucks
+ * is what is being watched, Home is the balance and what today has cost.
  *
- * Groups and the money pages stay off the bar as before: a folder is set up
- * once, and "where did my credits go" is asked when the balance looks wrong
- * rather than several times a day. All of them are in the sidebar on a large
- * screen, and on a phone they are behind the profile button - which is also
- * why splitting payments and credit history out did not need a sixth tab.
+ * The last slot is the profile button rather than a page, because My plan was
+ * one of six account things competing for it - the settings gear was stranded
+ * in the header, Invite and earn had no route at all on a phone, and there was
+ * nowhere to change your own name. All six are behind it now, with the credit
+ * balance and a top-up on top of them, so the slot carries more than the single
+ * page it used to. Groups and the money pages are in the sidebar on a large
+ * screen and behind that button on a phone.
  */
-const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks", "/portal/records"] as const;
+const TAB_HREFS = ["/portal", "/portal/search", "/portal/trucks"] as const;
 const TABS = TAB_HREFS.map((href) => NAV.find((item) => item.href === href)!);
 
 function isActive(pathname: string, href: string): boolean {

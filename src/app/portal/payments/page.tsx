@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Download, Wallet } from "lucide-react";
 
 import { PAYMENT_COLUMNS } from "./columns";
+import { PaymentCards } from "./PaymentCards";
 import { Receipt } from "./Receipt";
 import {
   MAX_ROWS,
@@ -124,6 +125,34 @@ export default async function PaymentsPage({
   const ordered = sortRows(rows, PAYMENT_COLUMNS, sort);
   const pages = pageCount(ordered.length, PAGE_SIZE);
   const page = pageFromParam(params.page, pages);
+  /* Sliced once and handed to both renderings. The table and the phone cards
+     must be looking at the same twenty rows: two calls to pageSlice would be
+     two chances for the pager underneath to describe one of them. */
+  const visible = pageSlice(ordered, page, PAGE_SIZE);
+
+  /**
+   * Where a card's "Full receipt" goes.
+   *
+   * Only the phone cards use it. The table puts both ids in its last column,
+   * but a card is not a link - the ids on it are select-all text, so tapping
+   * one has to highlight it rather than navigate - which leaves the receipt
+   * needing a link of its own, and the receipt is where the copy buttons and
+   * the balance either side of the payment live.
+   *
+   * The range, the sort and the page all come along so that closing the
+   * receipt with the browser's back button lands on the list as it was. The
+   * hash is not decoration: the receipt renders at the very top of the page,
+   * and a reader who tapped a card twelve rows down would otherwise see the
+   * query string change and nothing move.
+   */
+  const cardReceiptHref = (row: (typeof visible)[number]) =>
+    `/portal/payments?${queryString({
+      ...carried,
+      ref: row.razorpay_order_id,
+      sort: sort.key,
+      dir: sort.desc ? "desc" : "asc",
+      page: page > 1 ? String(page) : undefined,
+    })}#receipt`;
 
   const header = (
     <PageHeader
@@ -225,9 +254,17 @@ export default async function PaymentsPage({
         id="list"
         title="Every payment in this range"
         description={
-          capped
-            ? `Only the most recent ${fmtNumber(MAX_ROWS)} are shown, and the figures above cover those. Narrow the dates to see the rest.`
-            : "Tap a column heading to reorder. The totals line counts settled payments only."
+          capped ? (
+            `Only the most recent ${fmtNumber(MAX_ROWS)} are shown, and the figures above cover those. Narrow the dates to see the rest.`
+          ) : (
+            <>
+              {/* The headings that reorder are the table's, and there is no
+                  table below md - so a phone was being told to tap something
+                  that is not on its screen. */}
+              <span className="hidden md:inline">Tap a column heading to reorder. </span>
+              Only settled payments count towards the totals.
+            </>
+          )
         }
         className="scroll-mt-20"
         bodyClassName="p-0"
@@ -249,18 +286,31 @@ export default async function PaymentsPage({
           />
         ) : (
           <>
-            <DataTable
-              rows={pageSlice(ordered, page, PAGE_SIZE)}
-              columns={PAYMENT_COLUMNS}
-              sort={sort}
-              sortHref={sortHref}
-              rowKey={(row) => row.id}
-              /* The whole filtered set, not the page: a footer that quietly
-                 totalled the twenty rows on screen is how a list comes to
-                 disagree with the figures above it. */
-              totalsOver={ordered}
-              totalsLabel="Settled total"
-            />
+            {/*
+              TWO RENDERINGS OF ONE PAGE OF ROWS, and the breakpoint is md
+              rather than sm. Eight columns need about 700px before the cells
+              stop being one word wide; a 640px tablet in portrait would have
+              got a table it still had to drag sideways, which is the thing the
+              cards exist to avoid. Both read the same `visible` slice and both
+              take every figure from payments.ts, so neither can drift.
+            */}
+            <PaymentCards rows={visible} receiptHref={cardReceiptHref} />
+
+            <div className="hidden md:block">
+              <DataTable
+                rows={visible}
+                columns={PAYMENT_COLUMNS}
+                sort={sort}
+                sortHref={sortHref}
+                rowKey={(row) => row.id}
+                /* The whole filtered set, not the page: a footer that quietly
+                   totalled the twenty rows on screen is how a list comes to
+                   disagree with the figures above it. */
+                totalsOver={ordered}
+                totalsLabel="Settled total"
+              />
+            </div>
+
             <div className="border-t border-divider px-4 py-3">
               <Pager
                 page={page}

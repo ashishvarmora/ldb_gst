@@ -413,9 +413,19 @@ export async function checkTruck({
       (await notToldToday(admin, truck.user_id, "out_of_credits"))
     ) {
       /*
-       * The quietest way for this product to fail: the balance empties, every
-       * automatic check stops, and nothing on the phone changes. Said once a
-       * day, naming a truck that is actually going unchecked.
+       * DORMANT while automatic checking is free, and deliberately kept.
+       *
+       * auto_check is rated 0, and spend_credits treats a zero rate as included
+       * in the plan - it returns allowed with cost 0 even on an empty balance,
+       * verified against the live database. So this branch cannot currently
+       * fire, and the message would be wrong if it did.
+       *
+       * It stays because the rate is a row in credit_rates that an admin can
+       * edit without a deploy. The day somebody prices automatic checks again,
+       * this is the alert that stops the product failing in its quietest
+       * possible way: the balance empties, every check stops, and nothing on
+       * the phone changes. Deleting it would mean that failure returning
+       * silently alongside the price.
        */
       await sendSystemAlert({
         admin,

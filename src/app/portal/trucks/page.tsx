@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BellOff, Plus } from "lucide-react";
+import { BellOff, Download, Plus } from "lucide-react";
 
 import { AddTruckForm } from "./AddTruckForm";
 import { Modal } from "@/components/Modal";
@@ -138,25 +138,48 @@ export default async function TrucksPage({
            tell you", which the two tabs and the rows below now say better -
            and on a phone it pushed the first truck below the fold. */
         actions={
-          <Modal
-            triggerLabel="Add truck"
-            triggerIcon={<Plus size={15} />}
-            title="Add a truck and its first alert"
-            description={
-              canAdd
-                ? slots === Number.POSITIVE_INFINITY
-                  ? "Unlimited tracking slots on your plan."
-                  : `${slots} slot${slots === 1 ? "" : "s"} free on your plan.`
-                : "No slots free — pause or remove a truck first."
-            }
-            width="md"
-          >
-            <AddTruckForm
-              templates={templateList}
-              defaultFailureCutoff={settings.trackingFailureCutoff}
-              defaultInactiveHours={settings.inactivePauseHours}
-            />
-          </Modal>
+          <div className="flex flex-wrap items-center gap-2">
+            {/*
+              The account-wide crossings export. It lost its only button when
+              the Records screen went, and the route survived that deletion on
+              purpose: it is the ONLY on-demand crossings CSV a customer has.
+              The Sheets backup is not a substitute - it copies only rows the
+              retention purge is about to delete, and needs an integration that
+              is switched off.
+
+              Only offered once there is something to export: a download that
+              hands back an empty file is worse than no button.
+            */}
+            {all.length > 0 ? (
+              <a
+                href="/portal/records/export?range=all"
+                className={buttonClass("secondary", "md")}
+                download
+              >
+                <Download size={15} />
+                Crossings CSV
+              </a>
+            ) : null}
+            <Modal
+              triggerLabel="Add truck"
+              triggerIcon={<Plus size={15} />}
+              title="Add a truck and its first alert"
+              description={
+                canAdd
+                  ? slots === Number.POSITIVE_INFINITY
+                    ? "Unlimited tracking slots on your plan."
+                    : `${slots} slot${slots === 1 ? "" : "s"} free on your plan.`
+                  : "No slots free — pause or remove a truck first."
+              }
+              width="md"
+            >
+              <AddTruckForm
+                templates={templateList}
+                defaultFailureCutoff={settings.trackingFailureCutoff}
+                defaultInactiveHours={settings.inactivePauseHours}
+              />
+            </Modal>
+          </div>
         }
       />
 

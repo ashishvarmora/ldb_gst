@@ -11,9 +11,26 @@ function csvCell(value: unknown): string {
 }
 
 /**
- * The account's own records as a spreadsheet, honouring whatever filters were
- * applied on screen. Always scoped to the signed-in user id, so editing the
- * query string can never reach another account's data.
+ * The account's own toll crossings as a spreadsheet.
+ *
+ * THE PAGE ABOVE THIS ROUTE IS GONE and the route is deliberately still here.
+ * /portal/records was a whole screen of view switches, filters and pattern
+ * charts, and the owner's verdict was that a customer does not need that
+ * complexity - so the screen went. Downloading your own crossing history is not
+ * complexity, it is the only way the data leaves this app on demand: the Google
+ * Sheet backup only writes rows the retention purge is about to delete, and
+ * needs the platform's Sheets integration switched on, which it is not.
+ * Deleting this with the page would have taken a capability away rather than a
+ * screen.
+ *
+ * Its one remaining link is on /portal/search/[truck], scoped to that truck.
+ * The query string still honours truck, direction, plaza and range exactly as
+ * the old filter panel set them, so an account-wide download is a URL somebody
+ * can still type - and the fleet list is where a button for it would belong if
+ * one is ever wanted.
+ *
+ * Always scoped to the signed-in user id, so editing the query string can never
+ * reach another account's data.
  */
 export async function GET(request: NextRequest) {
   const session = await getSessionUser();

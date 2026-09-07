@@ -455,7 +455,14 @@ export default async function PlanPage() {
       {outOfCredits ? (
         <Notice tone="bad">
           Your balance is too low to search, so searching is refused until you top up. Your plan and
-          your trucks are untouched - automatic checks cost no credits and are still running.
+          your trucks are untouched.{" "}
+          {/* Only claim the checks are running when they actually are. This
+              notice can appear on a lapsed plan too - empty balance and expired
+              plan at once - and there the checks have stopped for a completely
+              different reason. */}
+          {overview.plan_active
+            ? "Automatic checks cost no credits and are still running."
+            : "Automatic checks do not cost credits, but they are stopped because the plan has ended."}
         </Notice>
       ) : standing === "low" ? (
         <Notice tone="warn">

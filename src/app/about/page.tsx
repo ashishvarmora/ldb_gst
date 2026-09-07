@@ -118,10 +118,10 @@ export default async function AboutPage() {
 
         <Section id="how-paid" title="How it is paid for">
           <p>
-            A plan sets how many vehicles may be watched at once. Credits pay for the work: each
-            lookup and each automatic check spends from a balance you top up. Nothing is charged
-            per month for a vehicle sitting paused, and the price of every action is published
-            before you buy.
+            A plan sets how many vehicles may be watched at once, and automatic checking is
+            included in it — however often a vehicle is checked. Credits are separate: they pay for
+            a lookup you run yourself, they never expire, and the price of every action is
+            published before you buy.
           </p>
           <p>
             <Link

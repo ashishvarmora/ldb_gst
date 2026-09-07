@@ -61,10 +61,9 @@ one of them.
 | --- | --- |
 | **Home** | Credits held, spent today and this month; plan at a glance; today's alerts; today's usage below |
 | **Search** | Look up any registration number. Results are stored at a permanent URL, so reopening one costs nothing |
-| **Search result** | The route first, full width, then the detail underneath — plaza, state, timings, last crossing, add to tracking, add to a case |
+| **Search result** | The route first, full width, then the detail underneath — plaza, state, timings, last crossing, add to tracking, add to a case, and that truck's whole crossing history as a CSV |
 | **My trucks** | The trucks under automatic checking, each showing its alerts and when it was last checked |
 | **Truck detail** | Full route timeline, **the truck's alerts** — add as many as you like from the admin's catalogue, each with its own interval — alerts raised, recent checks, remove |
-| **Records** | Every crossing in one place, either merged per truck number or as a flat filterable table, with analytics and CSV export |
 | **Cases** | Case folders — paste a whole list of registration numbers, then read one combined timeline across the group |
 | **My plan** | Credit balance and history, what each action costs, what the plan includes, when it expires |
 | **Settings** | Connect Telegram, which is how alerts reach a phone |
@@ -75,10 +74,11 @@ Sidebar on desktop, thumb-reachable tab bar on mobile - most people use this fro
 
 ## When a truck stops checking itself
 
-Automatic checking costs a credit every time it runs, so the expensive mistake
-is not a wrong setting - it is a watch nobody remembered to switch off. Someone
-follows a lorry for an afternoon, does not come back, and pays hourly for weeks
-to be told the same thing.
+Automatic checking is included in the plan and costs no credits, so the
+mistake this guards against is not a bill - it is a tracking SLOT nobody
+remembered to free. A plan caps how many lorries may be watched at once, so
+someone who follows a lorry for an afternoon and never comes back is holding a
+slot they cannot use for a lorry that is actually moving.
 
 Four things stop a truck, and the reason is stored on the row so its owner is
 told **which**. A truck that goes quiet without saying why is the failure all

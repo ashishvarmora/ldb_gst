@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { Coins } from "lucide-react";
 
 import { CreditLedger, type LedgerQuery } from "@/components/CreditLedger";
-import { HelpNote } from "@/components/Disclosure";
+import { InfoTip } from "@/components/InfoTip";
 import { TopUpLink } from "@/components/CreditBalance";
 import { publicSettings } from "@/components/SiteFooter";
 import { PageHeader, cx } from "@/components/ui";
@@ -39,6 +38,16 @@ export async function generateMetadata() {
  * The two halves are a query parameter rather than client state, so a side is
  * linkable and a Server Action comes back to the one you were on - the same
  * reasoning as the console's account tabs.
+ *
+ * THE EXPLANATION IS ALL BEHIND ONE (i) NOW. This page used to open with a
+ * subtitle, carry a paragraph inside each half's panel header, and close with
+ * two folded notes - and every one of them was explaining the same three
+ * things. The owner's verdict was that the prose has to go or go behind a
+ * button; it has gone behind a button, on the balance, which is the figure all
+ * of it is actually about and the one somebody is looking at when the question
+ * occurs to them. What was only reassurance was deleted outright: the
+ * "spending is on the other tab" line sat directly under the switch that says
+ * so, and the ledger already names its own rows.
  */
 export default async function CreditHistoryPage({
   searchParams,
@@ -63,10 +72,10 @@ export default async function CreditHistoryPage({
 
   return (
     <>
-      <PageHeader
-        title="Credit history"
-        subtitle="Every credit this account has been given, and what each day has cost."
-      />
+      {/* No subtitle. It said "every credit this account has been given, and
+          what each day has cost" - which is the two tab labels two inches
+          below, in longer words. */}
+      <PageHeader title="Credit history" />
 
       <div className="space-y-3">
         <LedgerLinks current="credits" />
@@ -80,31 +89,79 @@ export default async function CreditHistoryPage({
           the mirroring the owner keeps asking us to stop. A statement needs one
           anchor and gets one line.
         */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl border border-line bg-panel px-4 py-3">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
-            <Coins size={12} className="shrink-0" />
-            Balance now
-          </span>
-          <span className="flex items-baseline gap-2">
-            <span
-              className={cx(
-                "text-xl font-semibold tabular-nums",
-                standing === "ok"
-                  ? "text-strong"
-                  : standing === "empty"
-                    ? "text-bad-500"
-                    : "text-warn-500",
-              )}
-            >
-              {formatCredits(balance)}
+        <div className="rounded-xl border border-line bg-panel px-4 py-3">
+          {/*
+            The whole of this page's explanation, on the figure it explains.
+
+            InfoTip appends its (i) after the row's children, so the balance
+            carries `order-1` to sit after it: the icon belongs beside the words
+            it annotates, not stranded past the top-up button at the far edge.
+            ml-auto still holds the figure to the right, and on a phone narrow
+            enough to wrap it drops to a second line right-aligned rather than
+            colliding with the label.
+
+            Opens inline, under the whole card, which is why the copy can afford
+            three short paragraphs: it pushes the ledger down instead of
+            covering it, and nothing above the fold is spent on it while it is
+            shut.
+          */}
+          <InfoTip
+            label="credit history"
+            info={
+              <>
+                <p>
+                  Credits buy the searches you run yourself, at{" "}
+                  {formatCredits(searchCost)} credit{searchCost === 1 ? "" : "s"} each, and never
+                  expire. Automatic tracking checks are included with your plan — they cost
+                  nothing and are not recorded here at all.
+                </p>
+                <p>
+                  Credits can arrive without a payment: a plan an administrator assigned by hand, a
+                  bonus code, a referral. What actually changed hands is on Payments.
+                </p>
+                <p>
+                  Spending is one row a day, because a day is the unit a balance is read in. Tap
+                  any day for the truck-by-truck breakdown on Activity.
+                </p>
+              </>
+            }
+          >
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+              <Coins size={12} className="shrink-0" />
+              Balance now
             </span>
-            <span className="text-xs text-muted">credits</span>
-            <TopUpLink standing={standing} />
-          </span>
+            <span className="order-1 ml-auto flex items-baseline gap-2">
+              <span
+                className={cx(
+                  "text-xl font-semibold tabular-nums",
+                  standing === "ok"
+                    ? "text-strong"
+                    : standing === "empty"
+                      ? "text-bad-500"
+                      : "text-warn-500",
+                )}
+              >
+                {formatCredits(balance)}
+              </span>
+              <span className="text-xs text-muted">credits</span>
+              <TopUpLink standing={standing} />
+            </span>
+          </InfoTip>
         </div>
 
         <SideTabs current={side} query={query} />
 
+        {/*
+          NEITHER MOUNT PASSES `description` ANY MORE.
+
+          Both overrides were a sentence naming the page's own other half - the
+          switch immediately above already does that, and a link out of a panel
+          header to a tab six inches higher is a reader being sent in a circle.
+          Dropping them lets CreditLedger's own one-liner stand, which is one
+          place deciding how a ledger describes itself instead of two, and the
+          part that was load-bearing - what a row covers, and where a day opens
+          - is said by the shape note inside the panel and by the (i) above.
+        */}
         {side === "added" ? (
           <CreditLedger
             userId={overview.id}
@@ -115,16 +172,6 @@ export default async function CreditHistoryPage({
             /* No grouping at all. A grant has no truck, and two purchases on
                one day are two facts rather than one. */
             groupBy={[]}
-            description={
-              <>
-                Every credit that has ever arrived on this account — bought, given by an
-                administrator, or free. Spending is on the{" "}
-                <Link href="/portal/credits?side=used" className="text-brand-500 hover:underline">
-                  Credits used
-                </Link>{" "}
-                tab.
-              </>
-            }
           />
         ) : (
           <CreditLedger
@@ -141,48 +188,8 @@ export default async function CreditHistoryPage({
             /* The detail behind a day is not on this page and is not going to
                be. One chevron, one place it lives. */
             drillBase="/portal/activity"
-            description={
-              <>
-                What each day cost, and the balance it closed on. Tap a day for the truck-by-truck
-                breakdown on{" "}
-                <Link href="/portal/activity" className="text-brand-500 hover:underline">
-                  Activity
-                </Link>
-                .
-              </>
-            }
           />
         )}
-
-        {/* Under the ledger rather than above it. The two things somebody
-            actually asks support are answered by the rows themselves in almost
-            every case, and a page that opens with two folds of explanation is
-            a page whose content starts a screen down on a phone. */}
-        <div className="space-y-2">
-          <HelpNote title="Which of these is a payment?">
-            None of them, directly. A credit arrives here as <strong>Purchased</strong> when money
-            has gone through the gateway, and as <strong>Included with plan</strong> when a plan
-            term starts — but a plan an administrator assigned by hand grants credits with no
-            payment behind them, and a payment that failed grants none. What actually changed hands
-            is on{" "}
-            <Link href="/portal/payments" className="text-brand-500 hover:underline">
-              Payments
-            </Link>
-            .
-          </HelpNote>
-
-          <HelpNote title="Why is my spending only one row a day?">
-            Because a day is the unit a balance is worth reading in, and this page exists to show
-            how the balance moved rather than what each lorry did. Tap any day, or open{" "}
-            <Link href="/portal/activity" className="text-brand-500 hover:underline">
-              Activity
-            </Link>
-            , for the search-by-search breakdown. Only searches you run yourself appear here —
-            automatic checks are included in your plan, cost nothing and are not recorded as
-            spending at all. Credits an administrator has taken back do appear, on the used side,
-            because that is the direction they moved the balance.
-          </HelpNote>
-        </div>
       </div>
     </>
   );

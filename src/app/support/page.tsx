@@ -94,9 +94,10 @@ export default async function SupportPage() {
             </HelpNote>
 
             <HelpNote title="How often should I check a vehicle?">
-              As slowly as you can bear. Every check spends credits, and a slower beat still records
-              every crossing — it only means you hear about them later. Frequent checking is worth
-              it for something time-critical, not as a default.
+              As fast as you find useful. Automatic checks are included in your plan and cost
+              nothing, so there is no saving in a slower beat — the only difference is how soon you
+              hear about a crossing. Your plan caps how many vehicles may be watched at once, not
+              how often.
             </HelpNote>
           </div>
         </Section>
@@ -104,14 +105,15 @@ export default async function SupportPage() {
         <Section id="account" title="Account, credits and billing">
           <div className="space-y-2">
             <HelpNote title="What is the difference between a plan and credits?">
-              A plan sets how many vehicles you may watch at once. Credits pay for the work — each
-              lookup and each automatic check spends from your balance. Topping up credits never
-              changes your plan, its end date or its vehicle limit.
+              A plan sets how many vehicles you may watch at once, and includes their automatic
+              checking however often it runs. Credits are separate and pay only for a lookup you
+              run yourself. Topping up credits never changes your plan, its end date or its
+              vehicle limit — and your credits never expire.
             </HelpNote>
 
             <HelpNote title="My checks stopped and I was not told.">
-              You should have been: when the balance empties we send one message a day saying
-              automatic checking has stopped. If that did not arrive, check whether Telegram is
+              An empty balance no longer stops automatic checking — that is part of your plan. What
+              does stop it is the plan itself ending, and a vehicle pausing itself. Check whether Telegram is
               still connected in Settings, then write to us.
             </HelpNote>
 

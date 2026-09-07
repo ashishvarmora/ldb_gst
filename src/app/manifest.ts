@@ -58,14 +58,19 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
       { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     /*
-     * Long-press the icon and these are the four jobs. They are the same four
-     * that the bottom bar carries, for the same reason: each is daily work, and
-     * anything account-shaped is one tap further in.
+     * Long-press the icon and these are the three jobs. They track the bottom
+     * bar for the same reason it holds them: each is daily work, and anything
+     * account-shaped is one tap further in.
+     *
+     * Records used to be the third of four here and went with the page. Worth
+     * knowing that an installed copy keeps whatever shortcuts it was installed
+     * with until the launcher re-reads this file, so /portal/records had to
+     * stop being a 404 rather than merely stop being listed - see the redirect
+     * in next.config.ts.
      */
     shortcuts: [
       { name: "Search a truck", short_name: "Search", url: "/portal/search" },
       { name: "My trucks", short_name: "Trucks", url: "/portal/trucks" },
-      { name: "Records", short_name: "Records", url: "/portal/records" },
       { name: "Plan and credits", short_name: "Plan", url: "/portal/plan" },
     ],
   };

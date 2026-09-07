@@ -76,8 +76,13 @@ export const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
       <>
         <span className="block text-sm whitespace-nowrap text-ink">{boughtLabel(row)}</span>
         {/* A pack is named "Starter", which does not say what it was. A plan row
-            already reads "... plan · 3 months" and needs no second line. */}
-        {row.kind === "credits" ? (
+            already reads "... plan · 3 months" and needs no second line.
+
+            Only when there IS a pack name to gloss: boughtLabel falls back to
+            "Credit top-up" for a deleted pack or an open-tier top-up, and this
+            was printing "credit top-up" under it - the same words twice, one of
+            them lower case. */}
+        {row.kind === "credits" && row.pack?.name ? (
           <span className="block text-xs text-faint">credit top-up</span>
         ) : null}
       </>

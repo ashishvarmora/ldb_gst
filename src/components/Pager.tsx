@@ -29,8 +29,8 @@ import { fmtNumber } from "@/lib/format";
  *     page={page}
  *     total={rows.length}
  *     pageSize={50}
- *     noun="crossings"
- *     href={{ path: "/portal/records", params: { view, range, truck } }}
+ *     noun="payments"
+ *     href={{ path: "/portal/payments", params: { range, sort, dir } }}
  *   />
  *
  *   // pages already known, href built by hand

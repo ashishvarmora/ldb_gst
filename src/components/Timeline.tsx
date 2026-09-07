@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { ChevronDown, ExternalLink, MapPin } from "lucide-react";
 
 import { Badge, EmptyState, cx } from "@/components/ui";
@@ -262,10 +263,20 @@ export function RouteHistory({
         </details>
       ) : null}
 
+      {/* Said, and made reachable. This pointed at "the Records page", which
+          has been withdrawn - so a reader was being told the rest of their
+          history existed somewhere they could no longer get to. The truck's
+          own search result is where it lives now: the same rows, paged
+          properly, with the exact count. The number comes off a crossing
+          rather than a prop because events is non-empty by the guard above and
+          every crossing in it belongs to one truck. */}
       {stored > events.length ? (
         <p className="text-xs leading-relaxed text-muted">
-          The {events.length} newest of {stored} crossings on record are shown here. The full set is
-          on the Records page.
+          The {events.length} newest of {stored} crossings on record are shown here.{" "}
+          <Link href={`/portal/search/${events[0].truck_number}`} className="link">
+            See all of them
+          </Link>
+          .
         </p>
       ) : null}
     </div>

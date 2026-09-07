@@ -93,9 +93,12 @@ export function Receipt({
    * The owner asked to see the balance either side of a purchase. The figures
    * are the LEDGER's rather than computed here: balance_after off the row this
    * payment wrote, and balance_before as that row's balance_after minus its
-   * delta. Taking "before" from the live profile would be wrong the moment an
-   * automatic check spends a credit in between - which on this platform is
-   * every fifteen minutes.
+   * delta. Taking "before" from the live profile would be wrong the moment
+   * anything spends a credit in between - one search run in the seconds after
+   * a top-up settles is enough. (This used to cite an automatic check every
+   * fifteen minutes as the example; automatic checks are rated zero now and
+   * write no ledger row at all, so a manual search is the only thing that can
+   * move a balance under this panel.)
    *
    * Null when nothing settled, which is exactly when there is no movement.
    */
@@ -160,7 +163,12 @@ export function Receipt({
     : [];
 
   return (
-    <section className={cx("mb-4 rounded-xl border p-4", TONES[tone])}>
+    /* id and scroll-mt for the phone cards' "Full receipt" link. This panel is
+       the first thing on the page, so a reader who tapped a card twelve rows
+       down needs the browser to bring them back up to it rather than leaving
+       them looking at the same list with a longer URL. The margin clears the
+       portal's sticky header, matching the list panel's own scroll-mt-20. */
+    <section id="receipt" className={cx("mb-4 scroll-mt-20 rounded-xl border p-4", TONES[tone])}>
       <div className="flex items-start gap-3">
         <span
           className={cx(

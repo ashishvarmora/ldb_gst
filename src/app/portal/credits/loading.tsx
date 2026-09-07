@@ -1,4 +1,4 @@
-import { Skeleton, SkeletonPageHeader } from "@/components/Skeleton";
+import { Skeleton } from "@/components/Skeleton";
 
 /**
  * Mirrors the page: the sibling links, the balance line, the two-up side
@@ -18,7 +18,14 @@ import { Skeleton, SkeletonPageHeader } from "@/components/Skeleton";
 export default function CreditHistoryLoading() {
   return (
     <>
-      <SkeletonPageHeader />
+      {/* Hand-rolled rather than SkeletonPageHeader, which always draws a
+          subtitle bar and a button. This page has neither now - the subtitle
+          went with the rest of the prose, and there was never an action here -
+          so the shared one was promising 90px of furniture that resolves into
+          a bare heading and shunts everything below it upwards. */}
+      <div className="mb-5 sm:mb-6">
+        <Skeleton className="h-6 w-44" />
+      </div>
 
       <div className="space-y-3">
         <div className="flex gap-1.5">
@@ -26,9 +33,13 @@ export default function CreditHistoryLoading() {
           <Skeleton className="h-9 w-28 rounded-full" />
         </div>
 
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-panel px-4 py-3">
+        {/* The (i) beside the label is a 28px circle, which is what sets this
+            row's height rather than the figure - so it is drawn, or the card
+            resolves eight pixels taller than its placeholder. */}
+        <div className="flex items-center gap-2 rounded-xl border border-line bg-panel px-4 py-3">
           <Skeleton className="h-2.5 w-24" />
-          <Skeleton className="h-5 w-16" />
+          <Skeleton className="size-7 shrink-0 rounded-full" />
+          <Skeleton className="ml-auto h-5 w-16 shrink-0" />
         </div>
 
         <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-raised p-1">

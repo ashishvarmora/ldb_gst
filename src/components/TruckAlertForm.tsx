@@ -135,10 +135,10 @@ export function AlertChooser({
           required
           info={
             <>
-              Each check spends credits, so this is the dial between how fresh the answer is and
-              what it costs. A slower beat still records every crossing the toll network reports -
-              it only means you hear about them later. This rule may run every{" "}
-              {intervalLabel(floor)} at the fastest.
+              How soon you hear about a crossing. Automatic checks are included in your plan and
+              cost nothing, so a faster beat is free - pick what is useful rather than what is
+              cheap. A slower one still records every crossing the toll network reports. This rule
+              may run every {intervalLabel(floor)} at the fastest.
             </>
           }
         />

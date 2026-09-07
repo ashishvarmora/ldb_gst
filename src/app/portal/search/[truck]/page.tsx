@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, FolderPlus, Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, Download, FolderPlus, Plus, RefreshCw } from "lucide-react";
 
 import { searchAgain } from "../actions";
 import { addTruckToCase } from "@/app/portal/cases/actions";
@@ -11,7 +11,7 @@ import { Pager, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
 import { RouteHistory, RouteSummary } from "@/components/Timeline";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
-import { Badge, EmptyState, LinkButton, Panel } from "@/components/ui";
+import { Badge, EmptyState, LinkButton, Panel, buttonClass } from "@/components/ui";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtNumber } from "@/lib/format";
 import { normalizeTruck } from "@/lib/forms";
@@ -268,9 +268,26 @@ export default async function SearchResultPage({
             </Modal>
           ) : null}
 
-          <LinkButton href={`/portal/records?view=all&truck=${truckNumber}&range=all`} size="sm">
-            All records
-          </LinkButton>
+          {/*
+            Was "All records", pointing at /portal/records - a page that no
+            longer exists, and one this screen already outclassed for a single
+            truck: the route above is the whole stored history, paged, with the
+            exact count on the panel.
+
+            So the button becomes the one thing that page could do and this one
+            could not. Not a Link: it is a file download, not a page. Scoped to
+            this truck and to everything kept, because that is the question the
+            reader is already looking at the answer to.
+          */}
+          {total > 0 ? (
+            <a
+              href={`/portal/records/export?truck=${encodeURIComponent(truckNumber)}&range=all`}
+              className={buttonClass("secondary", "sm")}
+            >
+              <Download size={14} />
+              Download CSV
+            </a>
+          ) : null}
         </div>
       </Panel>
     </>

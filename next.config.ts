@@ -108,6 +108,27 @@ const nextConfig: NextConfig = {
   },
 
   /**
+   * /portal/records is gone, so it must not be a 404.
+   *
+   * It was a bottom-bar tab, a sidebar row and a PWA shortcut for months, which
+   * means it is in browser history, in bookmarks, and - the case a deploy
+   * cannot fix - baked into every installed home-screen icon until that
+   * launcher re-reads the manifest. Landing those on "page not found" reads as
+   * the app being broken rather than as a screen having been withdrawn.
+   *
+   * EXACT PATH ONLY, deliberately: /portal/records/export is still a live CSV
+   * route and a `:path*` source would swallow it, since redirects are matched
+   * before the filesystem.
+   *
+   * Temporary rather than permanent. A 308 is cached by the browser more or
+   * less for ever, and this is a product decision the owner could reverse; a
+   * 307 costs one hop and can be taken back.
+   */
+  async redirects() {
+    return [{ source: "/portal/records", destination: "/portal/trucks", permanent: false }];
+  },
+
+  /**
    * Applied to every route, including the API handlers and the CSV downloads.
    * Vercel sets a few of these on its own domains; a custom domain gets
    * nothing it is not asked for, which is why they are all stated here rather

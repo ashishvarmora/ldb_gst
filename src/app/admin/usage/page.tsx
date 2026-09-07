@@ -367,7 +367,7 @@ export default async function UsagePage({
         <div className="space-y-5">
           <Panel
             title="What the credits went on"
-            description="The same charges, split by action. A manual search and an automatic check cost different amounts."
+            description="The same charges, split by action. Only a manual search draws on a balance - automatic checks are included in the plan and are not charged."
           >
             <ShareBreakdown
               slices={reasonSlices}
