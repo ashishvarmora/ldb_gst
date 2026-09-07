@@ -11,6 +11,7 @@ import { cx } from "@/components/ui";
 import {
   ALERT_KIND_EXAMPLE,
   ALERT_KIND_HINT,
+  alertIdentity,
   needsPlaza,
   normaliseLocation,
 } from "@/lib/alerts";
@@ -18,6 +19,7 @@ import {
   MAX_INTERVAL_MINUTES,
   describeCadence,
   intervalLabel,
+  intervalShort,
   splitInterval,
   toMinutes,
   type IntervalUnit,
@@ -54,14 +56,67 @@ function preferredTemplate(templates: AlertRuleTemplate[]): AlertRuleTemplate | 
   return templates.find((template) => template.kind === "location_change") ?? templates[0];
 }
 
+/**
+ * An alert this truck already carries.
+ *
+ * `identity` is alertIdentity() of the saved row, which is the same expression
+ * as the unique index in migration 0048 - so what this form declines to offer
+ * is exactly what the database would refuse.
+ */
+export type TakenAlert = {
+  identity: string;
+  name: string;
+  /** The plaza as it is stored, for the kinds that name one. */
+  plaza: string | null;
+  intervalMinutes: number;
+  isEnabled: boolean;
+  /** Where to go to change it instead - the row's own anchor on the truck page. */
+  href: string;
+};
+
+/**
+ * The rules still worth offering for this truck.
+ *
+ * One alert of each kind, because two of a kind is one question polled on the
+ * union of both beats and charged for every check. plaza_crossing is the
+ * exception and is always offered: it watches one NAMED plaza, so a second
+ * plaza on the same lorry is a second question - the plaza box below does that
+ * check itself, against the plaza actually typed.
+ *
+ * Exported so the submit button and the picker cannot disagree about whether
+ * there is anything left to add.
+ */
+export function offeredTemplates(
+  templates: AlertRuleTemplate[],
+  taken: TakenAlert[],
+): AlertRuleTemplate[] {
+  const held = new Set(taken.map((row) => row.identity));
+  return templates.filter(
+    (template) => needsPlaza(template.kind) || !held.has(alertIdentity(template.kind)),
+  );
+}
+
 export function AlertChooser({
   templates,
+  taken = [],
   className,
 }: {
   templates: AlertRuleTemplate[];
+  /** What the truck is already watched for. Empty while adding a new truck. */
+  taken?: TakenAlert[];
   className?: string;
 }) {
-  const first = preferredTemplate(templates);
+  const offered = offeredTemplates(templates, taken);
+  /* Named rather than silently dropped: a picker that is one item shorter than
+     last time reads as a fault. Each line says what is already watching the
+     truck and points at the interval on it, which is what somebody reaching
+     for a second copy actually wanted to change. */
+  const alreadyOn = templates
+    .filter((template) => !offered.includes(template))
+    .map((template) => taken.find((row) => row.identity === alertIdentity(template.kind)))
+    .filter((row): row is TakenAlert => row !== undefined);
+
+  const first = preferredTemplate(offered);
   const [templateId, setTemplateId] = useState(first?.id ?? "");
   const [interval, setInterval] = useState<{ value: string; unit: IntervalUnit }>(() => {
     const split = splitInterval(first?.default_interval_minutes ?? 60);
@@ -69,14 +124,18 @@ export function AlertChooser({
   });
   const [plaza, setPlaza] = useState("");
 
-  const chosen = templates.find((template) => template.id === templateId) ?? null;
+  const chosen = offered.find((template) => template.id === templateId) ?? null;
 
   if (!chosen) {
     return (
-      <p className="rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-        Alert types are not available yet, so nothing can watch this truck. Please try
-        again shortly, or contact support if it stays this way.
-      </p>
+      <div className="space-y-2">
+        <AlreadyOn rows={alreadyOn} />
+        <p className="rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+          {alreadyOn.length > 0
+            ? "Everything this truck can be watched for is already on it, so there is nothing to add."
+            : "Alert types are not available yet, so nothing can watch this truck. Please try again shortly, or contact support if it stays this way."}
+        </p>
+      </div>
     );
   }
 
@@ -86,6 +145,14 @@ export function AlertChooser({
   const tooFast = minutes !== null && minutes < floor;
   const effective = minutes === null ? floor : Math.max(minutes, floor);
   const wantsPlaza = needsPlaza(chosen.kind);
+
+  /* The plaza kinds cannot be filtered out of the picker, because a second
+     plaza is a second question - so the collision is tested against the plaza
+     actually typed, as it is typed. addTruckAlert() refuses the same case, and
+     the index refuses it under that. */
+  const heldPlaza = wantsPlaza
+    ? (taken.find((row) => row.identity === alertIdentity(chosen.kind, plaza)) ?? null)
+    : null;
 
   /* Switching rules loads that rule's own suggested interval - leaving the
      previous rule's number behind is how people ended up on a beat they never
@@ -98,6 +165,8 @@ export function AlertChooser({
 
   return (
     <div className={cx("space-y-4", className)}>
+      <AlreadyOn rows={alreadyOn} />
+
       {/*
         A dropdown, not a stack of radio cards.
         Every rule used to be drawn as a full card carrying its name, its
@@ -133,12 +202,12 @@ export function AlertChooser({
           required
           value={templateId}
           onChange={(event) => {
-            const next = templates.find((t) => t.id === event.target.value);
+            const next = offered.find((t) => t.id === event.target.value);
             if (next) pickTemplate(next);
           }}
           className="mt-1.5"
         >
-          {templates.map((template) => (
+          {offered.map((template) => (
             <option key={template.id} value={template.id}>
               {template.name}
             </option>
@@ -207,7 +276,27 @@ export function AlertChooser({
         ) : null}
       </div>
 
-      {wantsPlaza ? <PlazaPicker value={plaza} onChange={setPlaza} /> : null}
+      {wantsPlaza ? (
+        <div>
+          <PlazaPicker value={plaza} onChange={setPlaza} />
+          {/* State, not explanation: it appears only when the plaza typed is
+              one this truck is already watching, and it says where to change
+              that one instead. */}
+          {heldPlaza ? (
+            <p className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
+              {/* Named as it is STORED, not as it was just typed. The match
+                  ignores case and spacing, so echoing the box back would read
+                  "you already watch nadiad TOLL plaza" - the officer's own
+                  typo, quoted at them as though it were our record. */}
+              You already watch {heldPlaza.plaza ?? plaza.trim()} on this truck.{" "}
+              <a href={heldPlaza.href} className="font-medium underline">
+                Change how often
+              </a>{" "}
+              instead, or name a different plaza.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
         The blue "we look every X and message you when..." panel is gone.
@@ -221,6 +310,38 @@ export function AlertChooser({
         way to say what the rule now amounts to.
       */}
     </div>
+  );
+}
+
+/**
+ * Why the picker is shorter than it was.
+ *
+ * One line per kind the truck already carries, because "the option I used last
+ * time has gone" is a bug report waiting to happen. Every line ends somewhere:
+ * a live alert offers its interval, a switched-off one offers the switch, and
+ * both point at the row on the truck's own page.
+ */
+function AlreadyOn({ rows }: { rows: TakenAlert[] }) {
+  if (rows.length === 0) return null;
+
+  return (
+    <ul className="space-y-1.5">
+      {rows.map((row) => (
+        <li
+          key={row.identity}
+          className="flex items-start gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs leading-relaxed text-muted"
+        >
+          <Check size={13} aria-hidden className="mt-0.5 shrink-0 text-good-500" />
+          <span className="min-w-0">
+            <span className="font-medium text-ink">{row.name}</span> is already on this truck
+            {row.isEnabled ? `, every ${intervalShort(row.intervalMinutes)}` : ", switched off"}.{" "}
+            <a href={row.href} className="font-medium text-brand-500 hover:underline">
+              {row.isEnabled ? "Change how often" : "Turn it on"}
+            </a>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -367,16 +488,23 @@ function PlazaPicker({
 export function TruckAlertForm({
   truckId,
   templates,
+  taken = [],
 }: {
   truckId: string;
   templates: AlertRuleTemplate[];
+  /** What the truck already carries, so a kind is offered at most once. */
+  taken?: TakenAlert[];
 }) {
+  /* The same filter the picker uses, so the button cannot invite a submission
+     of a form that has nothing left to choose from. */
+  const offered = offeredTemplates(templates, taken);
+
   return (
     <ActionForm action={addTruckAlert} closeOnSuccess={false}>
       <input type="hidden" name="truck_id" value={truckId} />
-      <AlertChooser templates={templates} />
+      <AlertChooser templates={templates} taken={taken} />
 
-      {templates.length > 0 ? (
+      {offered.length > 0 ? (
         <FormActions>
           <SubmitButton pendingLabel="Adding...">
             <Plus size={14} />

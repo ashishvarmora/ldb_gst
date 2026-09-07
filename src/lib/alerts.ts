@@ -54,6 +54,49 @@ export function needsPlaza(kind: AlertRuleKind): boolean {
   return kind === "plaza_crossing";
 }
 
+/* -------------------------------------------------------------------------- */
+/* one alert of each kind                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * truck_alerts as the database stores it since migration 0048: the template's
+ * kind mirrored onto the row.
+ *
+ * The mirror exists because a unique index can only see the table it is built
+ * on, and the rule is per kind - not per template, which is a catalogue row an
+ * admin can duplicate or rename without a deploy. Derived by a trigger on every
+ * write, so this field is never something the app sets.
+ */
+/**
+ * Kept as an alias now that template_kind lives on TruckAlert itself, so the
+ * helpers below still accept the narrow shape a form has to hand.
+ */
+export type AlertKindMirror = Pick<TruckAlert, "template_kind">;
+
+/**
+ * What makes two alerts the same question, as one comparable string.
+ *
+ * DELIBERATELY THE SAME EXPRESSION AS truck_alerts_one_enabled_per_kind_idx in
+ * migration 0048 - kind, then the plaza trimmed, space-collapsed and lower
+ * cased. The index is the rule and this is the app agreeing with it in advance,
+ * so a form can say "you already watch this" instead of letting the officer
+ * fill it in and handing back a constraint violation.
+ *
+ * The plaza is in the key for every kind rather than only for plaza_crossing,
+ * exactly as the index has it. That is not a shortcut: a kind that does not
+ * name a plaza always stores null there, so all of its rows key on the empty
+ * string and collide, while two plaza_crossing rows naming two different
+ * plazas are two different questions and both are allowed.
+ */
+export function alertIdentity(kind: AlertRuleKind, plaza?: string | null): string {
+  return `${kind}::${normaliseLocation(plaza) ?? ""}`;
+}
+
+/** The same, for a row that already exists. */
+export function alertIdentityOf(alert: AlertKindMirror & Pick<TruckAlert, "plaza">): string {
+  return alertIdentity(alert.template_kind, alert.plaza);
+}
+
 /**
  * One sentence for what this alert will actually do, in the order a person
  * asks it: how often we look, and when they hear from us. Takes loose parts

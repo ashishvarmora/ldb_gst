@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { needsPlaza } from "@/lib/alerts";
+import { alertIdentity, alertIdentityOf, needsPlaza, type AlertKindMirror } from "@/lib/alerts";
 import { reportError } from "@/lib/errors";
 import { bool, done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { intervalLabel, toMinutes, type IntervalUnit } from "@/lib/intervals";
@@ -70,6 +70,62 @@ function alertAddedMessage(template: AlertRuleTemplate, minutes: number, clamped
   return clampedFrom !== null
     ? `${template.name} added. The fastest this alert may run is every ${intervalLabel(template.min_interval_minutes)}, so that is what was set.`
     : `${template.name} added, checking every ${intervalLabel(minutes)}.`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* one alert of each kind per truck                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * An alert already on the truck, as much of it as the uniqueness rule needs.
+ *
+ * template_kind is the mirror migration 0048 keeps on the row - see
+ * alertIdentity() in src/lib/alerts.ts, which is the same expression as the
+ * index that actually refuses the duplicate.
+ */
+type ExistingAlert = AlertKindMirror & {
+  id: string;
+  is_enabled: boolean;
+  interval_minutes: number;
+  plaza: string | null;
+  template: { name: string } | null;
+};
+
+/** Every alert on one truck, for deciding what may still be added to it. */
+async function loadTruckAlerts(truckId: string, userId: string): Promise<ExistingAlert[]> {
+  const { data } = await getSupabaseAdmin()
+    .from("truck_alerts")
+    .select("id, is_enabled, interval_minutes, plaza, template_kind, template:alert_rule_templates(name)")
+    .eq("tracked_truck_id", truckId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  return (data ?? []) as unknown as ExistingAlert[];
+}
+
+/**
+ * The alert on this truck that asks the same question, if there is one.
+ *
+ * A switched-on row wins over a switched-off one, because it is the one the
+ * database will refuse a duplicate of and the one whose interval is worth
+ * pointing at.
+ */
+function sameQuestion(alerts: ExistingAlert[], identity: string): ExistingAlert | null {
+  const matches = alerts.filter((alert) => alertIdentityOf(alert) === identity);
+  return matches.find((alert) => alert.is_enabled) ?? matches[0] ?? null;
+}
+
+/**
+ * Why a second copy is refused, and where to go instead.
+ *
+ * Never "that already exists": the officer wanted a different interval, and the
+ * answer is that the interval is a property of the alert they already have. The
+ * truck's own page carries a Change how often fold on every row.
+ */
+function alreadyWatchedMessage(existing: ExistingAlert, name: string): string {
+  return existing.is_enabled
+    ? `You already watch this: ${name}, every ${intervalLabel(existing.interval_minutes)}. Change how often on that alert instead of adding a second one.`
+    : `${name} is already on this truck, switched off. Turn it back on instead of adding a second one.`;
 }
 
 /**
@@ -285,14 +341,38 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   const truckId = saved?.id ?? existing?.id ?? null;
 
   if (template && truckId) {
-    const { error: alertError } = await admin.from("truck_alerts").insert({
-      user_id: session.id,
-      tracked_truck_id: truckId,
-      template_id: template.id,
-      is_enabled: true,
-      interval_minutes: minutes,
-      plaza: needsPlaza(template.kind) ? plaza : null,
-    });
+    /*
+     * Re-adding a paused truck keeps its alerts, so the "first" alert may not
+     * be new at all - and a second row of one kind is refused by the database
+     * since 0048. So the same question is UPDATED rather than inserted: the
+     * officer just told this form how often to check, and that answer is the
+     * one they meant. The row keeps its id and its bookkeeping, so nothing
+     * re-announces a crossing it has already reported.
+     *
+     * Only looked up for a truck that already existed. A genuinely new one
+     * cannot have an alert yet, and this is the hot path.
+     */
+    const existingAlert = existing
+      ? sameQuestion(
+          await loadTruckAlerts(truckId, session.id),
+          alertIdentity(template.kind, needsPlaza(template.kind) ? plaza : null),
+        )
+      : null;
+
+    const { error: alertError } = existingAlert
+      ? await admin
+          .from("truck_alerts")
+          .update({ is_enabled: true, interval_minutes: minutes })
+          .eq("id", existingAlert.id)
+          .eq("user_id", session.id)
+      : await admin.from("truck_alerts").insert({
+          user_id: session.id,
+          tracked_truck_id: truckId,
+          template_id: template.id,
+          is_enabled: true,
+          interval_minutes: minutes,
+          plaza: needsPlaza(template.kind) ? plaza : null,
+        });
 
     // The truck is already saved, so a failed alert is not worth throwing the
     // whole form away for. Its page says plainly that nothing is watching it.
@@ -434,8 +514,21 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
 /* -------------------------------------------------------------------------- */
 
 /**
- * Attaches one of the admin's alert rules to a truck. Several rows may use the
- * same rule, so two plazas can be watched on the same vehicle.
+ * Attaches one of the admin's alert rules to a truck.
+ *
+ * At most one alert of each kind per truck, because two alerts of one kind are
+ * one question polled on the union of both beats and charged for every check -
+ * the owner's "single alert can be use only once". The exception is
+ * plaza_crossing, which names the plaza it watches, so two plazas on one lorry
+ * are two questions and both are allowed.
+ *
+ * The refusal here is advice that the database backs: migration 0048 carries a
+ * partial unique index, so a stale form, a second tab or anything reaching this
+ * action directly is refused by the row itself. This exists so the answer is a
+ * sentence with somewhere to go rather than a constraint violation - and it is
+ * stricter on purpose, refusing a second row of a kind even when the first is
+ * switched off, because two rows of one kind in the list is confusing whatever
+ * their state.
  */
 export async function addTruckAlert(
   _prev: ActionResult | null,
@@ -469,6 +562,12 @@ export async function addTruckAlert(
   const interval = readInterval(fd, template);
   if (!interval.ok) return fail(interval.error);
 
+  const wanted = alertIdentity(template.kind, needsPlaza(template.kind) ? plaza : null);
+  const existing = sameQuestion(await loadTruckAlerts(truckId, session.id), wanted);
+  if (existing) {
+    return fail(alreadyWatchedMessage(existing, existing.template?.name ?? template.name));
+  }
+
   const { error } = await admin.from("truck_alerts").insert({
     user_id: session.id,
     tracked_truck_id: truckId,
@@ -487,6 +586,59 @@ export async function addTruckAlert(
   return done(alertAddedMessage(template, interval.minutes, interval.clampedFrom));
 }
 
+/**
+ * Changes how often one alert already on a truck checks.
+ *
+ * The other half of the one-of-each-kind rule: refusing a second "Location
+ * changed" is only reasonable if the interval on the first one can be changed,
+ * and until now the only way was to delete the alert and add it again - which
+ * threw away the bookkeeping that stops the new one re-reporting an old
+ * crossing.
+ *
+ * Interval only. The kind and the plaza are what make an alert unique, so
+ * changing either is a different question and belongs in a new alert.
+ */
+export async function updateTruckAlert(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  const alertId = str(fd, "alert_id");
+  if (!alertId) return fail("Missing alert id.");
+
+  const { data: alert } = await admin
+    .from("truck_alerts")
+    .select("id, tracked_truck_id, template:alert_rule_templates(*)")
+    .eq("id", alertId)
+    .eq("user_id", session.id)
+    .maybeSingle<{ id: string; tracked_truck_id: string; template: AlertRuleTemplate | null }>();
+
+  if (!alert?.template) return fail("That alert is not on your list.");
+
+  const interval = readInterval(fd, alert.template);
+  if (!interval.ok) return fail(interval.error);
+
+  const { error } = await admin
+    .from("truck_alerts")
+    .update({ interval_minutes: interval.minutes })
+    .eq("id", alertId)
+    .eq("user_id", session.id);
+
+  if (error) return fail(reportError("changing an alert", error, "Could not change that alert."));
+
+  revalidatePath("/portal");
+  revalidatePath("/portal/trucks");
+  revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
+
+  return done(
+    interval.clampedFrom !== null
+      ? `This alert may run every ${intervalLabel(alert.template.min_interval_minutes)} at the fastest, so that is what was set.`
+      : `Now checking every ${intervalLabel(interval.minutes)}.`,
+  );
+}
+
 export async function setTruckAlertEnabled(
   _prev: ActionResult | null,
   fd: FormData,
@@ -497,6 +649,36 @@ export async function setTruckAlertEnabled(
   const alertId = str(fd, "alert_id");
   const enabled = fd.get("is_enabled") === "true";
   if (!alertId) return fail("Missing alert id.");
+
+  /*
+   * Switching one back on can collide with a live alert asking the same
+   * question - a truck may keep a switched-off copy from before 0048, and the
+   * index only constrains the enabled ones. Answered here in words: the raw
+   * refusal would be "duplicate key value violates unique constraint", on a
+   * button press whose only visible effect is a switch that did not move.
+   */
+  if (enabled) {
+    const { data: target } = await admin
+      .from("truck_alerts")
+      .select("tracked_truck_id, plaza, template_kind")
+      .eq("id", alertId)
+      .eq("user_id", session.id)
+      .maybeSingle<{ tracked_truck_id: string; plaza: string | null } & AlertKindMirror>();
+
+    if (target) {
+      const rival = sameQuestion(
+        (await loadTruckAlerts(target.tracked_truck_id, session.id)).filter(
+          (row) => row.id !== alertId && row.is_enabled,
+        ),
+        alertIdentityOf(target),
+      );
+      if (rival) {
+        return fail(
+          `Another ${rival.template?.name ?? "alert"} on this truck is already switched on, checking every ${intervalLabel(rival.interval_minutes)}. Turn that one off first, or remove this one.`,
+        );
+      }
+    }
+  }
 
   const { data: alert, error } = await admin
     .from("truck_alerts")

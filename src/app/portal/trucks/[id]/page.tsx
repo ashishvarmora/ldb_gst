@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronDown,
   History,
-  Info,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -23,6 +22,7 @@ import {
   setTruckAlertEnabled,
   setTruckPaused,
   updateTruck,
+  updateTruckAlert,
 } from "../actions";
 import {
   ActionForm,
@@ -34,11 +34,11 @@ import { Disclosure, HelpNote } from "@/components/Disclosure";
 import { InfoTip, LabelWithInfo } from "@/components/InfoTip";
 import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
-import { TruckAlertForm } from "@/components/TruckAlertForm";
+import { TruckAlertForm, type TakenAlert } from "@/components/TruckAlertForm";
 import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE, lastCheckedLabel } from "@/components/TruckCard";
 import { Badge, EmptyState, LinkCard, Panel, cx } from "@/components/ui";
-import { alertSentence } from "@/lib/alerts";
-import { intervalLabel } from "@/lib/intervals";
+import { alertIdentity, alertSentence } from "@/lib/alerts";
+import { intervalLabel, splitInterval } from "@/lib/intervals";
 import { CREDIT_ACTIONS, TOPUP_HREF, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
@@ -57,7 +57,6 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   AlertLog,
   AlertRuleTemplate,
-  SearchLog,
   TrackedTruck,
   TruckAlertWithTemplate,
   TruckEvent,
@@ -139,7 +138,6 @@ export default async function TruckDetailPage({
   const [
     { data: events, count: eventCount },
     { data: alerts },
-    { data: checks },
     { data: rules },
     { data: templates },
     manualRate,
@@ -159,13 +157,9 @@ export default async function TruckDetailPage({
       .eq("truck_number", truck.truck_number)
       .order("created_at", { ascending: false })
       .limit(15),
-    admin
-      .from("search_logs")
-      .select("*")
-      .eq("user_id", overview.id)
-      .eq("truck_number", truck.truck_number)
-      .order("created_at", { ascending: false })
-      .limit(10),
+    /* search_logs is deliberately NOT read here. The check list moved to the
+       activity page - see the LinkCard below - and this query was still being
+       run and thrown away on every view of the page. */
     admin
       .from("truck_alerts")
       .select("*, template:alert_rule_templates(*)")
@@ -194,11 +188,26 @@ export default async function TruckDetailPage({
 
   const eventList = (events ?? []) as TruckEvent[];
   const alertList = (alerts ?? []) as AlertLog[];
-  const checkList = (checks ?? []) as SearchLog[];
   const ruleList = (rules ?? []) as TruckAlertWithTemplate[];
   const templateList = (templates ?? []) as AlertRuleTemplate[];
 
   const enabledRules = ruleList.filter((rule) => rule.is_enabled);
+
+  /*
+   * What this truck is already watched for, so the add form offers each kind
+   * at most once and says where to change the one that exists - see
+   * offeredTemplates() in TruckAlertForm. The identity is computed from the
+   * joined template's kind, which the trigger in migration 0048 keeps equal to
+   * the mirror the unique index is built on.
+   */
+  const taken: TakenAlert[] = ruleList.map((rule) => ({
+    identity: alertIdentity(rule.template.kind, rule.plaza),
+    name: rule.template.name,
+    plaza: rule.plaza,
+    intervalMinutes: rule.interval_minutes,
+    isEnabled: rule.is_enabled,
+    href: `#alert-${rule.id}`,
+  }));
   const manualCost = costOf(manualRate);
   const status = truck.is_active ? truck.status : "unknown";
   const totalCrossings = eventCount ?? eventList.length;
@@ -272,9 +281,21 @@ export default async function TruckDetailPage({
           {lastCheckedLabel(truck, ruleList)}
         </p>
 
-        <div className="mt-3">
-          <LatestPosition event={eventList[0] ?? null} />
-        </div>
+        {/*
+          Only when there is a position to show.
+          With nothing on record this drew a bordered "LAST SEEN AT" box whose
+          entire content was a sentence saying there was nothing on record -
+          the largest thing on the first screen, on the one truck that has
+          least to say. The absence belongs to the Route section immediately
+          below, whose closed line already reads "No toll crossings on record",
+          and to the last-checked line above, which says whether anything has
+          looked yet.
+        */}
+        {eventList[0] ? (
+          <div className="mt-3">
+            <LatestPosition event={eventList[0]} />
+          </div>
+        ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <ActionForm action={checkTruckNow} closeOnSuccess={false}>
@@ -299,11 +320,18 @@ export default async function TruckDetailPage({
           </InlineActionForm>
         </div>
 
+        {/* Stays: it is state, not explanation - and one line of it. The
+            second sentence ("tell your administrator if it stays this way")
+            was advice, and the same advice is on the support line at the foot
+            of this page and behind the failure-budget (i) in Settings.
+            "Checking carries on" only while it does: on a truck the failure
+            budget has already stopped, that half was flatly contradicted by
+            the pause note further down the same page. */}
         {truck.consecutive_errors > 0 ? (
           <p className="mt-3 rounded-lg border border-bad-500/35 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
             The last {truck.consecutive_errors} check
-            {truck.consecutive_errors === 1 ? "" : "s"} did not go through. Checking carries on;
-            tell your administrator if it stays this way.
+            {truck.consecutive_errors === 1 ? "" : "s"} did not go through.
+            {truck.is_active ? " Checking carries on." : ""}
           </p>
         ) : null}
       </Panel>
@@ -321,10 +349,12 @@ export default async function TruckDetailPage({
         </p>
       ) : null}
 
-      <Panel
-        title="Alerts on this truck"
-        description="Checked only when one of these is due, and every automatic check costs one credit."
-      >
+      {/* No description. "Checked only when one of these is due, and every
+          automatic check costs one credit" is an explanation of the panel's own
+          title, and the credit arithmetic it carried is behind the (i) beside
+          the interval field in the form below - where somebody is choosing a
+          beat and the number can change their answer. */}
+      <Panel title="Alerts on this truck">
         {ruleList.length === 0 ? (
           <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
             <BellOff size={15} className="mt-0.5 shrink-0" />
@@ -346,12 +376,15 @@ export default async function TruckDetailPage({
                 right-aligned line underneath costs one row of height and reads
                 as a list again.
               */
-              <li key={rule.id} className="px-3 py-2.5">
+              /* id, because a truck may now carry only one alert of each kind
+                 and the add form sends anybody reaching for a second copy to
+                 the row that already exists. */
+              <li key={rule.id} id={`alert-${rule.id}`} className="px-3 py-2.5">
                 <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap sm:items-center">
                   {/*
                     The full sentence - "we look every 15 minutes and message
                     you only when..." - is three lines on a phone, and three of
-                    those stacked buried the controls. It moves behind the (i),
+                    those stacked buried the controls. It moves behind the fold,
                     so a row is one line saying what the alert is and how often,
                     and the promise is one tap away for whoever wants it.
                   */}
@@ -371,19 +404,58 @@ export default async function TruckDetailPage({
                       in normal flow INSIDE the text column - so it cannot
                       overlap the Turn off and delete controls the way a popover
                       anchored in a flex row would.
+
+                      Named for what it now does. Since one truck may hold only
+                      one alert of each kind, changing the beat is the answer to
+                      "I wanted 30 minutes as well as 15" - and the alternative
+                      was deleting the alert and adding it back, which throws
+                      away last_event_at and makes the replacement re-announce a
+                      crossing the officer was told about weeks ago.
                     */}
                     <details className="group/why mt-1">
                       <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-brand-500">
-                        <Info size={11} className="shrink-0" />
-                        What this does
+                        <Timer size={11} className="shrink-0" />
+                        Change how often
                         <ChevronDown
                           size={11}
                           className="shrink-0 transition group-open/why:rotate-180"
                         />
                       </summary>
+                      {/* The sentence stays, as the one line above the box that
+                          says what is being changed. */}
                       <p className="mt-1 text-xs leading-relaxed text-muted">
                         {alertSentence(rule.template.kind, rule.interval_minutes, rule.plaza)}
                       </p>
+                      <ActionForm action={updateTruckAlert} closeOnSuccess={false}>
+                        <input type="hidden" name="alert_id" value={rule.id} />
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Input
+                            name="interval_value"
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            step={1}
+                            required
+                            aria-label={`How often ${rule.template.name} checks`}
+                            defaultValue={splitInterval(rule.interval_minutes).value}
+                            className="w-20"
+                          />
+                          <Select
+                            name="interval_unit"
+                            aria-label="Minutes or hours"
+                            defaultValue={splitInterval(rule.interval_minutes).unit}
+                            /* w-28, not w-24: at 24 the native select clipped
+                               "minutes" to "minute", which reads as a typo. */
+                            className="w-28"
+                          >
+                            <option value="minutes">minutes</option>
+                            <option value="hours">hours</option>
+                          </Select>
+                          <SubmitButton variant="secondary" size="sm">
+                            Save
+                          </SubmitButton>
+                        </div>
+                      </ActionForm>
                     </details>
                   </div>
 
@@ -421,14 +493,16 @@ export default async function TruckDetailPage({
           </p>
         ) : null}
 
+        {/* No hint. "Pick what you want to hear about, then how often we
+            check" described the two fields inside the fold, which the fold
+            already shows the moment it is opened. */}
         <div className="mt-4">
           <Disclosure
             title={ruleList.length === 0 ? "Add the first alert" : "Add another alert"}
-            hint="Pick what you want to hear about, then how often we check."
             defaultOpen={ruleList.length === 0}
             badge={<BellPlus size={13} className="text-brand-500" />}
           >
-            <TruckAlertForm truckId={truck.id} templates={templateList} />
+            <TruckAlertForm truckId={truck.id} templates={templateList} taken={taken} />
           </Disclosure>
         </div>
       </Panel>
@@ -488,7 +562,7 @@ export default async function TruckDetailPage({
         href={`/portal/activity?truck=${encodeURIComponent(truck.truck_number)}&by=none`}
         icon={<History size={16} />}
         title="Every check on this truck"
-        description="All of them, with what each one cost — not just the ones that found a movement."
+        description="With what each one cost."
       />
 
       {/* Not folded away like the sections above it. There are only two fields
@@ -497,11 +571,10 @@ export default async function TruckDetailPage({
       {/* id, because the pause (i) at the top of the page and the auto-pause
           help on My trucks both need to land on these fields rather than on
           the page - the route and the alert history sit between them. */}
-      <Panel
-        id="tracking"
-        title="Settings"
-        description="Label, pause, the limits that stop it by itself, and removing this truck."
-      >
+      {/* No description. It listed the panel's own contents - label, pause,
+          limits, remove - all four of which are visible the moment the panel
+          is on screen, and it cost two lines on a phone doing it. */}
+      <Panel id="tracking" title="Settings">
         {/*
           Why it stopped, said here where the switch to restart it is - not only
           on the card in a list the officer may not go back to.
@@ -553,9 +626,9 @@ export default async function TruckDetailPage({
         {countdown ? (
           <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
             <Timer size={14} className="mt-0.5 shrink-0" />
+            {/* One line. What to do about it is the (i) on the box itself. */}
             <span>
-              Checking stops by itself <strong className="text-ink">{countdown}</strong>. Leave the
-              box below empty to keep it running, or set a new time to push it back.
+              Checking stops by itself <strong className="text-ink">{countdown}</strong>.
             </span>
           </p>
         ) : null}
@@ -563,7 +636,10 @@ export default async function TruckDetailPage({
         <ActionForm action={updateTruck} closeOnSuccess={false}>
           <input type="hidden" name="truck_id" value={truck.id} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-            <Field label="Label" name="label" hint="Only you see this.">
+            {/* No hint. "Only you see this" is true of every field on the
+                page, and the placeholder already shows what a label is for.
+                Matches the add form, where the same hint went. */}
+            <Field label="Label" name="label">
               <Input
                 name="label"
                 defaultValue={truck.label ?? ""}
@@ -571,12 +647,12 @@ export default async function TruckDetailPage({
               />
             </Field>
 
-            <Checkbox
-              name="is_active"
-              label="Tracking active"
-              hint="Uncheck to pause every alert on this truck. Its history is kept and no credits are spent while it is paused."
-              defaultChecked={truck.is_active}
-            />
+            {/* No hint either. Three lines explaining a checkbox that duplicates
+                the Pause button at the top of the page, whose own confirmation
+                already says "it spends no credits until you take it live
+                again". The box stays - updateTruck reads is_active from this
+                form, so removing it would pause the truck on any save. */}
+            <Checkbox name="is_active" label="Tracking active" defaultChecked={truck.is_active} />
           </div>
 
           <div className="mt-4 max-w-xs">
@@ -724,10 +800,13 @@ export default async function TruckDetailPage({
         </ActionForm>
 
         <div className="mt-5 border-t border-divider pt-4">
+          {/* One line, and the half worth keeping: what removal destroys and
+              what it does not. The comparison with pausing went - the pause
+              switch is six inches up this same panel and says what it does
+              when you press it. */}
           <p className="text-xs leading-relaxed text-muted">
-            Removing stops the checks, deletes this truck&apos;s alerts and frees its tracking slot.
-            Its {totalCrossings} toll crossing{totalCrossings === 1 ? "" : "s"} on record are kept.
-            Pausing does the same to the checks and the credits, and keeps the alerts.
+            Removing deletes this truck&apos;s alerts and frees its slot. Its {totalCrossings} toll
+            crossing{totalCrossings === 1 ? "" : "s"} on record are kept.
           </p>
           <ActionForm action={removeTruck} closeOnSuccess={false} className="mt-3">
             <input type="hidden" name="truck_id" value={truck.id} />

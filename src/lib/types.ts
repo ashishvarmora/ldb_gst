@@ -334,6 +334,16 @@ export type TruckAlert = {
   user_id: string;
   tracked_truck_id: string;
   template_id: string;
+  /**
+   * The template's kind, mirrored onto this row.
+   *
+   * Derived, never trusted: a trigger overwrites it from the catalogue on every
+   * insert and update. It exists because a unique index can only see its own
+   * table, and the rule being enforced is one enabled alert per truck per KIND
+   * - two catalogue rows can share a kind, and an admin can re-kind one without
+   * a deploy, so template_id is not the thing the money follows.
+   */
+  template_kind: AlertRuleKind;
   is_enabled: boolean;
   interval_minutes: number;
   /** plaza_crossing only: the plaza being watched. */
