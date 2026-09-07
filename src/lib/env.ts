@@ -12,15 +12,54 @@ function required(name: string, value: string | undefined): string {
   return value;
 }
 
+/*
+ * WHY EACH SUPABASE VARIABLE HAS A SECOND ACCEPTABLE NAME.
+ *
+ * Connecting a Supabase project to Vercel through the official integration
+ * injects its own set of variables - SUPABASE_URL, SUPABASE_SECRET_KEY,
+ * SUPABASE_PUBLISHABLE_KEY, POSTGRES_URL and friends - and it does NOT set the
+ * NEXT_PUBLIC_* names this app was written against. So a project connected that
+ * way looks fully configured in the Vercel dashboard while the app reads
+ * nothing at all and keeps talking to whatever it was pointed at before.
+ *
+ * That is exactly how this app spent an afternoon serving a database nobody
+ * meant to use: thirteen correct variables for the new project sat beside four
+ * stale ones for the old, and only the stale four were being read.
+ *
+ * So each value accepts either spelling, with the app's own name winning. An
+ * explicit NEXT_PUBLIC_SUPABASE_URL still overrides the integration, which
+ * matters because the integration cannot be told to point somewhere else.
+ *
+ * Note SUPABASE_URL is deliberately NOT accepted for supabaseUrl: it is not
+ * NEXT_PUBLIC_, so it does not reach the browser, and a server that talked to
+ * one project while the browser talked to another would fail in a way nobody
+ * could read. A url has to be public or it is not usable here.
+ */
+function firstOf(names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export const env = {
   get supabaseUrl() {
     return required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
   },
   get supabaseAnonKey() {
-    return required("NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+    return required(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      firstOf(["NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"]),
+    );
   },
   get serviceRoleKey() {
-    return required("SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY);
+    /* SUPABASE_SECRET_KEY is what the Vercel integration calls the service-role
+       key, and what a new Supabase project calls it in its own dashboard. */
+    return required(
+      "SUPABASE_SERVICE_ROLE_KEY",
+      firstOf(["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"]),
+    );
   },
   get ldbApiUrl() {
     return process.env.LDB_API_URL ?? "https://ldb.co.in/api/ldbv2/truck/search";

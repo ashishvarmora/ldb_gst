@@ -254,6 +254,26 @@ create index if not exists alert_rule_templates_active_idx
 -- exists.
 do $blk$
 begin
+  /*
+   * Only on a database that has run this file before, and that is why the
+   * guard is here rather than the statement being unconditional.
+   *
+   * This is a REPAIR: it folds duplicate templates a previous run created into
+   * the oldest row and repoints the officers' alerts at the survivor. On a
+   * database being built from nothing there is nothing to repair - the
+   * templates table was created empty eight lines ago - and truck_alerts does
+   * not exist yet, because it is created further down this same file.
+   *
+   * Which meant the chain could not build a database from scratch at all. It
+   * failed here, at 0008, with "relation public.truck_alerts does not exist",
+   * and had presumably been unable to since the day the repair was added -
+   * invisible because every existing database already had the table. Nobody
+   * finds that out until they need it, which is the worst possible moment.
+   */
+  if to_regclass('public.truck_alerts') is null then
+    return;
+  end if;
+
   update public.truck_alerts a
   set template_id = keep.id
   from public.alert_rule_templates dup
