@@ -19,30 +19,31 @@ import { TOPUP_HREF, formatCredits, type CreditStanding } from "@/lib/credits";
  */
 
 /**
- * Whether to offer a top-up at all.
+ * Whether to offer a top-up at all. The standing decides it and nothing else.
  *
- * Credits cannot be bought without a live plan - the form on the plan page
- * refuses it and says so. Pointing somebody at a purchase that will turn them
- * away is worse than saying nothing, and an account with no plan is already
- * being told what to do about it in half a dozen louder places.
+ * This used to be `planActive && standing !== "ok"`, because credits could not
+ * be bought without a live plan - the top-up form refused it and said so. 0038
+ * deleted that rule from both ends: startCheckout() now carries an explicit
+ * "no plan gate" and blockedReason() gates a search on the balance alone. So
+ * the gate was suppressing the nudge on exactly the account the lifetime
+ * wallet was introduced to protect - a lapsed customer holding credits they
+ * had already paid for, who can still search and can still buy more.
  */
-function shouldNudge(standing: CreditStanding, planActive: boolean): boolean {
-  return planActive && standing !== "ok";
+function shouldNudge(standing: CreditStanding): boolean {
+  return standing !== "ok";
 }
 
 /** Beside a balance, wherever the balance is not already next to a top-up. */
 export function TopUpLink({
   standing,
-  planActive,
   className,
 }: {
   standing: CreditStanding;
-  planActive: boolean;
   className?: string;
 }) {
   // Renders nothing when there is nothing to say, so a call site is one line
   // and can never leave a stale nudge on screen.
-  if (!shouldNudge(standing, planActive)) return null;
+  if (!shouldNudge(standing)) return null;
 
   return (
     <Link
@@ -80,13 +81,11 @@ export function TopUpLink({
 export function CreditPill({
   credits,
   standing,
-  planActive,
 }: {
   credits: number;
   standing: CreditStanding;
-  planActive: boolean;
 }) {
-  const nudge = shouldNudge(standing, planActive);
+  const nudge = shouldNudge(standing);
 
   const tone =
     standing === "empty"
@@ -102,8 +101,15 @@ export function CreditPill({
       className={cx(
         // Taller only when it carries a link, so the tap target clears the
         // phone minimum without the header row growing for everybody else.
+        //
+        // And only on a phone. Dropping the plan gate above made the nudge
+        // common rather than rare, which turned that extra 8px into the
+        // ordinary desktop header: a 40px pill beside a 26px truck pill and a
+        // 26px plan pill, growing the whole row. A mouse does not need the
+        // bigger target, so above lg it stays the height it is when there is
+        // nothing to say and the row never moves.
         "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap transition hover:brightness-105",
-        nudge ? "min-h-10" : "min-h-8",
+        nudge ? "min-h-10 lg:min-h-8" : "min-h-8",
         tone,
       )}
     >

@@ -485,7 +485,7 @@ export async function checkTruck({
         title: "Checking paused after repeated failures",
         message:
           `The last ${errors} checks in a row could not be completed, so this truck has been ` +
-          "paused and is no longer costing credits. Its recorded crossings are untouched. " +
+          "paused and its tracking slot handed back. Its recorded crossings are untouched. " +
           "Check the number is right, then switch it back on from My trucks.",
       });
     } else if (warnNow) {
@@ -684,8 +684,8 @@ const AUTO_PAUSE_MESSAGE = {
     title: "Checking has finished as scheduled",
     body:
       "This truck was set to stop being checked automatically, and that time has now arrived. " +
-      "It is no longer costing credits. Everything it recorded is still here, and you can start " +
-      "it again from My trucks whenever you want.",
+      "Its tracking slot is free for another lorry. Everything it recorded is still here, and you " +
+      "can start it again from My trucks whenever you want.",
   },
   inactive: {
     title: "Checking paused - the lorry has stopped moving",

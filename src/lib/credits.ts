@@ -65,11 +65,12 @@ export function formatCredits(value: number | null | undefined): string {
  * Five is one sitting: enough to notice before the next tap is refused, few
  * enough that it is not warning somebody with a fortnight of credit left.
  *
- * Automatic checks are deliberately not part of this. A truck on a 15-minute
- * beat spends a hundred-odd checks a day, so an account tracking anything at
- * all would sit permanently below a threshold built from that - and a warning
- * that is always on is a warning nobody reads. The manual search is the unit a
- * customer spends on purpose and can therefore count.
+ * The manual search is the only unit this CAN be measured in, and since 0038
+ * that is not merely a preference. Automatic checks are rated zero - included
+ * in the plan, charged nothing, not even a ledger row - so "how many automatic
+ * checks does this balance cover" divides by zero and the honest answer is all
+ * of them. A balance no longer says anything at all about whether tracking
+ * keeps running; a plan does. So this measures the one thing credits still buy.
  */
 export const LOW_CREDIT_SEARCHES = 5;
 
@@ -84,6 +85,10 @@ export type CreditStanding = "ok" | "low" | "empty";
 /**
  * Where a nudge sends somebody: the top-up panel on the plan page, not the top
  * of it. The panel carries id="topup" and is never folded away.
+ *
+ * Both branches of that page render it - with a plan and without one. That is
+ * load-bearing rather than tidy: this is the only destination any nudge uses,
+ * and a lapsed account is now one of the accounts that can be nudged.
  */
 export const TOPUP_HREF = "/portal/plan#topup";
 

@@ -101,8 +101,14 @@ export default async function PortalHome() {
           <p className="flex items-start gap-2.5 text-sm text-warn-500">
             <Coins size={16} className="mt-0.5 shrink-0" />
             {/* Not "you have run out": a balance still showing a figure can be
-                under the price of one search, and is refused just the same. */}
-            Your balance is too low to search, so searches and automatic checks are paused.
+                under the price of one search, and is refused just the same.
+
+                Searching only. Automatic checks are rated zero since 0038, so
+                the trucks carry on being watched on an empty wallet - and
+                telling somebody their tracking had stopped would be inventing
+                an emergency to sell against. */}
+            Your balance is too low to search, so searching is paused. Your trucks are still being
+            watched.
           </p>
           {/* Straight to the top-up panel rather than the top of the plan page,
               which on a phone is two screens above the thing being asked for. */}
@@ -146,7 +152,8 @@ export default async function PortalHome() {
             */}
             {standing === "ok" ? (
               <p className="mt-1.5 text-xs text-muted">
-                One balance pays for every search and every automatic check.
+                Credits buy manual searches, and never expire. Automatic checks are included with
+                your plan.
               </p>
             ) : (
               <p
@@ -157,12 +164,10 @@ export default async function PortalHome() {
               >
                 <span>
                   {standing === "empty"
-                    ? "Searches and automatic checks are paused."
+                    ? "Too low to search."
                     : `Only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`}
                 </span>
-                {bannerCarriesTopUp ? null : (
-                  <TopUpLink standing={standing} planActive={overview.plan_active} />
-                )}
+                {bannerCarriesTopUp ? null : <TopUpLink standing={standing} />}
               </p>
             )}
           </div>
@@ -296,8 +301,12 @@ function WelcomeHome({
               : "Welcome"
         }
         subtitle={
+          /* Automatic checking is what a plan buys, so that is the only thing
+             a lapsed plan stops. Searching runs off the credit balance and is
+             not gated on a plan at all - saying otherwise sent somebody with
+             credits in hand away from a screen they could still use. */
           ended
-            ? "Searching and automatic checks are paused until you renew. Everything already on record is kept."
+            ? "Automatic checks and alerts are paused until you renew. Searching still works, and everything already on record is kept."
             : "You are a couple of minutes away from tracking your first truck."
         }
         actions={
@@ -341,11 +350,18 @@ function WelcomeHome({
       </Panel>
 
       {/* Credits outlive a plan, so a returning customer is told the balance is
-          still theirs rather than left wondering what happened to it. */}
+          still theirs rather than left wondering what happened to it.
+
+          "will be there when your plan is live again" was the old model, and it
+          understated the case: the credits are not held in escrow until a plan
+          returns, they are spendable on the search box right now. No top-up
+          link beside them either - this screen has one job and one button, and
+          a plan comes with credits, so it is the better answer for somebody
+          who has not got one. */}
       {overview.credits > 0 ? (
         <p className="mt-4 text-xs text-muted">
-          {formatCredits(overview.credits)} credits are still on your balance and will be there when
-          your plan is live again.
+          {formatCredits(overview.credits)} credits are still on your balance. They never expire,
+          and every one of them still buys a search right now.
         </p>
       ) : null}
 

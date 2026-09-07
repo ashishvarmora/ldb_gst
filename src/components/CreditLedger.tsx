@@ -2018,12 +2018,10 @@ export async function CreditSummary({
   userId,
   balance,
   standing,
-  planActive,
 }: {
   userId: string;
   balance: number;
   standing: CreditStanding;
-  planActive: boolean;
 }) {
   const { data } = await getSupabaseAdmin()
     .from("credit_ledger_daily")
@@ -2086,9 +2084,7 @@ export async function CreditSummary({
               </span>
             ) : null}
 
-            {isBalance ? (
-              <TopUpLink standing={standing} planActive={planActive} className="-mt-0.5" />
-            ) : null}
+            {isBalance ? <TopUpLink standing={standing} className="-mt-0.5" /> : null}
           </div>
         );
       })}

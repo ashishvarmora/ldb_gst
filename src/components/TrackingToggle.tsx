@@ -14,8 +14,14 @@ import type { ActionResult } from "@/lib/types";
  *
  * Pausing was two navigations and a scroll: open the truck, find the button,
  * come back. On a phone, with a dozen lorries, that is the difference between
- * turning four of them off and not bothering - and not bothering costs the
- * officer credits on trucks they know are parked.
+ * turning four of them off and not bothering.
+ *
+ * What it saves is not money - automatic checking is part of the plan and costs
+ * no credits. It is the tracking SLOT: the plan caps how many lorries may be
+ * watched at once, so every parked truck left switched on is one the officer
+ * cannot replace with a lorry that is actually moving. Reaching that from the
+ * list is the difference between a plan that fits the fleet and one that
+ * appears full.
  *
  * WHY IT IS NOT INSIDE THE CARD'S LINK
  *

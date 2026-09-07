@@ -81,9 +81,10 @@ export default async function SupportPage() {
             <HelpNote title="A vehicle paused itself. Why?">
               Because its checks kept failing. That is nearly always a registration number that
               does not match any vehicle, or one the network has stopped reporting. You are
-              messaged after five failures in a row, and if they continue the vehicle is paused so
-              it stops spending credits on a question with no answer. Nothing is deleted — its
-              recorded crossings stay, and you can switch it back on once the number is corrected.
+              messaged after five failures in a row, and if they continue the vehicle is paused
+              rather than left asking a question with no answer, and its tracking slot is handed
+              back. Nothing is deleted — its recorded crossings stay, and you can switch it back on
+              once the number is corrected.
             </HelpNote>
 
             <HelpNote title="How do alerts reach me?">

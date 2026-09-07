@@ -138,11 +138,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
 
             <div className="hidden items-center gap-2 lg:flex">
-              <CreditPill
-                credits={overview.credits}
-                standing={standing}
-                planActive={overview.plan_active}
-              />
+              <CreditPill credits={overview.credits} standing={standing} />
               <TruckPill used={overview.active_trucks} limit={overview.truck_limit} />
               <PlanPill name={overview.plan_name} />
             </div>
@@ -151,11 +147,7 @@ export default async function PortalLayout({ children }: { children: React.React
               {/* The balance follows the reader on a phone too, where the pill
                   row it used to sit in is gone. */}
               <span className="lg:hidden">
-                <CreditPill
-                  credits={overview.credits}
-                  standing={standing}
-                  planActive={overview.plan_active}
-                />
+                <CreditPill credits={overview.credits} standing={standing} />
               </span>
 
               {account.isSuperAdmin ? (

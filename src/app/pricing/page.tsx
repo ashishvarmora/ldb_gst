@@ -183,7 +183,7 @@ export default async function PricingPage() {
         <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="What credits are spent on"
-            body="These are the only two things that draw on the balance. Nothing else on the platform costs anything."
+            body="A search you run yourself is the only thing that draws on the balance. Automatic checks are included in your plan, however often a truck is checked — the plan caps how many trucks you may track at once, not how closely."
           />
 
           {rates.length === 0 ? (

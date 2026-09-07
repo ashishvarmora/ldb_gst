@@ -263,6 +263,36 @@ export default async function PlanPage() {
           </>
         )}
 
+        {/*
+          The same top-up panel the has-a-plan branch carries, and it has to be
+          on this branch too - TOPUP_HREF is /portal/plan#topup, and until now
+          that anchor only existed for an account that already had a plan. So
+          every top-up link shown to a lapsed customer landed silently at the
+          top of the page instead, which is the one reader who is most likely
+          to be following one: their credits outlive the plan, so a low balance
+          with no plan is a state 0038 deliberately created.
+
+          BELOW the plan grid rather than above it, because a reader who
+          arrives at the top of this page should meet the plans first - a plan
+          comes with credits and is the better answer if they have not got one.
+          Somebody who followed a #topup link is put straight onto this panel
+          by the anchor and never sees the ordering. Step 3 immediately above
+          promises exactly this, and until now the promise had nothing behind it.
+        */}
+        <Panel
+          id="topup"
+          title="Top up credits"
+          description={`Credits pay for manual searches and never expire. Buying them does not need a plan, and spending them does not either.${openPackLine}`}
+          className="mt-3 scroll-mt-20"
+        >
+          <BuyCredits
+            packs={packs}
+            brandName={settings.brandName}
+            creditsPerRupee={settings.creditsPerRupee}
+            disabledReason={creditsBlocked}
+          />
+        </Panel>
+
         {settings.referralEnabled ? <InviteCard className="mt-3" /> : null}
 
         {rates.length > 0 ? (
@@ -424,13 +454,14 @@ export default async function PlanPage() {
           than nought. Low gets its own, quieter line: nothing is broken yet. */}
       {outOfCredits ? (
         <Notice tone="bad">
-          Your balance is too low to search. Searching and automatic checks are refused until you
-          top up - your plan and your trucks are untouched.
+          Your balance is too low to search, so searching is refused until you top up. Your plan and
+          your trucks are untouched - automatic checks cost no credits and are still running.
         </Notice>
       ) : standing === "low" ? (
         <Notice tone="warn">
           Running low - about {searchesLeftLabel(searchesLeft(overview.credits, searchCost))} left at
-          today&apos;s rate. Topping up below keeps the automatic checks running.
+          today&apos;s rate. Topping up below buys more searches; the automatic checks are not
+          affected either way.
         </Notice>
       ) : null}
 
@@ -440,7 +471,7 @@ export default async function PlanPage() {
         /* The "this does not touch your plan" half of this used to live here as
            well. It is said once now, in the contrast below, rather than twice
            within a screen of itself. */
-        description={`Credits pay for every search and automatic check.${openPackLine}`}
+        description={`Credits pay for manual searches and never expire. Automatic checks are included with your plan.${openPackLine}`}
         className="mb-3 scroll-mt-20"
       >
         <BuyCredits

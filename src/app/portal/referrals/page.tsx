@@ -257,8 +257,10 @@ export default async function ReferralsPage({
       </div>
 
       <p className="mt-4 text-xs leading-relaxed text-muted">
-        Credits earned here spend exactly like bought ones — on searches and automatic checks. Your
-        balance is on the{" "}
+        {/* Searches only. Automatic checks stopped costing credits in 0038, so
+            listing them here promised a reward that buys something it cannot. */}
+        Credits earned here spend exactly like bought ones — on manual searches, and they never
+        expire. Your balance is on the{" "}
         <Link href="/portal/plan" className="link">
           plan and credits page
         </Link>

@@ -111,13 +111,29 @@ export type PauseCopy = {
   automatic: boolean;
 };
 
+/*
+ * WHAT PAUSING ACTUALLY DOES, because this copy used to say the wrong thing.
+ *
+ * Every one of these details told the officer that a paused truck stops
+ * spending credits. That was true until automatic checking became part of the
+ * plan rather than something credits paid for: auto_check is rated 0, so a
+ * checked truck costs nothing and pausing it saves nothing. Credits now buy
+ * manual searches only.
+ *
+ * What pausing does do is hand back the truck's TRACKING SLOT - truckSlotsLeft
+ * counts active trucks against the plan's limit - and stop the alerts. Both are
+ * real reasons to pause a parked lorry; neither is money. Leaving the old
+ * wording in place would have been worse than vague: an officer told that
+ * pausing preserves their balance, while also being nudged to top up, would
+ * reasonably conclude that pausing protects their search budget. It does not.
+ */
 export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
   manual: {
     badge: "Paused by you",
     tone: "neutral",
     line: "Paused by you — not being checked",
     detail:
-      "You paused this truck. Nothing is being checked and no credits are being spent. Its recorded crossings are all still here.",
+      "You paused this truck. Nothing is being checked, so no alerts will reach you about it, and its tracking slot is free for another lorry. Its recorded crossings are all still here.",
     resumable: true,
     automatic: false,
   },
@@ -126,7 +142,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "brand",
     line: "Stopped automatically — the time limit you set has passed",
     detail:
-      "This truck was set to stop being checked automatically after a set time, and that time has passed. It is no longer costing credits, and everything it recorded is still here. Switch it back on to carry on — you can set a new stop time at the same moment.",
+      "This truck was set to stop being checked automatically after a set time, and that time has passed. Its tracking slot is free for another lorry, and everything it recorded is still here. Switch it back on to carry on — you can set a new stop time at the same moment.",
     resumable: true,
     automatic: true,
   },
@@ -135,7 +151,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "warn",
     line: "Stopped automatically — no toll crossing for a long time",
     detail:
-      "No new toll crossing has arrived for this truck for long enough that checking it was only ever going to return the same answer, so it was paused rather than left spending credits on it. That usually means the lorry is parked. Switch it back on when it is on the road again.",
+      "No new toll crossing has arrived for this truck for long enough that checking it was only ever going to return the same answer, so it was paused and its tracking slot handed back. That usually means the lorry is parked. Switch it back on when it is on the road again.",
     resumable: true,
     automatic: true,
   },
@@ -144,7 +160,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "bad",
     line: "Stopped automatically — the toll network keeps failing on this number",
     detail:
-      "The toll network could not answer for this registration number several times in a row, so checking was paused to stop it spending credits on a question with no answer. The usual cause is a typo in the number, or a lorry the network has stopped reporting. Check the number first — switching it back on without changing anything will most likely fail again.",
+      "The toll network could not answer for this registration number several times in a row, so checking was paused rather than left asking a question with no answer. The usual cause is a typo in the number, or a lorry the network has stopped reporting. Check the number first — switching it back on without changing anything will most likely fail again.",
     resumable: false,
     automatic: true,
   },

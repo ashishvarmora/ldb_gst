@@ -5,7 +5,7 @@ import { HelpNote } from "@/components/Disclosure";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { SearchBox } from "@/components/SearchBox";
 import { publicSettings } from "@/components/SiteFooter";
-import { Badge, EmptyState, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
+import { Badge, EmptyState, LinkButton, Mono, PageHeader, Panel, cx } from "@/components/ui";
 import {
   TOPUP_HREF,
   creditStanding,
@@ -13,7 +13,7 @@ import {
   searchesLeft,
   searchesLeftLabel,
 } from "@/lib/credits";
-import { fmtDateTime, fmtNumber, istToday } from "@/lib/format";
+import { fmtDateTime, fmtNumber } from "@/lib/format";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog } from "@/lib/types";
@@ -57,27 +57,24 @@ export default async function SearchPage({
   /* The shared blockedReason() text is written for the worker, which cannot
      link anywhere. Here the fix is one tap away, so the portal says it in its
      own words and points at the page that solves it. */
-  const planEnded = overview.plan_expires_on !== null && overview.plan_expires_on < istToday();
   const standing = creditStanding(overview.credits, searchCost);
 
   /*
-   * Four states, in the order they have to be answered: no plan at all, a plan
-   * that has ended, a plan with nothing left to spend, and a plan with nearly
-   * nothing left. The last one is new - the page used to say nothing until the
-   * balance was already at zero and the next tap had failed.
+   * Two states now, and neither of them is about the plan.
    *
-   * The plan cases send somebody to the plan page, the credit cases to the
-   * top-up panel on it, because credits cannot be bought without a live plan.
+   * This ladder used to test !plan_active first and say "your plan has ended,
+   * so searching is paused", which 0038 made false twice over: blockedReason()
+   * gates a search on the balance alone, and credits never expire. Testing it
+   * first also made the two credit branches unreachable without a plan - so
+   * the one customer who most needed a top-up, lapsed and still holding
+   * credits they could still spend, was the one sent off to buy a plan.
+   *
+   * What a plan does and does not cover is automatic tracking, and that is
+   * reported where it applies - the dashboard and My trucks. This page is
+   * manual search, so it answers only what can stop one.
    */
-  const notice = !overview.plan_active
-    ? {
-        text: planEnded
-          ? "Your plan has ended, so searching is paused. Renew it to start again."
-          : "Choose a plan to start searching. It comes with the credits a search spends.",
-        href: "/portal/plan",
-        cta: "Go to plan",
-      }
-    : standing === "empty"
+  const notice =
+    standing === "empty"
       ? {
           /* Not "you have run out": empty covers a balance still showing a
              figure that is under the price of one search, and telling somebody
@@ -85,12 +82,16 @@ export default async function SearchPage({
           text: "Your balance is too low for a search, so searching is paused until you top up.",
           href: TOPUP_HREF,
           cta: "Top up",
+          /* Empty is a blocker and low is a nudge, so they do not share a
+             colour either - the words say which, and this agrees with them. */
+          blocking: true,
         }
       : standing === "low"
         ? {
             text: `Running low — only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`,
             href: TOPUP_HREF,
             cta: "Top up",
+            blocking: false,
           }
         : null;
 
@@ -102,8 +103,18 @@ export default async function SearchPage({
       />
 
       {notice ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
-          <p className="flex items-start gap-2.5 text-sm text-warn-500">
+        <div
+          className={cx(
+            "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3",
+            notice.blocking ? "border-bad-500/40 bg-bad-500/10" : "border-warn-500/40 bg-warn-500/10",
+          )}
+        >
+          <p
+            className={cx(
+              "flex items-start gap-2.5 text-sm",
+              notice.blocking ? "text-bad-500" : "text-warn-500",
+            )}
+          >
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             {notice.text}
           </p>

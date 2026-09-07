@@ -578,7 +578,10 @@ export async function setTruckPaused(
   revalidatePath("/portal");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
-  return done(active ? "Tracking resumed." : "Tracking paused. No credits are spent while paused.");
+  /* Not "no credits are spent while paused" any more - automatic checking is
+     part of the plan and costs nothing, so pausing saves no money. The slot is
+     the thing the officer gets back. */
+  return done(active ? "Tracking resumed." : "Tracking paused. Its slot is free for another lorry.");
 }
 
 /** A re-check asked for by hand. Spends a manual credit, same as a search. */

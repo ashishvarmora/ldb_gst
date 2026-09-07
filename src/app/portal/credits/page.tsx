@@ -99,7 +99,7 @@ export default async function CreditHistoryPage({
               {formatCredits(balance)}
             </span>
             <span className="text-xs text-muted">credits</span>
-            <TopUpLink standing={standing} planActive={overview.plan_active} />
+            <TopUpLink standing={standing} />
           </span>
         </div>
 
@@ -172,15 +172,15 @@ export default async function CreditHistoryPage({
           </HelpNote>
 
           <HelpNote title="Why is my spending only one row a day?">
-            Because a day is the unit spending is worth reading in. A truck on a 15-minute beat
-            takes ninety-odd automatic checks a day, so a list of individual charges is a list of
-            ninety near-identical rows — and this page exists to show how the balance moved, not
-            what each lorry did. Tap any day, or open{" "}
+            Because a day is the unit a balance is worth reading in, and this page exists to show
+            how the balance moved rather than what each lorry did. Tap any day, or open{" "}
             <Link href="/portal/activity" className="text-brand-500 hover:underline">
               Activity
             </Link>
-            , for the charge-by-charge breakdown. Credits an administrator has taken back appear
-            here too, on the used side, because that is the direction they moved the balance.
+            , for the search-by-search breakdown. Only searches you run yourself appear here —
+            automatic checks are included in your plan, cost nothing and are not recorded as
+            spending at all. Credits an administrator has taken back do appear, on the used side,
+            because that is the direction they moved the balance.
           </HelpNote>
         </div>
       </div>

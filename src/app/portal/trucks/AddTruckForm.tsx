@@ -82,8 +82,8 @@ export function AddTruckForm({
             info={
               <>
                 Set this if you only need to follow this truck for a while. When the time is up it
-                is paused, you are told, and it stops costing credits — nothing is deleted and
-                every crossing it recorded stays.
+                is paused, you are told, and its tracking slot is free for another lorry — nothing
+                is deleted and every crossing it recorded stays.
                 <span className="mt-1.5 block text-faint">
                   Leave it empty to keep checking until you pause it yourself.
                 </span>
@@ -172,8 +172,8 @@ export function AddTruckForm({
                     <>
                       Counted from the last toll crossing that came through. If the lorry is parked
                       and no new crossing arrives for this long, checking is paused and you are
-                      told — so a vehicle standing in a yard stops quietly spending credits on the
-                      same answer.
+                      told — so a vehicle standing in a yard stops quietly holding a tracking slot
+                      to be given the same answer.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to use the platform default, currently{" "}
                         {defaultInactiveHours} hours. Set it longer for a truck you expect to be

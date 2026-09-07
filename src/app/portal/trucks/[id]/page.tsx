@@ -268,7 +268,7 @@ export default async function TruckDetailPage({
 
       <Panel
         title="Alerts on this truck"
-        description="Checked only when one of these is due. Each check costs credits."
+        description="Checked only when one of these is due. Automatic checks are included in your plan."
       >
         {ruleList.length === 0 ? (
           <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
@@ -524,8 +524,9 @@ export default async function TruckDetailPage({
               info={
                 <>
                   A check fails when the toll network cannot answer for this number. After five
-                  failures in a row we message you; at this number the truck is paused so it stops
-                  spending credits on a question with no answer. Nothing is deleted.
+                  failures in a row we message you; at this number the truck is paused rather than
+                  left asking a question with no answer, and its tracking slot is handed back.
+                  Nothing is deleted.
                   <span className="mt-1.5 block text-faint">
                     Leave it empty to follow the platform default, currently {defaultFailureCutoff}.
                     Setting your own here fixes it for this truck only, and it will not move when
@@ -562,8 +563,8 @@ export default async function TruckDetailPage({
                 info={
                   <>
                     A countdown that starts when you save. Use it when you only need to follow this
-                    truck for a while — when the time is up it is paused, you are told, and it
-                    stops costing credits.
+                    truck for a while — when the time is up it is paused, you are told, and its
+                    tracking slot is free for another lorry.
                     <span className="mt-1.5 block text-faint">
                       Leave it empty to keep checking until you pause it yourself. Saving with a
                       number in the box restarts the countdown from now.
@@ -597,8 +598,8 @@ export default async function TruckDetailPage({
                 info={
                   <>
                     Counted from the last toll crossing that came through. A parked lorry answers
-                    every check with the same crossing as yesterday, so this pauses it instead of
-                    spending credits to be told nothing.
+                    every check with the same crossing as yesterday, so this pauses it and hands its
+                    tracking slot back rather than holding a slot to be told nothing.
                     <span className="mt-1.5 block text-faint">
                       Leave it empty to follow the platform default, currently{" "}
                       {defaultInactiveHours} hours. Set it longer for a truck you expect to be

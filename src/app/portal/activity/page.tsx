@@ -68,7 +68,6 @@ export default async function ActivityPage({
           userId={overview.id}
           balance={overview.credits}
           standing={creditStanding(overview.credits, searchCost)}
-          planActive={overview.plan_active}
         />
 
         {/* The one thing about this page that surprises people, and the reason
@@ -77,11 +76,11 @@ export default async function ActivityPage({
             actually asked; the second is the one that stops somebody thinking
             the list is missing rows. */}
         <div className="space-y-2">
-          <HelpNote title="Why does one truck cost so much in a day?">
-            A truck is checked on the beat you set for it. At every 15 minutes that is ninety-odd
-            checks a day, and each one is charged at the rate on the plan page. Slowing a truck down
-            is the single biggest lever on what it costs — a truck checked hourly costs a quarter of
-            the same truck checked every fifteen minutes, and still records every crossing.
+          <HelpNote title="What actually costs credits?">
+            Only a search you run yourself, at one credit each. Automatic checks are included in
+            your plan and cost nothing, however often a truck is checked — so slowing a truck down
+            no longer saves anything, and there is no reason to watch a lorry less closely than you
+            want to. Your plan caps how many trucks may be tracked at once, not how often.
           </HelpNote>
 
           <HelpNote title="How do I find one particular charge?">

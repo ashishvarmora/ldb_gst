@@ -314,9 +314,17 @@ export function AccountMenu(props: AccountMenuProps) {
           {/* This panel's own top-up, a full-width button two lines under the
               balance - so no TopUpLink beside the number as well. The same
               warning twice inside one block is noise; the sentence above says
-              what is wrong and this says what to do about it. */}
+              what is wrong and this says what to do about it.
+
+              THE BALANCE OUTRANKS THE PLAN when the balance is not ok, which
+              is the reverse of what this did. "Choose a plan" used to win on
+              any account without one, so a lapsed customer down to their last
+              credit got a plan button and no way to buy the searches that were
+              about to be refused. The balance is what stops the very next tap;
+              a missing plan stops automatic checking, is already reported by
+              the badge two lines above this, and has a nav row of its own. */}
           <Link
-            href={planActive ? TOPUP_HREF : "/portal/plan"}
+            href={standing === "ok" && !planActive ? "/portal/plan" : TOPUP_HREF}
             onClick={close}
             className={buttonClass(
               standing !== "ok" || !planActive ? "primary" : "secondary",
@@ -325,7 +333,9 @@ export function AccountMenu(props: AccountMenuProps) {
             )}
           >
             <Wallet size={13} />
-            {!planActive ? "Choose a plan" : empty ? "Top up now" : "Top up credits"}
+            {/* Same condition as the href above, said once: a plan is the
+                answer only when the balance is not the more urgent one. */}
+            {empty ? "Top up now" : standing === "ok" && !planActive ? "Choose a plan" : "Top up credits"}
           </Link>
         </div>
 
