@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BellOff, Download, Plus } from "lucide-react";
 
-import { AddTruckForm } from "./AddTruckForm";
+import { AddTruckForm, type TelegramReadiness } from "./AddTruckForm";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { TruckCard, isWatching } from "@/components/TruckCard";
@@ -10,7 +10,12 @@ import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE } from "@/lib/pause";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { AlertRuleTemplate, TrackedTruck, TruckAlertWithTemplate } from "@/lib/types";
+import type {
+  AlertRuleTemplate,
+  TelegramConfig,
+  TrackedTruck,
+  TruckAlertWithTemplate,
+} from "@/lib/types";
 
 export const metadata = { title: "My trucks — Rahdari" };
 
@@ -70,6 +75,27 @@ function parseFilter(raw: string | undefined): Filter {
   return "live";
 }
 
+/**
+ * Would an alert this officer sets up actually be messaged to them?
+ *
+ * The same test dispatchAlerts() applies in src/lib/tracking.ts, deliberately
+ * spelled the same way round: an alert with no chat id, or with the switch off,
+ * is still evaluated, still charged and still written to alert_logs - so it
+ * shows in the bell - and no message is ever sent. Nothing on the add-truck
+ * form used to say so, which made the first alert somebody created the way they
+ * found out.
+ *
+ * A missing row and a row with a null chat id are the same answer to the
+ * officer, so both collapse to "no-chat-id" - they are told to go and add one
+ * either way.
+ */
+function telegramReadiness(
+  config: Pick<TelegramConfig, "chat_id" | "is_enabled"> | null,
+): TelegramReadiness {
+  if (!config?.chat_id) return "no-chat-id";
+  return config.is_enabled ? "ready" : "switched-off";
+}
+
 function hrefFor(filter: Filter, page: number): string {
   const params = new URLSearchParams();
   if (filter !== "live") params.set("filter", filter);
@@ -89,23 +115,33 @@ export default async function TrucksPage({
 
   const filter = parseFilter(params.filter);
 
-  const [{ data: trucks }, { data: alerts }, { data: templates }, settings] = await Promise.all([
-    admin
-      .from("tracked_trucks")
-      .select("*")
-      .eq("user_id", overview.id)
-      .order("last_event_at", { ascending: false, nullsFirst: false }),
-    admin
-      .from("truck_alerts")
-      .select("*, template:alert_rule_templates(*)")
-      .eq("user_id", overview.id),
-    admin
-      .from("alert_rule_templates")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true }),
-    loadSettings(admin),
-  ]);
+  const [{ data: trucks }, { data: alerts }, { data: templates }, settings, { data: telegram }] =
+    await Promise.all([
+      admin
+        .from("tracked_trucks")
+        .select("*")
+        .eq("user_id", overview.id)
+        .order("last_event_at", { ascending: false, nullsFirst: false }),
+      admin
+        .from("truck_alerts")
+        .select("*, template:alert_rule_templates(*)")
+        .eq("user_id", overview.id),
+      admin
+        .from("alert_rule_templates")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      loadSettings(admin),
+      /* Read on this screen rather than inside the modal, because the add form
+         is a Client Component and this is one more row on a query that was
+         already going out. See telegramReadiness() above for why the answer is
+         worth a round trip at all. */
+      admin
+        .from("telegram_configs")
+        .select("chat_id, is_enabled")
+        .eq("user_id", overview.id)
+        .maybeSingle<Pick<TelegramConfig, "chat_id" | "is_enabled">>(),
+    ]);
 
   const all = (trucks ?? []) as TrackedTruck[];
   const templateList = (templates ?? []) as AlertRuleTemplate[];
@@ -194,6 +230,7 @@ export default async function TrucksPage({
                 templates={templateList}
                 defaultFailureCutoff={settings.trackingFailureCutoff}
                 defaultInactiveHours={settings.inactivePauseHours}
+                telegram={telegramReadiness(telegram)}
               />
             </Modal>
           </div>

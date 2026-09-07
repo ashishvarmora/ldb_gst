@@ -83,6 +83,19 @@ const PAYMENT_SPECS: SettingSpec[] = [
   { key: "razorpay_key_id", label: "Razorpay key id", kind: "key_id" },
 ];
 
+/*
+ * Its own form rather than four more fields on the Site one, because the two
+ * are opposites: every box on the Site panel is published, and every box here
+ * is internal. Saving one form must not touch the other's keys - readSpecs()
+ * reads a missing field as blank - so they cannot share a list anyway.
+ */
+const NOTIFY_SPECS: SettingSpec[] = [
+  { key: "admin_notify_email", label: "Notification email", kind: "optional_email" },
+  { key: "admin_notify_signup", label: "New customer", kind: "bool" },
+  { key: "admin_notify_plan", label: "Plan bought", kind: "bool" },
+  { key: "admin_notify_topup", label: "Credits topped up", kind: "bool" },
+];
+
 const SITE_SPECS: SettingSpec[] = [
   { key: "brand_name", label: "Product name", kind: "name", max: 60 },
   { key: "signup_enabled", label: "Public sign-up", kind: "bool" },
@@ -274,6 +287,66 @@ export async function saveSiteSettings(
       parsed.values.signup_enabled === true
         ? `Saved. The site calls itself "${parsed.values.brand_name}" and anyone can register.`
         : `Saved. The site calls itself "${parsed.values.brand_name}". Registration is closed, so new accounts can only be created from this console.`,
+  };
+}
+
+/**
+ * Who hears about a new customer or a payment, and which of those to hear.
+ *
+ * The address is not validated any harder than support_email is - a shape
+ * check, no more - because it is a mailbox somebody types, not one that is
+ * signed in to. What it IS checked for is the mistake this form makes easy:
+ * turning on three events with no address to send them to, which switches
+ * nothing on and looks exactly like a feature that does not work. That refuses
+ * with the fix in it rather than saving a silent configuration.
+ *
+ * Whether mail can leave this deployment at all is a separate question, and it
+ * is answered on the Health tab (emailSenderProblem) rather than re-answered
+ * here - the panel copy points at it.
+ */
+export async function saveNotificationSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, NOTIFY_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const address = String(parsed.values.admin_notify_email ?? "");
+  const events = [
+    parsed.values.admin_notify_signup === true ? "a new customer" : null,
+    parsed.values.admin_notify_plan === true ? "a plan bought" : null,
+    parsed.values.admin_notify_topup === true ? "credits topped up" : null,
+  ].filter(Boolean) as string[];
+
+  if (!address && events.length > 0) {
+    return {
+      ok: false,
+      error:
+        "Add the address these should go to, or switch all three events off. With the box empty nothing is sent.",
+    };
+  }
+
+  const result = await persist(actor, parsed.values, "settings.update_notifications");
+  if (!result.ok) return result;
+
+  if (!address) {
+    return { ok: true, message: "Saved. No address is set, so no notifications are sent." };
+  }
+  if (events.length === 0) {
+    return {
+      ok: true,
+      message: `Saved. ${address} is on file but every event is switched off, so nothing is sent.`,
+    };
+  }
+  return {
+    ok: true,
+    message: `Saved. ${address} will be emailed when ${
+      events.length === 1
+        ? events[0]
+        : `${events.slice(0, -1).join(", ")} or ${events[events.length - 1]}`
+    } arrives.`,
   };
 }
 

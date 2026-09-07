@@ -37,6 +37,13 @@ export const SETTINGS_FALLBACK: AppSettings = {
   supportAddress: "",
   privacyUrl: "",
   termsUrl: "",
+  /* Empty, and it has to be: a fallback address here would mail a stranger the
+     platform's takings the first time the settings row went missing. Nothing
+     is sent until an operator types an address in. */
+  adminNotifyEmail: "",
+  adminNotifySignup: true,
+  adminNotifyPlan: true,
+  adminNotifyTopup: true,
 };
 
 /**
@@ -107,5 +114,14 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     supportAddress: text("support_address", ""),
     privacyUrl: text("privacy_url", ""),
     termsUrl: text("terms_url", ""),
+    adminNotifyEmail: text("admin_notify_email", ""),
+    /* Absent means on, matching signupEnabled above: 0046 seeds all three
+       true, so the only way to read false here is an operator having turned
+       one off. A half-seeded table therefore behaves like a fresh install with
+       no address - silent - rather than like one with three switches off that
+       nobody can find. */
+    adminNotifySignup: map.get("admin_notify_signup") !== false,
+    adminNotifyPlan: map.get("admin_notify_plan") !== false,
+    adminNotifyTopup: map.get("admin_notify_topup") !== false,
   };
 }

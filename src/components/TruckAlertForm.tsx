@@ -5,13 +5,12 @@ import { Check, Loader2, MapPin, Plus, Search } from "lucide-react";
 
 import { addTruckAlert, findPlazas } from "@/app/portal/trucks/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Field, FormActions, Input, Select } from "@/components/form";
+import { FormActions, Input, Select } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
 import { cx } from "@/components/ui";
 import {
   ALERT_KIND_EXAMPLE,
   ALERT_KIND_HINT,
-  alertSentence,
   needsPlaza,
   normaliseLocation,
 } from "@/lib/alerts";
@@ -37,6 +36,24 @@ import type { AlertRuleTemplate, PlazaMatch } from "@/lib/types";
 
 const HOURS_MAX = Math.floor(MAX_INTERVAL_MINUTES / 60);
 
+/**
+ * The rule to land on before anybody chooses.
+ *
+ * It used to be templates[0], which is whatever the admin's sort_order puts
+ * first - today "Location update", the one that messages on every single check
+ * whether the lorry has moved or not. That is the most expensive answer and
+ * almost never the one wanted: the question people arrive with is "tell me when
+ * it moves", and leaving the default alone is how somebody ends up paying for a
+ * message every hour saying the truck is still where it was.
+ *
+ * Matched on kind rather than on name, because the name is a row an admin can
+ * rename without a deploy. Falls back to the first rule so a catalogue without
+ * this kind still works.
+ */
+function preferredTemplate(templates: AlertRuleTemplate[]): AlertRuleTemplate | undefined {
+  return templates.find((template) => template.kind === "location_change") ?? templates[0];
+}
+
 export function AlertChooser({
   templates,
   className,
@@ -44,8 +61,8 @@ export function AlertChooser({
   templates: AlertRuleTemplate[];
   className?: string;
 }) {
-  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
-  const first = templates[0];
+  const first = preferredTemplate(templates);
+  const [templateId, setTemplateId] = useState(first?.id ?? "");
   const [interval, setInterval] = useState<{ value: string; unit: IntervalUnit }>(() => {
     const split = splitInterval(first?.default_interval_minutes ?? 60);
     return { value: String(split.value), unit: split.unit };
@@ -80,7 +97,7 @@ export function AlertChooser({
   }
 
   return (
-    <div className={cx("space-y-5", className)}>
+    <div className={cx("space-y-4", className)}>
       {/*
         A dropdown, not a stack of radio cards.
         Every rule used to be drawn as a full card carrying its name, its
@@ -92,8 +109,12 @@ export function AlertChooser({
         The detail did not disappear; it moved behind the (i).
       */}
       <div>
+        {/* The description used to be printed under the select as well as
+            inside this (i) - the same sentence twice, one of them permanent.
+            The (i) keeps it, and adds the sample message, which is the thing
+            that actually tells two similarly named rules apart. */}
         <LabelWithInfo
-          label="What should we tell you?"
+          label="What alert you want"
           htmlFor="template_id"
           required
           info={
@@ -123,18 +144,25 @@ export function AlertChooser({
             </option>
           ))}
         </Select>
-        {/* One line, always on: enough to know the right rule is picked
-            without opening anything. */}
-        <p className="field-hint">{chosen.description ?? ALERT_KIND_HINT[chosen.kind]}</p>
       </div>
 
       <div>
+        {/* describeCadence() lives in here now rather than as a line under the
+            field. It is the one genuinely live number on this form - change the
+            interval and the checks-a-day changes with it - but it was a
+            permanent third row on a form the owner asked to shorten, and it
+            only means anything next to the credit arithmetic that was already
+            behind this (i). Reading it needs one tap; the cost is stated in the
+            same breath rather than two rows apart. */}
         <LabelWithInfo
-          label="How often should we check?"
+          label="Every how many minutes auto checks"
           htmlFor="interval_value"
           required
           info={
             <>
+              <strong className="font-medium text-ink">
+                {minutes === null ? "Enter a whole number." : describeCadence(effective)}
+              </strong>{" "}
               How soon you hear about a crossing, and what this truck costs. Every automatic check
               spends one credit, so a fifteen-minute beat is about 96 credits a day and an hourly
               one is 24 - and a slower beat still records every crossing the toll network reports,
@@ -169,11 +197,8 @@ export function AlertChooser({
             <option value="hours">hours</option>
           </Select>
         </div>
-        <p className="field-hint">
-          {minutes === null
-            ? "Enter a whole number of minutes or hours."
-            : describeCadence(effective)}
-        </p>
+        {/* Stays. Not a hint - it only appears when the number typed cannot be
+            honoured, and it says what will happen instead. */}
         {tooFast ? (
           <p className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
             This alert may run every {intervalLabel(floor)} at the fastest, so it will check every{" "}
@@ -184,10 +209,17 @@ export function AlertChooser({
 
       {wantsPlaza ? <PlazaPicker value={plaza} onChange={setPlaza} /> : null}
 
-      <p className="flex items-start gap-2 rounded-lg border border-brand-500/30 bg-brand-500/8 px-3 py-2.5 text-xs leading-relaxed text-ink">
-        <Check size={14} className="mt-0.5 shrink-0 text-brand-500" />
-        <span>{alertSentence(chosen.kind, effective, wantsPlaza ? plaza : null)}</span>
-      </p>
+      {/*
+        The blue "we look every X and message you when..." panel is gone.
+        It restated the two fields immediately above it - the rule name and the
+        interval - in a sentence built from those very values, so it could never
+        say anything the reader had not just typed. On a phone it was the single
+        biggest block on the form and it pushed the submit button off the screen.
+        alertSentence() is untouched and still used on the truck's own page,
+        behind "What this does" on each saved alert - where the reader did not
+        type the numbers a moment ago and a sentence is genuinely the shortest
+        way to say what the rule now amounts to.
+      */}
     </div>
   );
 }
@@ -239,12 +271,28 @@ function PlazaPicker({
   const isNew = normalised !== null && !known && !busy;
 
   return (
-    <Field
-      label="Which toll plaza?"
-      name="plaza"
-      hint="The list is the toll plazas this platform has recorded so far. Not there? Type the name and we will watch for it."
-    >
-      <div className="relative">
+    <div>
+      {/* Behind the (i) with every other explanation on this form. The list
+          below the box already demonstrates what it is; the only part worth
+          words is that a plaza missing from it is still usable.
+
+          "Which toll plaza?" lost its question mark. InfoButton builds its
+          accessible name as `What is ${label}?`, so a label that is already a
+          question came out as "What is Which toll plaza??" to a screen reader.
+          A noun phrase also matches the other labels on this form, which are
+          statements now rather than questions. */}
+      <LabelWithInfo
+        label="Toll plaza to watch"
+        htmlFor="plaza"
+        required
+        info={
+          <>
+            The list is the toll plazas this platform has recorded so far. Not there? Type the name
+            and we will watch for it.
+          </>
+        }
+      />
+      <div className="relative mt-1.5">
         <Search
           size={15}
           aria-hidden
@@ -311,7 +359,7 @@ function PlazaPicker({
           capitals and extra spaces do not matter.
         </p>
       ) : null}
-    </Field>
+    </div>
   );
 }
 

@@ -132,12 +132,79 @@ export function trialSpentOut(overview: OfficerOverview): boolean {
  */
 export function blockedReason(overview: OfficerOverview): string | null {
   if (trialSpentOut(overview)) {
-    return "Your free trial has ended, so its credits have finished with it. Choose a plan or top up to carry on.";
+    /* "or top up" was the way out until a top-up needed a plan, and this is
+       the exact account it is now refused to - a finished trial that has
+       bought nothing. Offering it would send them to a shop that turns them
+       away. A plan is the one door left, and it can carry credits in the same
+       payment. */
+    return "Your free trial has ended, so its credits have finished with it. Choose a plan to carry on — a plan can bring credits with it.";
   }
   if (overview.credits <= 0) {
     return "You have run out of credits. Top up on the Plan and credits page.";
   }
   return null;
+}
+
+/**
+ * Why a CREDIT TOP-UP cannot be bought, or null when it can.
+ *
+ * The owner has reversed the rule that let anyone buy credits: "there is Plan
+ * must be needed for topup (if already have a plan then perfect !!) credit is
+ * never expired". A top-up is an add-on to a plan again, not a product of its
+ * own.
+ *
+ * Lives here rather than in the checkout action because two callers need the
+ * same answer - startCheckout() refuses the sale, and the plan page has to say
+ * so BEFORE the tap - and a "use server" module cannot export a plain function
+ * for a page to import. Two copies of a money rule is how the two halves of a
+ * screen end up disagreeing.
+ *
+ * A LAPSED PLAN COUNTS. The gate exists to stop somebody buying ten thousand
+ * never-expiring credits, running manual search off them forever and never
+ * paying for a plan at all - and a customer who has already bought a plan is
+ * not that person. Their balance is spendable with no plan (blockedReason above
+ * does not test one), so refusing them more of it would be refusing money for
+ * a thing that works, and it would put a "buy a plan first" wall in front of
+ * the customer most likely to come back.
+ *
+ * A LIVE TRIAL COUNTS. It is a plan row, it grants access, and the plan page
+ * already offers a trial customer a top-up and explains what it does and does
+ * not change ("Your trial still ends on ..."). Refusing it would break a screen
+ * that was written on purpose.
+ *
+ * A FINISHED TRIAL DOES NOT, and that is the whole reason this is not simply
+ * "has ever held a plan". A free trial that counted forever would reopen the
+ * leak through the front door: take the trial, let it lapse, top up for life.
+ * It is also the one account whose wallet is frozen (trialSpentOut), so the
+ * route out is buying a plan - which is exactly where the owner wants it.
+ *
+ * NOT tested: credits_purchased. An account that bought credits during the
+ * window when this gate was open would be refused more of them, which is a real
+ * if theoretical unfairness - there are no payments at all in the live database
+ * today, so nobody is in that state, and grandfathering an empty set would only
+ * hand back the leak.
+ *
+ * A SUSPENDED account with a paid plan reads as holding one here. It cannot
+ * reach this: assertPortalUser() throws and the portal gate redirects before
+ * any of it runs, so adding status to the test would be a second answer to a
+ * question already settled upstream.
+ */
+export function topUpBlockedReason(
+  overview: Pick<OfficerOverview, "plan_active" | "plan_id" | "plan_is_trial">,
+): string | null {
+  /* Kept to one line, between these markers, because the gate check in
+     .tmpwork pulls this expression straight out of this file and evaluates it
+     against live officer_overview rows - so the proof tests the shipped rule
+     rather than a copy of it that is free to drift. */
+  // gate:begin
+  const holdsPlan = overview.plan_active || (overview.plan_id !== null && !overview.plan_is_trial);
+  // gate:end
+  if (holdsPlan) return null;
+
+  return (
+    "Credits top up an account that has a plan. Pick a plan above — you can add credits to " +
+    "the same payment, and credits you buy never expire."
+  );
 }
 
 /**

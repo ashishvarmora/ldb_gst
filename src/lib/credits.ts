@@ -212,7 +212,14 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
        * free and it is over - so printing "you still have 14" alongside a
        * refusal reads as a fault to report rather than a trial that finished.
        */
-      return "Your free trial has ended, so its credits have finished with it. Choose a plan or top up to carry on.";
+      /*
+       * "or top up" is gone with it. A top-up needs a plan now - see
+       * topUpBlockedReason() - and a spent-out trial is precisely the account
+       * that has not got one, so the old sentence sent the reader to a shop
+       * that would refuse them. The mirror of this string in
+       * blockedReason() says the same thing.
+       */
+      return "Your free trial has ended, so its credits have finished with it. Choose a plan to carry on — a plan can bring credits with it.";
     case "unknown_action":
       return "That is not something this account can be charged for yet. Contact support.";
     default:

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { publicSettings } from "@/components/SiteFooter";
-import { sendEmail, welcomeEmail } from "@/lib/email";
+import { notifyAdminOfSignup, sendEmail, welcomeEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { fail, str } from "@/lib/forms";
@@ -130,7 +130,13 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
    * log line only - somebody who registered successfully must not be shown an
    * error because a bonus could not be applied. grant_credits writes the ledger
    * row, so the officer can see where it came from.
+   *
+   * freeCreditsGranted, below, is what was actually handed over rather than
+   * what the setting says. The admin notification further down prints that
+   * figure, and a mail claiming 25 free credits on an account that got none
+   * because the grant failed is worse than a mail that leaves the line out.
    */
+  let freeCreditsGranted = 0;
   if (settings.signupFreeCredits > 0 && created?.user?.id) {
     const granted = await grantCredits({
       admin,
@@ -139,13 +145,54 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
       reason: "signup_bonus",
       note: "Free credits for a new account",
     });
-    if (!granted.ok) console.error("Sign-up: free credits not granted:", granted.error);
+    if (granted.ok) freeCreditsGranted = settings.signupFreeCredits;
+    else console.error("Sign-up: free credits not granted:", granted.error);
   }
 
   const referrerId = await resolveReferralCode(admin, str(fd, "ref"));
   if (referrerId && created?.user?.id) {
     await attachReferral(admin, referrerId, created.user.id);
   }
+
+  /*
+   * Both mails, together, and BEFORE the sign-in.
+   *
+   * The welcome note used to be sent after it, which meant the one path where
+   * sign-in fails - "your account was created, but we could not sign you in" -
+   * sent no welcome at all, to the one person who has to go and sign in by
+   * hand. And the admin notification would have been lost on that same path,
+   * which is the worst place to lose it: an account exists and nobody has been
+   * told.
+   *
+   * The account is real from createUser() onwards, so this is the right point
+   * for anything that describes an account existing. Run as a pair because
+   * they are two independent POSTs to the same provider and doing them one
+   * after the other put an unnecessary round trip in front of the redirect.
+   *
+   * Promise.all cannot reject here: sendEmail() is documented never to throw
+   * and notifyAdminOfSignup() swallows everything including its own settings
+   * read. That is the whole reason a notification cannot break a registration -
+   * a customer must never fail to get an account because an operator's mailbox
+   * setting is wrong.
+   */
+  const mail = welcomeEmail(settings.brandName, `${env.siteUrl}/login`);
+  const [sent] = await Promise.all([
+    sendEmail({ to: email, ...mail }),
+    created?.user?.id
+      ? notifyAdminOfSignup(admin, {
+          userId: created.user.id,
+          name: full_name,
+          email,
+          phone,
+          freeCredits: freeCreditsGranted,
+          referred: referrerId !== null,
+        })
+      : Promise.resolve(),
+  ]);
+
+  // The account already works, so a failed welcome mail is a log line and not
+  // an error the new member has to read or act on.
+  if (!sent.ok) console.error("Sign-up: welcome email not sent:", sent.error);
 
   // Sign in through the request-scoped client so the session cookie is set on
   // this response - the admin client holds no session of its own.
@@ -157,12 +204,6 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
       "Your account was created, but we could not sign you in automatically. Please sign in with your new password.",
     );
   }
-
-  // The account already works, so a failed welcome mail is a log line and not
-  // an error the new member has to read or act on.
-  const mail = welcomeEmail(settings.brandName, `${env.siteUrl}/login`);
-  const sent = await sendEmail({ to: email, ...mail });
-  if (!sent.ok) console.error("Sign-up: welcome email not sent:", sent.error);
 
   // Straight to the plans rather than the dashboard. A brand new account has no
   // plan, so nothing on the dashboard can be anything but zero, and choosing a

@@ -6,10 +6,11 @@ import { revalidatePath } from "next/cache";
 
 import { checkCoupon, releaseCoupon, reserveCoupon } from "@/lib/coupons";
 import { formatCredits, planChargeInr, planTermLabel } from "@/lib/credits";
+import { notifyAdminOfPayment } from "@/lib/email";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
-import { assertPortalUser, loadOverview } from "@/lib/officer";
+import { assertPortalUser, loadOverview, topUpBlockedReason } from "@/lib/officer";
 import { normaliseIndianMobile } from "@/lib/phone";
 import { rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import { createOrder, razorpayConfigured, verifyCheckoutSignature } from "@/lib/razorpay";
@@ -38,7 +39,9 @@ import type {
  * Two things can be bought, and the gates differ:
  *   - a PLAN is what an account with nothing buys first, so it cannot require a
  *     plan to be active;
- *   - CREDITS top up an account that already has a plan, and stay gated on it.
+ *   - CREDITS top up an account that has bought a plan, and are gated on that
+ *     again - topUpBlockedReason() in src/lib/officer.ts says which accounts
+ *     qualify and why a lapsed plan still does.
  * Once the plan's trucks are all in use the answer is more credits, never a
  * second copy of the plan.
  *
@@ -757,19 +760,34 @@ export async function startCheckout(
     const [overview, blocked] = await Promise.all([loadOverview(session.id), paymentBlocked()]);
     if (!overview) return refuse("Could not read your account. Please sign in again.");
 
-    /*
-     * No plan gate, and 0041 makes it matter more rather than less.
-     *
-     * Credits buy manual search whether or not a plan is running, so refusing
-     * the sale without one refused money for a thing that works - and left a
-     * lapsed customer unable to spend the balance they had already paid for.
-     * A finished FREE TRIAL is now the one account that cannot spend its
-     * balance, and this is precisely the route out of it: buying credits is
-     * what unfreezes the wallet, so gating the sale on a plan would be a dead
-     * end with no door. overview is still loaded: it is what priceCredits() and
-     * the coupon check read.
-     */
     if (blocked) return refuse(blocked);
+
+    /*
+     * A TOP-UP NEEDS A PLAN, and this is the endpoint where that is true.
+     *
+     * The owner has reversed the rule this action used to carry - credits were
+     * sold to anyone, plan or no plan - because credits never expire, so a
+     * single large top-up bought manual search forever and the plan line of the
+     * price list never got a look in. Which accounts count as holding a plan is
+     * decided by topUpBlockedReason(), next to the other access rules and
+     * shared with the panel that draws this shop, so the screen cannot offer
+     * what this would then refuse.
+     *
+     * IN THE ACTION AND NOT ONLY IN THE UI. The panel is disabled by the same
+     * function, but the panel is a browser: this is the endpoint, and anyone
+     * who can post a form can reach it with the page's own JavaScript never
+     * having run.
+     *
+     * Refused BEFORE the order is opened, deliberately. Once money has moved
+     * the only honest thing left is to hand over what was bought, so a gate
+     * inside settle_payment() would be a gate that keeps somebody's money.
+     *
+     * startPlanCheckout() has no equivalent check and must not grow one: the
+     * top-up attached to a plan purchase arrives WITH the plan that entitles
+     * it, in the same payment.
+     */
+    const needsPlan = topUpBlockedReason(overview);
+    if (needsPlan) return refuse(needsPlan);
 
     const priced = await priceCredits(admin, session.id, fd);
     if (!priced.ok) return refuse(priced.error);
@@ -1003,6 +1021,20 @@ export async function confirmCheckout(
       // Says what is true without claiming credits arrived.
       return done("This payment was already settled. Nothing further is owed.");
     }
+
+    /*
+     * granted true means THIS call is the one that settled the payment, so it
+     * is the one that tells the admin - see notifyAdminOfPayment for why the
+     * settlement rather than the door is the hook. The webhook does the same
+     * on the same condition, and settle_payment() can only answer granted true
+     * once, so the pair cannot both send and cannot both stay quiet.
+     *
+     * Awaited, and safe to await: it never throws and it never reports a
+     * failure back, so the customer's confirmation below cannot be turned into
+     * an error by an unconfigured or broken mailbox. The plan is already
+     * assigned and the credits are already written by this point either way.
+     */
+    if (result.payment_id) await notifyAdminOfPayment(admin, result.payment_id);
 
     const movement =
       result.balance_after !== undefined

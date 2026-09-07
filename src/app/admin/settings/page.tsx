@@ -13,6 +13,7 @@ import {
 import {
   runTrackingNow,
   saveBackupSettings,
+  saveNotificationSettings,
   savePaymentSettings,
   saveSettings,
   saveSiteSettings,
@@ -274,6 +275,91 @@ export default async function SettingsPage({
 
               <FormActions>
                 <SubmitButton>Save site settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
+          {/*
+            Deliberately in the same two-column grid as the Site panel, next to
+            the support address rather than over on the Payments tab. The one
+            mistake this setting invites is being read as another way to write
+            "support email", and the surest guard against that is the two boxes
+            being visible at the same time with a sentence between them saying
+            which is which. Sign-up is not a payment event either, so Payments
+            would only have held two of the three.
+          */}
+          <Panel
+            title="Notify an admin"
+            description="One internal address, told when a customer or a payment arrives. Never shown to anybody."
+          >
+            <ActionForm action={saveNotificationSettings} closeOnSuccess={false}>
+              <div className="space-y-4">
+                <Field
+                  label="Notification email"
+                  name="admin_notify_email"
+                  hint={
+                    <>
+                      Not the support address above — that one is published in the footer for
+                      customers to write to, this one is where the takings are announced. Leave it
+                      blank to send nothing at all.
+                    </>
+                  }
+                >
+                  <Input
+                    name="admin_notify_email"
+                    type="email"
+                    defaultValue={site.adminNotifyEmail}
+                    placeholder="owner@example.com"
+                    autoComplete="off"
+                  />
+                </Field>
+
+                <div className="space-y-3">
+                  <Checkbox
+                    name="admin_notify_signup"
+                    label="A new customer signs up"
+                    hint="Name, mobile and whether they were invited. They have no plan at this point, so it is a lead rather than a sale."
+                    defaultChecked={site.adminNotifySignup}
+                  />
+                  <Checkbox
+                    name="admin_notify_plan"
+                    label="A plan is bought"
+                    hint="The plan, what was paid, the term it runs to, and any credits bought in the same payment."
+                    defaultChecked={site.adminNotifyPlan}
+                  />
+                  <Checkbox
+                    name="admin_notify_topup"
+                    label="Credits are topped up"
+                    hint="What was paid, how many credits, and their balance afterwards."
+                    defaultChecked={site.adminNotifyTopup}
+                  />
+                </div>
+
+                {/*
+                  The address being set is not the same as mail being able to
+                  leave, and the gap between those two is what makes a broken
+                  notification look like a missing feature. Only shown when
+                  there is an address, so an operator who has not set one up
+                  yet is not told off for a second thing.
+                */}
+                {site.adminNotifyEmail && emailProblem ? (
+                  <p className="rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
+                    <span className="text-warn-500">Nothing can be sent yet.</span> {emailProblem}{" "}
+                    Notifications are held back rather than failing one at a time — the Health tab
+                    has the same line.
+                  </p>
+                ) : null}
+
+                <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
+                  <span className="text-ink">Each mail carries a link to the account.</span> A
+                  payment recorded by hand on the Finance page counts too, and says who recorded it
+                  and how the money arrived. A notification that cannot be sent is never allowed to
+                  fail the sign-up or the payment it was about.
+                </p>
+              </div>
+
+              <FormActions>
+                <SubmitButton>Save notification settings</SubmitButton>
               </FormActions>
             </ActionForm>
           </Panel>
@@ -746,6 +832,24 @@ export default async function SettingsPage({
               </DescRow>
               <DescRow label="Support email">{site.supportEmail || "not shown"}</DescRow>
               <DescRow label="Support phone">{site.supportPhone || "not shown"}</DescRow>
+              {/* Beside the support address for the same reason the form is:
+                  the two get mistaken for each other, and this panel is where
+                  an operator comes to check what is actually in force. The
+                  events are listed rather than counted, because "2 of 3" does
+                  not say which one has been switched off. */}
+              <DescRow label="Admin notifications">
+                {site.adminNotifyEmail
+                  ? `${site.adminNotifyEmail} · ${
+                      [
+                        site.adminNotifySignup ? "sign-ups" : null,
+                        site.adminNotifyPlan ? "plans" : null,
+                        site.adminNotifyTopup ? "top-ups" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ") || "every event switched off"
+                    }`
+                  : "off — no address set"}
+              </DescRow>
               <DescRow label="Policies">
                 {site.privacyUrl || site.termsUrl
                   ? [site.privacyUrl ? "privacy" : null, site.termsUrl ? "terms" : null]

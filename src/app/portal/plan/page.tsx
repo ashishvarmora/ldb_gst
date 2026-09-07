@@ -30,7 +30,13 @@ import {
   searchesLeftLabel,
 } from "@/lib/credits";
 import { fmtDate, fmtNumber, istToday } from "@/lib/format";
-import { graceDaysLeft, loadSearchCost, requirePortalSession, trialSpentOut } from "@/lib/officer";
+import {
+  graceDaysLeft,
+  loadSearchCost,
+  requirePortalSession,
+  topUpBlockedReason,
+  trialSpentOut,
+} from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -131,17 +137,19 @@ export default async function PlanPage() {
       : null;
 
   /*
-   * Credits are sold to anyone, plan or no plan. This used to refuse a top-up
-   * without a live plan - "Credits top up an account that already has one" -
-   * and the reason it must not is that manual search works with no plan at
-   * all, so refusing the sale refused somebody money in exchange for a thing
-   * that works.
+   * A top-up needs a plan again - the owner's reversal - so the shop says what
+   * is missing instead of taking a tap and then refusing it.
    *
-   * It is also the only way out of a finished free trial, whose credits stop
-   * being spendable until something is bought. Only the gateway being
-   * unavailable blocks it now.
+   * The gateway comes first: "online payment is off" is true of the whole page
+   * and there is nothing a customer can do about it, whereas "pick a plan" is
+   * an instruction they can follow, and offering it while nothing can be paid
+   * for at all would send them to a grid that is equally disabled.
+   *
+   * Same function startCheckout() refuses with, so the panel and the endpoint
+   * cannot disagree - and the panel is drawn BELOW the plan grid on this
+   * branch, which is what makes "pick a plan above" a true sentence.
    */
-  const creditsBlocked = payBlocked;
+  const creditsBlocked = payBlocked ?? topUpBlockedReason(overview);
 
   /**
    * Whether the trial is worth offering. The database has the final say -
@@ -214,7 +222,7 @@ export default async function PlanPage() {
                 has just stopped working would be the worst sentence on the
                 site. */}
             {trialOver
-              ? "The trial's credits have finished with it - a plan or a top-up starts you again."
+              ? "The trial's credits have finished with it - a plan starts you again, and can bring credits with it."
               : "Manual search still works: credits you have bought never expire."}
           </Notice>
         ) : null}
@@ -271,8 +279,13 @@ export default async function PlanPage() {
               <Step n={2} title="Watching spends credits">
                 One credit per check, so a faster alert costs more. Pause a truck to stop it.
               </Step>
+              {/* "with a plan or without one" was the promise the old rule
+                  made, and the top-up panel three inches below this one now
+                  refuses exactly that. Step 1 is the plan; this step is what
+                  the plan is spent on, and the one thing worth saying about
+                  credits here is that they outlive it. */}
               <Step n={3} title="Credits pay for both">
-                They never expire. Top up at any time, with a plan or without one.
+                They never expire, so a top-up carries on past the term you bought it in.
               </Step>
             </div>
           </>

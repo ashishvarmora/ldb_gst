@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { releaseCoupon } from "@/lib/coupons";
+import { notifyAdminOfPayment } from "@/lib/email";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { PaymentKind } from "@/lib/types";
@@ -47,6 +48,8 @@ type SettleResult = {
   kind?: PaymentKind;
   credits?: number;
   reason?: string;
+  /** The row that settled. Read only to notify an admin about it. */
+  payment_id?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -108,6 +111,27 @@ export async function POST(request: NextRequest) {
           ? `razorpay webhook: settled ${orderId} as ${result.kind ?? "unknown"}`
           : `razorpay webhook: ${orderId} was already settled (${result.reason ?? "not pending"})`,
       );
+
+      /*
+       * Tell the admin, but only when THIS call was the one that settled it.
+       *
+       * granted is the whole deduplication. settle_payment() moves the row out
+       * of 'created' in one UPDATE, so on an ordinary online payment exactly
+       * one of this endpoint and confirmCheckout() is told true - and the pair
+       * therefore cannot both send, nor both stay quiet. Sending on every
+       * captured event instead would mail twice whenever the browser got back
+       * first, and Razorpay's own retries would mail again after that.
+       *
+       * Awaited before the 200: work that outlives a serverless response is
+       * killed, so a detached send would be one that fires on a warm instance
+       * and quietly does not on a cold one. It cannot throw and it cannot fail
+       * the request - see notifyAdminOfPayment - so the acknowledgement below
+       * is unaffected either way, and Razorpay is never made to retry a
+       * settlement that already happened because of a mailbox.
+       */
+      if (granted && result.payment_id) {
+        await notifyAdminOfPayment(admin, result.payment_id);
+      }
 
       return NextResponse.json({ ok: true, granted, kind: result.kind ?? null });
     }

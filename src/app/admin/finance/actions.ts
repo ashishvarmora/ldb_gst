@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { writeAudit } from "@/lib/audit";
 import { assertSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
+import { notifyAdminOfPayment } from "@/lib/email";
 import { fail, done, str } from "@/lib/forms";
 import { fmtDate, fmtRupees } from "@/lib/format";
 import { OFFLINE_METHODS, methodLabel } from "@/lib/analytics";
@@ -53,6 +54,8 @@ type SettleResult = {
   credits?: number;
   /** The date settle_payment() actually wrote, or null for a plan with no end. */
   plan_expires_on?: string | null;
+  /** The row that settled. Read only to notify an admin about it. */
+  payment_id?: string;
 };
 
 /** What each refusal from the database means in words a person can act on. */
@@ -161,6 +164,30 @@ export async function recordOfflinePayment(
   if (result.ok === false || result.granted === false) {
     return fail(REFUSALS[result.reason ?? ""] ?? "That receipt could not be recorded.");
   }
+
+  /*
+   * A hand-entered receipt notifies too, on the same condition as the two
+   * online doors: granted true, once, from the settlement itself.
+   *
+   * IT WAS A CLOSE CALL. The argument against is that the person who would be
+   * mailed is often the person who just typed this, and the screen has already
+   * told them what was recorded - so it is a mail about your own keystrokes.
+   *
+   * It notifies anyway, for three reasons. The money is as real as Razorpay's
+   * and record_offline_payment() settles it through the very same
+   * settle_payment(), so hooking the settlement rather than the door means one
+   * rule, one place to get the once-only reasoning right, and no chance of a
+   * future fourth door being forgotten. The notification address is not
+   * necessarily the person at the keyboard - a second admin taking cash is
+   * exactly the event an owner wants to hear about. And the mail says
+   * "Recorded by hand as cash by <name>", so it is distinguishable at a glance
+   * from a self-service purchase; an owner who finds their own receipts noisy
+   * has a switch for it on the settings page.
+   *
+   * Before the audit write on purpose: both are bookkeeping, neither can
+   * throw, and this one is the one somebody is waiting on.
+   */
+  if (result.payment_id) await notifyAdminOfPayment(admin, result.payment_id);
 
   await writeAudit(actor, {
     action: "payment.record_offline",

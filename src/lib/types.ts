@@ -505,6 +505,24 @@ export type AppSettings = {
   supportAddress: string;
   privacyUrl: string;
   termsUrl: string;
+  /**
+   * Where business events are announced: a new account, a plan bought, credits
+   * topped up. Empty switches the lot off.
+   *
+   * NOT supportEmail. That one is published in the footer of every public page
+   * and is what a customer is told to write to; this one is never rendered to
+   * anybody and carries the takings. One row cannot be both.
+   */
+  adminNotifyEmail: string;
+  /**
+   * Per event, because the three arrive at wildly different rates. Blank
+   * adminNotifyEmail is the kill switch for all three; these are so that
+   * silencing registration mail does not also silence the payment mail, which
+   * is the one that was actually asked for.
+   */
+  adminNotifySignup: boolean;
+  adminNotifyPlan: boolean;
+  adminNotifyTopup: boolean;
 };
 
 /* -------------------------------------------------------------------------- */
