@@ -39,7 +39,11 @@ export function resolveInactiveWindow(
 export function dueForAutoPause(
   truck: Pick<
     TrackedTruck,
-    "auto_pause_at" | "inactive_pause_hours" | "last_event_at" | "created_at"
+    | "auto_pause_at"
+    | "inactive_pause_hours"
+    | "last_event_at"
+    | "created_at"
+    | "tracking_started_at"
   >,
   settings: Pick<AppSettings, "inactivePauseHours">,
   now: Date,
@@ -52,12 +56,29 @@ export function dueForAutoPause(
   const window = resolveInactiveWindow(truck, settings);
   if (window === null) return null;
 
-  const since = truck.last_event_at ?? truck.created_at;
-  if (!since) return null;
-  const at = new Date(since).getTime();
-  if (Number.isNaN(at)) return null;
+  /*
+   * Counted from the LATER of the last crossing and the moment tracking began.
+   *
+   * It used to be `last_event_at ?? created_at`, which meant a lorry whose last
+   * recorded crossing was a day old was already a day "idle" when it was added
+   * - so it blew through an eight-hour window on its first sweep and paused
+   * itself before it had been watched once. That is backwards for the case this
+   * exists for: the truck you most want to start watching is the one that has
+   * been standing still, because it is the one you are waiting to see move.
+   *
+   * Taking the later of the two gives both readings what they promise. A truck
+   * parked for a week gets a full window of being watched from the moment it
+   * goes live. A truck that has been live for days and then stops still pauses
+   * a window after its last crossing.
+   */
+  const candidates = [truck.tracking_started_at, truck.last_event_at, truck.created_at]
+    .map((value) => (value ? new Date(value).getTime() : Number.NaN))
+    .filter((time) => !Number.isNaN(time));
 
-  const idleHours = (now.getTime() - at) / 3_600_000;
+  if (candidates.length === 0) return null;
+  const since = Math.max(...candidates);
+
+  const idleHours = (now.getTime() - since) / 3_600_000;
   if (idleHours >= window) return { reason: "inactive", hours: window };
   return null;
 }

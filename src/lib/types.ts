@@ -215,6 +215,13 @@ export type TrackedTruck = {
   paused_at: string | null;
   /** Set when the "this truck keeps failing" warning went out, so it goes once. */
   failure_warned_at: string | null;
+  /**
+   * When this truck last went live. The no-movement window counts from the
+   * later of this and last_event_at, so a lorry that was already parked when it
+   * was added still gets a full window of being watched rather than pausing on
+   * its first sweep. Stamped on add and on resume, never on an ordinary poll.
+   */
+  tracking_started_at: string | null;
   created_at: string;
 };
 

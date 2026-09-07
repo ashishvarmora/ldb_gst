@@ -269,6 +269,10 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     failure_warned_at: null,
     paused_reason: null,
     paused_at: null,
+    /* The no-movement window counts from here, so going live has to reset it.
+       Without this a lorry that was already parked would pause on its first
+       sweep - see dueForAutoPause in pause.ts. */
+    tracking_started_at: new Date().toISOString(),
   };
 
   // Re-activating a paused truck keeps its history instead of duplicating it.
@@ -392,6 +396,8 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
             paused_reason: null,
             paused_at: null,
             auto_pause_at: null,
+            /* Going live restarts the no-movement window. */
+            tracking_started_at: new Date().toISOString(),
           }
         : {}),
       /*
@@ -606,6 +612,10 @@ export async function setTruckPaused(
              * with nothing on any screen explaining why Resume did nothing.
              */
             auto_pause_at: null,
+            /* And the no-movement window, which counts from here. A lorry
+               resumed after standing still for a day must not pause again on
+               the very next sweep for the standing still it did while off. */
+            tracking_started_at: new Date().toISOString(),
           }
         : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
     })

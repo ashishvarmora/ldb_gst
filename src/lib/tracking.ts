@@ -660,6 +660,43 @@ export async function checkTruck({
       });
     }
 
+    /*
+     * THE INTERVAL GOVERNS ATTEMPTS, NOT SUCCESSES - and this stamp is what
+     * makes that true. Without it a failing truck was the most expensive truck
+     * on the platform.
+     *
+     * last_run_at was only ever written on the success path further down, so a
+     * truck whose lookup failed kept its old stamp, alertDue() saw it as still
+     * due, and the very next sweep charged another credit and called the portal
+     * again. The interval was silently replaced by the cron's own frequency.
+     *
+     * Measured on the live database before this fix: an alert set to every 15
+     * minutes was checked at 10:00, 10:01, 10:02, 10:04, 10:06, 10:08, 10:10,
+     * 10:12, 10:14, 10:16 and 10:18 - eleven calls in eighteen minutes, every
+     * one an HTTP 500, ten credits gone. It should have been one.
+     *
+     * The credit is spent whether the portal answers or not, so the clock has
+     * to move whether it answers or not. Only the alerts that were actually due
+     * are stamped, which is exactly the set this function was handed.
+     */
+    if (alerts.length > 0) {
+      const { error: stampError } = await admin
+        .from("truck_alerts")
+        .update({ last_run_at: now.toISOString() })
+        .in(
+          "id",
+          alerts.map((alert) => alert.id),
+        );
+      if (stampError) {
+        /* Loud, because the consequence is money: an unstamped alert retries on
+           every sweep until somebody notices the balance. */
+        console.error(
+          `could not advance last_run_at for ${truck.truck_number} after a failed check`,
+          stampError.message,
+        );
+      }
+    }
+
     return {
       ...outcome,
       status: "failed",
@@ -736,6 +773,18 @@ export async function checkTruck({
         .select("seq_no, event_time, loc_name, direction");
 
       if (insertError) {
+        /* Same rule as an upstream failure: the credit is gone and the portal
+           has already answered, so the clock moves. Otherwise a database error
+           becomes a retry loop charging a credit per sweep. */
+        if (alerts.length > 0) {
+          await admin
+            .from("truck_alerts")
+            .update({ last_run_at: now.toISOString() })
+            .in(
+              "id",
+              alerts.map((alert) => alert.id),
+            );
+        }
         return { ...outcome, status: "failed", error: `Storing events failed: ${insertError.message}` };
       }
       inserted = (newRows ?? []) as EventLike[];

@@ -130,12 +130,34 @@ export const env = {
 };
 
 /** Which integrations are wired up, for the Settings page health panel. */
+/**
+ * What the admin health panel reports.
+ *
+ * IT MUST ASK THE SAME QUESTION THE APP ASKS. This read process.env directly
+ * for each name, which meant it bypassed the fallbacks above - so a project
+ * connected through the Supabase Vercel integration, which sets
+ * NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SECRET_KEY rather than the
+ * names this app was written against, showed "Supabase: not set" and "Service
+ * role key: not set" while every query on the page was working.
+ *
+ * A health panel that disagrees with the running app is worse than no panel:
+ * it sends somebody looking for a fault that is not there, and it would have
+ * stayed silent about a real one. Each line below now resolves exactly the way
+ * the accessor does, through a try/catch because the accessors throw on a
+ * missing value by design.
+ */
+function resolves(read: () => string): boolean {
+  try {
+    return Boolean(read());
+  } catch {
+    return false;
+  }
+}
+
 export function integrationHealth() {
   return {
-    supabase: Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    ),
-    serviceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    supabase: resolves(() => env.supabaseUrl) && resolves(() => env.supabaseAnonKey),
+    serviceRole: resolves(() => env.serviceRoleKey),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     // False everywhere today, and expected to be: the channel is built but
     // unbought. Shown on the health panel so it reads as "not yet" rather than
