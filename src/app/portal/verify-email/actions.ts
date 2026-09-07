@@ -75,8 +75,19 @@ export async function sendEmailCode(): Promise<ActionResult> {
   if (!issued.code || !issued.email) return fail("Could not start verification.");
 
   const settings = await loadSettings(admin);
-  const mail = verifyEmailCode(settings.brandName, issued.code, issued.expires_in_minutes ?? 10);
-  const sent = await sendEmail({ to: issued.email, ...mail });
+  /* Read once and used by both the email and the confirmation on screen, so the
+     two can never quote different expiries. */
+  const minutes = issued.expires_in_minutes ?? 10;
+  const mail = verifyEmailCode(settings.brandName, issued.code, minutes);
+  /* Replies go to support rather than into the no-reply address this is sent
+     from. Somebody who cannot make a code work answers the mail - it is the
+     only address they have been given - and that reply has to land somewhere.
+     Blank when the setting is unset, and then the header is left off. */
+  const sent = await sendEmail({
+    to: issued.email,
+    ...mail,
+    replyTo: settings.supportEmail,
+  });
 
   /*
    * A code issued but not delivered is the worst outcome: the throttle now
@@ -91,7 +102,21 @@ export async function sendEmailCode(): Promise<ActionResult> {
   }
 
   revalidatePath("/portal/verify-email");
-  return { ok: true, message: `Code sent to ${issued.email}. It expires in 10 minutes.` };
+  /*
+   * The expiry the email was actually given, not a repeated 10 - this said ten
+   * minutes flat while the mail quoted whatever issue_email_code() returned,
+   * and a screen that disagrees with the message in the inbox is the kind of
+   * small contradiction that makes somebody distrust the larger figures on the
+   * rest of the site.
+   *
+   * The spam folder is named here as well as in the folded note on the page:
+   * this line is read at the one moment somebody is about to go and look, and
+   * the note is for whoever comes back having found nothing.
+   */
+  return {
+    ok: true,
+    message: `Code sent to ${issued.email}. It expires in ${minutes} minute${minutes === 1 ? "" : "s"} — check your spam folder if it is not in the inbox.`,
+  };
 }
 
 export async function checkEmailCode(

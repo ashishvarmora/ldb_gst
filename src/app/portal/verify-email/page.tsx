@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BadgeCheck, Mail } from "lucide-react";
 
 import { VerifyEmailForm } from "./VerifyEmailForm";
+import { HelpNote } from "@/components/Disclosure";
 import { Badge, PageHeader, Panel, buttonClass } from "@/components/ui";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -81,6 +82,33 @@ export default async function VerifyEmailPage() {
             </p>
 
             <VerifyEmailForm />
+
+            {/*
+              THE NOTE THE OWNER ASKED FOR, and the reason it is folded rather
+              than printed under the button.
+
+              Mail from this deployment does land in spam - the sending domain
+              is not the brand's and carries no enforcing DMARC policy, which is
+              the owner's to fix and not this screen's. Until it is, the person
+              most likely to give up is the one who sees "code sent" and an empty
+              inbox, so the answer has to be on this screen. But it is only
+              needed by somebody whose code has not arrived, and standing open
+              it would read as us expecting our own email to fail.
+
+              Asking them to mark it "not spam" is not filler: it is the one
+              thing a reader can do that improves delivery of every later
+              message to that mailbox, including the alerts they are here to buy.
+            */}
+            <HelpNote title="The code has not arrived">
+              <p>
+                Look in your spam or junk folder — a first message from a new sender is often filed
+                there. If you find it, mark it as not spam so later emails from us reach your inbox.
+              </p>
+              <p className="mt-2">
+                Codes can take a minute to arrive, and each one can be used once. If it has expired
+                or never came, use the button above to send a fresh one.
+              </p>
+            </HelpNote>
           </div>
         )}
       </Panel>

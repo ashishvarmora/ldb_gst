@@ -298,6 +298,32 @@ export function referralExample(terms: ReferralTerms): ReferralExample {
 }
 
 /**
+ * The offer as the top of the referrals page says it - an eyebrow over the
+ * figures, not a sentence in front of them.
+ *
+ * Only the INVITER's two percentages. This is the line somebody reads beside
+ * their own share button, and what the invited person gets is the second column
+ * of the worked example directly under it; naming both here turned one line
+ * into two, which is the thing that screen was rebuilt to stop.
+ *
+ * "Twice" is the word worth spending: the scheme's whole shape is two events
+ * per person, and a reader who thinks an invite pays once stops looking at the
+ * page the moment their first reward lands.
+ */
+export function referralOfferHeadline(terms: ReferralTerms): string {
+  const { planReferrerPercent: plan, topupReferrerPercent: topup } = terms;
+
+  if (plan <= 0 && topup <= 0) return "Invites are not paying anything at the moment";
+  if (plan > 0 && topup > 0) {
+    // Two identical numbers in one line read as a difference the eye then hunts
+    // for, so matching percentages collapse into "twice" - which is also the
+    // more useful half of the sentence.
+    return plan === topup ? `Earn ${pct(plan)} back, twice` : `Earn ${pct(plan)} then ${pct(topup)} back`;
+  }
+  return `Earn ${pct(plan > 0 ? plan : topup)} back`;
+}
+
+/**
  * The referrer's side of the deal, in one sentence.
  * "20% of what somebody you invite pays for their first plan and their first
  * top-up, back as credits."

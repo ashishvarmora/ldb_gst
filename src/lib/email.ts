@@ -77,16 +77,42 @@ export function canEmailCustomers(): boolean {
   return emailSenderProblem() === null;
 }
 
+/**
+ * NO List-Unsubscribe HEADER, AND THAT IS THE CORRECT ANSWER HERE.
+ *
+ * It is the header the bulk-sender rules ask for, so it looks like a free
+ * deliverability win - but everything this file sends is transactional: a
+ * password reset, a verification code, a receipt to the owner. There is nothing
+ * to unsubscribe from, and offering it invites somebody to opt out of the code
+ * they are waiting for and then report the next one as spam when it does not
+ * arrive. Gmail and Yahoo's requirements are scoped to bulk mail for the same
+ * reason. If marketing mail is ever sent from here it needs the header, a
+ * working one-click endpoint and a suppression list - which is a feature, not a
+ * line in this function.
+ */
 export async function sendEmail({
   to,
   subject,
   html,
   text,
+  replyTo,
 }: {
   to: string;
   subject: string;
   html: string;
   text: string;
+  /**
+   * Where a reply should go. Every message here is from a no-reply address on a
+   * domain with no inbox behind it, so without this a customer who answers the
+   * mail - which plenty do, it is the address they have - is talking to nobody.
+   * Filters notice too: a From that accepts no mail and offers no reply path is
+   * one of the cheap signals that separates a real sender from a blast.
+   *
+   * Blank is the honest default rather than a fabricated address: the support
+   * mailbox is an admin setting and may not be filled in, and pointing replies
+   * at a guess is worse than leaving them unrouted.
+   */
+  replyTo?: string | null;
 }): Promise<EmailResult> {
   if (!emailConfigured()) {
     return { ok: false, error: "Email is not configured on this deployment." };
@@ -104,7 +130,20 @@ export async function sendEmail({
       },
       // A plain-text part as well as HTML: some corporate mail clients strip
       // the HTML entirely, and a reset link nobody can see is a support call.
-      body: JSON.stringify({ from: env.emailFrom, to: [to], subject, html, text }),
+      // It is also what stops a code-only message being scored as an HTML-only
+      // blast, which is the one part of that scoring this file can control.
+      //
+      // reply_to is omitted rather than sent empty when no support address is
+      // set - Resend accepts the key, and an empty Reply-To header is a worse
+      // signal than none.
+      body: JSON.stringify({
+        from: env.emailFrom,
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo?.trim() ? { reply_to: replyTo.trim() } : {}),
+      }),
       signal: controller.signal,
       cache: "no-store",
     });
@@ -131,9 +170,40 @@ export async function sendEmail({
 /* -------------------------------------------------------------------------- */
 
 /**
+ * HTML-escaped, because much of what is interpolated below was typed by
+ * somebody else.
+ *
+ * The brand name is an administrator's setting; a full name, an email address
+ * and a payment note all come from whoever signed up. One of them containing
+ * "<" is enough to swallow the rest of the mail inside a broken tag, and these
+ * are the messages that carry a verification code and the day's takings - the
+ * places where a mangled body reads as the money having gone wrong.
+ *
+ * Lives above the templates rather than beside the notifications it started
+ * with, because shell() escapes its heading and brand too.
+ */
+function esc(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
  * Deliberately plain. Transactional mail lands in more inboxes when it looks
  * like a person wrote it than when it looks like a campaign, and there is
  * nothing here that needs a layout.
+ *
+ * THE <head> IS NOT DECORATION, which is why it is worth a paragraph. This
+ * emitted `<!doctype html><html><body>` with no head at all, and that cost two
+ * things. A message with no charset declaration is guessed at by the reading
+ * client, and the guess is Latin-1 often enough that an em dash or a rupee sign
+ * arrives as mojibake - in a mail whose entire job is to be believed about
+ * money. And spam scoring reads structure: a bare body with no charset and no
+ * title is a shape hand-rolled bulk mail has, and a shape ordinary mail clients
+ * do not produce. Neither is the reason this deployment lands in spam - that is
+ * DNS and the sending domain, see emailSenderProblem - but both are free.
  */
 function shell(brand: string, heading: string, lines: string[], button?: { label: string; url: string }) {
   const paragraphs = lines
@@ -148,10 +218,17 @@ function shell(brand: string, heading: string, lines: string[], button?: { label
        <p style="margin:0 0 14px;font:13px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#5b6b7b">If the button does not work, copy this address into your browser:<br><span style="word-break:break-all;color:#1d4ed8">${button.url}</span></p>`
     : "";
 
-  return `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f6f9">
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(heading)} — ${esc(brand)}</title>
+</head>
+<body style="margin:0;padding:24px;background:#f4f6f9">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e3e8ef;border-radius:12px;padding:28px">
-    <p style="margin:0 0 20px;font:600 15px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d4ed8">${brand}</p>
-    <h1 style="margin:0 0 16px;font:600 20px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2933">${heading}</h1>
+    <p style="margin:0 0 20px;font:600 15px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d4ed8">${esc(brand)}</p>
+    <h1 style="margin:0 0 16px;font:600 20px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2933">${esc(heading)}</h1>
     ${paragraphs}${cta}
   </div>
 </body></html>`;
@@ -200,24 +277,36 @@ export function welcomeEmail(brand: string, url: string) {
  * The code is in the subject line as well as the body: on a phone that is one
  * glance at a notification rather than opening the mail app, and the trial is
  * abandoned by anybody made to work for it.
+ *
+ * THE LEADING DIGITS IN THE SUBJECT ARE SAFE, which is worth recording because
+ * it looks like exactly the sort of thing a filter would dislike. It is the
+ * pattern Google, Apple and Microsoft all use for their own codes, so it is
+ * among the most common shapes of legitimate mail there is; scoring keys on the
+ * sending domain's authentication and reputation, not on a number at the front
+ * of a subject. What would earn a penalty is the shouting that usually comes
+ * with it - all-capitals, exclamation marks, "URGENT", "ACTION REQUIRED" - and
+ * none of that is here.
+ *
+ * A plain-text part alongside the HTML, and not a token one: a code-only
+ * message sent as HTML alone is a genuine spam signal, and it is also unreadable
+ * in the text-only clients some transport firms still run.
  */
 export function verifyEmailCode(brand: string, code: string, minutes: number) {
   return {
     subject: `${code} is your ${brand} verification code`,
     html: shell(brand, "Verify your email address", [
-      `Your code is <strong style="font-size:22px;letter-spacing:3px">${code}</strong>`,
+      `Your code is <strong style="font-size:22px;letter-spacing:3px">${esc(code)}</strong>`,
       `It expires in ${minutes} minutes and can be used once.`,
       "If you did not ask for this, ignore it - nothing has changed and no trial has started.",
     ]),
-    text:
-      `Verify your ${brand} email address
-
-` +
-      `Your code is ${code}
-
-` +
+    text: [
+      `Verify your ${brand} email address`,
+      "",
+      `Your code is ${code}`,
+      "",
       `It expires in ${minutes} minutes and can be used once. ` +
-      `If you did not ask for this, ignore it - nothing has changed and no trial has started.`,
+        "If you did not ask for this, ignore it - nothing has changed and no trial has started.",
+    ].join("\n"),
   };
 }
 
@@ -236,23 +325,6 @@ export function verifyEmailCode(brand: string, code: string, minutes: number) {
  * one purchase, and let half of it be silenced by the other switch.
  */
 export type AdminEvent = "signup" | "plan" | "topup";
-
-/**
- * HTML-escaped, because everything interpolated below was typed by a customer.
- *
- * A full name, an email address and a payment note all come from whoever signed
- * up, and one of them containing "<" is enough to swallow the rest of the mail
- * inside a broken tag. This is the message that carries the takings to the
- * owner's inbox, so it is the one place a mangled body reads as the money
- * having gone wrong.
- */
-function esc(value: string | null | undefined): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 /**
  * Where to announce `event`, or null when nothing should be sent.

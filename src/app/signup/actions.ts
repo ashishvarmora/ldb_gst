@@ -177,7 +177,11 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
    */
   const mail = welcomeEmail(settings.brandName, `${env.siteUrl}/login`);
   const [sent] = await Promise.all([
-    sendEmail({ to: email, ...mail }),
+    /* Replies go to support, not to the no-reply address this is sent from.
+       A welcome note is the mail people answer most - with a question about
+       plans - and this is the first message the account ever receives, so it
+       is the worst one to have no reply path. */
+    sendEmail({ to: email, ...mail, replyTo: settings.supportEmail }),
     created?.user?.id
       ? notifyAdminOfSignup(admin, {
           userId: created.user.id,

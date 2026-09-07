@@ -102,7 +102,11 @@ export async function requestPasswordReset(
   }
 
   const mail = passwordResetEmail(brandName, link);
-  const sent = await sendEmail({ to: email, ...mail });
+  /* Replies land on support rather than on the no-reply address this is sent
+     from. Somebody locked out answers the email, because it is the only address
+     they have; ourFault() above already tells them to write to support, and
+     this is the same route without them having to copy it out. */
+  const sent = await sendEmail({ to: email, ...mail, replyTo: supportEmail });
 
   if (!sent.ok) {
     /*
