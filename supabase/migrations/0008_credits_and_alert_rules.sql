@@ -410,11 +410,36 @@ where included_credits = 0;
 -- new scheme unable to run a single check - the platform would go quiet on the
 -- day it shipped rather than when anyone actually ran out. Written through the
 -- ledger so the opening balance is explained rather than appearing from
--- nowhere, and guarded so re-running the migration cannot grant it twice.
+-- nowhere.
+--
+-- THIS WAS MINTING CREDITS ON EVERY PUSH, and the comment above used to claim
+-- it could not. The old guard was "this account has no plan_grant row", which
+-- is once per ACCOUNT, not once ever - and every migration file re-runs on
+-- every `npm run migrate`. So each account created after the original backfill
+-- collected an opening balance the next time anybody ran the migrations.
+--
+-- It fired three times before anyone noticed: the legitimate backfill (three
+-- accounts), then a new account picking up 500 credits four days later, then
+-- three trial accounts taking 15 each. 545 credits given away that nobody
+-- decided to give, and it would have happened again on the next push.
+--
+-- The guard is now on the BACKFILL, not on the account: if this has ever run,
+-- it never runs again. Matched on its own note text, because plan_grant is
+-- also written by settle_payment() for a real plan purchase and must not be
+-- confused with it. Purely narrowing - it grants nothing new, and on any
+-- database where the backfill has already happened it is now inert.
 -- ---------------------------------------------------------------------------
 do $blk$
 declare r record;
 begin
+  if exists (
+    select 1 from public.credit_transactions
+    where reason = 'plan_grant'
+      and note = 'Opening balance when credits replaced the old per-day and per-month quotas.'
+  ) then
+    return;
+  end if;
+
   for r in
     select p.id, coalesce(pl.included_credits, 500) as amount
     from public.profiles p
