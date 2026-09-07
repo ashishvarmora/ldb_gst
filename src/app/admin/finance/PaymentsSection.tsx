@@ -200,7 +200,6 @@ export async function PaymentsSection({
                           <Badge tone="brand">plan</Badge>
                           <span className="mt-0.5 block text-xs text-muted">
                             {(row.plan_id ? planName.get(row.plan_id) : null) ?? "removed"}
-                            {row.months > 1 ? ` · ${row.months} months` : ""}
                           </span>
                         </>
                       ) : (

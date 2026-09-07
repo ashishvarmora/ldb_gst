@@ -359,29 +359,18 @@ export function creditsForAmount(
 /**
  * A plan's term, and what buying it actually charges.
  *
- * Both live here rather than in each screen because three of them have to agree
- * exactly: the admin's preview, the plan card a customer decides on, and the
- * order the checkout opens. price_per_month is a UNIT price - the sum charged is
- * that times the term - and a screen that quoted the unit as the price would
- * understate a twelve-month plan by a factor of twelve.
+ * Both live here rather than in each screen because four of them have to agree
+ * exactly: the public pricing page, the admin's preview, the plan card a
+ * customer decides on, and the order the checkout opens.
  *
- * A plan with no term still charges price_per_month, once. That is the honest
- * reading of "no expiry": there is no second payment to spread it over.
+ * price_inr is the WHOLE price and it is charged ONCE - there is nothing to
+ * multiply it by. Until 0042 the column was called price_per_month and the
+ * checkout took it times duration_months, which was 1 everywhere; the sum was
+ * always right and every screen that printed "a month" underneath it was
+ * wrong. duration_days is the term, and the only term.
  */
-export type PlanTerm = Pick<Plan, "price_per_month" | "duration_months"> &
+export type PlanTerm = Pick<Plan, "price_inr"> &
   Partial<Pick<Plan, "duration_days" | "trial_days" | "is_trial">>;
-
-/**
- * Months the CHARGE is multiplied by - not the term. 1 on every plan sold.
- *
- * The two came apart in 0038, because a seven-day plan has no number of months
- * to charge by. price_per_month x this is still what the checkout takes; how
- * long the plan then runs is planDays().
- */
-export function planMonths(plan: PlanTerm): number | null {
-  const months = plan.duration_months;
-  return typeof months === "number" && Number.isFinite(months) && months > 0 ? months : null;
-}
 
 /**
  * Days the plan runs for, or null for no expiry.
@@ -390,52 +379,69 @@ export function planMonths(plan: PlanTerm): number | null {
  * trial_days, and 0035 keeps days and months on separate sides of a check
  * constraint so "7" can never be read as seven months. Both are read here so
  * one function answers "how long is this plan" for every row on the grid.
- *
- * duration_months is the last resort, for a plan row 0038 did not convert. It
- * is approximated at 30 days a month deliberately: settle_payment() adds a
- * real interval, so this is a label, and a label that says "about a month" is
- * closer than one that says nothing.
  */
 export function planDays(plan: PlanTerm): number | null {
   const days = plan.is_trial ? (plan.trial_days ?? plan.duration_days) : plan.duration_days;
-  if (typeof days === "number" && Number.isFinite(days) && days > 0) return days;
-  const months = planMonths(plan);
-  return months === null ? null : months * 30;
-}
-
-/** Rupees taken at the checkout: the unit price times the term. */
-export function planChargeInr(plan: PlanTerm): number {
-  const months = planMonths(plan) ?? 1;
-  return Math.round(plan.price_per_month * months * 100) / 100;
+  return typeof days === "number" && Number.isFinite(days) && days > 0 ? days : null;
 }
 
 /**
- * "7 days" · "30 days" · "3 months" · "No expiry".
+ * Rupees taken at the checkout. The plan's price, and nothing times anything.
  *
- * Days up to a fortnight, because that is how a seven-day plan is spoken of;
- * whole months above that, because "90 days" is a figure to work out and
- * "3 months" is one to recognise. A term that is not a whole number of months
- * stays in days rather than being rounded into a lie.
+ * Kept as a function rather than reading plan.price_inr at each call site so
+ * there stays exactly one answer to "what does this cost" - and so the paise
+ * rounding a numeric(10,2) column can carry is done once.
+ */
+export function planChargeInr(plan: PlanTerm): number {
+  return Math.round(plan.price_inr * 100) / 100;
+}
+
+/**
+ * THE one place a plan's term is put into words. "7 days" · "1 month" ·
+ * "3 months" · "No expiry".
+ *
+ * The owner asks for the term as months - "plan expire after X month from
+ * start" - and duration_days is what the database actually adds, so months are
+ * computed from days here and nowhere else. Whole months where the days divide
+ * evenly, because "90 days" is a figure to work out and "3 months" is one to
+ * recognise; days where they do not, because the seven-day trial is not a
+ * fraction of a month and rounding it would be a lie.
+ *
+ * Every screen goes through this or through one of the two wrappers below. The
+ * bug this replaced was each card doing its own arithmetic on duration_months,
+ * which is why a ninety-day plan said "1 month" in four different places.
  */
 export function planTermLabel(plan: PlanTerm): string {
   const days = planDays(plan);
   if (days === null) return "No expiry";
-  if (days <= 14) return days === 1 ? "1 day" : `${days} days`;
   if (days % 30 === 0) {
     const months = days / 30;
     return months === 1 ? "1 month" : `${months} months`;
   }
-  return `${days} days`;
+  return days === 1 ? "1 day" : `${days} days`;
 }
 
 /**
  * The term as it reads under a price. Lower case, so it sits after a figure:
- * "Rs 2,388 for 12 months", "Rs 199 once - the plan never expires".
+ * "Rs 999 for 3 months", "Rs 199 once - the plan never expires".
  */
 export function planTermSuffix(plan: PlanTerm): string {
-  const days = planDays(plan);
-  if (days === null) return "once - the plan never expires";
+  if (planDays(plan) === null) return "once - the plan never expires";
   return `for ${planTermLabel(plan).toLowerCase()}`;
+}
+
+/**
+ * The term as a whole sentence, in the owner's words: "Expires 3 months after
+ * the day it starts".
+ *
+ * The plan cards, the admin preview and the admin plan form all had their own
+ * phrasing of this and all three read duration_months to build it, so all three
+ * said "1 month" about ninety days. One sentence, one source.
+ */
+export function planExpiryNote(plan: PlanTerm): string {
+  const days = planDays(plan);
+  if (days === null) return "Never expires — one payment, no end date";
+  return `Expires ${planTermLabel(plan).toLowerCase()} after the day it starts`;
 }
 
 /** "250% of what you pay" - the open tier stated as a sentence. */

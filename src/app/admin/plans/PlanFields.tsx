@@ -5,6 +5,7 @@ import { Eye } from "lucide-react";
 
 import { PlanPreview } from "./PlanPreview";
 import { Field, FormGrid, Input, Select, Textarea } from "@/components/form";
+import { planExpiryNote, planTermLabel } from "@/lib/credits";
 import { NUMERIC_LIMITS, UNLIMITED, parseLimitInput } from "@/lib/limits";
 import type { Plan } from "@/lib/types";
 
@@ -19,20 +20,39 @@ function amount(raw: string): number {
 }
 
 /**
- * The four terms a plan may be sold for, and "off" for no expiry.
+ * The terms a plan may be sold for, IN DAYS, and "off" for no expiry.
  *
- * Not a free number box, and this is the reason: the checkout charges
- * price_per_month x the term, and it only knows how to price these four - see
- * ALLOWED_MONTHS in checkout-actions.ts, which a check constraint on the column
- * mirrors. A typed 24 would be charged as one month and granted as two years.
+ * This picker used to set duration_months and never touched duration_days -
+ * which is the column settle_payment() actually adds - so the editor for a
+ * ninety-day plan sat there reading "1 month" and an admin who saved the form
+ * left the real term untouched. Two columns for one fact, and the form only
+ * wrote the wrong one.
+ *
+ * It writes days now, and the labels are computed from the days by the same
+ * helper the customer's card uses, so the picker cannot disagree with either
+ * the term or the wording anywhere else. Seven days is on the list because the
+ * trial's length is seven and a paid week is a thing the owner has sold before.
  */
+const TERM_DAYS = [7, 30, 90, 180, 365] as const;
+
+/**
+ * "1 month (30 days)" - the word the customer reads, and the number the column
+ * stores, in one option. Both because the admin has to be able to reconcile
+ * this picker with a duration_days they may have seen in the console, and
+ * neither on its own does that.
+ *
+ * The gloss is dropped when the label is already a count of days, so a
+ * seven-day term does not read "7 days (7 days)".
+ */
+function termLabel(days: number): string {
+  const label = planTermLabel({ price_inr: 0, duration_days: days });
+  return label.endsWith("days") || label.endsWith("day") ? label : `${label} (${days} days)`;
+}
+
 const TERMS = [
-  { value: "", label: "Off - no expiry" },
-  { value: "1", label: "1 month" },
-  { value: "3", label: "3 months" },
-  { value: "6", label: "6 months" },
-  { value: "12", label: "12 months" },
-] as const;
+  { value: "", label: "Off — no expiry" },
+  ...TERM_DAYS.map((days) => ({ value: String(days), label: termLabel(days) })),
+];
 
 /**
  * Every field of a plan. Shared by the create and edit forms so the two can
@@ -54,17 +74,22 @@ export function PlanFields({ plan }: { plan?: Plan }) {
   const [draft, setDraft] = useState({
     name: plan?.name ?? "",
     description: plan?.description ?? "",
-    price: String(plan?.price_per_month ?? 0),
+    price: String(plan?.price_inr ?? 0),
     credits: String(plan?.included_credits ?? 0),
     /*
-     * A new plan opens on twelve months rather than on "off".
+     * A new plan opens on ninety days rather than on "off".
      *
      * The default has to be a real term, because the alternative default is
      * selling access for ever by omission - and that is exactly the mistake
      * this field exists to stop. An admin who genuinely wants no expiry has to
-     * choose it.
+     * choose it. Ninety rather than thirty because three of the four plans on
+     * sale run for ninety, so it is the shape of a new one.
+     *
+     * A stored term that is not on the list - an admin edited the row in the
+     * console - is kept as the selected value below rather than snapped to the
+     * nearest option, so opening the form cannot silently change the term.
      */
-    months: plan ? (plan.duration_months === null ? "" : String(plan.duration_months)) : "12",
+    days: plan ? (plan.duration_days === null ? "" : String(plan.duration_days)) : "90",
     trialDays: String(plan?.trial_days ?? 7),
   });
 
@@ -75,6 +100,23 @@ export function PlanFields({ plan }: { plan?: Plan }) {
   );
 
   const edit = (patch: Partial<typeof draft>) => setDraft((current) => ({ ...current, ...patch }));
+
+  /** The chosen term in days, or null for no expiry. Blank is no expiry. */
+  const termDays = draft.days === "" ? null : amount(draft.days) || null;
+
+  /*
+   * A stored term the list does not offer keeps its own option rather than
+   * being dropped - a Select whose value is not among its options renders
+   * blank, which would read as "no expiry" and save as one. Somebody who set
+   * 45 days in the console gets to keep 45 days unless they choose otherwise.
+   */
+  const termOptions =
+    termDays !== null && !TERM_DAYS.some((days) => days === termDays)
+      ? [
+          ...TERMS,
+          { value: String(termDays), label: termLabel(termDays) },
+        ]
+      : TERMS;
 
   // The same parser the Server Action uses, so "unlimited" previews as
   // unlimited rather than as a broken number.
@@ -95,7 +137,7 @@ export function PlanFields({ plan }: { plan?: Plan }) {
           <p className="rounded-lg border border-brand-500/40 bg-brand-500/8 px-3 py-2.5 text-xs leading-relaxed text-muted">
             <span className="font-medium text-brand-400">This is the free trial.</span> It is always
             free and it is handed over by the portal rather than bought, so it has no price and no
-            month term. What you set here is the offer: how many days it runs, how many credits it
+            bought term. What you set here is the offer: how many days it runs, how many credits it
             opens with, and how many trucks it allows.
           </p>
         ) : null}
@@ -130,12 +172,12 @@ export function PlanFields({ plan }: { plan?: Plan }) {
             </Field>
           ) : (
             <Field
-              label="Price per month (Rs)"
-              name="price_per_month"
-              hint="A unit price, not the bill. The customer is charged this times the term below."
+              label="Price (Rs)"
+              name="price_inr"
+              hint="The whole price of the plan, charged once. Not a monthly rate - nothing multiplies it by the term."
             >
               <Input
-                name="price_per_month"
+                name="price_inr"
                 type="number"
                 min={0}
                 step="1"
@@ -149,16 +191,16 @@ export function PlanFields({ plan }: { plan?: Plan }) {
         {isTrial ? null : (
           <Field
             label="This plan lasts"
-            name="duration_months"
-            hint="Buying it ends this long after the purchase date. Off means it never expires - one payment, for ever."
+            name="duration_days"
+            hint={planExpiryNote({ price_inr: 0, duration_days: termDays })}
           >
             <Select
-              name="duration_months"
-              value={draft.months}
-              onChange={(e) => edit({ months: e.target.value })}
+              name="duration_days"
+              value={draft.days}
+              onChange={(e) => edit({ days: e.target.value })}
               className="max-w-56"
             >
-              {TERMS.map((term) => (
+              {termOptions.map((term) => (
                 <option key={term.value} value={term.value}>
                   {term.label}
                 </option>
@@ -246,9 +288,9 @@ export function PlanFields({ plan }: { plan?: Plan }) {
         <PlanPreview
           name={draft.name}
           description={draft.description}
-          pricePerMonth={isTrial ? 0 : amount(draft.price)}
+          priceInr={isTrial ? 0 : amount(draft.price)}
           /* Blank reads as no expiry, which is what the column stores. */
-          durationMonths={isTrial || draft.months === "" ? null : amount(draft.months)}
+          durationDays={isTrial ? null : termDays}
           includedCredits={amount(draft.credits)}
           truckLimit={truckLimit ?? 0}
           isActive={plan?.is_active ?? true}

@@ -44,7 +44,10 @@ export async function PlansTab() {
   const list = (plans ?? []) as Plan[];
   const onSale = list.filter((plan) => plan.is_active);
   const trial = list.find((plan) => plan.is_trial) ?? null;
-  const lifetime = onSale.filter((plan) => !plan.is_trial && plan.duration_months === null);
+  // duration_days is the term, so it is what "no end date" is read off. This
+  // used to test duration_months, which 0042 pinned to 1 whenever there is a
+  // term at all - so it would have stopped answering this question.
+  const lifetime = onSale.filter((plan) => !plan.is_trial && plan.duration_days === null);
 
   return (
     <>
@@ -109,8 +112,8 @@ export async function PlansTab() {
                     key={plan.id}
                     name={plan.name}
                     description={plan.description}
-                    pricePerMonth={plan.price_per_month}
-                    durationMonths={plan.duration_months}
+                    priceInr={plan.price_inr}
+                    durationDays={plan.duration_days}
                     includedCredits={plan.included_credits}
                     truckLimit={plan.truck_limit}
                     isTrial={plan.is_trial}
@@ -171,9 +174,9 @@ function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
           ) : null}
         </div>
         <div className="shrink-0 text-right">
-          {/* What the customer is billed, not the unit price. A twelve-month
-              plan at Rs 199 takes Rs 2,388, and "Rs 199/mo" beside it is the
-              one number an admin would check and be reassured by. */}
+          {/* The whole price, and under it the term it buys. Both come from
+              helpers rather than from arithmetic here, which is how a 90-day
+              plan used to end up labelled "1 month" on this very card. */}
           <p className="text-sm font-semibold text-ink">
             {plan.is_trial
               ? "Free"
@@ -202,7 +205,7 @@ function PlanCard({ plan, customers }: { plan: Plan; customers: number }) {
               "text-sm font-medium tabular-nums",
               /* No expiry is not a neutral setting: it is one payment for
                  permanent access, and it should look different from a term. */
-              !plan.is_trial && plan.duration_months === null ? "text-warn-500" : "text-ink",
+              !plan.is_trial && plan.duration_days === null ? "text-warn-500" : "text-ink",
             )}
           >
             {plan.is_trial

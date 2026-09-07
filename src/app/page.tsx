@@ -5,7 +5,7 @@ import { ArrowRight, BellRing, MapPin, Search, Truck, Wallet } from "lucide-reac
 import { LogoBadge } from "@/components/Logo";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
+import { formatCredits, planChargeInr, planTermSuffix } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
 import { fmtRupees } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -188,9 +188,16 @@ export default async function Home() {
                     <p className="mt-1 text-xs leading-relaxed text-muted">{plan.description}</p>
                   ) : null}
 
+                  {/* The whole price, and the term it buys beside it. This
+                      said "a month" under every figure, which was wrong for the
+                      three plans that run ninety days - the teaser told a
+                      visitor a third of the truth and the pricing page then
+                      corrected it. planTermSuffix() reads duration_days. */}
                   <p className="mt-3 text-2xl font-semibold tabular-nums text-strong">
-                    {fmtRupees(plan.price_per_month)}
-                    <span className="ml-1 text-xs font-normal text-muted">a month</span>
+                    {fmtRupees(planChargeInr(plan))}
+                    <span className="ml-1 text-xs font-normal text-muted">
+                      {planTermSuffix(plan)}
+                    </span>
                   </p>
 
                   <ul className="mt-3 flex flex-wrap gap-1.5">
@@ -276,7 +283,7 @@ async function loadCatalogue(): Promise<{ plans: Plan[]; alertRules: AlertRuleTe
         .select("*")
         .eq("is_active", true)
         .order("sort_order")
-        .order("price_per_month")
+        .order("price_inr")
         .limit(TEASER_PLANS),
       admin.from("alert_rule_templates").select("*").eq("is_active", true).order("sort_order"),
     ]);

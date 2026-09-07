@@ -196,7 +196,6 @@ export function PaymentsTable({
                       {planName
                         ? ((row.plan_id ? planName.get(row.plan_id) : null) ?? "removed")
                         : null}
-                      {row.months > 1 ? ` · ${row.months} months` : ""}
                     </span>
                   </>
                 ) : (

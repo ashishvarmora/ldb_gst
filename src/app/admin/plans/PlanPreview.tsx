@@ -1,7 +1,7 @@
 import { CalendarClock, Check, Gift, Infinity as InfinityIcon, Truck, Wallet } from "lucide-react";
 
 import { Badge, cx } from "@/components/ui";
-import { formatCredits, planChargeInr, planTermSuffix } from "@/lib/credits";
+import { formatCredits, planChargeInr, planExpiryNote, planTermSuffix } from "@/lib/credits";
 import { fmtRupees } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 
@@ -13,19 +13,18 @@ import { formatLimit } from "@/lib/limits";
  * the cheapest way to stop a price or a credit allocation going out looking
  * wrong - the admin never has to open the public page to check.
  *
- * THE FIGURE IT LEADS WITH IS THE ONE THAT WILL BE CHARGED, not the one in the
- * price box. price_per_month is a unit price and the checkout takes it times the
- * term, so a twelve-month plan at Rs 199 bills Rs 2,388 - and a preview that
- * showed "Rs 199" would be off by a factor of twelve on the only number anybody
- * checks. planChargeInr() is the same function the portal card and the order use.
+ * The figure it leads with is the one that will be charged, which since 0042 is
+ * simply the price: there is no multiplier left for a preview to get wrong. It
+ * used to take price_per_month times the term and print a small "Rs 199 a
+ * month" underneath, which is the line the owner asked to see the back of.
  *
  * No hooks, so both the server plan list and the client editor can render it.
  */
 export function PlanPreview({
   name,
   description,
-  pricePerMonth,
-  durationMonths,
+  priceInr,
+  durationDays,
   includedCredits,
   truckLimit,
   isActive = true,
@@ -35,9 +34,9 @@ export function PlanPreview({
 }: {
   name: string;
   description?: string | null;
-  pricePerMonth: number;
-  /** Null is no expiry. */
-  durationMonths?: number | null;
+  priceInr: number;
+  /** The term in days, the way the column stores it. Null is no expiry. */
+  durationDays?: number | null;
   includedCredits: number;
   truckLimit: number;
   isActive?: boolean;
@@ -45,13 +44,18 @@ export function PlanPreview({
   trialDays?: number | null;
   className?: string;
 }) {
-  const months =
-    typeof durationMonths === "number" && Number.isFinite(durationMonths) && durationMonths > 0
-      ? durationMonths
-      : null;
-  const term = { price_per_month: pricePerMonth, duration_months: months };
+  const term = {
+    price_inr: priceInr,
+    duration_days:
+      typeof durationDays === "number" && Number.isFinite(durationDays) && durationDays > 0
+        ? durationDays
+        : null,
+    is_trial: isTrial,
+    trial_days: trialDays,
+  };
   const charge = planChargeInr(term);
   const free = !Number.isFinite(charge) || charge <= 0;
+  const noExpiry = !isTrial && term.duration_days === null;
 
   return (
     <div
@@ -74,14 +78,6 @@ export function PlanPreview({
         {free ? null : <span className="text-xs text-muted">{planTermSuffix(term)}</span>}
       </p>
 
-      {/* The unit price, kept where the admin can reconcile it with the box
-          they typed into - but small, under the figure that matters. */}
-      {!free && months !== null && months > 1 ? (
-        <p className="mt-0.5 text-[11px] tabular-nums text-faint">
-          {fmtRupees(pricePerMonth)} a month
-        </p>
-      ) : null}
-
       {description ? (
         <p className="mt-2 text-xs leading-relaxed text-muted">{description}</p>
       ) : null}
@@ -90,16 +86,16 @@ export function PlanPreview({
         <li className="flex items-center gap-2">
           {isTrial ? (
             <Gift size={13} className="shrink-0 text-brand-500" />
-          ) : months === null ? (
+          ) : noExpiry ? (
             <InfinityIcon size={13} className="shrink-0 text-brand-500" />
           ) : (
             <CalendarClock size={13} className="shrink-0 text-brand-500" />
           )}
+          {/* One helper, so this sentence cannot fall out of step with the
+              picker beside it or with the card the customer buys from. */}
           {isTrial
             ? `Runs for ${trialDays ?? 7} day${trialDays === 1 ? "" : "s"}, then stops`
-            : months === null
-              ? "No end date — one payment and it never expires"
-              : `Ends ${months} month${months === 1 ? "" : "s"} after the day it is bought`}
+            : planExpiryNote(term)}
         </li>
         <li className="flex items-center gap-2">
           <Wallet size={13} className="shrink-0 text-brand-500" />

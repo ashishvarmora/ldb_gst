@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ArrowRight, Gift, Info, Truck, Wallet } from "lucide-react";
+import { ArrowRight, CalendarClock, Gift, Info, Truck, Wallet } from "lucide-react";
 
 import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
@@ -12,6 +12,9 @@ import {
   formatCredits,
   loadCreditPacks,
   loadCreditRates,
+  planChargeInr,
+  planExpiryNote,
+  planTermSuffix,
   rupeesPerCredit,
 } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
@@ -136,10 +139,15 @@ export default async function PricingPage() {
                     <p className="mt-1 text-xs leading-relaxed text-muted">{plan.description}</p>
                   ) : null}
 
+                  {/* The whole price and the term it buys. "a month" used to
+                      sit under this figure on every row, which was false for
+                      the three plans that run ninety days - and false in the
+                      customer's favour nowhere. planTermSuffix() reads
+                      duration_days, the term the plan actually gets. */}
                   <p className="mt-4 text-3xl font-semibold tabular-nums text-strong">
-                    {fmtRupees(plan.price_per_month)}
+                    {fmtRupees(planChargeInr(plan))}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted">a month</p>
+                  <p className="mt-0.5 text-xs text-muted">{planTermSuffix(plan)}</p>
 
                   <ul className="mt-4 space-y-2 border-t border-divider pt-4 text-sm">
                     <Feature icon={<Truck size={13} />}>
@@ -149,6 +157,13 @@ export default async function PricingPage() {
                     </Feature>
                     <Feature icon={<Wallet size={13} />}>
                       {formatCredits(plan.included_credits)} credits included
+                    </Feature>
+                    {/* Said outright rather than left to the price suffix: the
+                        owner's ask is that a plan reads as expiring a stated
+                        number of months from the day it starts, and this is the
+                        page a stranger decides on. */}
+                    <Feature icon={<CalendarClock size={13} />}>
+                      {planExpiryNote(plan)}
                     </Feature>
                   </ul>
                 </li>
@@ -333,7 +348,7 @@ async function loadCatalogue(): Promise<{
         .select("*")
         .eq("is_active", true)
         .order("sort_order")
-        .order("price_per_month"),
+        .order("price_inr"),
       loadCreditPacks(admin),
       loadCreditRates(admin),
       admin

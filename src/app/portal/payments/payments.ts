@@ -145,12 +145,20 @@ export function listInr(row: PaymentRow): number {
   return (Number(row.amount_inr) || 0) + (Number(row.discount_inr) || 0);
 }
 
-/** What the money bought, in one line. */
+/**
+ * What the money bought, in one line.
+ *
+ * The term used to be appended off payments.months - "Base plan · 1 month" -
+ * which was never the length of anything: months was pricePlan()'s multiplier
+ * and settle_payment() has taken the term off the plan's duration_days since
+ * 0038, so a receipt for ninety days read as one month. It is dropped rather
+ * than replaced with the plan's term today, because the plan's term today is
+ * not necessarily what this receipt bought; the end date the payment actually
+ * set is on the plan page, which is the one place it is true.
+ */
 export function boughtLabel(row: PaymentRow): string {
   if (row.kind === "plan") {
-    const name = row.plan?.name ?? "Plan";
-    const months = Number(row.months) || 1;
-    return `${name} plan · ${months} month${months === 1 ? "" : "s"}`;
+    return `${row.plan?.name ?? "Plan"} plan`;
   }
   // A pack that has since been deleted leaves nothing to name, and an open-tier
   // top-up was never a named pack in the first place.
@@ -298,7 +306,6 @@ export function paymentsCsv(rows: PaymentRow[]): string {
     "Status",
     "Bought",
     "Kind",
-    "Months",
     "Method",
     "List price (Rs)",
     "Discount (Rs)",
@@ -319,7 +326,6 @@ export function paymentsCsv(rows: PaymentRow[]): string {
       STATUS_LABEL[row.status],
       boughtLabel(row),
       row.kind,
-      row.kind === "plan" ? row.months : "",
       methodLabel(row.method),
       listInr(row),
       Number(row.discount_inr) || 0,

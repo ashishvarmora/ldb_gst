@@ -8,7 +8,14 @@ import { Field, FormActions, Input, Select } from "@/components/form";
 import { OFFLINE_METHODS } from "@/lib/analytics";
 
 export type PayableCustomer = { id: string; label: string };
-export type SellablePlan = { id: string; name: string; price: number; credits: number };
+export type SellablePlan = {
+  id: string;
+  name: string;
+  price: number;
+  credits: number;
+  /** "3 months", "7 days", "No expiry" - already worded by planTermLabel(). */
+  term: string;
+};
 
 /**
  * Writing down money that arrived off the gateway.
@@ -36,8 +43,12 @@ export function RecordPaymentForm({
 }) {
   const [kind, setKind] = useState<"credits" | "plan">("credits");
   const [amount, setAmount] = useState("");
+  const [planId, setPlanId] = useState("");
+
+  const chosen = plans.find((plan) => plan.id === planId) ?? null;
 
   function onPlanChange(id: string) {
+    setPlanId(id);
     const plan = plans.find((p) => p.id === id);
     if (plan && plan.price > 0) setAmount(String(plan.price));
   }
@@ -105,44 +116,41 @@ export function RecordPaymentForm({
 
       {kind === "plan" ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Plan"
+          {/*
+            The "Months" box that sat beside this has gone.
+            It posted a multiplier that pricePlan() charged price_per_month by,
+            and settle_payment() has taken the length of access off the plan row
+            since 0038 - so typing 12 into it charged twelve times and granted
+            ninety days. Nothing multiplies since 0042, so the box could only
+            ever have been wrong; the plan's own term is shown instead, which is
+            the only thing that number was ever standing in for.
+          */}
+          <Field
+            label="Plan"
+            name="plan_id"
+            required
+            hint={
+              chosen
+                ? `Runs for ${chosen.term.toLowerCase()} from the date received above. Its included credits are granted automatically.`
+                : "Its included credits are granted automatically, and its own term decides when access ends."
+            }
+          >
+            <Select
               name="plan_id"
               required
-              hint="Its included credits are granted automatically."
+              value={planId}
+              onChange={(event) => onPlanChange(event.target.value)}
             >
-              <Select
-                name="plan_id"
-                required
-                defaultValue=""
-                onChange={(event) => onPlanChange(event.target.value)}
-              >
-                <option value="" disabled>
-                  Choose a plan
+              <option value="" disabled>
+                Choose a plan
+              </option>
+              {plans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name}
                 </option>
-                {plans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              label="Months"
-              name="months"
-              hint="The term charged for. How long it actually runs comes off the plan itself."
-            >
-              <Input
-                name="months"
-                type="number"
-                min={1}
-                max={36}
-                defaultValue={1}
-                className="tabular-nums"
-              />
-            </Field>
-          </div>
+              ))}
+            </Select>
+          </Field>
           {/* The offline twin of the portal's combined checkout: one receipt,
               plan plus a credit top-up, so a cash customer's first payment can
               carry both - and the referral pays on the whole of it. */}

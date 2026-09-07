@@ -38,8 +38,9 @@ import {
   creditsForAmount,
   formatCredits,
   planChargeInr,
-  planMonths,
+  planExpiryNote,
   planTermLabel,
+  planTermSuffix,
   rupeesPerCredit,
 } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
@@ -60,19 +61,6 @@ import type { CouponVerdict, CreditPack, Plan } from "@/lib/types";
  */
 
 const SCRIPT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
-
-/**
- * Terms the checkout can price. Mirrors ALLOWED_MONTHS in checkout-actions.ts,
- * ALLOWED_TERMS in admin/plans/actions.ts and plans_duration_months_check in
- * the database.
- *
- * This used to draw a picker above the grid, and the buyer chose the term. It
- * does not any more: the PLAN carries its own term now - plans.duration_months,
- * which settle_payment() reads - so the four values here are the set an admin
- * may choose from rather than a set a customer may. A term outside it would be
- * charged as one month by pricePlan() and granted in full by settlement.
- */
-export const PLAN_MONTHS = [1, 3, 6, 12] as const;
 
 type Handshake = {
   razorpay_order_id?: string;
@@ -1297,14 +1285,14 @@ export function BuyPlans({
   const locked = disabledReason !== null;
 
   /*
-   * The term posted is the PLAN's, not the buyer's.
+   * No term is posted, because there is no longer a term to post.
    *
-   * pricePlan() on the server charges price_per_month x months and records that
-   * term on the payment row, while settle_payment() takes the length of access
-   * from plans.duration_months. Posting the plan's own term is what keeps those
-   * two in step: the money charged and the time granted come from one number.
-   * A plan with no term posts 1, so it is charged its unit price once - and
-   * settlement gives it no expiry, which is what "no term" means.
+   * This used to send `months` off the plan row so that pricePlan()'s
+   * price_per_month x months would charge the plan's own price rather than the
+   * buyer's chosen multiple. The multiplier is gone: the server charges
+   * price_inr once and reads the length of access off plans.duration_days, so
+   * one number decides the money and another decides the time, and neither
+   * comes from the browser.
    *
    * The top-up travels as its pack id (and the typed amount, for the open
    * tier); the server re-prices both parts itself, so the panel's figures and
@@ -1334,7 +1322,6 @@ export function BuyPlans({
         start: () => {
           const fd = new FormData();
           fd.set("plan_id", chosenPlan.id);
-          fd.set("months", String(planMonths(chosenPlan) ?? 1));
           if (addon) {
             fd.set("pack_id", addon.pack.id);
             if (addon.pack.is_open_ended) fd.set("amount_inr", addonAmount);
@@ -1373,7 +1360,6 @@ export function BuyPlans({
           const picked = plan.id === chosenId;
           const total = planChargeInr(plan);
           const cut = coupon.cutFor(total);
-          const months = planMonths(plan);
           // Nothing to charge for means no order to open, so say so on the card
           // rather than letting the click come back with a refusal.
           const buyable = total > 0;
@@ -1406,10 +1392,11 @@ export function BuyPlans({
                 <p className="mt-1 text-xs leading-relaxed text-muted">{plan.description}</p>
               ) : null}
 
-              {/* The figure charged, and under it the term it buys. The unit
-                  price is the small print here rather than the headline: a
-                  twelve-month plan shown at its monthly rate is a price nobody
-                  is ever asked to pay. */}
+              {/* The figure charged, and under it the term it buys. Both come
+                  out of the same two helpers every other screen uses, which is
+                  the point: this card used to do its own arithmetic on
+                  duration_months and so told a buyer that ninety days was
+                  "1 month" and that Rs 999 was a monthly rate. */}
               <Price
                 listInr={total}
                 cut={cut}
@@ -1417,13 +1404,7 @@ export function BuyPlans({
                 figureClass="text-2xl font-semibold text-strong"
               />
               <p className="mt-0.5 text-xs tabular-nums text-muted">
-                {!buyable
-                  ? "Set up by support"
-                  : months === null
-                    ? "one payment · no end date"
-                    : months === 1
-                      ? "for 1 month"
-                      : `for ${months} months · ${fmtRupees(plan.price_per_month)} a month`}
+                {!buyable ? "Set up by support" : planTermSuffix(plan)}
               </p>
               <CodeNote cut={cut} whyNot={coupon.whyNot(total)} keeps="plan" />
 
@@ -1440,9 +1421,7 @@ export function BuyPlans({
                     that is not obvious from its price and cannot be changed
                     later without talking to somebody. */}
                 <Feature icon={<CalendarClock size={13} />}>
-                  {months === null
-                    ? "Never expires"
-                    : `Runs for ${months} month${months === 1 ? "" : "s"} from the day you buy it`}
+                  {planExpiryNote(plan)}
                 </Feature>
                 <Feature icon={<Check size={13} />}>Top up credits any time</Feature>
               </ul>

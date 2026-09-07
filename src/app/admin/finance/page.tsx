@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/ui";
 import type { ExplorerParams } from "@/components/report";
 import { rangeParams, resolveRange } from "@/lib/analytics";
 import { requireSuperAdmin } from "@/lib/auth";
-import { formatCredits } from "@/lib/credits";
+import { formatCredits, planTermLabel, planTermSuffix } from "@/lib/credits";
 import { fmtRupees, istToday } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Plan, Profile } from "@/lib/types";
@@ -101,13 +101,16 @@ export default async function FinancePage({
       .select("id, full_name, email")
       .eq("role", "officer")
       .order("full_name", { nullsFirst: false }),
-    admin.from("plans").select("id, name, price_per_month, included_credits").order("sort_order"),
+    admin
+      .from("plans")
+      .select("id, name, price_inr, included_credits, duration_days, trial_days, is_trial")
+      .order("sort_order"),
   ]);
 
   const customerRows = (customers ?? []) as Pick<Profile, "id" | "full_name" | "email">[];
   const planRows = (plans ?? []) as Pick<
     Plan,
-    "id" | "name" | "price_per_month" | "included_credits"
+    "id" | "name" | "price_inr" | "included_credits" | "duration_days" | "trial_days" | "is_trial"
   >[];
 
   return (
@@ -128,11 +131,18 @@ export default async function FinancePage({
                 id: customer.id,
                 label: `${customer.full_name ?? customer.email}${customer.full_name ? ` · ${customer.email}` : ""}`,
               }))}
+              /* "Base — Rs 499 for 3 months, 800 credits". It read
+                 "Rs 499/month" until 0042, off a column that had never held a
+                 monthly figure - so the admin recording a cash sale was quoted
+                 a third of the real term for three of the four plans. The term
+                 comes from planTermLabel(), the same helper the customer's
+                 card uses. */
               plans={planRows.map((plan) => ({
                 id: plan.id,
-                name: `${plan.name} — ${fmtRupees(plan.price_per_month)}/month, ${formatCredits(plan.included_credits)} credits`,
-                price: Number(plan.price_per_month) || 0,
+                name: `${plan.name} — ${fmtRupees(plan.price_inr)} ${planTermSuffix(plan)}, ${formatCredits(plan.included_credits)} credits`,
+                price: Number(plan.price_inr) || 0,
                 credits: Number(plan.included_credits) || 0,
+                term: planTermLabel(plan),
               }))}
               today={istToday()}
             />

@@ -211,8 +211,12 @@ export default async function PortalHome() {
             <DescRow label="Plan">
               {overview.plan_name ?? <span className="text-muted">None yet</span>}
             </DescRow>
-            {overview.price_per_month ? (
-              <DescRow label="Price">{fmtRupees(overview.price_per_month)} a month</DescRow>
+            {/* What the plan cost, once. It read "... a month" off a column
+                called price_per_month that had never held a monthly figure, so
+                a customer who paid Rs 999 for ninety days was told they were
+                on Rs 999 a month. */}
+            {overview.price_inr ? (
+              <DescRow label="Price">{fmtRupees(overview.price_inr)}</DescRow>
             ) : null}
             <DescRow label="Ends">
               {expiresOn === null ? (

@@ -146,7 +146,7 @@ export function PaymentCards({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-ink">{boughtLabel(row)}</p>
                 {/* A pack is named "Starter", which does not say what it was.
-                    A plan row already reads "... plan · 3 months".
+                    A plan row already reads "Base plan".
 
                     GUARDED ON THE PACK NAME, which the table's own version of
                     this is not. boughtLabel falls back to "Credit top-up" for a

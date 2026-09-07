@@ -46,33 +46,34 @@ function readIncludedCredits(fd: FormData): number | null {
 }
 
 /**
- * Terms a plan may be sold for, mirrored in three places and deliberately so:
- * ALLOWED_MONTHS in checkout-actions.ts prices the order, TERMS in
- * PlanFields.tsx draws the picker, and plans_duration_months_check in the
- * database refuses anything else.
- *
- * The reason it is a closed set rather than a number: the checkout charges
- * price_per_month x the term and coerces a term it does not recognise to ONE
- * month, while settle_payment() would still grant the full length off the plan
- * row. A 24 typed here would sell two years for one month's money.
+ * The longest term a plan may be sold for. plans_duration_days_range in the
+ * database says the same thing, and this is here so the admin gets a sentence
+ * rather than a constraint name.
  */
-const ALLOWED_TERMS = [1, 3, 6, 12];
+const MAX_TERM_DAYS = 3650;
 
 const TERM_REFUSAL =
-  'Choose a term of 1, 3, 6 or 12 months, or switch it off for no expiry. Those are the only terms the checkout can price.';
+  `Give the term as a whole number of days between 1 and ${MAX_TERM_DAYS}, or switch it off for no expiry.`;
 
 /**
- * The plan's term. Blank or absent is null - no expiry - which is the answer
- * for the trial row (whose form has no term field) and for a plan the admin
- * deliberately switched the term off on.
+ * The plan's term, IN DAYS. Blank or absent is null - no expiry - which is the
+ * answer for the trial row (whose form has no term field) and for a plan the
+ * admin deliberately switched the term off on.
  *
  * `undefined` is the refusal, kept distinct from the null that means lifetime.
+ *
+ * This used to read duration_months and accept only 1, 3, 6 or 12, because the
+ * checkout multiplied the price by it. Nothing multiplies now, so the closed
+ * set has no job: duration_days is the term settle_payment() adds, the form
+ * writes it directly, and a free number of days cannot mis-sell anything. The
+ * database derives duration_months from this, so the two cannot contradict.
  */
-function readDurationMonths(fd: FormData): number | null | undefined {
-  const raw = str(fd, "duration_months");
+function readDurationDays(fd: FormData): number | null | undefined {
+  const raw = str(fd, "duration_days");
   if (raw === null || raw === "") return null;
   const value = Number(raw);
-  return ALLOWED_TERMS.includes(value) ? value : undefined;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_TERM_DAYS) return undefined;
+  return value;
 }
 
 /** Trial only. Absent leaves the stored value alone rather than clearing it. */
@@ -94,19 +95,23 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
   const limits = readPlanLimits(fd);
   if ("error" in limits) return fail(limits.error);
 
-  const price = Number(str(fd, "price_per_month") ?? "0");
+  const price = Number(str(fd, "price_inr") ?? "0");
   if (!Number.isFinite(price) || price < 0) return fail("Price must be zero or more.");
 
   const includedCredits = readIncludedCredits(fd);
   if (includedCredits === null) return fail("Credits included must be zero or more.");
 
-  const months = readDurationMonths(fd);
-  if (months === undefined) return fail(TERM_REFUSAL);
+  const days = readDurationDays(fd);
+  if (days === undefined) return fail(TERM_REFUSAL);
 
   /*
    * A new plan is never the trial. There is at most one trial row - a partial
    * unique index enforces it - and it is created by the migration, not from
    * this form, so nothing here needs a way to mint a second one.
+   *
+   * duration_months is not written, here or anywhere: 0042's trigger derives it
+   * from duration_days, so writing it would either be ignored or be a second
+   * opinion about the term.
    */
   const { data, error } = await admin
     .from("plans")
@@ -115,8 +120,8 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
       description: str(fd, "description"),
       ...limits.values,
       included_credits: includedCredits,
-      price_per_month: price,
-      duration_months: months,
+      price_inr: price,
+      duration_days: days,
       is_active: true,
       sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
     })
@@ -155,7 +160,7 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
   const limits = readPlanLimits(fd);
   if ("error" in limits) return fail(limits.error);
 
-  const price = Number(str(fd, "price_per_month") ?? "0");
+  const price = Number(str(fd, "price_inr") ?? "0");
   if (!Number.isFinite(price) || price < 0) return fail("Price must be zero or more.");
 
   const includedCredits = readIncludedCredits(fd);
@@ -176,8 +181,8 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
    */
   const isTrial = (before as { is_trial?: boolean }).is_trial === true;
 
-  const months = isTrial ? null : readDurationMonths(fd);
-  if (months === undefined) return fail(TERM_REFUSAL);
+  const days = isTrial ? null : readDurationDays(fd);
+  if (days === undefined) return fail(TERM_REFUSAL);
 
   const trialDays = readTrialDays(fd);
   if (isTrial && trialDays === undefined) {
@@ -191,8 +196,11 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
     included_credits: includedCredits,
     // Free by constraint, and free is the reason the portal can hand it over
     // without a payment. The form does not offer a price for it.
-    price_per_month: isTrial ? 0 : price,
-    duration_months: months,
+    price_inr: isTrial ? 0 : price,
+    // The trial's term is trial_days and duration_days must stay null on it -
+    // plans_duration_days_range says so, and start_free_trial() reads the other
+    // column.
+    duration_days: days,
     ...(isTrial ? { trial_days: trialDays } : {}),
     sort_order: Number(str(fd, "sort_order") ?? "100") || 100,
   };
@@ -313,7 +321,29 @@ export async function duplicatePlan(
   const { data: plan } = await admin.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("That plan no longer exists.");
 
-  const { id, created_at, updated_at, name, ...rest } = plan as Record<string, unknown> & {
+  /*
+   * Everything except the row's identity and its DERIVED columns.
+   *
+   * tracking_slots is `generated always` (0038) and Postgres refuses an insert
+   * that names a generated column at all - value or not - so a copy carrying it
+   * failed with "cannot insert a non-DEFAULT value into column". Found while
+   * 0042 was adding two more derived columns; price_per_month and
+   * duration_months are stripped for the same reason, though those two are only
+   * overwritten by the trigger rather than refused.
+   *
+   * Stripped by name rather than filtered by a schema lookup because there are
+   * three of them and they are named right here where a fourth would be added.
+   */
+  const {
+    id,
+    created_at,
+    updated_at,
+    name,
+    tracking_slots,
+    price_per_month,
+    duration_months,
+    ...rest
+  } = plan as Record<string, unknown> & {
     id: string;
     created_at: string;
     updated_at: string;
@@ -322,6 +352,9 @@ export async function duplicatePlan(
   void id;
   void created_at;
   void updated_at;
+  void tracking_slots;
+  void price_per_month;
+  void duration_months;
 
   // "Basic" -> "Basic copy" -> "Basic copy 2" ...
   let candidate = `${name} copy`;

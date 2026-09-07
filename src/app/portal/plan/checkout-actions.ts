@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 
 import { checkCoupon, releaseCoupon, reserveCoupon } from "@/lib/coupons";
-import { formatCredits, planTermLabel } from "@/lib/credits";
+import { formatCredits, planChargeInr, planTermLabel } from "@/lib/credits";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
@@ -142,14 +142,6 @@ function buyerDetails(session: SessionUser): CheckoutBuyer {
 
   return buyer;
 }
-
-/**
- * Terms a plan may be bought for. Longer terms mean fewer renewals, not a
- * discount. A "use server" module may only export async functions, so this is
- * private here and mirrored by PLAN_MONTHS in BuyCredits.tsx, which draws the
- * picker; the two must stay in step.
- */
-const ALLOWED_MONTHS = [1, 3, 6, 12];
 
 /**
  * The most a single top-up may be for. Matches the ceiling the admin form puts
@@ -302,11 +294,6 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
   const planId = str(fd, "plan_id");
   if (!planId) return { ok: false, error: "Pick a plan first." };
 
-  // Anything unexpected is treated as one month rather than refused: the term
-  // is a convenience, and a bad value should not stop someone paying.
-  const asked = Number(str(fd, "months") ?? "1");
-  const months = ALLOWED_MONTHS.includes(asked) ? asked : 1;
-
   const { data: plan, error: planError } = await admin
     .from("plans")
     .select("*")
@@ -317,7 +304,19 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
   if (planError) return { ok: false, error: reportError("plan lookup failed", planError, TROUBLE) };
   if (!plan) return { ok: false, error: "That plan is no longer on sale. Pick another one." };
 
-  const listInr = Math.round(plan.price_per_month * months * 100) / 100;
+  /*
+   * The plan's price, charged once. There is no multiplier left to get wrong.
+   *
+   * This used to be price_per_month x a `months` value posted by the browser,
+   * defaulting to 1 and clamped to 1, 3, 6 or 12. Every paid plan had
+   * duration_months = 1, so the sum was always the plan's own price - but the
+   * arithmetic was the only reason the column was called price_per_month, and
+   * the name is what made four screens tell a customer that ninety days was a
+   * month. planChargeInr() reads price_inr and multiplies nothing, so a bad or
+   * hostile `months` in the form can no longer change what is charged: the
+   * field is not read at all.
+   */
+  const listInr = planChargeInr(plan);
   if (listInr <= 0) {
     // A free plan has nothing to charge for, so there is no order to open.
     return {
@@ -335,26 +334,26 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
     credits: plan.included_credits,
     itemName: `${plan.name} plan`,
     /*
-     * The DELIVERED term, not the charged one.
-     *
-     * This used to read `months`, which is the multiplier the price is charged
-     * by and has been 1 on every paid plan since 0038 - so a ninety-day plan
-     * opened a Razorpay order that said "1 month" on it. Harmless while every
-     * plan really was a month; a lie the moment Base and Professional became
-     * three. planTermLabel() reads duration_days, which is what
-     * settle_payment() actually adds.
-     *
-     * The multiplier still decides the SUM (listInr above), so nothing about
-     * what is charged moves here - only what the order says it bought.
+     * What the order says it bought: the term settle_payment() will actually
+     * grant, off duration_days. It once read the posted `months` and so a
+     * ninety-day plan opened a Razorpay order labelled "1 month" - the bug
+     * 0041 caught and this file no longer has a way to reproduce, because
+     * `months` has stopped existing here.
      */
     itemDetail: planTermLabel(plan),
-    columns: { plan_id: plan.id, months },
+    /*
+     * months is stamped 1 rather than dropped: it is a not-null column on
+     * payments and a record of what the receipt was written for. It multiplies
+     * nothing - 0042's comment on the column says so - and settle_payment()
+     * takes the length of access from the plan row.
+     */
+    columns: { plan_id: plan.id, months: 1 },
     notes: {
       user_id: userId,
       kind: "plan",
       plan_id: plan.id,
       plan_name: plan.name,
-      months: String(months),
+      term: planTermLabel(plan),
     },
   };
 }

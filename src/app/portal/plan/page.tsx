@@ -80,7 +80,7 @@ export default async function PlanPage() {
      * The row is needed to answer "what am I on and when does it end", so it is
      * read here and what is FOR SALE is a filter rather than a query.
      */
-    admin.from("plans").select("*").order("sort_order").order("price_per_month"),
+    admin.from("plans").select("*").order("sort_order").order("price_inr"),
     loadCreditRates(admin),
     loadCreditPacks(admin),
     loadSettings(admin),
@@ -422,9 +422,9 @@ export default async function PlanPage() {
               {overview.has_overrides ? <Badge tone="brand">customised</Badge> : null}
             </p>
             <p className="mt-1 text-xs text-muted">
-              {/* The term, not the monthly rate. A customer who paid 2,388 rupees
-                  for a year is not helped by being told the plan is 199 a month. */}
-              {!onTrial && currentPlan && currentPlan.price_per_month > 0
+              {/* The term, off duration_days - which is what the end date
+                  below was computed from, so the two agree by construction. */}
+              {!onTrial && currentPlan && currentPlan.price_inr > 0
                 ? `${planTermLabel(currentPlan).toLowerCase()} · `
                 : ""}
               {expiresOn ? (

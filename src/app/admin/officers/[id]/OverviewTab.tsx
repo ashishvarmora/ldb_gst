@@ -5,7 +5,7 @@ import { UsageChart, buildUsageSeries } from "@/components/UsageChart";
 import { DescRow, LinkButton, LinkCard, Panel } from "@/components/ui";
 import { loadDailyCalls } from "../../usage/ledger";
 import { formatCredits } from "@/lib/credits";
-import { fmtDate, fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, fmtRupees } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { LimitOverrides, OfficerOverview } from "@/lib/types";
@@ -122,8 +122,10 @@ export async function OverviewTab({
             <p className="mt-0.5 text-xs text-muted">{overview.plan_description}</p>
           ) : null}
           <dl className="mt-3 border-t border-divider pt-2">
+            {/* The plan's whole price, charged once - not a monthly rate. The
+                figure has not changed; the words under it were wrong. */}
             <DescRow label="Price">
-              {overview.price_per_month ? `Rs ${overview.price_per_month} a month` : "--"}
+              {overview.price_inr ? fmtRupees(overview.price_inr) : "--"}
             </DescRow>
             <DescRow label="Started">{fmtDateTime(overview.plan_assigned_at)}</DescRow>
             <DescRow label="Ends">

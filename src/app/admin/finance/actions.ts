@@ -6,7 +6,7 @@ import { writeAudit } from "@/lib/audit";
 import { assertSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
 import { fail, done, str } from "@/lib/forms";
-import { fmtRupees } from "@/lib/format";
+import { fmtDate, fmtRupees } from "@/lib/format";
 import { OFFLINE_METHODS, methodLabel } from "@/lib/analytics";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
@@ -46,7 +46,14 @@ function readCredits(raw: string | null): number | null {
   return Math.round(value * 100) / 100;
 }
 
-type SettleResult = { ok?: boolean; granted?: boolean; reason?: string; credits?: number };
+type SettleResult = {
+  ok?: boolean;
+  granted?: boolean;
+  reason?: string;
+  credits?: number;
+  /** The date settle_payment() actually wrote, or null for a plan with no end. */
+  plan_expires_on?: string | null;
+};
 
 /** What each refusal from the database means in words a person can act on. */
 const REFUSALS: Record<string, string> = {
@@ -101,14 +108,6 @@ export async function recordOfflinePayment(
   }
 
   /*
-   * Months only mean anything for a plan, and a plan bought for zero months is
-   * a plan that expires the moment it is sold. Clamped rather than rejected:
-   * one month is unambiguously what an empty box means.
-   */
-  const monthsRaw = Number(str(fd, "months") ?? "1");
-  const months = Number.isFinite(monthsRaw) ? Math.min(Math.max(Math.trunc(monthsRaw), 1), 36) : 1;
-
-  /*
    * The date the money actually arrived, which is often not today - a cheque
    * cleared last Tuesday belongs in last Tuesday's revenue, or every monthly
    * total is wrong by however long the paperwork took. A future date is
@@ -140,7 +139,17 @@ export async function recordOfflinePayment(
     p_kind: kind,
     p_credits: credits ?? 0,
     p_plan: planId,
-    p_months: months,
+    /*
+     * Always one, and no longer read off the form.
+     *
+     * p_months used to be a number an admin typed, and pricePlan()'s twin
+     * arithmetic charged price_per_month by it - so a receipt for a ninety-day
+     * plan could be entered as "3 months" and stamped a term the plan does not
+     * have. The amount received is typed in full above, settle_payment() takes
+     * the length of access from plans.duration_days, and payments.months is a
+     * historical column that multiplies nothing (0042).
+     */
+    p_months: 1,
     p_actor: actor.id,
     p_note: str(fd, "note"),
     p_paid_at: paidAt,
@@ -158,15 +167,28 @@ export async function recordOfflinePayment(
     entity: "payment",
     entityId: userId,
     entityLabel: customer.full_name ?? customer.email,
-    meta: { amount_inr: amount, method, kind, months, credits: result.credits ?? credits, paid_at: paidAt },
+    meta: {
+      amount_inr: amount,
+      method,
+      kind,
+      plan_id: planId,
+      credits: result.credits ?? credits,
+      paid_at: paidAt,
+    },
   });
 
   revalidatePath("/admin/finance");
   revalidatePath(`/admin/officers/${userId}`);
 
+  /*
+   * The term the plan actually grants, not a number the form collected. This
+   * said "a plan for 1 month" whatever was bought, because `months` defaulted
+   * to 1 and never described the term - settle_payment() returns the expiry it
+   * set, so the receipt now quotes the date it wrote.
+   */
   const bought =
     kind === "plan"
-      ? `a plan for ${months} month${months === 1 ? "" : "s"}${
+      ? `a plan${result.plan_expires_on ? ` until ${fmtDate(result.plan_expires_on)}` : " with no end date"}${
           credits > 0 ? ` plus ${formatCredits(credits)} credits on top` : ""
         }`
       : `${formatCredits(result.credits ?? credits ?? 0)} credits`;

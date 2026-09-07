@@ -488,8 +488,9 @@ export default async function SettingsPage({
 
                 <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
                   <span className="text-ink">What a payment buys is not set here.</span> Plans carry
-                  their own monthly price, and the credit packs on the Credits page are the top-up
-                  price list. This panel only decides whether anyone may pay in the app at all.
+                  their own price and their own term, and the credit packs on the Credits page are
+                  the top-up price list. This panel only decides whether anyone may pay in the app
+                  at all.
                 </p>
               </div>
 

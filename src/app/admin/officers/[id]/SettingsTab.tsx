@@ -9,8 +9,8 @@ import { LabelWithInfo } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { TelegramChatIdInfo } from "@/components/TelegramChatIdInfo";
 import { Badge, DescRow, Panel } from "@/components/ui";
-import { formatCredits } from "@/lib/credits";
-import { fmtDateTime, fmtRelative } from "@/lib/format";
+import { formatCredits, planChargeInr, planTermSuffix } from "@/lib/credits";
+import { fmtDateTime, fmtRelative, fmtRupees } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   GoogleSheetConfig,
@@ -219,9 +219,11 @@ export async function SettingsTab({
           {currentPlan ? (
             <dl className="mt-4 border-t border-divider pt-3">
               <DescRow label="Assigned">{fmtDateTime(overview.plan_assigned_at)}</DescRow>
+              {/* Price and term together, both from the helpers - so this row
+                  cannot say "a month" about a plan that runs ninety days. */}
               <DescRow label="Price">
-                {currentPlan.price_per_month > 0
-                  ? `Rs ${currentPlan.price_per_month} a month`
+                {currentPlan.price_inr > 0
+                  ? `${fmtRupees(planChargeInr(currentPlan))} ${planTermSuffix(currentPlan)}`
                   : "Free"}
               </DescRow>
               <DescRow label="Credits included">

@@ -15,7 +15,7 @@ export const metadata = { title: "Plans & credits — Admin" };
  */
 const INTRO: Record<Tab, string> = {
   plans:
-    "What a customer buys first. A plan sets the monthly price, the credits the account opens with, and how many trucks may be tracked automatically.",
+    "What a customer buys first. A plan sets its whole price, how long it runs, the credits the account opens with, and how many trucks may be tracked automatically.",
   rules:
     "Two conversions, both set here, both live from the moment you save. Money becomes credits at the pack prices; credits become work at the rates below.",
 };

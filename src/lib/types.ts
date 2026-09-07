@@ -26,28 +26,27 @@ export type Plan = {
   /** Credits handed over when the plan is assigned. */
   included_credits: number;
   /**
-   * The price of ONE TERM, not of a month, whatever the column is called.
+   * What the plan costs, in rupees, in total and ONCE. Not a rate.
    *
-   * duration_months is 1 on every paid plan, so pricePlan()'s
-   * price_per_month x months charges this figure once - Rs 999 for ninety
-   * days rather than Rs 999 three times. Renaming the column would mean
-   * rewriting the checkout, the admin form and every screen that quotes it;
-   * 0038 documents the meaning instead.
+   * This is 0042's column and it replaced price_per_month, which had held the
+   * same figure under a name that said otherwise ever since 0038 - Rs 999 was
+   * always the whole price of ninety days, never a monthly one. The old column
+   * still exists in the database as a mirror the trigger keeps equal to this
+   * one, deliberately not typed here, so that nothing in the app can read it.
    */
-  price_per_month: number;
+  price_inr: number;
   /**
-   * What the CHARGE is multiplied by. 1 on every plan sold today.
+   * How long access lasts, in days, from the day it is bought. THE term, and
+   * since 0042 the only one - settle_payment() adds it. Null on the trial,
+   * which carries trial_days instead, and on a plan with no expiry.
    *
-   * Not the term any more - see duration_days, which is. Kept because
-   * pricePlan() charges price_per_month x this and its check constraint only
-   * admits 1, 3, 6 or 12; a seven-day plan has no number of months to give it.
-   */
-  duration_months: number | null;
-  /**
-   * How long access lasts, in days, from the day it is bought. THE authority
-   * on the term - settle_payment() reads this first and only falls back to
-   * duration_months for a plan row 0038 did not convert. Null on the trial,
-   * which carries trial_days instead.
+   * Sold as months where it divides evenly (30 -> "1 month", 90 -> "3 months")
+   * and as days where it does not. planTermLabel() in src/lib/credits.ts is the
+   * one place that is worked out.
+   *
+   * plans.duration_months is not typed here either: 0042 pinned it to 1-or-null
+   * derived from this column, so it no longer describes a length and nothing
+   * reads it.
    */
   duration_days: number | null;
   /**
@@ -119,7 +118,8 @@ export type Profile = {
 export type OfficerOverview = Profile & {
   plan_name: string | null;
   plan_description: string | null;
-  price_per_month: number | null;
+  /** The plan's whole price, charged once. Null when there is no plan. */
+  price_inr: number | null;
   included_credits: number | null;
   truck_limit: number;
   has_overrides: boolean;

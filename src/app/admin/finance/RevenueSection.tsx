@@ -200,7 +200,7 @@ export async function RevenueSection({
         revenue.filter((row) => row.kind === "plan"),
         (row) => row.gross_inr,
       ),
-      hint: "Monthly access, sold by the month",
+      hint: "Access to the platform, bought a term at a time",
       href: receipts({ kind: "plan", status: "paid" }),
     },
     {
