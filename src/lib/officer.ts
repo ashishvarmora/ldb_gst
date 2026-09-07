@@ -196,8 +196,22 @@ export function topUpBlockedReason(
      .tmpwork pulls this expression straight out of this file and evaluates it
      against live officer_overview rows - so the proof tests the shipped rule
      rather than a copy of it that is free to drift. */
+  /*
+   * AN ACTIVE PLAN, AND NOTHING ELSE.
+   *
+   * This previously read `plan_active || (plan_id !== null && !plan_is_trial)`,
+   * which let a LAPSED paid plan through - my own decision, argued on the
+   * grounds that a lapsed customer is the one you most want to sell to. The
+   * owner has since set the rule explicitly, and it is narrower: top-up
+   * requires an ACTIVE plan. An expired plan, a trial, and an account that
+   * never bought a plan are all refused.
+   *
+   * plan_active is already exactly this test - plan_id is not null, the expiry
+   * is null or not yet past, and the account is active - so a trial that is
+   * still running does satisfy it, and the trial exclusion has to be explicit.
+   */
   // gate:begin
-  const holdsPlan = overview.plan_active || (overview.plan_id !== null && !overview.plan_is_trial);
+  const holdsPlan = overview.plan_active && !overview.plan_is_trial;
   // gate:end
   if (holdsPlan) return null;
 

@@ -1206,6 +1206,22 @@ export async function runTrackingSweep(
     .select("*, profiles!inner(status, plan_expires_on)")
     .eq("is_active", true)
     .eq("profiles.status", "active")
+    /*
+     * A PLAN IS REQUIRED FOR AUTOMATIC TRACKING, and plan_id is half of that
+     * test rather than a formality.
+     *
+     * This used to filter on the expiry date alone - null or today or later -
+     * and null passes. Null is what a LIFETIME plan carries, and it is equally
+     * what an account holding NO PLAN AT ALL carries, so the two were
+     * indistinguishable and an account that had never bought anything was
+     * polled and charged a credit per check. Two such accounts existed when
+     * this was found.
+     *
+     * The rule is: an active plan allows automatic tracking; an expired plan or
+     * no plan allows manual search only. So both halves are tested here, the
+     * same pair officer_overview.plan_active is built from.
+     */
+    .not("profiles.plan_id", "is", null)
     .or(`plan_expires_on.is.null,plan_expires_on.gte.${istToday()}`, {
       referencedTable: "profiles",
     })
