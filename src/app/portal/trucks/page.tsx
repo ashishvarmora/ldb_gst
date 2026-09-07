@@ -4,7 +4,6 @@ import { BellOff, Plus } from "lucide-react";
 import { AddTruckForm } from "./AddTruckForm";
 import { Modal } from "@/components/Modal";
 import { TruckCard, isWatching } from "@/components/TruckCard";
-import { HelpNote } from "@/components/Disclosure";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { loadSettings } from "@/lib/settings";
@@ -17,29 +16,46 @@ export const metadata = { title: "My trucks — Rahdari" };
 const PAGE_SIZE = 12;
 
 /**
- * A truck is live or it is paused. There is no third thing.
+ * A truck is being tracked, or it is on the list waiting. Two places, no third.
  *
- * There were four tabs: All, Watching, Needs an alert, Paused. "Watching" and
- * "Needs an alert" were both live trucks - the split was really "has an
- * enabled alert", which is a property of one truck rather than a place to
- * keep it. It reads better as a badge on the row that needs it than as a tab
- * somebody has to visit to discover the row exists.
+ * There were three tabs and the first was All - which is not a state a truck
+ * can be in, it is the absence of a question. It also meant the default view
+ * mixed live lorries with parked ones, so the number an officer actually wants
+ * ("how many am I paying to watch right now") was never on screen and the list
+ * they scanned was always the longest one.
+ *
+ * The names are the officer's words rather than the column's. is_active is a
+ * boolean about a database row; "Live tracking" and "Watchlist" say what the
+ * platform is doing about the lorry - the second deliberately not "Paused",
+ * because a paused truck has not been removed and its history is intact. It is
+ * still on the list, just not costing anything.
  */
-type Filter = "all" | "live" | "paused";
+type Filter = "live" | "watchlist";
 
 const FILTER_LABEL: Record<Filter, string> = {
-  all: "All",
-  live: "Live",
-  paused: "Paused",
+  live: "Live tracking",
+  watchlist: "Watchlist",
 };
 
+/** What each tab means, for the empty state and the tab's own title. */
+const FILTER_NOTE: Record<Filter, string> = {
+  live: "Being checked automatically",
+  watchlist: "On your list, not being checked",
+};
+
+/*
+ * Live is the default, and ?filter=paused still lands somewhere sensible.
+ * Links to this page exist in alert messages and in the admin console, and a
+ * stale one that silently showed the wrong tab would be worse than a 404.
+ */
 function parseFilter(raw: string | undefined): Filter {
-  return raw === "live" || raw === "paused" ? raw : "all";
+  if (raw === "watchlist" || raw === "paused") return "watchlist";
+  return "live";
 }
 
 function hrefFor(filter: Filter, page: number): string {
   const params = new URLSearchParams();
-  if (filter !== "all") params.set("filter", filter);
+  if (filter !== "live") params.set("filter", filter);
   if (page > 1) params.set("page", String(page));
   const query = params.toString();
   return query ? `/portal/trucks?${query}` : "/portal/trucks";
@@ -94,16 +110,13 @@ export default async function TrucksPage({
   );
 
   const counts: Record<Filter, number> = {
-    all: all.length,
     live: all.filter((truck) => truck.is_active).length,
-    paused: all.filter((truck) => !truck.is_active).length,
+    watchlist: all.filter((truck) => !truck.is_active).length,
   };
 
-  const matching = all.filter((truck) => {
-    if (filter === "live") return truck.is_active;
-    if (filter === "paused") return !truck.is_active;
-    return true;
-  });
+  const matching = all.filter((truck) =>
+    filter === "live" ? truck.is_active : !truck.is_active,
+  );
 
   /* A live truck with no enabled alert is never checked. That used to be its
      own tab; it is a line under the tabs now, so it is seen without going
@@ -121,7 +134,9 @@ export default async function TrucksPage({
     <>
       <PageHeader
         title="My trucks"
-        subtitle="What you are watching, and what each one will tell you."
+        /* No subtitle. It said "what you are watching, and what each one will
+           tell you", which the two tabs and the rows below now say better -
+           and on a phone it pushed the first truck below the fold. */
         actions={
           <Modal
             triggerLabel="Add truck"
@@ -145,15 +160,6 @@ export default async function TrucksPage({
         }
       />
 
-      {/* The rule that surprises people - an alert is what causes a check, so a
-          truck with none is watched in name only. Kept on the page because it
-          decides whether this page does anything, folded because it is read
-          once. */}
-      <HelpNote title="When is a truck actually checked?" className="mb-4">
-        Only when one of its alerts is due. A truck with no alert is never
-        checked and nothing about it reaches you.
-      </HelpNote>
-
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
@@ -170,6 +176,7 @@ export default async function TrucksPage({
               <Link
                 key={value}
                 href={hrefFor(value, 1)}
+                title={FILTER_NOTE[value]}
                 className={cx(
                   "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition",
                   value === filter
@@ -179,22 +186,26 @@ export default async function TrucksPage({
               >
                 {FILTER_LABEL[value]}
                 <span className="tabular-nums opacity-70">{counts[value]}</span>
+                <span className="sr-only"> — {FILTER_NOTE[value]}</span>
               </Link>
             ))}
           </div>
 
-          {/* Not a link any more: there is no tab to send anyone to, and there
-              does not need to be - the cards below carry the badge, so the
-              count says how many to look for rather than hiding them behind a
-              fourth place to visit. */}
-          {filter !== "paused" && silentCount > 0 ? (
-            <p className="flex items-start gap-2 rounded-xl border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-warn-500">
-              <BellOff size={14} className="mt-px shrink-0" />
-              <span>
-                {silentCount === 1
-                  ? "1 live truck has no alert switched on, so it is never checked."
-                  : `${silentCount} live trucks have no alert switched on, so they are never checked.`}{" "}
-                Open one to add an alert.
+          {/*
+            The rule that surprises people, and the only place it still gets
+            screen space: a truck is checked because an alert came due, so one
+            with no alert is watched in name only. It used to be a folded
+            HelpNote at the top of the page that everybody read once and then
+            scrolled past for ever. Now it appears only when it is true of this
+            officer's list, says how many, and the rows themselves carry a "no
+            alert" mark so there is something to look for.
+          */}
+          {filter === "live" && silentCount > 0 ? (
+            <p className="flex items-center gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
+              <BellOff size={13} className="shrink-0" />
+              <span className="min-w-0">
+                {silentCount === 1 ? "1 truck has" : `${silentCount} trucks have`} no alert, so
+                nothing is checked. Open one to add an alert.
               </span>
             </p>
           ) : null}
@@ -202,16 +213,19 @@ export default async function TrucksPage({
           {shown.length === 0 ? (
             <Panel bodyClassName="p-0">
               <EmptyState
-                title={`No ${FILTER_LABEL[filter].toLowerCase()} trucks`}
+                title={filter === "live" ? "Nothing is being tracked" : "Your watchlist is empty"}
                 description={
-                  filter === "paused"
-                    ? "Every truck on your list is being checked."
-                    : undefined
+                  filter === "live"
+                    ? "Every truck on your list is paused. Switch one on to start checking it."
+                    : "Every truck on your list is being checked."
                 }
               />
             </Panel>
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            /* One column, always. These are rows now rather than cards, and
+               two columns of rows on a wide screen means the eye has to
+               scan two places for the number it is looking for. */
+            <div className="space-y-2">
               {shown.map((truck) => (
                 <TruckCard key={truck.id} truck={truck} alerts={byTruck.get(truck.id) ?? []} />
               ))}

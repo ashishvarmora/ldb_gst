@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { BellOff, BellRing, ChevronRight, Clock, MapPin, Plus, Timer } from "lucide-react";
+import { BellOff, ChevronRight, Timer } from "lucide-react";
 
+import { TrackingToggle } from "@/components/TrackingToggle";
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
-import { describeAlert } from "@/lib/alerts";
 import { fmtRelative } from "@/lib/format";
 import { autoPauseCountdown, pauseCopyFor } from "@/lib/pause";
 import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
@@ -69,70 +69,36 @@ export function lastCheckedLabel(
 }
 
 /**
- * The alert line, which is the reason the truck is on the list at all: what
- * will reach you, or why nothing will.
- */
-function AlertStrip({
-  truck,
-  alerts,
-}: {
-  truck: TrackedTruck;
-  alerts: TruckAlertWithTemplate[];
-}) {
-  const enabled = alerts.filter((alert) => alert.is_enabled);
-
-  if (enabled.length === 0) {
-    const nothingYet = alerts.length === 0;
-    return (
-      <div
-        className={cx(
-          "mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2",
-          truck.is_active
-            ? "border-warn-500/40 bg-warn-500/10 text-warn-500"
-            : "border-line bg-raised text-muted",
-        )}
-      >
-        <BellOff size={14} className="shrink-0" />
-        <span className="min-w-0 flex-1 text-xs leading-snug">
-          {nothingYet ? "No alert yet — nothing reaches you" : "All alerts off — nothing reaches you"}
-        </span>
-        {truck.is_active ? (
-          /* The whole card is already a link to the truck, where the add-alert
-             form is open when there is nothing on it - so this is the cue, not
-             a second link. */
-          <span className="flex shrink-0 items-center gap-1 rounded-md bg-warn-500/15 px-2 py-1 text-[11px] font-medium">
-            <Plus size={11} />
-            Add one
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 rounded-lg border border-brand-500/30 bg-brand-500/8 px-2.5 py-2">
-      <p className="flex items-center gap-2 text-xs font-medium text-brand-500">
-        <BellRing size={14} className="shrink-0" />
-        Watching
-      </p>
-      <ul className="mt-1 space-y-0.5">
-        {enabled.slice(0, 2).map((alert) => (
-          <li key={alert.id} className="truncate text-xs text-ink">
-            {describeAlert(alert)}
-          </li>
-        ))}
-        {enabled.length > 2 ? (
-          <li className="text-xs text-muted">+ {enabled.length - 2} more</li>
-        ) : null}
-      </ul>
-    </div>
-  );
-}
-
-/**
- * One card per truck, holding only what a list is scanned for: the number,
- * what is watching it, whether it is moving, where it was last seen and when
- * it was last checked. Anything else belongs on the truck's own page.
+ * One truck, as a row that can be scanned rather than read.
+ *
+ * This was a card the size of a small form: a status rail, the number, a
+ * bordered alert panel listing up to two alerts by name, then a bordered
+ * definition list carrying an icon, the last location, a relative time, a
+ * second icon and the last-checked sentence. Six lines and three nested
+ * borders per lorry, so four trucks filled a phone screen and finding the one
+ * that had stopped meant scrolling.
+ *
+ * What survives is what the list is actually scanned for:
+ *
+ *   the number          the only thing anyone searches by
+ *   where it is         one line, the answer to "where is my lorry"
+ *   why it stopped      only when the platform stopped it, never for a pause
+ *                       the officer made themselves
+ *   a switch            so a truck can be turned off from here
+ *
+ * Everything else - the alert names, the failure budget, the auto-pause
+ * settings, the crossing history - is on the truck's own page, one tap away
+ * through the same card. A list is for choosing which truck to open; it is not
+ * a place to configure one.
+ *
+ * WHY THE LINK IS AN OVERLAY
+ *
+ * The whole card used to be an <a>. It cannot be any more: a <form> nested in
+ * an anchor is invalid HTML and a button inside one navigates as well as
+ * submitting, so the switch could never live inside it. The anchor is now an
+ * absolutely positioned overlay covering the card, with the switch stacked
+ * above it - which keeps the entire card tappable while leaving a live control
+ * in it.
  */
 export function TruckCard({
   truck,
@@ -144,84 +110,104 @@ export function TruckCard({
   const status = truck.is_active ? truck.status : "unknown";
   const pausedCopy = pauseCopyFor(truck);
   const countdown = autoPauseCountdown(truck);
+  const silent = truck.is_active && !isWatching(alerts);
 
   return (
-    <Link
-      href={`/portal/trucks/${truck.id}`}
+    <div
       className={cx(
-        "panel group relative block overflow-hidden pl-5 transition",
+        "panel group relative overflow-hidden transition",
         "hover:border-brand-500/45 hover:shadow-[var(--shadow-raised)]",
-        "focus-visible:border-brand-500",
-        !truck.is_active && "opacity-75",
+        "focus-within:border-brand-500",
+        !truck.is_active && "opacity-80",
       )}
     >
-      <span
-        aria-hidden
-        className={cx("absolute inset-y-0 left-0 w-1.5", STATUS_RAIL[status])}
-      />
+      <span aria-hidden className={cx("absolute inset-y-0 left-0 w-1", STATUS_RAIL[status])} />
 
-      <div className="p-4 pl-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Mono className="text-[15px] font-semibold tracking-wide text-strong">
-                {truck.truck_number}
-              </Mono>
-              {pausedCopy ? <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge> : null}
-              {/*
-                A truck that is still running but has a stop time coming reads
-                as an ordinary truck, which is how somebody forgets they set
-                one. The countdown is small and beside the number so it is
-                visible without competing with the movement status.
-              */}
-              {countdown ? (
-                <span className="inline-flex items-center gap-1 text-[11px] text-faint">
-                  <Timer size={11} className="shrink-0" />
-                  stops {countdown}
-                </span>
-              ) : null}
-            </div>
+      {/*
+        The tap target for the whole row, under everything else. Its accessible
+        name is the registration number, so a screen reader moving through the
+        list hears the truck rather than "link" twelve times.
+      */}
+      <Link
+        href={`/portal/trucks/${truck.id}`}
+        className="absolute inset-0 z-0 focus-visible:outline-none"
+      >
+        <span className="sr-only">Open {truck.truck_number}</span>
+      </Link>
+
+      <div className="relative z-10 flex items-center gap-3 py-2.5 pr-3 pl-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <Mono className="text-sm font-semibold tracking-wide text-strong">
+              {truck.truck_number}
+            </Mono>
+
+            {/*
+              Only an automatic stop earns a badge. A truck the officer paused
+              themselves needs no explanation, and labelling it competes with
+              the four that do mean something is wrong.
+            */}
+            {pausedCopy?.automatic ? (
+              <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge>
+            ) : null}
+
             {truck.label ? (
-              <span className="mt-0.5 block truncate text-xs text-muted">{truck.label}</span>
+              <span className="truncate text-xs text-muted">{truck.label}</span>
             ) : null}
           </div>
 
-          <span className="flex shrink-0 items-center gap-1">
-            <span className={cx("text-xs font-medium", STATUS_TEXT[status])}>
-              {TRUCK_STATUS_LABEL[status]}
-            </span>
-            <ChevronRight
-              size={15}
-              className="text-faint transition group-hover:translate-x-0.5 group-hover:text-brand-500"
-            />
-          </span>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+            {truck.is_active ? (
+              <span className={cx("font-medium", STATUS_TEXT[status])}>
+                {TRUCK_STATUS_LABEL[status]}
+              </span>
+            ) : (
+              <span className="font-medium text-muted">
+                {pausedCopy?.automatic ? "Stopped automatically" : "Paused by you"}
+              </span>
+            )}
+
+            {truck.last_location ? (
+              <span className="min-w-0 truncate text-muted">
+                {truck.last_location}
+                {truck.last_event_at ? ` · ${fmtRelative(truck.last_event_at)}` : ""}
+              </span>
+            ) : (
+              <span className="text-faint">No crossing yet</span>
+            )}
+
+            {/* A stop time already set, so nobody is surprised by it later. */}
+            {countdown ? (
+              <span className="inline-flex items-center gap-1 text-faint">
+                <Timer size={11} className="shrink-0" />
+                stops {countdown}
+              </span>
+            ) : null}
+
+            {/* The one thing worth interrupting a scan for: this truck is on,
+                and nothing will ever reach the officer about it. */}
+            {silent ? (
+              <span className="inline-flex items-center gap-1 text-warn-500">
+                <BellOff size={11} className="shrink-0" />
+                no alert
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <AlertStrip truck={truck} alerts={alerts} />
+        <TrackingToggle
+          truckId={truck.id}
+          active={truck.is_active}
+          truckNumber={truck.truck_number}
+          resumable={pausedCopy?.resumable ?? true}
+        />
 
-        <dl className="mt-3 space-y-2 border-t border-divider pt-3 text-xs">
-          <div className="flex items-start gap-2">
-            <MapPin size={13} className="mt-px shrink-0 text-faint" />
-            <dd className="min-w-0 text-ink">
-              {truck.last_location ? (
-                <>
-                  <span className="block truncate">{truck.last_location}</span>
-                  {truck.last_event_at ? (
-                    <span className="text-muted">{fmtRelative(truck.last_event_at)}</span>
-                  ) : null}
-                </>
-              ) : (
-                <span className="text-muted">No crossing recorded yet</span>
-              )}
-            </dd>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Clock size={13} className="mt-px shrink-0 text-faint" />
-            <dd className="min-w-0 text-muted">{lastCheckedLabel(truck, alerts)}</dd>
-          </div>
-        </dl>
+        <ChevronRight
+          size={15}
+          aria-hidden
+          className="shrink-0 text-faint transition group-hover:translate-x-0.5 group-hover:text-brand-500"
+        />
       </div>
-    </Link>
+    </div>
   );
 }

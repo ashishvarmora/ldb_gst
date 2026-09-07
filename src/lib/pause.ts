@@ -76,6 +76,13 @@ export function dueForAutoPause(
  * Three fields because three different lengths are needed. `badge` fits beside
  * a registration number, `line` is the sentence under it, and `detail` is the
  * paragraph on the truck's own page that says what to do about it.
+ *
+ * The badges are capitalised and say what happened, not what the row is. They
+ * used to read "paused", "time up", "stopped moving", "account off" - shorthand
+ * that a reader has to already know the feature to decode, and which said the
+ * same word for a decision the officer made and a fault they need to act on.
+ * An officer scanning a list of forty lorries has to be able to tell, without
+ * opening anything, which of these is their own doing and which is a problem.
  */
 export type PauseCopy = {
   /** Two or three words, for a Badge next to the truck number. */
@@ -91,48 +98,64 @@ export type PauseCopy = {
    * changes - a suspended account, or a number the toll network cannot answer.
    */
   resumable: boolean;
+  /**
+   * Did the platform stop this, or did the officer?
+   *
+   * The distinction the list has to make at a glance. "I paused this last
+   * Tuesday" needs no explanation; "the platform stopped this without me" is
+   * the only case where the reason is worth screen space, and it is the thing
+   * the owner asked to be labelled. One flag rather than each screen testing
+   * `paused_reason !== "manual"`, which is the shape that goes stale the next
+   * time a reason is added.
+   */
+  automatic: boolean;
 };
 
 export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
   manual: {
-    badge: "paused",
+    badge: "Paused by you",
     tone: "neutral",
-    line: "Paused — not being checked",
+    line: "Paused by you — not being checked",
     detail:
       "You paused this truck. Nothing is being checked and no credits are being spent. Its recorded crossings are all still here.",
     resumable: true,
+    automatic: false,
   },
   schedule: {
-    badge: "time up",
+    badge: "Time limit reached",
     tone: "brand",
-    line: "Paused — the time you set has run out",
+    line: "Stopped automatically — the time limit you set has passed",
     detail:
       "This truck was set to stop being checked automatically after a set time, and that time has passed. It is no longer costing credits, and everything it recorded is still here. Switch it back on to carry on — you can set a new stop time at the same moment.",
     resumable: true,
+    automatic: true,
   },
   inactive: {
-    badge: "stopped moving",
+    badge: "No movement",
     tone: "warn",
-    line: "Paused — no crossing came through for a long time",
+    line: "Stopped automatically — no toll crossing for a long time",
     detail:
       "No new toll crossing has arrived for this truck for long enough that checking it was only ever going to return the same answer, so it was paused rather than left spending credits on it. That usually means the lorry is parked. Switch it back on when it is on the road again.",
     resumable: true,
+    automatic: true,
   },
   repeated_failures: {
-    badge: "not answering",
+    badge: "Number not responding",
     tone: "bad",
-    line: "Paused — the toll network kept failing on this number",
+    line: "Stopped automatically — the toll network keeps failing on this number",
     detail:
       "The toll network could not answer for this registration number several times in a row, so checking was paused to stop it spending credits on a question with no answer. The usual cause is a typo in the number, or a lorry the network has stopped reporting. Check the number first — switching it back on without changing anything will most likely fail again.",
     resumable: false,
+    automatic: true,
   },
   account_suspended: {
-    badge: "account off",
+    badge: "Account suspended",
     tone: "bad",
-    line: "Paused — this account is suspended",
+    line: "Stopped — this account is suspended",
     detail:
       "Automatic checking is stopped for every truck on this account while it is suspended. Nothing has been lost. Contact support to have it switched back on.",
     resumable: false,
+    automatic: true,
   },
 };
 
