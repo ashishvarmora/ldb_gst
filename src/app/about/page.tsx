@@ -118,11 +118,24 @@ export default async function AboutPage() {
 
         <Section id="how-paid" title="How it is paid for">
           <p>
-            A plan sets how many vehicles may be watched at once, and until when. Credits pay for
-            the checking itself, at one credit per check — whether we ran it automatically or you
-            ran the lookup yourself. Credits never expire, and the price of every action is
+            A plan sets how many vehicles may be watched at once, and until when. Its price is for
+            the whole plan and is charged once, not per month. Credits pay for the checking itself,
+            at one credit per check — whether we ran it automatically or you ran the lookup
+            yourself. Credits you have paid for never expire, and the price of every action is
             published before you buy. That is also why a paused vehicle costs nothing: no checks,
             no credits.
+          </p>
+          {/* The consequence, said here because "one credit per check" above is
+              exactly the sentence that raises it. A reader who works out what a
+              fifteen-minute beat costs will ask what happens when the balance
+              runs out, and the honest answer - the vehicles stop rather than
+              quietly go unwatched - is a reason to trust the product, not a
+              caveat to bury. */}
+          <p>
+            When the balance runs out, checking does not go quiet on you: every vehicle you have
+            live is paused and says so, and stops spending. Top up and take the ones you still need
+            live again. The free trial is the one thing with an end date on its credits — they come
+            with it and finish with it.
           </p>
           <p>
             <Link

@@ -39,7 +39,7 @@ import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE, lastCheckedLabel } from "@/compo
 import { Badge, EmptyState, LinkCard, Panel, cx } from "@/components/ui";
 import { alertSentence } from "@/lib/alerts";
 import { intervalLabel } from "@/lib/intervals";
-import { CREDIT_ACTIONS, costOf, formatCredits, loadRate } from "@/lib/credits";
+import { CREDIT_ACTIONS, TOPUP_HREF, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import {
@@ -233,11 +233,29 @@ export default async function TruckDetailPage({
               info={
                 <>
                   <p>{pauseNote}</p>
+                  {/* Where to go next depends on which kind of stop it was.
+                      The per-truck limits are edited in Settings below; an
+                      empty balance and a lapsed plan are not on this truck at
+                      all, and pointing an officer at this lorry's fields to fix
+                      either would send them looking for a setting that does not
+                      exist. */}
                   <p>
                     {PAUSE_HELP_LINE}{" "}
-                    <Link href="#tracking" className="font-medium text-brand-500 hover:underline">
-                      Change when it stops by itself
-                    </Link>
+                    {truck.paused_reason === "no_credits" ||
+                    truck.paused_reason === "plan_expired" ? (
+                      <Link
+                        href={TOPUP_HREF}
+                        className="font-medium text-brand-500 hover:underline"
+                      >
+                        {truck.paused_reason === "no_credits"
+                          ? "Top up to start checking again"
+                          : "Renew the plan to start checking again"}
+                      </Link>
+                    ) : (
+                      <Link href="#tracking" className="font-medium text-brand-500 hover:underline">
+                        Change when it stops by itself
+                      </Link>
+                    )}
                     .
                   </p>
                 </>
@@ -678,7 +696,8 @@ export default async function TruckDetailPage({
           <HelpNote title="What stops this truck by itself" className="mt-4">
             <p>
               A tracked truck is checked every fifteen minutes and each check costs one credit —
-              about 96 credits a day for one lorry. Four things stop the checks:
+              about 96 credits a day for one lorry. Pausing it is the largest thing you can do
+              about that, and these stop the checks on their own:
             </p>
             <ul className="mt-2 space-y-1.5">
               {AUTO_PAUSE_RULES.map((rule) => (

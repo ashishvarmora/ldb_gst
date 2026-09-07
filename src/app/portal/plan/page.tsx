@@ -21,7 +21,6 @@ import { SupportPanel } from "@/components/SupportLine";
 import { Badge, LinkCard, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
 import {
   creditStanding,
-  creditsForAmount,
   describeRate,
   formatCredits,
   loadCreditPacks,
@@ -30,7 +29,7 @@ import {
   searchesLeft,
   searchesLeftLabel,
 } from "@/lib/credits";
-import { fmtDate, fmtNumber, fmtRupees, istToday } from "@/lib/format";
+import { fmtDate, fmtNumber, istToday } from "@/lib/format";
 import { graceDaysLeft, loadSearchCost, requirePortalSession, trialSpentOut } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
@@ -155,21 +154,14 @@ export default async function PlanPage() {
   const trialOffered =
     trialPlan !== null && overview.plan_id === null && overview.plan_assigned_at === null;
 
-  /**
-   * The open pack sells a minimum and a rate, never a price, so it is quoted as
-   * "Rs 10,000 or more". Naming a single figure would advertise a purchase that
-   * is only the smallest one available.
+  /*
+   * The open pack's minimum and rate used to be computed here and appended to
+   * both top-up panel descriptions as a sentence. It is gone: BuyCredits draws
+   * that pack as a card carrying "Rs 10,000 or more", the minimum, "Rs 1 buys
+   * N credits" and a live credit figure against whatever the buyer types - so
+   * the sentence was quoting the smallest purchase available to somebody
+   * looking straight at the whole ladder.
    */
-  const openPack = packs.find((pack) => pack.is_open_ended);
-  const openPackCredits = openPack
-    ? creditsForAmount(openPack, openPack.price_inr, settings.creditsPerRupee)
-    : null;
-  const openPackLine =
-    openPack && openPackCredits
-      ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more — ${fmtRupees(openPack.price_inr)} of it buys ${formatCredits(openPackCredits)} credits.`
-      : openPack
-        ? ` The open pack takes ${fmtRupees(openPack.price_inr)} or more, and you name the amount.`
-        : "";
 
   /* ---------------------------------------------------------------------- */
   /* nothing running: try it, buy it, or ask us                              */
@@ -200,13 +192,14 @@ export default async function PlanPage() {
 
     return (
       <>
+        {/* The buying subtitle said "how many trucks you can watch, and the
+            credits to spend" - which is the two figures printed on every card
+            in the grid below it, and on the three steps under that. The lapsed
+            branch keeps its line: it is the one thing that screen has to say
+            and there is no grid to say it. */}
         <PageHeader
           title={lapsedPaidPlan ? "Your plan has ended" : trialOffered ? "Start with a free trial" : "Choose a plan"}
-          subtitle={
-            lapsedPaidPlan
-              ? "Get in touch and we will put it back on."
-              : "How many trucks you can watch, and the credits to spend."
-          }
+          subtitle={lapsedPaidPlan ? "Get in touch and we will put it back on." : undefined}
         />
 
         {expired ? (
@@ -229,13 +222,15 @@ export default async function PlanPage() {
         {/* Only where the balance is actually spendable. On a finished trial the
             figure is a leftover, not an asset, and the notice above has already
             said so. */}
+        {/* Four sentences, cut to one. The last two explained what a plan adds
+            - which is what the three Step cards below the grid are for, and
+            what every card in the grid states in figures. What is left is the
+            only thing this reader cannot see anywhere: their balance survived
+            the plan. */}
         {overview.credits > 0 && !trialOver ? (
           <Notice tone="warn">
-            You still have {formatCredits(overview.credits)} credits, and they are yours to keep -
-            bought credits never expire and never freeze. Every one of them still buys a manual
-            search right now. What a plan adds is automatic checking: trucks watched for you,
-            around the clock, and alerts when they move - which spends from the same balance, at
-            one credit a check.
+            You still have {formatCredits(overview.credits)} credits — they never expire, and still
+            buy a search today.
           </Notice>
         ) : null}
 
@@ -299,12 +294,9 @@ export default async function PlanPage() {
           by the anchor and never sees the ordering. Step 3 immediately above
           promises exactly this, and until now the promise had nothing behind it.
         */}
-        <Panel
-          id="topup"
-          title="Top up credits"
-          description={`Credits pay for every look at a lorry - the ones you type and the automatic ones - and they never expire. Buying them does not need a plan, and searching with them does not either.${openPackLine}`}
-          className="mt-3 scroll-mt-20"
-        >
+        {/* No description, on either branch of this page - see the has-a-plan
+            one below for what was in it and where each half of it went. */}
+        <Panel id="topup" title="Top up credits" className="mt-3 scroll-mt-20">
           <BuyCredits
             packs={packs}
             brandName={settings.brandName}
@@ -352,10 +344,10 @@ export default async function PlanPage() {
 
   return (
     <>
-      <PageHeader
-        title="Plan and credits"
-        subtitle="What you have left, and how to add more."
-      />
+      {/* No subtitle. "What you have left, and how to add more" is the strip
+          of three figures and the Top up credits panel, in that order,
+          immediately below it. */}
+      <PageHeader title="Plan and credits" />
 
       {/*
         The trial's own banner, and it says the two things a trial is short of:
@@ -374,9 +366,12 @@ export default async function PlanPage() {
                 : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
               .
             </span>{" "}
-            It ends on {fmtDate(expiresOn)} and stops by itself. Move to a paid plan below whenever
-            you like — the trial&apos;s remaining days are not carried over, so the new term starts
-            the day you buy it.
+            {/* "Move to a paid plan below whenever you like" was a pointer to
+                a panel headed exactly that, on the same screen. What is left
+                is the deadline and the one thing a buyer cannot work out for
+                themselves: the days they have left are not carried over. */}
+            Ends {fmtDate(expiresOn)}, and stops by itself. A paid term starts the day you buy it —
+            the trial&apos;s remaining days are not carried over.
           </span>
         </p>
       ) : daysLeft !== null && daysLeft <= 14 ? (
@@ -474,14 +469,14 @@ export default async function PlanPage() {
           than nought. Low gets its own, quieter line: nothing is broken yet. */}
       {outOfCredits ? (
         <Notice tone="bad">
-          Your balance is too low to search, so searching is refused until you top up.{" "}
           {/* Since 0041 an empty balance stops BOTH halves of the product, so
               this can no longer reassure anybody that the trucks are fine. Two
               branches because the trucks stop for two different reasons and the
-              way back is different: top up, or renew. */}
+              way back is different: top up, or renew. "Until you top up" was in
+              the opening sentence and in both branches; it is in one now. */}
           {overview.plan_active
-            ? "Your trucks have stopped being checked too, and start again the moment you top up."
-            : "Your plan has also ended, so nothing is being checked automatically until you renew."}
+            ? "Your balance is too low: searching is refused, and your trucks have stopped being checked. Both start again the moment you top up."
+            : "Your balance is too low to search, and your plan has ended, so nothing is being checked either. Top up to search, renew to start the checking."}
         </Notice>
       ) : standing === "low" ? (
         <Notice tone="warn">
@@ -490,15 +485,19 @@ export default async function PlanPage() {
         </Notice>
       ) : null}
 
-      <Panel
-        id="topup"
-        title="Top up credits"
-        /* The "this does not touch your plan" half of this used to live here as
-           well. It is said once now, in the contrast below, rather than twice
-           within a screen of itself. */
-        description={`Credits pay for every look at a lorry - the searches you type and the automatic checks of the trucks you are watching - and they never expire.${openPackLine}`}
-        className="mb-3 scroll-mt-20"
-      >
+      {/*
+        NO DESCRIPTION. Its three claims are all on screen already.
+
+        "Credits pay for every look at a lorry ... and they never expire" is
+        behind the (i) on the balance on the dashboard and in the fold on the
+        activity page, and this panel is the one place a reader has already
+        decided to buy some. "This does not touch your plan" is the contrast
+        card below on a trial, and the Changing your plan fold otherwise. And
+        the open pack's minimum, which was appended here as a sentence, is on
+        the open pack's own card two inches down - with the rate, the minimum
+        and a live credit figure as the buyer types an amount.
+      */}
+      <Panel id="topup" title="Top up credits" className="mb-3 scroll-mt-20">
         <BuyCredits
           packs={packs}
           brandName={settings.brandName}
@@ -522,10 +521,10 @@ export default async function PlanPage() {
       */}
       <div id="plan" className="mb-3 scroll-mt-20">
         {onTrial ? (
-          <Panel
-            title="Move to a paid plan"
-            description="Watch more than one truck, and keep going after the trial ends. You can do this at any point during the trial."
-          >
+          /* No description: the two contrast cards immediately inside this
+             panel are the same two facts, side by side, which is the form the
+             distinction is actually read in. */
+          <Panel title="Move to a paid plan">
             <div className="mb-4 grid gap-2 sm:grid-cols-2">
               <Difference icon={<Wallet size={13} />} title="Topping up credits">
                 Adds credits and does nothing else. Your trial still ends on{" "}
@@ -562,21 +561,17 @@ export default async function PlanPage() {
             }
             defaultOpen={outOfSlots || endingSoon}
           >
-            <p className="mb-3 text-sm leading-relaxed text-ink">
-              You are on {overview.plan_name}
-              {overview.truck_limit === -1
-                ? ", with no limit on trucks"
-                : `, watching up to ${fmtNumber(overview.truck_limit)} truck${overview.truck_limit === 1 ? "" : "s"} at once`}
-              {expiresOn ? `, until ${fmtDate(expiresOn)}` : ""}.
-            </p>
+            {/* The sentence that used to open this fold - "You are on Base,
+                watching up to 5 trucks at once, until 12 August" - was the
+                three-figure strip at the top of this page written out as
+                prose. It is deleted rather than moved: the strip is above the
+                fold and this was below it.
 
-            {/* Said before the contact details, because it is the answer to the
-                question most people arrive here with - and it costs them
-                nothing to read it first. */}
+                What is left is the answer to the question most people open
+                this fold with, in one line rather than three. */}
             <p className="mb-3 text-xs leading-relaxed text-muted">
-              Credits are the thing you can change yourself: top up above, at any time, without
-              touching the plan. A different truck limit or another term is a quick conversation —
-              tell us what you need and we will price it against how you have been using it.
+              Credits you can change yourself, above, without touching the plan. A different truck
+              limit or another term is a conversation — tell us what you need.
             </p>
 
             {overview.has_overrides ? (
@@ -612,11 +607,11 @@ export default async function PlanPage() {
             <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-500">
               <History size={16} />
             </span>
+            {/* The second line here listed the destination's own Group by
+                toggles. A link says where it goes; it does not need to
+                describe the controls waiting at the other end. */}
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium text-ink">Credits and activity</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                Every credit added and spent — per truck per day, per day, or charge by charge.
-              </span>
             </span>
             <ChevronRight size={16} className="shrink-0 text-faint" />
           </Link>
@@ -624,10 +619,9 @@ export default async function PlanPage() {
 
         <PaymentsLink />
 
-        <Disclosure
-          title="What each action costs"
-          hint="How far one credit goes."
-        >
+        {/* The hint said "How far one credit goes", under a title that says
+            what each action costs. Same sentence, one line apart. */}
+        <Disclosure title="What each action costs">
           <Rates rates={rates} />
         </Disclosure>
       </div>
@@ -829,12 +823,8 @@ function PaymentsLink({ className }: { className?: string }) {
        menus and in messages already sent, and landing on the link to the new
        page is a better answer to those than landing on nothing at all. */
     <div id="payments" className={cx("scroll-mt-20", className)}>
-      <LinkCard
-        href="/portal/payments"
-        icon={<Receipt size={16} />}
-        title="Payment history"
-        description="Every payment with its date, status and reference — filterable by date, and downloadable."
-      />
+      {/* The description listed the columns of the table this leads to. */}
+      <LinkCard href="/portal/payments" icon={<Receipt size={16} />} title="Payment history" />
     </div>
   );
 }

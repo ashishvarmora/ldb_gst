@@ -8,7 +8,13 @@ import { reportError } from "@/lib/errors";
 import { bool, done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { intervalLabel, toMinutes, type IntervalUnit } from "@/lib/intervals";
 import { runManualLookup } from "@/lib/manual-search";
-import { assertPortalUser, loadOverview, truckSlotsLeft } from "@/lib/officer";
+import {
+  assertPortalUser,
+  liveBlockedByCredits,
+  loadAutoCheckCost,
+  loadOverview,
+  truckSlotsLeft,
+} from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   ActionResult,
@@ -191,6 +197,16 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     return fail(`${truckNumber} is already under tracking.`);
   }
 
+  /*
+   * The balance before the slot, because it is the stronger fact. Told to
+   * pause another lorry to make room, an officer with an empty wallet would do
+   * it and then find the new truck refused anyway - and pausing something is
+   * exactly the wrong lesson to teach at that moment. A truck added now would
+   * be paused as 'no_credits' by the first sweep that reached it.
+   */
+  const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+  if (noCredits) return fail(noCredits);
+
   if (truckSlotsLeft(overview) <= 0) {
     return fail(
       `Your plan allows ${overview.truck_limit} tracked truck${overview.truck_limit === 1 ? "" : "s"}. Pause or remove one first, or ask your administrator for more.`,
@@ -312,6 +328,13 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
   const activating = bool(fd, "is_active");
   if (activating && !truck.is_active) {
     const overview = await loadOverview(session.id);
+    /* Refused here as well as on the Pause/Resume button, because both save a
+       truck live and the officer cannot tell which one they used - the same
+       argument that put the failure-counter clear in both. */
+    if (overview) {
+      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+      if (noCredits) return fail(noCredits);
+    }
     if (overview && truckSlotsLeft(overview) <= 0) {
       return fail(
         `Resuming this truck would exceed your limit of ${overview.truck_limit}. Pause another one first.`,
@@ -532,6 +555,24 @@ export async function setTruckPaused(
 
   if (active) {
     const overview = await loadOverview(session.id);
+    /*
+     * WHY THE SWITCH REFUSES INSTEAD OF MOVING
+     *
+     * PAUSE_COPY marks 'no_credits' not resumable, which takes the switch off
+     * the card and puts "Open to fix" there instead - but the truck's own page
+     * still carries a Go live button, and this action is reachable from any
+     * form. Without this test the button would work, the row would say live,
+     * and the next sweep would refuse the check and pause the truck again. A
+     * switch that undoes itself a quarter of an hour later is the thing this
+     * whole feature exists to stop, so the honest answer is now, in words.
+     *
+     * Topping up lifts it with no further step: the moment the balance covers
+     * one check this returns null and Go live works again.
+     */
+    if (overview) {
+      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+      if (noCredits) return fail(noCredits);
+    }
     if (overview && truckSlotsLeft(overview) <= 0) {
       return fail(
         `Resuming would exceed your limit of ${overview.truck_limit} tracked trucks. Pause another one first.`,

@@ -138,11 +138,17 @@ export function AddTruckForm({
                 of these stop the checks that were only ever going to spend one
                 to tell you nothing new.
               */}
+              {/* The last sentence names the backstop deliberately. A reader of
+                  a note titled "how automatic pausing protects your credits"
+                  would otherwise take these two fields to be the whole of it,
+                  and the one stop nobody can misconfigure is worth knowing
+                  about before they decide how patient to be. */}
               <HelpNote title="How automatic pausing protects your credits" className="mb-4">
                 A tracked truck is checked every fifteen minutes, and each check costs one credit —
                 roughly 96 a day for one lorry. These two limits stop that quietly running on: a
                 lorry parked in a yard, or a number the portal cannot answer, is paused instead of
-                charged. {PAUSE_HELP_LINE}{" "}
+                charged. Whatever you set here, an empty balance pauses every live truck at once,
+                so checking can never run past what you have. {PAUSE_HELP_LINE}{" "}
                 <Link href="/support#watching" className="font-medium text-brand-500 hover:underline">
                   More on automatic pausing
                 </Link>

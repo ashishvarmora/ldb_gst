@@ -88,7 +88,14 @@ export type TrialVerdict =
         /** No trial plan is on sale. */
         | "no_trial"
         /** This account, mailbox or mobile has already had one. */
-        | "already_claimed";
+        | "already_claimed"
+        /**
+         * The mailbox has not been proved yet. Not a refusal so much as a step
+         * not taken - see /portal/verify-email, which exists because sign-up
+         * auto-confirms every address (there is no SMTP behind Supabase here),
+         * so email_confirmed_at proves nothing about a real inbox.
+         */
+        | "email_unverified";
     };
 
 export type Profile = {
@@ -211,13 +218,27 @@ export type TrackedTruck = {
   created_at: string;
 };
 
-/** Why a truck stopped being checked. Mirrors the check on tracked_trucks. */
+/**
+ * Why a truck stopped being checked. Mirrors the check on tracked_trucks.
+ *
+ * It has to be the WHOLE constraint, not the reasons a screen happens to
+ * handle. PAUSE_COPY is a Record over this union, so a value the database can
+ * store and this union cannot name falls through pauseCopyFor()'s guard and is
+ * shown as "Paused by you" - a truck the platform stopped, telling its owner
+ * they did it. That is exactly what happened to 'plan_expired': 0041 added it
+ * to the constraint and to the worker, and it was missing here for two
+ * releases, so every lapsed account read that it had paused its own lorries.
+ */
 export type PausedReason =
   | "manual"
   | "repeated_failures"
   | "account_suspended"
   | "schedule"
-  | "inactive";
+  | "inactive"
+  /** The plan ended and the grace period ran out - see 0041. */
+  | "plan_expired"
+  /** The balance could not cover a check, so the account's trucks stopped. */
+  | "no_credits";
 
 /* -------------------------------------------------------------------------- */
 /* credits                                                                     */
@@ -225,7 +246,12 @@ export type PausedReason =
 
 /**
  * What one chargeable action costs, stored the way it is spoken about:
- * "1 credit = 2 automatic checks" is units_per_credit = 2.
+ * "1 credit = 4 automatic checks" is units_per_credit = 4.
+ *
+ * Both live rows are 1 - one credit a search, one credit an automatic check.
+ * The example is deliberately not 2: that was the real auto_check rate for one
+ * release, 0041 reversed it, and the figure kept turning up afterwards in copy
+ * that read as a statement of the current price.
  */
 export type CreditRate = {
   action: string;

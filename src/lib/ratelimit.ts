@@ -85,6 +85,27 @@ export const RATE_LIMITS = {
   "forgot:email": { limit: 3, windowSeconds: HOUR },
 
   /*
+   * VERIFYING A MAILBOX before the free trial. Each send is a real email from
+   * our domain to an address somebody typed, so an unlimited form is a mail
+   * cannon pointed at a stranger's inbox - the same shape as the reset form
+   * above, and limited the same way.
+   *
+   * Per account rather than per address: the address is read from the profile,
+   * not from the form, so the account is the thing being throttled. Five in a
+   * quarter hour covers a code that went to spam and a genuine second attempt.
+   * The database throttles to one a minute on top of this, which is the floor
+   * that holds even if the endpoint is reached another way.
+   */
+  "email_code:user": { limit: 5, windowSeconds: 15 * MINUTE },
+  "email_code:ip": { limit: 20, windowSeconds: 15 * MINUTE },
+  /*
+   * CHECKING a code. The row itself dies after five wrong guesses, so this is
+   * the limit on burning through fresh rows - twelve attempts covers two
+   * honestly mistyped codes and a resend.
+   */
+  "email_verify:user": { limit: 12, windowSeconds: 15 * MINUTE },
+
+  /*
    * OPENING A CHECKOUT. Each call creates a payments row and a real order at
    * Razorpay. A buyer who changes their mind between packs a few times fits
    * inside ten; a script opening orders in a loop to hold coupon claims does

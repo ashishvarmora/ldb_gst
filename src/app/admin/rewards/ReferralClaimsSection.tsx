@@ -71,8 +71,10 @@ type ReferralRow = {
   welcome_credits: number | null;
   /* The two-event columns. The timestamps are the authority on whether an
      event has paid; a null amount beside a set timestamp means the referral
-     settled under the old percentage scheme, where the split between the two
-     events is not knowable. */
+     settled before 0040, where the split between the two events is not
+     knowable, and a ZERO beside one means a combined payment closed both
+     events at once and was charged once - the whole payout sits on the plan
+     event. Three states, three meanings, none of them interchangeable. */
   plan_rewarded_at: string | null;
   topup_rewarded_at: string | null;
   plan_referrer_credits: number | null;
@@ -387,8 +389,11 @@ function FoldedTable({
       total: (all) => formatCredits(all.reduce((sum, row) => sum + row.credits, 0)),
     },
     {
+      /* First payments only - see the invite table's note on the same figure.
+         Not the whole of what these accounts have spent, and not the base the
+         rewards beside it were a percentage of. */
       key: "revenue",
-      label: "They paid",
+      label: "First payments",
       align: "right",
       cell: (row) => (row.revenue > 0 ? fmtRupees(Math.round(row.revenue)) : "—"),
       sortBy: (row) => row.revenue,
@@ -454,8 +459,15 @@ function InviteTable({
       href: (row) => `/admin/officers/${row.referred_id}`,
     },
     {
+      /*
+       * The FIRST payment, and named so since 0043. It was "They paid", which
+       * under fixed rewards was a harmless shorthand and under percentages is
+       * a trap: the reward beside it is a share of up to two payments, and
+       * only the first of them is on the row, so "They paid 999, reward 800"
+       * would read as an 80% giveaway rather than 20% of two purchases.
+       */
       key: "first_amount",
-      label: "They paid",
+      label: "First payment",
       align: "right",
       cell: (row) => (Number(row.first_amount) > 0 ? fmtRupees(Number(row.first_amount)) : "—"),
       sortBy: (row) => Number(row.first_amount) || 0,
@@ -473,6 +485,36 @@ function InviteTable({
         ),
       sortBy: (row) => Number(row.reward_credits) || 0,
       total: (all) => formatCredits(all.reduce((s, r) => s + (Number(r.reward_credits) || 0), 0)),
+    },
+    {
+      /*
+       * Which of the inviter's two events paid what. On screen since 0043 -
+       * it was CSV-only, and a percentage scheme is the one where it earns its
+       * column: 200 on the plan against 600 on the top-up is the whole answer
+       * to "do invited accounts actually spend", and that shape is invisible
+       * in the single total beside it.
+       *
+       * A dash for a null, which is a referral settled before the events
+       * existed; a 0 is shown as 0, because a combined payment really did add
+       * nothing on its top-up event.
+       */
+      key: "event_split",
+      label: "Plan / top-up",
+      align: "right",
+      cell: (row) => {
+        const each = (value: number | null) =>
+          value === null ? "—" : formatCredits(Number(value) || 0);
+        if (row.plan_referrer_credits === null && row.topup_referrer_credits === null) {
+          return <span className="text-faint">—</span>;
+        }
+        return (
+          <span className="tabular-nums text-muted">
+            {each(row.plan_referrer_credits)} / {each(row.topup_referrer_credits)}
+          </span>
+        );
+      },
+      sortBy: (row) => Number(row.plan_referrer_credits ?? 0) || 0,
+      className: "whitespace-nowrap",
     },
     {
       /*

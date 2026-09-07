@@ -4,6 +4,7 @@ import { csvFile, toCsv } from "@/components/report";
 import { resolveRange, shiftDate } from "@/lib/analytics";
 import { requireSuperAdmin } from "@/lib/auth";
 import { parseCouponFamily } from "@/lib/coupons";
+import { loadReferralTerms } from "@/lib/referrals";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -66,8 +67,14 @@ export async function GET(request: NextRequest) {
       /* Blank, not 0, for referrals rewarded before the welcome bonus existed -
          a spreadsheet must be able to tell "paid nothing" from "predates the
          scheme". The four per-event columns below carry the same convention,
-         and for the same reason: a referral settled under the old percentage
-         scheme has no honest split between the two events. */
+         and for the same reason: a referral settled before 0040 has no honest
+         split between the two events.
+
+         A 0 in one of those four is a third thing again, and since 0043 it has
+         a routine cause: a payment that bought a plan and credits together
+         closes both events and is charged once, so the whole payout sits on
+         the plan pair and the top-up pair is a real nought. A sheet totalling
+         the four columns still gets the right answer either way. */
       row.welcome_credits === null ? "" : Number(row.welcome_credits) || 0,
       /* Which of the two events have paid, and what each one paid whom. The
          totals above are the sum of these, so a sheet can check itself. */
@@ -85,6 +92,26 @@ export async function GET(request: NextRequest) {
     if (rows.length >= CAP) {
       body.push([`TRUNCATED at ${CAP} rows - narrow the filters for a complete file`]);
     }
+
+    /*
+     * The terms in force when the file was made, as a trailing note.
+     *
+     * Under 0040's fixed amounts the rows said everything: 50 credits was 50
+     * credits. Since 0043 a reward is a SHARE of a payment, and the share is
+     * not derivable from any row - the top-up event's payment is nowhere in
+     * this file, and the first_amount column is only the first of the two. So
+     * somebody reconciling credits given against money taken has to be told
+     * the rate, or they will guess it from the one row that happens to divide
+     * evenly. Same shape as the TRUNCATED note above, and in column A for the
+     * same reason: a note is not a row of data and must not pretend to be.
+     */
+    const terms = await loadReferralTerms(admin);
+    body.push([
+      `TERMS at download - first plan: ${terms.planReferrerPercent}% to the inviter, ` +
+        `${terms.planInviteePercent}% to the new customer. ` +
+        `First top-up: ${terms.topupReferrerPercent}% and ${terms.topupInviteePercent}%. ` +
+        "A row settled under earlier terms keeps what it was paid.",
+    ]);
 
     return csvFile(
       `referral-claims-${new Date().toISOString().slice(0, 10)}.csv`,

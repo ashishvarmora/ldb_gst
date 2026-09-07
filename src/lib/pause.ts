@@ -65,7 +65,7 @@ export function dueForAutoPause(
 /**
  * Why a truck stopped being checked, in the words the officer reads.
  *
- * One table, because there are now five reasons and four screens that show
+ * One table, because there are now seven reasons and four screens that show
  * them - the truck card, the truck's own page, the fleet list and the admin's
  * view of somebody's trucks. Each of those had its own `paused_reason ===
  * "repeated_failures" ? … : "paused"` ternary, which meant a new reason
@@ -99,8 +99,16 @@ export type PauseCopy = {
   detail: string;
   /**
    * Whether the officer can simply switch it back on and expect it to stay on.
-   * False for the two that will fire again immediately unless something else
-   * changes - a suspended account, or a number the toll network cannot answer.
+   *
+   * False for the four that will fire again immediately unless something else
+   * changes first - a suspended account, a number the toll network cannot
+   * answer, a lapsed plan, or an empty balance. Every one of those would let
+   * the switch appear to work and then stop the truck again on the next sweep,
+   * which teaches the officer that the switch is broken.
+   *
+   * It maps exactly onto the tone: `bad` is the set that needs something fixed
+   * before going live means anything, and it is the same set as `resumable`
+   * false. Keep the two in step when a reason is added.
    */
   resumable: boolean;
   /**
@@ -131,11 +139,17 @@ export type PauseCopy = {
  * on their balance, and it is why auto-pause exists at all. In the owner's
  * words: auto pause mainly credit save karneke liye hai.
  *
- * So every detail leads with the credits and mentions the slot second, where
- * the slot is the thing the reader actually needs (a plan that looks full). Say
- * it the other way round and an officer being nudged to top up, while being
- * told that pausing only frees a slot, would reasonably leave forty parked
- * lorries switched on.
+ * So every PER-TRUCK detail leads with the credits and mentions the slot
+ * second, where the slot is the thing the reader actually needs (a plan that
+ * looks full). Say it the other way round and an officer being nudged to top
+ * up, while being told that pausing only frees a slot, would reasonably leave
+ * forty parked lorries switched on.
+ *
+ * The three ACCOUNT-WIDE reasons - no_credits, plan_expired, account_suspended
+ * - deliberately say nothing about slots, and that is not an omission to
+ * tidy up. They stop every truck at once, so there is no lorry left to give a
+ * freed slot to, and offering one would read as a suggestion to add another
+ * truck at the exact moment none of them can be checked.
  */
 export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
   manual: {
@@ -183,6 +197,62 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     resumable: false,
     automatic: true,
   },
+  /*
+   * ADDED WITH THE TYPE, NOT WITH THE FEATURE. 0041 taught the worker to write
+   * 'plan_expired' and widened the check constraint to accept it, and this
+   * table was never given the row - so PausedReason did not name it, the
+   * Record could not hold it, and pauseCopyFor()'s `?? PAUSE_COPY.manual`
+   * guard turned a truck the platform had switched off into "Paused by you".
+   * Every account whose plan lapsed has been reading, for two releases, that
+   * it paused its own lorries.
+   *
+   * Not resumable, and not as a matter of policy: the worker's candidate query
+   * filters on plan_expires_on, so a truck taken live on a lapsed plan is
+   * simply never picked up. The switch would move and nothing would happen.
+   */
+  plan_expired: {
+    badge: "Plan ended",
+    tone: "bad",
+    line: "Stopped — the plan ended and the renewal window has passed",
+    detail:
+      "Your plan ran out and the days to renew in have passed, so automatic checking was switched off on every truck. It is spending nothing. Nothing has been deleted — the trucks, their alerts and every crossing they recorded are all still here, and so are your credits, which never expire and still pay for manual searches. Renew the plan, then take the trucks live again from My trucks.",
+    resumable: false,
+    automatic: true,
+  },
+  /*
+   * WHY IT IS ITS OWN REASON AND NOT 'account_suspended'
+   *
+   * They are the two account-wide stops and they need opposite instructions. A
+   * suspension is somebody's decision about the customer and only support can
+   * lift it; an empty balance is a number the customer fixes themselves in
+   * about forty seconds, from a panel that is open even to lapsed accounts.
+   * Filing this under that one would send every officer who ran out of credit
+   * to the support line.
+   *
+   * WHY IT IS NOT RESUMABLE
+   *
+   * Because going live would be a lie for one sweep. The worker asks
+   * spend_credits() for a credit before it calls the toll network, and on an
+   * empty balance that refusal is what paused the truck in the first place -
+   * so a truck switched back on with nothing in the wallet is refused and
+   * paused again fifteen minutes later, with a moving switch and no
+   * explanation in between. `resumable: false` is what puts "Open to fix" on
+   * the card instead of a switch that undoes itself.
+   *
+   * TOPPING UP IS THE FIX AND IT IS NOT AUTOMATIC. Buying credits clears the
+   * refusal, so the switch works again the moment the balance covers one
+   * check; it does NOT take the trucks live by itself. Deliberate - see the
+   * note on top-ups in src/lib/tracking.ts.
+   */
+  no_credits: {
+    badge: "No credits left",
+    tone: "bad",
+    line: "Stopped automatically — there are no credits left to check with",
+    detail:
+      "Your balance could not cover another check, so every truck that was live has been paused rather than left on the list claiming to be watched. That is the point at which tracking stops costing you anything: nothing is checked, nothing is spent, and nothing is lost — the trucks, their alerts and every crossing they recorded are all still here. Top up, then take the ones you still need live again. Going live before topping up will not hold, because the next check would be refused for the same reason.",
+    resumable: false,
+    automatic: true,
+  },
 };
 
 /**
@@ -196,15 +266,26 @@ export const PAUSE_HELP_LINE =
   "Paused trucks keep their history but do not consume tracking credits. Resume anytime when tracking is needed again.";
 
 /**
- * The four situations that stop a truck by itself, as the officer meets them.
+ * The situations that stop a truck by itself, as the officer meets them.
  *
  * Shared between the "Auto-pause rules" (i) on My trucks and the support page's
  * answer to the same question, because those two are read by the same person a
  * week apart and a difference between them reads as a change in the rules.
  *
- * Note what is NOT here: a suspended account. It stops every truck at once and
- * has nothing to do with any lorry's own settings, so listing it beside "set an
- * end time when you add a truck" would suggest it is something to configure.
+ * DELIBERATELY UNCOUNTED. All three screens that render this list used to
+ * introduce it with the number four written out in prose, and adding the empty
+ * balance made all three wrong at once - which is the third time a hand-written
+ * count of these has gone stale. The sentence now describes what the rules are
+ * FOR, which is the thing that does not change when one is added.
+ *
+ * WHY THE EMPTY BALANCE IS HERE AND A SUSPENDED ACCOUNT IS NOT. Both stop every
+ * truck at once and neither has anything to do with a lorry's own settings, so
+ * the old rule for this list - per-truck settings only - excluded both. That
+ * rule was wrong about the one that matters. Running out of credit is the stop
+ * every customer meets, it is the only one they fix themselves, and it is the
+ * whole reason the other four exist: they are all there to keep the balance
+ * from reaching it. A suspension stays out because it is somebody's decision
+ * about the customer, support lifts it, and nothing on this list would help.
  */
 export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
   {
@@ -222,6 +303,10 @@ export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
   {
     label: "Portal not responding",
     body: "If the portal cannot answer for a number enough times in a row, checking pauses rather than paying a credit per error. Usually a typo in the number.",
+  },
+  {
+    label: "No credits left",
+    body: "An empty balance cannot pay for a check, so every truck that was live is paused at once rather than left on the list looking watched. Top up, then take the ones you still need live again.",
   },
 ];
 
@@ -288,6 +373,15 @@ export function pauseWhy(
       return "Paused because the end time you set for it has passed.";
     case "account_suspended":
       return "Paused because this account is suspended — every truck on it is stopped.";
+    /* The instance fact worth adding for both of the account-wide stops is
+       that it was not this lorry: nothing about this number failed, and every
+       other truck that was live stopped in the same moment. Without that, an
+       officer reads a per-truck fault into an account-wide one and starts
+       checking the registration number. */
+    case "no_credits":
+      return "Paused because the balance ran out — every truck that was live stopped at the same moment, and none of them is spending anything now.";
+    case "plan_expired":
+      return "Paused because the plan ended and the days to renew in have passed — every truck on the account was switched off together.";
     default:
       return null;
   }

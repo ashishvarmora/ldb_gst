@@ -83,19 +83,26 @@ export default async function SupportPage() {
               The commonest question in this section, and the one the owner
               asked to have answered in full: a vehicle went quiet on its own
               and the reader wants to know whether they have lost anything.
-              All four reasons, because the old answer gave only the failing
-              one - so anybody whose lorry paused because it was parked, or
-              because their own end time arrived, read that their number must
-              be wrong.
+              Every reason, because the old answer gave only the failing one -
+              so anybody whose lorry paused because it was parked, or because
+              their own end time arrived, read that their number must be wrong.
+
+              The count is deliberately not written out. This said "one of four
+              limits" while the list underneath it came from AUTO_PAUSE_RULES,
+              so adding the empty-balance rule made the sentence wrong; and
+              "four limits" was already wrong about the list, whose first entry
+              is a pause the officer made themselves.
             */}
             {/* "vehicle", not "truck", only because every other question on
                 this page says vehicle and one odd word in a list of five reads
                 as a different author. */}
             <HelpNote title="Why was my vehicle paused automatically?">
               <p>
-                Because one of four limits was reached. A tracked vehicle is checked every fifteen
-                minutes and each check spends one credit — about 96 a day for one vehicle — so each
-                of these exists to stop credits going on checks that cannot tell you anything new:
+                A tracked vehicle is checked every fifteen minutes and each check spends one credit
+                — about 96 a day for one vehicle — so checking stops by itself rather than let
+                credits go on checks that cannot tell you anything new. Pausing a vehicle yourself
+                does the same thing and is the largest saving available to you; the rest happen
+                without you:
               </p>
               <ul className="mt-2 space-y-1.5">
                 {AUTO_PAUSE_RULES.map((rule) => (
@@ -151,14 +158,25 @@ export default async function SupportPage() {
               A plan sets how many vehicles you may watch at once, and until when. Credits pay for
               the checking itself — one credit per check, whether we ran it automatically or you
               ran the lookup yourself. So the plan decides how many and the credits decide how
-              closely. Topping up never changes your plan, its end date or its vehicle limit, and
-              your credits never expire.
+              closely. A plan is priced for its whole term and charged once, not per month.
+              Topping up never changes your plan, its end date or its vehicle limit, and credits
+              you have paid for never expire — the one exception is the free trial, whose credits
+              end with it.
             </HelpNote>
 
+            {/* The answer changed with the empty-balance auto-pause: the
+                balance is still the first thing to check, but running out is
+                no longer a silent state - the vehicles are paused and say so.
+                Left as the first thing to check because it is still the
+                commonest cause, and because the reader arriving at this
+                question has not seen the message. */}
             <HelpNote title="My checks stopped and I was not told.">
               Three things stop them: an empty balance, the plan itself ending, and a vehicle
-              pausing itself. Check your balance first — with nothing in it no vehicle is checked at
-              all — then whether Telegram is still connected in Settings, then write to us.
+              pausing itself. Check your balance first — with nothing in it nothing is checked, and
+              every live vehicle is paused and marked{" "}
+              <span className="font-medium text-ink">No credits left</span> so it stops costing you
+              anything. Top up and take the ones you still need live again. If the balance is fine,
+              check whether Telegram is still connected in Settings, then write to us.
             </HelpNote>
 
             <HelpNote title="I cannot sign in and the reset email never arrives.">

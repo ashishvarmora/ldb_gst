@@ -23,7 +23,9 @@ import {
   loadReferrals,
   loadReferralSummary,
   loadReferralTerms,
+  referralExample,
   referralLink,
+  referralPercent as pct,
   referralStage,
   type ReferralRow,
 } from "@/lib/referrals";
@@ -100,8 +102,33 @@ export default async function ReferralsPage({
   const page = pageFromParam(params.page, pages);
   const visible = pageSlice(ordered, page, PAGE_SIZE);
 
-  /* Null when both welcome amounts are 0, and the line simply disappears. */
+  /* Null when both welcome percentages are 0, and the line simply disappears. */
   const welcomeLine = describeWelcomeBonus(terms);
+
+  /* The two lines of arithmetic under the link, off the live percentages. */
+  const example = referralExample(terms);
+
+  /*
+   * Which of the two events actually pays somebody, and the one sentence that
+   * says so.
+   *
+   * Not decoration: an admin can set an event to 0 per cent, and this page must
+   * not then promise a reader they are "paid twice" and show them a worked
+   * example of nought credits. The database still closes a 0 event - that is
+   * deliberate, so raising the percentage later cannot back-pay every old
+   * referral at once - which means the only place the reader is protected from
+   * the wrong promise is here.
+   */
+  const paysPlan = terms.planReferrerPercent > 0 || terms.planInviteePercent > 0;
+  const paysTopup = terms.topupReferrerPercent > 0 || terms.topupInviteePercent > 0;
+  const whenYouEarn =
+    paysPlan && paysTopup
+      ? "You are paid twice for each person you invite — when they buy their first plan, and again when they first top up."
+      : paysPlan
+        ? "You are paid when somebody you invite buys their first plan."
+        : paysTopup
+          ? "You are paid when somebody you invite first tops up their credits."
+          : "Nothing is being paid for an invite at the moment.";
 
   return (
     <>
@@ -145,29 +172,64 @@ export default async function ReferralsPage({
         <p className="mt-3 flex items-start gap-2 rounded-lg border border-brand-500/25 bg-brand-500/8 px-3 py-2.5 text-xs leading-relaxed text-ink">
           <Gift size={14} className="mt-0.5 shrink-0 text-brand-500" />
           <span>
-            A sign-up on its own earns nothing. You are paid twice for each person you invite —
-            when they buy their first plan, and again when they first top up — and the credits land
-            straight on your balance.
+            A sign-up on its own earns nothing. {whenYouEarn}
             {welcomeLine ? <span className="mt-1 block text-muted">{welcomeLine}</span> : null}
           </span>
         </p>
 
+        {/* The worked example, not the formula.
+
+            A percentage is a rule, and nobody pictures a rule - "20% of their
+            first plan" is a sum the reader has to do before they know whether
+            the link is worth sending. Two lines of arithmetic already done say
+            it instead, and they are figures rather than prose, so they can sit
+            on the page where the offer is made. Off the live settings, so an
+            edited percentage cannot leave a stale promise here - and an event
+            switched off to 0 drops its line rather than advertising nothing. */}
+        {paysPlan || paysTopup ? (
+          <div className="mt-3 rounded-lg border border-divider bg-raised/50 px-3 py-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
+              For example
+            </p>
+            <ul className="mt-1.5 space-y-1 text-xs leading-relaxed tabular-nums text-ink">
+              {paysPlan ? (
+                <li>
+                  They buy a {fmtRupees(example.planInr)} plan —{" "}
+                  <span className="font-semibold text-brand-500">
+                    +{formatCredits(example.planReferrer)}
+                  </span>{" "}
+                  to you, +{formatCredits(example.planInvitee)} to them.
+                </li>
+              ) : null}
+              {paysTopup ? (
+                <li>
+                  They first top up {fmtRupees(example.topupInr)} —{" "}
+                  <span className="font-semibold text-brand-500">
+                    +{formatCredits(example.topupReferrer)}
+                  </span>{" "}
+                  to you, +{formatCredits(example.topupInvitee)} to them.
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
+
         {/* The fine print, folded. The owner asked for the terms to be said
             here without the page becoming a contract - so the rule that
-            matters is in the callout above, and everything an accountant would
-            ask is behind one small disclosure. */}
+            matters is in the callout above, the numbers are in the example,
+            and everything an accountant would ask is behind one disclosure. */}
         <HelpNote title="How the reward is worked out">
-          Two rewards per person invited, each paid once: {formatCredits(terms.planReferrer)}{" "}
-          credits to you and {formatCredits(terms.planInvitee)} to them when they buy their first
-          plan, then {formatCredits(terms.topupReferrer)} to you and{" "}
-          {formatCredits(terms.topupInvitee)} to them when they first top up. Fixed amounts, not a
-          share of what they spend. A payment that buys a plan and credits together settles both at
-          once
+          A share of what they pay, not a fixed amount: {pct(terms.planReferrerPercent)} of their
+          first plan to you and {pct(terms.planInviteePercent)} to them, then{" "}
+          {pct(terms.topupReferrerPercent)} of their first top-up to you and{" "}
+          {pct(terms.topupInviteePercent)} to them. Each of the two is paid once per person, ever,
+          on the rupees actually charged after any discount, rounded to the nearest whole credit. A
+          payment that buys a plan and credits together settles both at once
           {settings.referralMinPayment > 0
             ? `, and a payment under ${fmtRupees(settings.referralMinPayment)} settles neither — a later, larger one still can`
             : ""}
           . Credits are added to balances and are not money; they cannot be withdrawn or
-          transferred. The amounts can change, but a reward already earned is never taken back.
+          transferred. The percentages can change, but a reward already earned is never taken back.
         </HelpNote>
       </Panel>
 
@@ -327,8 +389,8 @@ function Legend() {
  *
  * Kept as a table rather than nested ternaries because it is exactly what the
  * two-event scheme added: "paid" is no longer one thing, and a reader who has
- * had 50 credits needs to know the other 100 is still coming rather than that
- * they have been paid.
+ * been paid for the plan needs to know the top-up share is still coming rather
+ * than that this invite is finished.
  */
 const STAGE = {
   waiting: { tone: "warn", badge: "Waiting", next: "waiting for their first payment" },

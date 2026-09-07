@@ -2,10 +2,12 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
 import {
+  CREDIT_LABEL,
   STATUS_LABEL,
   STATUS_NOTE,
   STATUS_TONE,
   boughtLabel,
+  creditLines,
   hasGatewayReference,
   isSettled,
   listInr,
@@ -50,7 +52,9 @@ import type { PaymentStatus } from "@/lib/types";
  *   method              the facts list
  *   amount paid         line one, right, as the one big figure
  *   discount            the facts list, with the code that took it off
- *   credits received    the facts list
+ *   credits added       the facts list - one line each for the plan's
+ *                       included credits and a top-up bought with it, then
+ *                       their sum, exactly as the receipt words them
  *
  * The only thing left to the table is the sort, because a column heading is
  * what sorts and there are no headings here. Newest first is the default and is
@@ -88,7 +92,9 @@ export function PaymentCards({
       {rows.map((row) => {
         const settled = isSettled(row);
         const discount = Number(row.discount_inr) || 0;
-        const credits = Number(row.credits) || 0;
+        /* Both kinds of credit this payment granted, already worded - see
+           creditLines. One line for a plain purchase, three for a combined one. */
+        const credits = creditLines(row);
         /* The same instant the table's first column reads, and for the same
            reason: an unsettled row has no paid_at, and the moment somebody
            opened the payment window is the only date it has. */
@@ -125,17 +131,37 @@ export function PaymentCards({
           });
         }
 
-        facts.push({
-          label: "Credits received",
-          value: settled ? (
-            <span className="text-brand-500">{formatCredits(credits)}</span>
-          ) : (
+        /*
+         * THE CREDITS, IN AS MANY LINES AS THE PAYMENT HAS KINDS OF THEM.
+         *
+         * One "Credits received" row read off row.credits until now, which on
+         * a plan payment is the plan's included allowance only - so a phone
+         * showed a customer who bought a plan with credits attached the
+         * smaller half of what they had paid for. A combined payment gets
+         * three rows, the last of them the sum, because a card is where the
+         * arithmetic has to be visible: there is no column footer down here to
+         * add it up. The labels are the receipt's own, from payments.ts.
+         */
+        if (settled) {
+          for (const line of credits) {
+            facts.push({
+              label: line.label,
+              value: (
+                <span className={line.total ? "font-medium text-brand-500" : "text-brand-500"}>
+                  {formatCredits(line.credits)}
+                </span>
+              ),
+            });
+          }
+        } else {
+          facts.push({
+            label: CREDIT_LABEL.short,
             /* A dash, never a nought. Nothing was charged and nothing
                arrived, and a zero in this row reads as a payment that bought
                nothing. */
-            <span className="text-faint">&mdash;</span>
-          ),
-        });
+            value: <span className="text-faint">&mdash;</span>,
+          });
+        }
 
         facts.push({ label: "Method", value: methodLabel(row.method) });
 

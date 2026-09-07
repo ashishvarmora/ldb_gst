@@ -84,6 +84,15 @@ export type PollOutcome = {
   alertsDelivered: number;
   responseMs?: number;
   error?: string;
+  /**
+   * Live trucks this refusal stopped, across the whole account.
+   *
+   * Set only on the truck whose check discovered the empty balance, and it
+   * counts the account's other lorries too - see pauseAccountForNoCredits().
+   * Undefined everywhere else, so the sweep can sum it without every outcome
+   * carrying a zero.
+   */
+  pausedForNoCredits?: number;
 };
 
 export type SweepSummary = {
@@ -121,6 +130,18 @@ export type SweepSummary = {
    * announce itself.
    */
   autoPaused: { schedule: number; inactive: number };
+  /**
+   * Trucks stopped because their account's balance could not cover a check,
+   * and how many accounts that was.
+   *
+   * Its own field rather than a third key on autoPaused, because it is decided
+   * somewhere else entirely: the two above are settled from the row before any
+   * credit is spent, this one can only be known once spend_credits() has
+   * refused. Counted for the same reason as planExpired - it is a sweep
+   * REDUCING what the platform does, and an admin has to be able to tell a
+   * quiet tick from forty lorries that just ran out of money.
+   */
+  noCreditsPaused: { trucks: number; accounts: number };
   /** Anything that went wrong outside a single truck's own check. */
   errors: string[];
   outcomes: PollOutcome[];
@@ -351,6 +372,95 @@ async function notToldToday(admin: Admin, userId: string, kind: string): Promise
   return (data ?? []).length === 0;
 }
 
+/**
+ * Stops every live truck on one account, because its balance cannot pay for a
+ * check.
+ *
+ * WHY THE WHOLE ACCOUNT AND NOT JUST THE TRUCK THAT WAS BEING CHECKED
+ *
+ * The balance is an account-level fact and the polling is per-truck, so the
+ * two do not line up. Pausing only the lorry whose check happened to be
+ * refused would leave the other thirty-nine switched on, each to be refused in
+ * its turn - over this sweep and the next few - and each meanwhile showing a
+ * live switch on the phone. The officer would watch their fleet go out one
+ * lorry at a time with no way to tell how far it had got. It is also the
+ * owner's rule in as many words: "if credit become 00, all live tracking ->
+ * auto pause".
+ *
+ * It makes the message underneath it true, which the per-truck version could
+ * not: "no truck is being checked" is only an honest thing to send if the
+ * trucks have actually stopped.
+ *
+ * And it is one statement. Forty guarded per-truck updates against a database
+ * in another region is the whole cost of a sweep; this is a single UPDATE on
+ * the index tracked_trucks_user_idx already provides.
+ *
+ * WHAT IT DELIBERATELY DOES NOT TOUCH
+ *
+ * auto_pause_at is left standing, unlike in applyAutoPauses() where the
+ * deadline had actually arrived. Here it has not: the officer said "watch this
+ * for six hours" and the money ran out after two, so the instruction still
+ * means something and throwing it away would let the truck run for ever the
+ * next time it went live. consecutive_errors is left for the same reason - a
+ * run of failures is a fact about the registration number, and the wallet has
+ * nothing to say about it.
+ *
+ * `ok` is separate from the count on purpose. Zero stopped is the normal
+ * result on any sweep after the first - they are already paused - whereas a
+ * failed statement means the trucks are still live, and the caller must not
+ * then send a message claiming they are not.
+ *
+ * WHY A TOP-UP DOES NOT UNDO THIS BY ITSELF
+ *
+ * Nothing here or in the payment path takes a truck live again. Buying credits
+ * lifts the refusal - liveBlockedByCredits() in src/lib/officer.ts returns null
+ * the moment the balance covers one check, so the switch and Go live work again
+ * immediately - but the officer decides which lorries come back. Four reasons,
+ * and the first is the expensive one:
+ *
+ *   * The trucks that emptied the balance are the ones least likely to be
+ *     wanted back. A lorry parked in a yard answers every check with
+ *     yesterday's crossing at one credit a time, and it is exactly the truck
+ *     somebody forgot about. Switching the whole list on again would spend the
+ *     new credits on the same lorries that spent the old ones, at about 96 a
+ *     day each, and the customer would meet an empty balance twice.
+ *   * Nothing is lost by waiting. A paused truck is on the watchlist, keeps
+ *     every crossing it recorded, and costs nothing - so the pause can sit
+ *     there for a week at no charge while the officer chooses.
+ *   * Auto-resume would put a write to tracked_trucks in the payment path, and
+ *     settle_payment() has no business deciding which lorries are watched. It
+ *     would also have to guess when the plan's truck limit no longer fits the
+ *     number that were live, which is a choice with a cost attached.
+ *   * The manual way back already exists and is already correct: both resume
+ *     paths clear paused_reason, the failure run and the stale deadline.
+ */
+async function pauseAccountForNoCredits(
+  admin: Admin,
+  userId: string,
+  now: Date,
+): Promise<{ ok: boolean; stopped: number }> {
+  const { data, error } = await admin
+    .from("tracked_trucks")
+    .update({
+      is_active: false,
+      paused_reason: "no_credits",
+      paused_at: now.toISOString(),
+    })
+    .eq("user_id", userId)
+    // Guarded like every other pause in this file: an officer can be pausing a
+    // lorry by hand in the same second, and whoever gets there first owns the
+    // reason. It also makes the statement idempotent, so two overlapping
+    // sweeps do not both claim to have stopped the same fleet.
+    .eq("is_active", true)
+    .select("id");
+
+  if (error) {
+    console.error(`no-credit pause failed for account ${userId}`, error.message);
+    return { ok: false, stopped: 0 };
+  }
+  return { ok: true, stopped: (data ?? []).length };
+}
+
 /* -------------------------------------------------------------------------- */
 /* one truck                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -397,8 +507,6 @@ export async function checkTruck({
   });
 
   if (!verdict.allowed) {
-    // Out of credits is not a failure of the truck, and it fixes itself the
-    // moment the officer tops up, so tracking is left switched on.
     if (verdict.reason === "account_suspended") {
       await admin
         .from("tracked_trucks")
@@ -408,37 +516,76 @@ export async function checkTruck({
           paused_at: now.toISOString(),
         })
         .eq("id", truck.id);
-    } else if (
-      verdict.reason === "out_of_credits" &&
-      (await notToldToday(admin, truck.user_id, "out_of_credits"))
-    ) {
-      /*
-       * LIVE AGAIN AS OF 0041, and it is now the most important message the
-       * worker sends.
-       *
-       * 0038 rated auto_check 0 and this branch went dormant for a release -
-       * spend_credits allowed a free check on an empty balance, so the wallet
-       * could never stop tracking. The owner has reversed that: a check costs
-       * one credit, so an empty balance stops every truck on the account.
-       *
-       * Without this the product fails in its quietest possible way. The
-       * balance empties, every check stops, and nothing on the phone changes -
-       * the trucks are still listed, still switched on, still say they are
-       * being watched, and the crossing nobody was told about is the one that
-       * mattered. Said once a day per account, not once per truck per sweep.
-       */
-      await sendSystemAlert({
-        admin,
-        context,
-        truckNumber: truck.truck_number,
-        kind: "out_of_credits",
-        title: "Automatic checks have stopped",
-        message:
-          "Your credit balance is empty, so no truck is being checked right now. " +
-          "Nothing has been lost and every truck stays on your list - top up and " +
-          "checking carries on from where it left off.",
-      });
+      return { ...outcome, reason: verdict.reason };
     }
+
+    if (verdict.reason === "out_of_credits") {
+      /*
+       * AN EMPTY BALANCE NOW PAUSES THE FLEET. It used to only send a message.
+       *
+       * The branch itself dates from before 0038, went dormant for a release
+       * when auto_check was rated 0 - a free check cannot be refused, so the
+       * wallet could never stop tracking - and came back live with 0041, which
+       * priced a check at one credit again. What was still missing was the
+       * consequence, and the owner has now asked for it in as many words:
+       * "if credit become 00, all live tracking -> auto pause: with reason".
+       *
+       * Leaving the trucks switched on was the product failing in its quietest
+       * possible way. The balance emptied, every check stopped, and nothing on
+       * the phone changed - the lorries were still listed, still showing a live
+       * switch, still claiming to be watched - and the crossing nobody was told
+       * about was the one that mattered. The old comment here said tracking was
+       * "left switched on" because an empty balance "fixes itself the moment
+       * the officer tops up"; both halves were wrong. It does not fix itself,
+       * because nothing tells the officer, and a truck that is switched on and
+       * is not being checked is a lie on the page.
+       *
+       * The pause comes first and the message second, because the message
+       * describes the pause. If the statement failed, the trucks are still live
+       * and saying otherwise would be worse than saying nothing - so the news
+       * waits for the next sweep, which will try again.
+       */
+      const paused = await pauseAccountForNoCredits(admin, truck.user_id, now);
+
+      /*
+       * ONCE PER EMPTYING, not once a day any more - and notToldToday is doing
+       * a different job than it used to.
+       *
+       * It was the guard against a daily nag: forty trucks rediscovering the
+       * same empty balance every fifteen minutes for a week. Now that the first
+       * refusal pauses them, none of those trucks is a candidate on the next
+       * sweep, so there is nothing left to repeat. What it still stops is the
+       * fan-out INSIDE this one sweep: several of the account's trucks are
+       * checked concurrently, they all reach this branch, and only the first
+       * of them should send anything.
+       */
+      if (paused.ok && (await notToldToday(admin, truck.user_id, "out_of_credits"))) {
+        await sendSystemAlert({
+          admin,
+          context,
+          /* No registration number. This is an account-wide event, and naming
+             whichever lorry happened to be polled first would read as a fault
+             with that one truck. Same choice as the plan-expiry message. */
+          truckNumber: null,
+          kind: "out_of_credits",
+          title: "Tracking has been paused - no credits left",
+          message:
+            "Your credit balance could not cover another check, so every truck that was " +
+            "live has been paused. Each automatic check costs one credit, so from now " +
+            "nothing is being checked and nothing is being spent. " +
+            "Nothing has been lost - the trucks, their alerts and every crossing they " +
+            "recorded are all still here, and credits you have paid for never expire. " +
+            "Top up, then take the trucks you still need live again from My trucks.",
+        });
+      }
+
+      return {
+        ...outcome,
+        reason: verdict.reason,
+        ...(paused.stopped > 0 ? { pausedForNoCredits: paused.stopped } : {}),
+      };
+    }
+
     return { ...outcome, reason: verdict.reason ?? "not_allowed" };
   }
 
@@ -896,9 +1043,9 @@ async function applyPlanExpiryTeardown(
       message:
         `Your plan ended more than ${PLAN_GRACE_DAYS} days ago, so automatic checking has been ` +
         "switched off on every truck. Nothing has been deleted - your trucks, their alerts and " +
-        "every crossing they recorded are all still here, and so are your credits, which never " +
-        "expire and still pay for manual searches. Renew the plan and switch the trucks back on " +
-        "from My trucks.",
+        "every crossing they recorded are all still here, and so are your credits: the ones you " +
+        "have paid for never expire, and they still pay for manual searches. Renew the plan and " +
+        "switch the trucks back on from My trucks.",
     });
   }
 
@@ -957,6 +1104,7 @@ export async function runTrackingSweep(
     deferred: 0,
     planExpired: { trucks: 0, accounts: 0 },
     autoPaused: { schedule: 0, inactive: 0 },
+    noCreditsPaused: { trucks: 0, accounts: 0 },
     errors: [] as string[],
     outcomes: [] as PollOutcome[],
     backup: null as BackupSummary | null,
@@ -1137,11 +1285,24 @@ export async function runTrackingSweep(
     errors.push("The export could not run, so nothing was deleted.");
   }
 
+  /* Counted off the outcomes rather than accumulated as the sweep runs,
+     because the checks run concurrently and a shared counter would be a race.
+     Only the truck whose refusal did the pausing carries a figure, and it
+     already counts the account's other lorries, so summing is right and
+     counting distinct accounts cannot double-count a fleet. */
+  const noCreditsPaused = {
+    trucks: outcomes.reduce((sum, o) => sum + (o.pausedForNoCredits ?? 0), 0),
+    accounts: new Set(
+      outcomes.filter((o) => (o.pausedForNoCredits ?? 0) > 0).map((o) => o.userId),
+    ).size,
+  };
+
   return finish({
     ...base,
     planExpired,
     candidates: all.length,
     autoPaused: autoPaused.counts,
+    noCreditsPaused,
     due: due.length,
     deferred: Math.max(due.length - selected.length, 0),
     checked: outcomes.filter((o) => o.status === "checked").length,

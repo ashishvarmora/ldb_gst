@@ -10,7 +10,11 @@ export const SETTINGS_FALLBACK: AppSettings = {
   trackingEnabled: true,
   noActivityHours: 6,
   trackingFailureCutoff: 10,
-  inactivePauseHours: 72,
+  /* 8 hours, matching the platform setting. A lorry that has not crossed a
+     plaza in a working day is parked, and every further check costs a credit
+     for the same answer as yesterday. The fallback only applies if the setting
+     row is missing, so it must not be more generous than the row. */
+  inactivePauseHours: 8,
   signupFreeCredits: 0,
   revisitMinutes: 90,
   dataRetentionDays: 30,

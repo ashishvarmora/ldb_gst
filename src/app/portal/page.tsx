@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, BellRing, Coins, History, Search, Send, Wallet } from "lucide-react";
 
 import { InviteCard } from "./referrals/InviteCard";
+import { InfoTip } from "@/components/InfoTip";
 import { SkeletonPanel } from "@/components/Skeleton";
 import { publicSettings } from "@/components/SiteFooter";
 import {
@@ -89,10 +90,10 @@ export default async function PortalHome() {
 
   return (
     <>
-      <PageHeader
-        title={firstName ? `Good to see you, ${firstName}` : "Dashboard"}
-        subtitle="Your credits, your plan, and what happened today."
-      />
+      {/* No subtitle. "Your credits, your plan, and what happened today" was
+          the three panels below it - Credits left, Your plan, Today's alerts -
+          listed in a sentence the reader had to get past to reach them. */}
+      <PageHeader title={firstName ? `Good to see you, ${firstName}` : "Dashboard"} />
 
       {/* The plan is live, so the only thing that can stop a search here is an
           empty balance - and the fix is one tap away, not a support request. */}
@@ -136,41 +137,68 @@ export default async function PortalHome() {
       {/* ------------------------------- 1. credits ---------------------- */}
       <Panel className="mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
-              Credits left
-            </p>
-            <p className={cx("mt-1 text-4xl font-semibold tabular-nums sm:text-5xl", balanceTone)}>
-              {formatCredits(overview.credits)}
-            </p>
+          {/*
+            WHAT A CREDIT BUYS IS BEHIND THE (i), NOT UNDER THE FIGURE.
 
-            {/*
-              The figure is meaningless on its own - the rate it is spent at is
-              set in the console and is not on this page - so under it goes what
-              the balance actually buys. Carried in the words, not the colour,
-              and the link only when the banner above is not already offering
-              it.
-            */}
-            {standing === "ok" ? (
-              <p className="mt-1.5 text-xs text-muted">
-                Credits pay for every look at a lorry, typed or automatic, and never expire.
+            A healthy balance used to carry "Credits pay for every look at a
+            lorry, typed or automatic, and never expire" as a line of its own,
+            on the first screen of the app, every single visit. It is worth
+            knowing once - the rate is set in the console and is nowhere on
+            this page - so it is on the number it explains, where somebody
+            looking at the number can ask for it.
+
+            The whole block is the (i)'s row rather than just the label, so the
+            explanation opens under the figure instead of between the words
+            "Credits left" and the figure they belong to.
+          */}
+          <InfoTip
+            label="credits"
+            className="min-w-0"
+            info={
+              <p>
+                Credits pay for every look at a lorry — the searches you type and each automatic
+                check of a truck you are watching, at{" "}
+                {formatCredits(searchCost)} credit{searchCost === 1 ? "" : "s"} a look. They never
+                expire, and your plan sets how many trucks may be watched rather than what the
+                looking costs.
               </p>
-            ) : (
-              <p
+            }
+          >
+            <span className="block min-w-0">
+              <span className="block text-[11px] font-semibold tracking-wider text-muted uppercase">
+                Credits left
+              </span>
+              <span
                 className={cx(
-                  "mt-1.5 flex flex-wrap items-center gap-x-2 text-xs",
-                  standing === "empty" ? "text-bad-500" : "text-warn-500",
+                  "mt-1 block text-4xl font-semibold tabular-nums sm:text-5xl",
+                  balanceTone,
                 )}
               >
-                <span>
-                  {standing === "empty"
-                    ? "Too low to search."
-                    : `Only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`}
+                {formatCredits(overview.credits)}
+              </span>
+
+              {/* The state, still on the figure and still in the words rather
+                  than the colour - and the link only when the banner above is
+                  not already offering it. Nothing explanatory left here: a
+                  healthy balance now says nothing at all, which is the correct
+                  amount to say about a balance that is fine. */}
+              {standing === "ok" ? null : (
+                <span
+                  className={cx(
+                    "mt-1.5 flex flex-wrap items-center gap-x-2 text-xs",
+                    standing === "empty" ? "text-bad-500" : "text-warn-500",
+                  )}
+                >
+                  <span>
+                    {standing === "empty"
+                      ? "Too low to search."
+                      : `Only ${searchesLeftLabel(searchesLeft(overview.credits, searchCost))} at today's rate.`}
+                  </span>
+                  {bannerCarriesTopUp ? null : <TopUpLink standing={standing} />}
                 </span>
-                {bannerCarriesTopUp ? null : <TopUpLink standing={standing} />}
-              </p>
-            )}
-          </div>
+              )}
+            </span>
+          </InfoTip>
           <LinkButton href="/portal/plan" size="sm" variant="secondary">
             Plan and credits
           </LinkButton>
@@ -344,28 +372,27 @@ function WelcomeHome({
             finishes reading the three steps and asks what to do next. On a
             phone that is a whole screen apart. */}
         <div className="border-t border-divider px-5 py-4">
+          {/* The line under this button said "Plans start from one month. You
+              can change or top up at any time." Every plan card on the page it
+              leads to states its own term and price, so the first half was a
+              guess about a term this file cannot see - and since a plan carries
+              its own duration it was not even reliably true. */}
           <LinkButton href="/portal/plan" variant="primary" className="w-full sm:w-auto">
             {ended ? "Renew your plan" : "Choose your plan"}
           </LinkButton>
-          <p className="mt-2 text-xs text-muted">
-            Plans start from one month. You can change or top up at any time.
-          </p>
         </div>
       </Panel>
 
       {/* Credits outlive a plan, so a returning customer is told the balance is
-          still theirs rather than left wondering what happened to it.
-
-          "will be there when your plan is live again" was the old model, and it
-          understated the case: the credits are not held in escrow until a plan
-          returns, they are spendable on the search box right now. No top-up
-          link beside them either - this screen has one job and one button, and
-          a plan comes with credits, so it is the better answer for somebody
-          who has not got one. */}
+          still theirs rather than left wondering what happened to it. One
+          clause each for the two facts that are not on screen anywhere - the
+          figure, and that it is still spendable. The three sentences this used
+          to be spent two of them insisting the credits had not been frozen,
+          which nobody had suggested. */}
       {overview.credits > 0 ? (
         <p className="mt-4 text-xs text-muted">
-          {formatCredits(overview.credits)} credits are still on your balance. They never expire,
-          and every one of them still buys a search right now.
+          {formatCredits(overview.credits)} credits are still on your balance — they never expire,
+          and still buy a search today.
         </p>
       ) : null}
 
@@ -400,20 +427,23 @@ async function TodaysAlertsPanel({
   const alerts = (data ?? []) as AlertLog[];
 
   return (
+    /*
+      The count, and only the count.
+
+      Both branches used to end "The bell in the top corner keeps the rest" -
+      a pointer to a control that is on screen, repeated on every visit, in a
+      panel header. And the empty branch said "Nothing so far today" directly
+      above an empty state already headed "No alerts yet". So the description
+      is now a figure when there is one and absent when there is not, which is
+      what a panel header is for.
+    */
     <Panel
       title="Today's alerts"
-      description={
-        alertsToday === 0
-          ? "Nothing so far today. The bell in the top corner keeps the rest."
-          : `${fmtNumber(alertsToday)} so far today. The bell in the top corner keeps the rest.`
-      }
+      description={alertsToday === 0 ? undefined : `${fmtNumber(alertsToday)} so far today`}
       bodyClassName="p-0"
     >
       {alerts.length === 0 ? (
-        <EmptyState
-          title="No alerts yet"
-          description="Switch an alert on for a truck and anything it reports shows up here."
-        />
+        <EmptyState title="No alerts yet" />
       ) : (
         <ul className="divide-y divide-divider">
           {alerts.map((alert) => (

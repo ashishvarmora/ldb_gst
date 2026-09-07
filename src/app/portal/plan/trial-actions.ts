@@ -65,6 +65,18 @@ export async function startFreeTrial(
       switch (verdict.reason) {
         case "has_plan":
           return fail("You already have a plan running. Nothing more to do.");
+        case "email_unverified":
+          /*
+           * The one refusal that names its own remedy, and the only one that
+           * should. The other three are deliberately vague - saying which
+           * detail already claimed a trial tells somebody which detail to
+           * change - but this one is not a refusal, it is a step the officer
+           * has not taken yet, and hiding the way forward would just look
+           * broken.
+           */
+          return fail(
+            "Verify your email address first — we will send a six-digit code. Open Verify your email from the link on this page.",
+          );
         case "already_claimed":
         case "had_plan":
         case "has_paid":

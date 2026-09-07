@@ -235,12 +235,18 @@ export default async function TrucksPage({
             One line, and the whole of the auto-pause explanation behind the (i)
             beside it.
 
-            The four rules used to be nowhere on this screen, which meant the
-            first time an officer met one was a truck that had gone quiet on its
-            own. Putting them on the page would cost a paragraph on the screen
-            that is scanned more than any other, and the owner has asked
-            repeatedly for this list to stay short - so the rules, the links and
-            the arithmetic live in the panel, and the row keeps one sentence.
+            The rules used to be nowhere on this screen, which meant the first
+            time an officer met one was a truck that had gone quiet on its own.
+            Putting them on the page would cost a paragraph on the screen that
+            is scanned more than any other, and the owner has asked repeatedly
+            for this list to stay short - so the rules, the links and the
+            arithmetic live in the panel, and the row keeps one sentence.
+
+            No count in the sentence below, deliberately. It said "four" here,
+            "Four things" on the truck's own page and "one of four limits" on
+            the support page, all written by hand off the same array - so
+            adding the empty-balance rule made three screens wrong at once.
+            What the rules are FOR does not change when one is added.
           */}
           <InfoTip
             label="auto-pause"
@@ -250,9 +256,9 @@ export default async function TrucksPage({
                 <p className="font-medium text-ink">Auto-pause rules</p>
                 <p>
                   A tracked truck is checked every fifteen minutes and each check costs one credit
-                  — about 96 credits a day for one lorry. So checking stops by itself in four
-                  situations, and each one is there to stop credits going on an answer you already
-                  have:
+                  — about 96 credits a day for one lorry. Pausing one is the largest thing you can
+                  do about that, and checking also stops by itself in these situations, each of
+                  them there to keep credits from going on an answer you already have:
                 </p>
                 <ul className="mt-2 space-y-1.5">
                   {AUTO_PAUSE_RULES.map((rule) => (

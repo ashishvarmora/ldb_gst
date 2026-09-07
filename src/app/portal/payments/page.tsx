@@ -155,9 +155,11 @@ export default async function PaymentsPage({
     })}#receipt`;
 
   const header = (
+    /* No subtitle. It said "every payment, what it bought, and the reference to
+       quote" - which is three of the table's own column headings, in longer
+       words, directly above the table. */
     <PageHeader
       title="Payment history"
-      subtitle="Every payment, what it bought, and the reference to quote if you ever need to ask about one."
       actions={
         rows.length > 0 ? (
           <LinkButton
@@ -186,9 +188,10 @@ export default async function PaymentsPage({
       <>
         {header}
         <Panel bodyClassName="p-0">
+          {/* No description. It listed what a payment row contains, to a reader
+              who has no rows - the button is the only useful thing here. */}
           <EmptyState
             title="No payments yet"
-            description="Anything you buy — a plan or a credit top-up — is listed here with its reference, what it cost and what it added."
             action={
               <LinkButton href="/portal/plan" variant="primary">
                 <Wallet size={15} />
@@ -237,11 +240,26 @@ export default async function PaymentsPage({
             </>
           }
         />
+        {/*
+          The whole grant, and how it splits.
+
+          This read totals.credits, which summed each payment's `credits`
+          column - the plan's included allowance on a plan row - so a range
+          containing one combined purchase reported fewer credits than the
+          balance had actually gained. The sub-line is the split rather than a
+          sentence saying what the card obviously is: the two kinds of credit
+          cost different money and a customer reconciling a top-up needs to see
+          which figure was theirs to choose.
+        */}
         <StatCard
-          label="Credits received"
+          label="Credits added"
           value={formatCredits(totals.credits)}
           tone="brand"
-          sub="Added to your balance by these payments"
+          sub={
+            totals.planCredits > 0 && totals.topupCredits > 0
+              ? `${formatCredits(totals.planCredits)} with plans · ${formatCredits(totals.topupCredits)} topped up`
+              : null
+          }
         />
         <StatCard
           label="Payments"
@@ -253,31 +271,37 @@ export default async function PaymentsPage({
       <Panel
         id="list"
         title="Every payment in this range"
+        /*
+          A description only when there is something the rows cannot say for
+          themselves, which is the cap.
+
+          It used to carry two sentences on every visit. "Tap a column heading
+          to reorder" describes an affordance the headings have, and was hidden
+          on a phone anyway because there are no headings down there; "only
+          settled payments count towards the totals" is already said by the
+          totals - "N settled payments" under the money, "Settled total" on the
+          footer - and by every unsettled row printing a dash where its figure
+          would go.
+        */
         description={
-          capped ? (
-            `Only the most recent ${fmtNumber(MAX_ROWS)} are shown, and the figures above cover those. Narrow the dates to see the rest.`
-          ) : (
-            <>
-              {/* The headings that reorder are the table's, and there is no
-                  table below md - so a phone was being told to tap something
-                  that is not on its screen. */}
-              <span className="hidden md:inline">Tap a column heading to reorder. </span>
-              Only settled payments count towards the totals.
-            </>
-          )
+          capped
+            ? `Only the most recent ${fmtNumber(MAX_ROWS)} are shown, and the figures above cover those. Narrow the dates to see the rest.`
+            : undefined
         }
         className="scroll-mt-20"
         bodyClassName="p-0"
       >
         {error ? (
+          /* Kept, unlike the other two descriptions on this screen: a blank
+             payments list is read as money having gone missing, and this is the
+             one state where the screen has to say the failure is its own. */
           <EmptyState
             title="Could not read your payments"
-            description="Please try again in a moment. If it keeps happening, contact support — nothing you have paid for is affected."
+            description="Nothing you have paid for is affected. Please try again in a moment."
           />
         ) : ordered.length === 0 ? (
           <EmptyState
             title="No payments in this range"
-            description="Nothing was bought between these dates."
             action={
               <LinkButton href="/portal/payments?range=all" variant="secondary" size="sm">
                 Show every payment
@@ -333,19 +357,25 @@ export default async function PaymentsPage({
       </Panel>
 
       <div className="mt-3 space-y-2">
-        <HelpNote title='What does "started, not paid" mean?'>
-          A payment is recorded the moment the payment window opens, before any money moves. If the
-          window is closed, or the card is never confirmed, the row stays as{" "}
-          <strong>started, not paid</strong> — nothing was charged and nothing was added to your
-          balance. Only rows marked <strong>Paid</strong> count towards the totals above.
-        </HelpNote>
+        {/*
+          ONE FOLD, not two.
 
-        <HelpNote title="I have paid but my credits are not here">
-          Credits are added when Razorpay confirms the payment, which is normally a few seconds
-          after you finish. If the row above still says started, not paid an hour later and money
-          has left your account, send the reference on that row{" "}
-          {settings.supportEmail ? `to ${settings.supportEmail}` : "to us"} — it is all that is
-          needed to find the payment and put it right.{" "}
+          This was two notes - what "started, not paid" means, and what to do
+          when credits have not arrived - and they are the same conversation:
+          the second is what somebody does about the state the first describes.
+          Split in two they repeated the state's meaning in both, and the
+          sentence about the totals in the first is now said by the totals
+          themselves. Merged and cut to the two things support cannot see for
+          the customer: nothing was charged, and here is what to send us.
+        */}
+        <HelpNote title='A payment that says "started, not paid"'>
+          A row is written the moment the payment window opens, before any money moves, and stays{" "}
+          <strong>started, not paid</strong> if the window is closed or the card is never
+          confirmed — nothing was charged, and nothing was added to your balance. Credits arrive
+          when Razorpay confirms a payment, usually within seconds. If a row still says started,
+          not paid an hour later and money has left your account, send us the reference on it{" "}
+          {settings.supportEmail ? `at ${settings.supportEmail}` : ""} — it is all that is needed
+          to find the payment and put it right.{" "}
           {/* The address in app_settings is blank on this platform as it
               stands, so a sentence that only names an email is a dead end.
               /contact is always there and says whatever the owner has set. */}

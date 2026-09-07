@@ -10,8 +10,16 @@ import type { CreditPack, CreditRate, CreditVerdict, Plan } from "@/lib/types";
  * each action draws from it.
  *
  * Rates are stored as "how many of this action one credit buys", because that
- * is how they are spoken and written: "1 credit = 1 search", "1 credit = 2
- * automatic checks". The cost per action is the reciprocal.
+ * is how they are spoken and written: "1 credit = 1 search". The cost per
+ * action is the reciprocal.
+ *
+ * BOTH LIVE RATES ARE 1 - one credit a search, one credit an automatic check -
+ * and that is the owner's rule, not a default: "1 auto search = charge 1
+ * credit. 1 manual search = charge 1 credit." The illustrations in this file
+ * deliberately no longer use "1 credit = 2 checks" as their example. That was
+ * the real rate for one release (0038) and 0041 reversed it, and the figure
+ * survived as a live claim in the README table for two more - so a worked
+ * example carrying it is a trap rather than a help.
  */
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
@@ -32,7 +40,7 @@ export function costOf(unitsPerCredit: number, count = 1): number {
   return Math.ceil((count / unitsPerCredit) * 100) / 100;
 }
 
-/** "1 credit = 2 checks", or "2 credits = 1 check" when a rate is below one. */
+/** "1 credit = 1 use", or "4 credits = 1 use" when a rate is below one. */
 export function describeRate(rate: Pick<CreditRate, "units_per_credit">): string {
   const units = rate.units_per_credit;
   if (units >= 1) {

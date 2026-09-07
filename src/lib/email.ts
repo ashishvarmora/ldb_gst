@@ -173,3 +173,35 @@ export function welcomeEmail(brand: string, url: string) {
     text: `Welcome to ${brand}\n\nYour account is ready - sign in at ${url}\n\nTo start watching a truck you will need a plan, which you can choose from your account. Add a truck, give it an alert, and you will be messaged when it moves.`,
   };
 }
+
+/**
+ * The six-digit code that proves a mailbox before a free trial is granted.
+ *
+ * No link and no button, deliberately, unlike every other email here. A code
+ * typed back into the page it was asked from cannot be turned into a
+ * one-click action by a forwarded email, and it means the person reading the
+ * mailbox and the person at the keyboard have to be the same.
+ *
+ * The code is in the subject line as well as the body: on a phone that is one
+ * glance at a notification rather than opening the mail app, and the trial is
+ * abandoned by anybody made to work for it.
+ */
+export function verifyEmailCode(brand: string, code: string, minutes: number) {
+  return {
+    subject: `${code} is your ${brand} verification code`,
+    html: shell(brand, "Verify your email address", [
+      `Your code is <strong style="font-size:22px;letter-spacing:3px">${code}</strong>`,
+      `It expires in ${minutes} minutes and can be used once.`,
+      "If you did not ask for this, ignore it - nothing has changed and no trial has started.",
+    ]),
+    text:
+      `Verify your ${brand} email address
+
+` +
+      `Your code is ${code}
+
+` +
+      `It expires in ${minutes} minutes and can be used once. ` +
+      `If you did not ask for this, ignore it - nothing has changed and no trial has started.`,
+  };
+}

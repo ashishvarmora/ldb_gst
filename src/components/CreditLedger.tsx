@@ -524,7 +524,6 @@ export async function CreditLedger({
   query,
   keep = {},
   title = "Credit history",
-  description,
   only,
   groupBy,
   drillBase,
@@ -536,8 +535,19 @@ export async function CreditLedger({
   query: LedgerQuery;
   keep?: Record<string, string>;
   title?: string;
-  /** Overrides the sentence derived from `only`. Takes a link. */
-  description?: React.ReactNode;
+  /*
+   * THERE IS NO `description`, AND THERE IS NO DEFAULT ONE EITHER.
+   *
+   * Every mount used to print a sentence under its own title - "Every credit
+   * you have spent, straight from the ledger. Nothing here is recalculated"
+   * and the like - and the owner named that text specifically as the reason
+   * these screens read as a manual. It said three things, and none of them
+   * survived reading twice: what the panel is (the title), that the figures
+   * come from the ledger (nothing on this screen comes from anywhere else),
+   * and that nothing is recomputed (reassurance about an implementation
+   * detail). The prop is gone as well as the default, so a caller cannot put
+   * one back a screen at a time - which is how it arrived the first time.
+   */
   /**
    * Pins this mount to one side of the ledger. Omitted, the reader chooses -
    * which is what the console keeps.
@@ -713,33 +723,8 @@ export async function CreditLedger({
       : (wholeBucket?.label ??
         (reasons.length === 1 ? reasonLabel(reasons[0]) : `${reasons.length} reasons`));
 
-  /*
-   * What this panel says it is, derived from the side it is pinned to rather
-   * than written at each call site, so four mounts cannot describe the same
-   * rows four ways. A caller may still override it: the credit-history tabs
-   * each name the other one, and a link is not a string.
-   */
-  const blurb =
-    description ??
-    (only === "used"
-      ? "Every credit you have spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time."
-      : only === "added"
-        ? "Every credit that has ever arrived on this account — bought, given, or free. Straight from the ledger."
-        : "Every credit added and spent, straight from the ledger. Nothing here is recalculated — each figure is what was charged at the time.");
-
-  /* With the toggles gone, nothing else on a pinned mount tells the reader why
-     one line covers a whole day, so the row they used to sit on says what a row
-     is instead of standing empty behind the sort button. */
-  const shapeNote = !locked
-    ? null
-    : dimensions.length === 0
-      ? `One row per ${entryNoun}`
-      : `One row per ${dimensions
-          .map((d) => DIMENSIONS.find((x) => x.key === d)!.label.toLowerCase())
-          .join(" and ")}`;
-
   return (
-    <Panel title={title} description={blurb} bodyClassName="p-0">
+    <Panel title={title} bodyClassName="p-0">
       {/*
         THE ARRANGING ROW: what a row is, and what order the rows come in.
         Nothing here removes a charge from the screen, which is the whole reason
@@ -747,15 +732,18 @@ export async function CreditLedger({
       */}
       <div className="space-y-2 border-b border-divider px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          {locked ? (
-            /* Printed on a phone as well, unlike the hint below: it is the only
-               thing saying what a row covers, and a page of one-line days with
-               no explanation is how somebody concludes their charges are
-               missing. */
-            <span className="mr-0.5 min-w-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
-              {shapeNote}
-            </span>
-          ) : (
+          {/*
+            NO "ONE ROW PER DAY" LINE ANY MORE, on either pinned mount.
+
+            It was the last of the shape notes the owner asked us to take out,
+            and by the time it went it was saying what the rows say for
+            themselves: a folded row already reads "14 charges · balance 220",
+            which is the fact the note was there to supply, and the (i) on the
+            credit-history balance says a day is the unit spending is grouped
+            in. A pinned mount is left with the sort control alone, which
+            ml-auto below holds at the far end of the row.
+          */}
+          {locked ? null : (
             <>
               <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
                 Group by
@@ -774,8 +762,10 @@ export async function CreditLedger({
                   fill the row and this sentence is what would wrap it to a
                   second line - the thing these two rows exist to avoid. Nothing
                   is lost: the count line under the totals says "individual
-                  charges" the moment the toggles are all off, and the help note
-                  on the activity page says it in words. */}
+                  charges" the moment the toggles are all off. It is also the
+                  only remaining hint about the toggles anywhere - the activity
+                  page's fold explaining them in a paragraph has gone - so it
+                  stays where the control it describes is. */}
               <span className="ml-1 hidden text-[11px] text-faint sm:inline">
                 {rawEntries ? `every individual ${entryNoun}` : `turn all off for every ${entryNoun}`}
               </span>

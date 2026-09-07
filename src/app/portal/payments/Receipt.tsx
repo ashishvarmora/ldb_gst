@@ -15,10 +15,12 @@ import { SettlementWatch } from "./SettlementWatch";
 import {
   STATUS_LABEL,
   boughtLabel,
+  creditLines,
   creditsLine,
   hasGatewayReference,
   isSettled,
   listInr,
+  paymentCredits,
   type PaymentRow,
 } from "./payments";
 import { methodLabel } from "@/lib/analytics";
@@ -122,7 +124,14 @@ export function Receipt({
   const fresh = settled && minutesSince(row.paid_at) < FRESH_MINUTES;
 
   const discount = Number(row.discount_inr) || 0;
-  const credits = Number(row.credits) || 0;
+  /* Every kind of credit this payment granted, already worded for a billing
+     document - one line for a plain purchase, three for a plan bought with a
+     top-up attached. Empty when it granted none. */
+  const credits = creditLines(row);
+  /* The sum, for the sentence at the top. A plan payment's own `credits`
+     column holds the plan's half only, so this is the only figure that can
+     honestly be called "added". */
+  const creditsTotal = paymentCredits(row).total;
 
   const tone = settled ? "good" : row.status === "failed" ? "bad" : "warn";
   const Icon = settled
@@ -189,12 +198,17 @@ export function Receipt({
                   <>
                     {fmtRupees(row.amount_inr)} paid. {overview.plan_name ?? "Your plan"} runs until{" "}
                     {overview.plan_expires_on ? fmtDate(overview.plan_expires_on) : "it is cancelled"}
-                    {credits > 0 ? `, and ${formatCredits(credits)} credits came with it` : ""}.
+                    {/* "came with it" was true of a plan-only payment and
+                        wrong the moment a top-up rode along in the same
+                        checkout: half of that figure was bought, not included.
+                        The total is what landed either way, and the rows below
+                        say which half was which. */}
+                    {creditsTotal > 0 ? `, and ${formatCredits(creditsTotal)} credits were added` : ""}.
                   </>
                 ) : (
                   <>
-                    {fmtRupees(row.amount_inr)} paid, and {formatCredits(credits)} credits are on
-                    your balance.
+                    {fmtRupees(row.amount_inr)} paid, and {formatCredits(creditsTotal)} credits are
+                    on your balance.
                   </>
                 )
               ) : (
@@ -302,29 +316,43 @@ export function Receipt({
         <DescRow label="Bought">{boughtLabel(row)}</DescRow>
 
         {/*
-          payments.credits, and where that figure comes from.
+          WHAT THE PAYMENT GRANTED, BROKEN INTO THE KINDS IT GRANTED.
 
-          For a top-up it is what settle_payment() grants, so the two cannot
-          disagree. For a PLAN it is the plan's included_credits as recorded
-          when the order was opened, while settle_payment reads the plan row
-          again at settlement - so an administrator who edits a plan's included
+          One payment can hand over two different things - the allowance that
+          comes with a plan, and credits bought as a top-up in the same
+          checkout - and this said only the first. A customer who paid Rs 2,000
+          for a plan plus 1,500 credits was handed a receipt naming the plan's
+          500 and nothing else, which is the half they did not choose. The
+          lines and their wording come from creditLines() in payments.ts, so
+          the receipt, the table, the phone card and the CSV cannot describe
+          the same grant differently.
+
+          WHERE THE FIGURES COME FROM. The top-up half is payments.topup_credits,
+          fixed when the order opened, which is exactly what settle_payment()
+          grants - the two cannot disagree. The plan's half is the plan's
+          included_credits as recorded at that moment, while settlement reads
+          the plan row again, so an administrator who edits a plan's included
           credits in the seconds between the two would leave this quoting the
-          old figure. Shown anyway, because the alternative is matching the
-          ledger grant back by the order id inside its note text, and a receipt
-          that silently says nothing about the credits is worse than one that is
-          a few seconds stale. The balance line below is read live either way.
+          old figure. Shown anyway: the alternative is matching the ledger
+          grants back by the order id inside their note text, and a receipt
+          silent about the credits is worse than one a few seconds stale. The
+          balance line above is read live from the ledger either way, and its
+          "+" is this section's total.
         */}
-        {row.status !== "failed" && credits > 0 ? (
-          <DescRow label="Credits">
-            <span className="tabular-nums">
-              {creditsLine(row)}
-              {pending ? <span className="ml-1 text-xs text-muted">once confirmed</span> : null}
-              {settled && row.kind === "plan" ? (
-                <span className="ml-1 text-xs text-muted">included with the plan</span>
-              ) : null}
-            </span>
-          </DescRow>
-        ) : null}
+        {row.status !== "failed" &&
+          credits.map((line) => (
+            <DescRow key={line.label} label={line.label}>
+              <span className={cx("tabular-nums", line.total && "font-medium text-strong")}>
+                {creditsLine(line.credits)}
+                {/* On the total only, and only while nothing has settled:
+                    repeating "once confirmed" against all three lines says the
+                    same caveat three times about one payment. */}
+                {pending && line.total ? (
+                  <span className="ml-1 text-xs font-normal text-muted">once confirmed</span>
+                ) : null}
+              </span>
+            </DescRow>
+          ))}
 
         <DescRow label="Method">{methodLabel(row.method)}</DescRow>
 

@@ -109,11 +109,15 @@ export default async function CreditHistoryPage({
             label="credit history"
             info={
               <>
+                {/* This said automatic checks were included with the plan and
+                    cost nothing - wrong three times over, and the ledger
+                    directly below it lists auto_check rows. One credit a check,
+                    either kind. */}
                 <p>
-                  Credits buy the searches you run yourself, at{" "}
-                  {formatCredits(searchCost)} credit{searchCost === 1 ? "" : "s"} each, and never
-                  expire. Automatic tracking checks are included with your plan — they cost
-                  nothing and are not recorded here at all.
+                  Every look at a lorry costs {formatCredits(searchCost)} credit
+                  {searchCost === 1 ? "" : "s"} — a search you run yourself and an automatic check
+                  alike. Credits never expire. Pausing a truck stops its checks, so it stops
+                  spending.
                 </p>
                 <p>
                   Credits can arrive without a payment: a plan an administrator assigned by hand, a
@@ -152,15 +156,19 @@ export default async function CreditHistoryPage({
         <SideTabs current={side} query={query} />
 
         {/*
-          NEITHER MOUNT PASSES `description` ANY MORE.
+          NEITHER MOUNT HAS A DESCRIPTION, AND NEITHER CAN.
 
-          Both overrides were a sentence naming the page's own other half - the
-          switch immediately above already does that, and a link out of a panel
-          header to a tab six inches higher is a reader being sent in a circle.
-          Dropping them lets CreditLedger's own one-liner stand, which is one
-          place deciding how a ledger describes itself instead of two, and the
-          part that was load-bearing - what a row covers, and where a day opens
-          - is said by the shape note inside the panel and by the (i) above.
+          Both used to override it with a sentence naming the page's own other
+          half - the switch immediately above already does that, and a link out
+          of a panel header to a tab six inches higher is a reader being sent
+          in a circle. Dropping the overrides left CreditLedger's own derived
+          one-liner standing, which was the text the owner quoted back at us:
+          "Every credit you have spent, straight from the ledger. Nothing here
+          is recalculated." That default and the prop behind it are both gone
+          now - see CreditLedger - along with the "One row per day" note inside
+          the panel. What was load-bearing in all of it, what a row covers and
+          where a day opens, is in the (i) on the balance above; the rest was
+          the title in longer words.
         */}
         {side === "added" ? (
           <CreditLedger

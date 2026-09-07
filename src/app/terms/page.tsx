@@ -66,13 +66,16 @@ export default async function TermsPage() {
         <Section id="plans" title="3. Plans, credits and payment">
           <Bullets
             items={[
-              "A plan sets how many vehicles you may watch at the same time, and for how long. Credits pay for each check of a vehicle at the published rate, whether that check was run automatically for a tracked vehicle or by you as a lookup.",
-              "Automatic checking of a tracked vehicle draws on your credits every time it runs, at the interval you chose. With no credits available, automatic checking stops until you top up. Pausing a vehicle stops its checks and the credits they would have spent.",
+              "A plan sets how many vehicles you may watch at the same time, and for how long. Its price is for the whole plan and is charged once, not per month. Credits pay for each check of a vehicle at the published rate, whether that check was run automatically for a tracked vehicle or by you as a lookup.",
+              "Automatic checking of a tracked vehicle draws on your credits every time it runs, at the interval you chose. With no credits available, automatic checking stops: every vehicle you have live is paused and marked as having no credits left, so it spends nothing further. Top up and take the vehicles you still want watched live again. Pausing a vehicle yourself does the same thing — it stops its checks and the credits they would have spent.",
+              "A vehicle may also be paused automatically at a stop time you set, after a period with no movement, or after repeated failures on its registration number. Each of these exists to stop credits going on checks that cannot tell you anything new.",
               "Topping up credits does not renew, extend or change your plan. The two are separate and are billed separately.",
+              "When a plan ends, automatic checking stops and nothing else does. Your credits remain, and they still pay for lookups you run yourself.",
               "Prices, credit rates and what each action costs are published before you buy, and may change. A change never alters the price of something you have already paid for.",
               "Credits are a prepaid entitlement to use this service. They have no cash value, cannot be transferred between accounts, and cannot be exchanged for money.",
               "Payments are taken by our payment provider. We do not receive or store your card or bank details.",
-              "Unused credits do not expire and remain available while your account is in good standing, whether or not you hold a current plan. We will give reasonable notice before any change that would cause credits to lapse.",
+              "Unused credits you have paid for do not expire and remain available while your account is in good standing, whether or not you hold a current plan. We will give reasonable notice before any change that would cause paid credits to lapse.",
+              "Credits given free with a trial are the one exception: they belong to the trial and end when it does. That is stated on the trial before you start it, and it does not affect anything you have paid for.",
             ]}
           />
           <p>

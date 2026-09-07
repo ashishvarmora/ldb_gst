@@ -259,7 +259,21 @@ export function TruckCard({
               info={
                 <>
                   <p>{why}</p>
-                  <p>{PAUSE_HELP_LINE} Open the truck to change when it stops by itself.</p>
+                  {/* The second line has to know which kind of stop this was.
+                      "Change when it stops by itself" is the right next step
+                      for the three per-truck limits and useless advice for the
+                      two that stopped the whole account - there is no per-truck
+                      setting behind an empty balance or a lapsed plan, and
+                      sending the officer into this lorry's settings to look for
+                      one wastes the only instruction on the row. */}
+                  <p>
+                    {PAUSE_HELP_LINE}{" "}
+                    {truck.paused_reason === "no_credits"
+                      ? "Top up on the Plan and credits page, then take the trucks you still need live again."
+                      : truck.paused_reason === "plan_expired"
+                        ? "Renew the plan, then take the trucks you still need live again."
+                        : "Open the truck to change when it stops by itself."}
+                  </p>
                 </>
               }
             >

@@ -23,6 +23,22 @@ export const loadSearchCost = cache(async (): Promise<number> => {
 });
 
 /**
+ * What one AUTOMATIC check costs this account today, in credits.
+ *
+ * Its own loader rather than reusing the search cost, because they are two
+ * rows an admin edits separately on the rate screen. They happen to be equal
+ * today - both one credit since 0041 - and reading one for the other would be
+ * a bug the day somebody changes either, which is a change that takes no
+ * deploy and leaves no trace in this file.
+ *
+ * Wanted wherever a screen has to answer "would taking a truck live actually
+ * work", which is a question about this rate and not about the search rate.
+ */
+export const loadAutoCheckCost = cache(async (): Promise<number> => {
+  return costOf(await loadRate(getSupabaseAdmin(), CREDIT_ACTIONS.autoCheck));
+});
+
+/**
  * Gate for everything under /portal. Any active account can use the officer
  * dashboard, including the super admin — handy for testing a plan before you
  * hand it to a real officer.
@@ -122,6 +138,55 @@ export function blockedReason(overview: OfficerOverview): string | null {
     return "You have run out of credits. Top up on the Plan and credits page.";
   }
   return null;
+}
+
+/**
+ * Why TAKING A TRUCK LIVE would not hold, or null when it would.
+ *
+ * The other side of the empty-balance auto-pause. The worker asks
+ * spend_credits() for a credit before every check, so a truck switched back on
+ * with nothing in the wallet is refused and paused again on the next sweep -
+ * the switch moves, fifteen minutes pass, and it moves back with no
+ * explanation in between. That is the exact failure the officer reads as "the
+ * button is broken", so the refusal has to be on the screen before the tap
+ * rather than discovered a quarter of an hour later.
+ *
+ * NOT the same test as blockedReason(). That one is about spending the balance
+ * on a search the officer is about to run once; this is about committing the
+ * account to a check every few minutes, and it is priced off a different rate
+ * row. They will usually agree, and they are allowed to stop agreeing.
+ *
+ * Takes the cost rather than looking it up, so it stays a pure function that
+ * an action, a page or a test can call with today's rate - and so the caller
+ * decides how often the rate is read. loadAutoCheckCost() is the reader.
+ */
+export function liveBlockedByCredits(
+  overview: Pick<OfficerOverview, "credits">,
+  autoCheckCost: number,
+): string | null {
+  /*
+   * A rate of zero or less still means "included in the plan": spend_credits()
+   * allows the check, charges nothing and deliberately never reads the balance.
+   * An empty wallet must not block tracking then, or an admin who made
+   * checking free would find it refused the moment somebody spent their last
+   * credit. Dormant today - the rate is 1 - and it is the whole reason this
+   * takes the cost instead of testing `credits <= 0`.
+   */
+  if (!(autoCheckCost > 0)) return null;
+
+  /*
+   * Written as `>=` so a null or NaN balance fails it and reads as blocked,
+   * the same way creditStanding() is written. And it compares against the COST
+   * rather than zero, because a balance of 1 where a check costs 2 is just as
+   * refused - which is reachable the moment an admin rates a check above one
+   * credit.
+   */
+  if (Number(overview.credits) >= autoCheckCost) return null;
+
+  return (
+    "Your balance does not cover one automatic check, so a truck taken live now would be " +
+    "refused at its very next check and paused again. Top up on the Plan and credits page first."
+  );
 }
 
 /**

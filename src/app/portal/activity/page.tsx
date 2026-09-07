@@ -49,10 +49,10 @@ export default async function ActivityPage({
 
   return (
     <>
-      <PageHeader
-        title="Activity"
-        subtitle="Every credit you have spent — by day, by truck, and charge by charge."
-      />
+      {/* No subtitle. "By day, by truck, and charge by charge" was the three
+          Group by toggles read out in a sentence, a few inches above the
+          toggles themselves. */}
+      <PageHeader title="Activity" />
 
       <div className="space-y-3">
         {/* Where the grants and the money went, both of which used to be
@@ -70,33 +70,29 @@ export default async function ActivityPage({
           standing={creditStanding(overview.credits, searchCost)}
         />
 
-        {/* The one thing about this page that surprises people, and the reason
-            a bill can look wrong when it is not. */}
-        {/* Two folds, not two paragraphs. The first is the question support is
-            actually asked; the second is the one that stops somebody thinking
-            the list is missing rows. */}
-        <div className="space-y-2">
-          <HelpNote title="What actually costs credits?">
-            Every look at a lorry, at one credit each — the searches you type, and each automatic
-            check of a truck you are watching. The automatic ones are almost always the bigger
-            number: a truck on a 15-minute alert is checked 96 times a day whether or not it moves.
-            So how closely you watch is what it costs, and pausing a truck stops it. Your plan caps
-            how many trucks may be watched at once and for how long, not what the looking costs.
-          </HelpNote>
+        {/*
+          ONE FOLD, and it is the only one on this page.
 
-          <HelpNote title="How do I find one particular charge?">
-            Turn the <strong>Group by</strong> toggles off and you get every individual charge,
-            newest first. Leave them on to fold the same charges up — by day, by truck, or both:
-            with both on, one row is one truck on one day. Tapping any folded row opens the charges
-            behind it. <strong>Sort</strong> sits at the end of that same row and only changes the
-            order. The pills underneath are what narrow the list — each reads out what it is
-            currently doing, turns blue when it is doing something, and can be tapped off again
-            from inside itself. <strong>Reason</strong> takes as many as you like, and so does the
-            split bar above the list: tapping a slice of it narrows to that reason. The figures
-            above the list always describe everything the filters match, not just the page you are
-            looking at.
-          </HelpNote>
-        </div>
+          There were two. The second, "How do I find one particular charge?",
+          was a paragraph teaching the controls immediately below it - the
+          toggles, the sort, the pills, the split bar - and every one of those
+          reads out what it is currently doing, turns blue when it is doing
+          something and can be switched off from inside itself. A manual for a
+          control that describes itself is the prose the owner keeps asking us
+          to take off these screens, so it has gone rather than moved.
+
+          This one stays because it is not on screen anywhere: what a credit is
+          spent on, and that watching more closely costs more. It is the
+          question support is actually asked, and the reason a bill can look
+          wrong when it is not.
+        */}
+        <HelpNote title="What actually costs credits?">
+          Every look at a lorry, at one credit each — the searches you type, and each automatic
+          check of a truck you are watching. The automatic ones are almost always the bigger
+          number: a truck on a 15-minute alert is checked 96 times a day whether or not it moves.
+          So how closely you watch is what it costs, and pausing a truck stops it. Your plan caps
+          how many trucks may be watched at once and for how long, not what the looking costs.
+        </HelpNote>
 
         {/* only="used" is the whole of the page split. The admin console mounts
             the same component without it and keeps the full ledger.

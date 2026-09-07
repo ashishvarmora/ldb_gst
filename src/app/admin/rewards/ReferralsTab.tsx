@@ -5,6 +5,7 @@ import { REWARDS_PATH, type RewardParams } from "./params";
 import { saveReferralSettings } from "../credits/actions";
 import { CapNote, pageWindow } from "../pager";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { HelpNote } from "@/components/Disclosure";
 import { Checkbox, Field, FormGrid, Input } from "@/components/form";
 import { Pager } from "@/components/Pager";
 import {
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui";
 import { formatCredits } from "@/lib/credits";
 import { fmtNumber, fmtRupees, initials } from "@/lib/format";
-import { describeReferralReward, loadReferralTerms } from "@/lib/referrals";
+import { describeReferralReward, loadReferralTerms, referralExample } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Referral, ReferralSummary } from "@/lib/types";
@@ -55,50 +56,66 @@ const REFERRERS_PER_PAGE = 25;
 const REWARDED_SCANNED = 2000;
 
 /**
- * One of the two events, with both sides' amounts on the same line.
+ * One of the two events, with both sides' percentages on the same line.
  *
  * The pair belongs together on screen for the same reason it belongs together
- * in the head: setting the inviter's reward while blind to the invitee's is
- * how a scheme ends up costing 250 credits a head without anyone deciding
+ * in the head: setting the inviter's share while blind to the invitee's is how
+ * a scheme ends up giving 45% of a first payment back without anyone deciding
  * that.
+ *
+ * The line under the title is the worked example, not an explanation. A
+ * percentage is a rule and a rule is read from one instance of it - an admin
+ * typing 20 wants to see what 20 pays, and does so without doing the sum or
+ * opening the customer's page to check.
  */
 function EventRow({
   title,
-  hint,
+  worked,
   inviteeName,
-  inviteeValue,
+  inviteePercent,
   referrerName,
-  referrerValue,
+  referrerPercent,
 }: {
   title: string;
-  hint: string;
+  worked: string;
   inviteeName: string;
-  inviteeValue: number;
+  inviteePercent: number;
   referrerName: string;
-  referrerValue: number;
+  referrerPercent: number;
 }) {
+  /*
+   * The wrapper carries the column width the header row also uses, and the box
+   * flexes inside it. Not the other way round: the % sits outside the input, so
+   * a fixed-width input plus a glyph would be wider than the label above it and
+   * every column heading would stand off-centre from its own boxes.
+   */
   const box = (name: string, value: number) => (
-    <Input
-      name={name}
-      type="number"
-      required
-      min={0}
-      max={1000000}
-      step="any"
-      defaultValue={value}
-      className="w-24 text-right tabular-nums sm:w-28"
-      aria-label={`${title} — ${name.includes("invitee") ? "new customer" : "inviter"}`}
-    />
+    <div className="flex w-24 items-center gap-1 sm:w-28">
+      <Input
+        name={name}
+        type="number"
+        required
+        min={0}
+        max={100}
+        step="any"
+        defaultValue={value}
+        className="min-w-0 flex-1 text-right tabular-nums"
+        aria-label={`${title} — ${name.includes("invitee") ? "new customer" : "inviter"}, per cent`}
+      />
+      <span className="text-xs text-muted" aria-hidden>
+        %
+      </span>
+    </div>
   );
 
   return (
     <div className="grid grid-cols-[1fr_auto_auto] items-start gap-3 border-b border-divider px-3 py-3 last:border-b-0 sm:gap-4 sm:px-4">
       <div className="min-w-0 pt-1.5">
         <p className="text-sm font-medium text-ink">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</p>
+        <p className="mt-0.5 text-xs leading-relaxed tabular-nums text-muted">{worked}</p>
       </div>
-      {box(inviteeName, inviteeValue)}
-      {box(referrerName, referrerValue)}
+      {box(inviteeName, inviteePercent)}
+      {box(referrerName, referrerPercent)}
     </div>
   );
 }
@@ -157,6 +174,10 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
 
   const rows = (summary ?? []) as ReferralSummary[];
   const rewardRows = (paid ?? []) as Pick<Referral, "reward_credits">[];
+
+  // The worked example, off the live percentages, so the figures beside the
+  // boxes are always what those boxes would actually pay.
+  const example = referralExample(terms);
 
   const invitedTotal = invited ?? 0;
   const rewardedTotal = rewarded ?? 0;
@@ -279,33 +300,36 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
                 referral pays twice, once when the invited account buys a plan
                 and once when it first tops up, and an admin who reads this as
                 four independent numbers will price them as four independent
-                numbers. The top-up row deliberately carries the larger figures
-                - the point of the scheme is an invited account that spends,
-                not one that merely registers - and that is only obvious when
-                the rows sit one above the other.
+                numbers.
+
+                Percentages of the payment since 0043, so the reward now scales
+                with what the invited account actually spends. The top-up row no
+                longer needs to carry a larger figure to make that point - a
+                percentage of a 3,000 rupee top-up is already worth more than a
+                percentage of a plan.
                 --------------------------------------------------------------- */}
             <div className="rounded-xl border border-divider">
               <div className="grid grid-cols-[1fr_auto_auto] items-baseline gap-3 border-b border-divider px-3 py-2 text-xs font-medium text-muted sm:gap-4 sm:px-4">
-                <span>Paid once each, per person invited</span>
+                <span>Share of the payment, paid once each per person invited</span>
                 <span className="w-24 text-right sm:w-28">They get</span>
                 <span className="w-24 text-right sm:w-28">Inviter gets</span>
               </div>
 
               <EventRow
                 title="Buys their first plan"
-                hint="The invite has converted. Both sides paid the moment the plan payment settles."
-                inviteeName="referral_plan_invitee_credits"
-                inviteeValue={terms.planInvitee}
-                referrerName="referral_plan_referrer_credits"
-                referrerValue={terms.planReferrer}
+                worked={`A ${fmtRupees(example.planInr)} plan pays the inviter ${formatCredits(example.planReferrer)} credits and them ${formatCredits(example.planInvitee)}.`}
+                inviteeName="referral_plan_invitee_percent"
+                inviteePercent={terms.planInviteePercent}
+                referrerName="referral_plan_referrer_percent"
+                referrerPercent={terms.planReferrerPercent}
               />
               <EventRow
                 title="Tops up for the first time"
-                hint="They have spent beyond the plan. Worth more on purpose — this is the behaviour the scheme is buying."
-                inviteeName="referral_topup_invitee_credits"
-                inviteeValue={terms.topupInvitee}
-                referrerName="referral_topup_referrer_credits"
-                referrerValue={terms.topupReferrer}
+                worked={`A ${fmtRupees(example.topupInr)} top-up pays ${formatCredits(example.topupReferrer)} and ${formatCredits(example.topupInvitee)}.`}
+                inviteeName="referral_topup_invitee_percent"
+                inviteePercent={terms.topupInviteePercent}
+                referrerName="referral_topup_referrer_percent"
+                referrerPercent={terms.topupReferrerPercent}
               />
             </div>
 
@@ -320,13 +344,27 @@ export async function ReferralsTab({ params }: { params: RewardParams }) {
                   : "Referrals are switched off, so nothing new is rewarded."}
               </span>
               <span className="mt-0.5 block text-xs text-muted">
-                Nothing is earned at sign-up. Each event pays once per person invited, and a
-                payment that buys a plan and credits together settles both at once.
-                {settings.referralMinPayment > 0
-                  ? ` A first payment under ${fmtRupees(settings.referralMinPayment)} earns nothing and leaves the referral waiting, so a later payment that does clear the floor can still qualify it.`
-                  : ""}
+                Nothing is earned at sign-up.
               </span>
             </p>
+
+            {/* The rules, folded. The owner has asked more than once that the
+                explanation not sit on the page as prose - so the screen carries
+                the numbers and one worked example per event, and everything an
+                accountant would ask is behind this. */}
+            <HelpNote title="The rules these percentages run under">
+              Each event pays once per person invited, ever — a second plan and a second top-up
+              earn nothing.{" "}
+              {settings.referralMinPayment > 0
+                ? `A payment under ${fmtRupees(settings.referralMinPayment)} settles neither and leaves the referral waiting, so a later, larger one can still qualify it. `
+                : ""}
+              A payment that buys a plan and credits together closes both events and is charged
+              once, at the plan row&rsquo;s percentages — {fmtRupees(example.combinedInr)} in one
+              go pays {formatCredits(example.combinedReferrer)} and{" "}
+              {formatCredits(example.combinedInvitee)}. Percentages are of the rupees actually
+              charged, after any discount, and land as whole credits rounded to the nearest one.
+              Changing a percentage never moves a balance that has already been paid.
+            </HelpNote>
 
             <div className="flex justify-end">
               <SubmitButton size="sm">Save referral terms</SubmitButton>

@@ -74,23 +74,42 @@ Sidebar on desktop, thumb-reachable tab bar on mobile - most people use this fro
 
 ## When a truck stops checking itself
 
-Automatic checking is included in the plan and costs no credits, so the
-mistake this guards against is not a bill - it is a tracking SLOT nobody
-remembered to free. A plan caps how many lorries may be watched at once, so
-someone who follows a lorry for an afternoon and never comes back is holding a
-slot they cannot use for a lorry that is actually moving.
+**What pausing is for: credits.** An automatic check costs one credit, the same
+as a search, and the platform's beat is fifteen minutes - so one tracked lorry
+spends about 96 credits a day whether or not it has moved. Pausing a lorry that
+is parked in a yard is therefore the largest lever the officer has on their
+balance, and it is why auto-pause exists at all.
 
-Four things stop a truck, and the reason is stored on the row so its owner is
-told **which**. A truck that goes quiet without saying why is the failure all
-of this is guarding against.
+This section said the opposite for two releases. `0038_slots_not_credits.sql`
+rated automatic checks at zero and everything here was rewritten to say that
+checking was "included in the plan", that the mistake being guarded against was
+"not a bill", and that pausing only handed back a tracking SLOT.
+`0041_one_check_one_credit.sql` reversed the rate and this paragraph was not
+rewritten with it. Freeing the plan's tracking slot is still a real second
+reason - the plan caps how many lorries may be watched at once - but it is the
+smaller one, and leading with it is how this control came to look optional.
+
+The reason a truck stopped is stored on the row so its owner is told **which**.
+A truck that goes quiet without saying why is the failure all of this is
+guarding against.
 
 | Reason | Fires when | Who sets the number |
 | --- | --- | --- |
 | `schedule` | the officer said "for 6 hours" and 6 hours have passed | officer, when adding or editing the truck |
 | `inactive` | no toll crossing has come through for Y hours - the lorry is parked | officer per truck, else `inactive_pause_hours` (default 72h) |
 | `repeated_failures` | X checks in a row could not be answered | officer per truck, else `tracking_failure_cutoff` (default 10) |
+| `no_credits` | the balance could not cover a check, so **every** live truck on the account stopped | — (`0044`) |
+| `plan_expired` | the plan ended and the grace period ran out | `PLAN_GRACE_DAYS` = 7 (`0041`) |
 | `manual` | somebody pressed Pause | — |
 | `account_suspended` | the account was switched off | — |
+
+`no_credits` is account-wide on purpose. The balance is an account-level fact
+and the polling is per-truck, so pausing only the lorry whose check happened to
+be refused would leave the rest to be refused one at a time over the following
+sweeps, each still showing a live switch in the meantime. Topping up lifts the
+refusal immediately but does **not** take the trucks live again - the officer
+chooses which ones come back, because the lorries that emptied the balance are
+usually the ones nobody wanted watched.
 
 Two rules hold across all of them:
 
@@ -124,7 +143,14 @@ in `credit_rates`:
 | Action | Default rate |
 | --- | --- |
 | Manual search | 1 credit = 1 search |
-| Automatic check | 1 credit = 2 checks |
+| Automatic check | 1 credit = 1 check |
+
+Both are one credit, and the owner's rule is that they stay level: *"1 auto
+search = charge 1 credit. 1 manual search = charge 1 credit."* Every call to
+the toll network is charged, including one that fails. A rate of **zero** still
+means "included in the plan" - `spend_credits()` allows the action, charges
+nothing and writes no ledger row - and is kept as the admin's lever, but it is
+not the rate in force and nothing in the schema relies on it.
 
 Rates are stored as *how many of the action one credit buys*, because that is
 how they are spoken. Adding a chargeable action later is a row, not a
@@ -133,11 +159,20 @@ under a row lock, so two tabs cannot both spend the last credit, and every
 movement is written to `credit_transactions` — a wrong balance can always be
 reconstructed.
 
-A **plan** decides only two things: how many trucks may be watched at once, and
-how many credits the account opens with. Everything else it used to carry is
-either paid for out of the balance or set once for the platform. A new account
-has no plan and no credits until one is bought or assigned - sign-up gives
-away nothing.
+A **plan** decides three things: how many trucks may be watched at once, how
+many credits the account opens with, and **until when automatic checking runs**.
+Everything else it used to carry is either paid for out of the balance or set
+once for the platform. A new account has no plan and no credits until one is
+bought or assigned - sign-up gives away nothing.
+
+The term is not decoration. A plan's price is for the **whole plan and is
+charged once** - ₹149 for 1 month, ₹499 for 3 months, ₹999 for 3 months, ₹2,999
+for 3 months - never per month; `planChargeInr()` and `planTermSuffix()` in
+`src/lib/credits.ts` are the only places that is put into words, because four
+screens have to agree exactly. When the plan ends, **automatic checking stops
+and nothing else does**: credits never expire, they are bought outright, and
+they go on paying for manual search. The one exception is the free trial, which
+is not a purchase - when it ends, its leftover credits end with it.
 
 ### Money in
 
@@ -146,25 +181,34 @@ lives in the admin panel rather than in code:
 
 | Pack | Price | Credits |
 | --- | --- | --- |
-| Starter | ₹100 | 100 |
-| Standard | ₹500 | 1,200 |
-| Plus | ₹1,000 | 2,500 |
-| Custom amount | ₹3,000 **or more** | 250% — ₹3,000 buys 7,500 |
+| Small | ₹149 | 300 |
+| Starter | ₹499 | 1,000 |
+| Standard | ₹999 | 2,500 |
+| Plus | ₹2,499 | 7,000 |
+| Any amount | ₹3,000 **or more** | 300% — ₹3,000 buys 9,000 |
 
-The ladder ends in a rule rather than a wall. The last rung is **open**: the
-price becomes a minimum, the buyer names the amount, and
-`credit_percent` says what share of the money becomes credits — 100 is one
-credit per rupee, 250 is two and a half. Someone wanting 7,500 credits no
-longer has to overshoot to the next fixed rung.
+Those are the rungs live today, written here only as an example: they are rows
+an admin edits, so the panel is the authority and this table is not. The ladder
+ends in a rule rather than a wall. The last rung is **open**: the price becomes
+a minimum, the buyer names the amount, and `credit_percent` says what share of
+the money becomes credits — 100 is one credit per rupee, 300 is three. Someone
+wanting 9,000 credits no longer has to overshoot to the next fixed rung.
+
+Top-ups are deliberately better value than the same money inside a plan (₹499
+buys 1,000 credits as a top-up against the 800 included in Base). That is the
+owner's intent, not an error.
 
 `credits_for_amount()` in the database is the authority on that sum. The
 checkout recomputes through it before charging, because the amount arrives
 from a form and forms are user-controlled.
 
-Credits may be topped up **only while a plan is active** - buying a plan is what
-a new account does first, and topping up is what it does when they run out. It
-never has to buy the plan again. Payment is Razorpay, behind an admin toggle -
-switch it off and credits arrive only from the admin, by hand.
+**Credits are sold to anyone, plan or no plan.** The top-up panel used to be
+gated on a live plan and that gate was removed in `0038`: manual search works
+with no plan at all, so refusing to sell the credits it needs was refusing to
+take money for a product that works. It is also the one thing an account whose
+plan has lapsed can usefully do, which is exactly why the panel stays open to
+them. Payment is Razorpay, behind an admin toggle - switch it off and credits
+arrive only from the admin, by hand.
 
 Nothing the browser says is trusted. An order is recorded before checkout
 opens, and what was bought is handed over only by `settle_payment()`, which flips the row
@@ -174,7 +218,8 @@ the authority rather than the browser, because someone can close the tab
 before checkout returns.
 
 So the whole flow is three admin-set steps: **money → credits** (packs),
-**credits → usage** (rates), and **what a plan allows** (trucks).
+**credits → usage** (rates), and **what a plan allows** (how many trucks, and
+for how long).
 
 ### Coupon codes
 
@@ -242,11 +287,19 @@ How a number is stored:
 In the UI you type a number or the word `unlimited`; a blank override means inherit.
 The account detail page shows plan value / override / effective side by side.
 
-**Credit arithmetic:** a truck with a 30-minute alert is 48 checks a day. At
-1 credit = 2 checks that is 24 credits a day, so a 500-credit opening balance
-covers roughly three weeks of one truck. Trucks are meant to be watched for
-days, not months — an alert is switched off, or the truck removed, when the
-case moves on.
+**Credit arithmetic:** a truck with a 30-minute alert is 48 checks a day. At one
+credit a check that is 48 credits a day, so a 500-credit balance covers about
+ten days of one truck; on the platform's default fifteen-minute beat the same
+truck is 96 checks a day and the same balance lasts five. Trucks are meant to be
+watched for days, not months — an alert is switched off, the truck paused, or
+the truck removed, when the case moves on. Pausing is the cheap one: a paused
+truck is on the watchlist, is not checked, and costs nothing.
+
+No plan's included credits cover its own term for even one truck at fifteen
+minutes. That is the owner's pricing, implemented as asked, and top-ups are what
+the rest of a term is bought with. The lever, if it is ever wanted, is
+`revisit_minutes`: at 60 minutes one truck is 24 credits a day and
+Professional's 2,000 covers its whole 90 days.
 
 ---
 
@@ -589,8 +642,11 @@ npm run build
 ### What has been verified
 
 - All three migrations run clean on PostgreSQL 17 and 18.
-- `consume_quota()` behaviour: exhaustion, unlimited (`-1`), expired plans, suspended
-  accounts, override inheritance, cascade deletes.
+- `spend_credits()` behaviour: an empty balance, a balance that cannot cover the
+  cost, a zero rate (allowed, charged nothing), a lapsed free trial, suspended
+  accounts, override inheritance, cascade deletes. These assertions were written
+  against `consume_quota()`, the per-month query pool `0019` replaced with the
+  single balance, and were ported rather than rerun.
 - 62 logic assertions over the LDB parser, IST timestamp handling, status
   derivation, due-interval maths with the global floor, and limit parsing.
   These predate the two-alert rework: the assertions covering the eight retired
@@ -600,9 +656,9 @@ npm run build
   `profiles!inner` join the worker relies on and the `ON CONFLICT DO NOTHING …
   RETURNING` upsert that tells the worker which crossings are new.
 - A full worker sweep against a mock LDB portal: 3 trucks → 3 crossings stored,
-  3 alerts raised, one 403 recorded and retried, quota consumed exactly once per
-  poll. A forced second sweep produced zero duplicate events and zero duplicate
-  alerts.
+  3 alerts raised, one 403 recorded and retried, one credit spent exactly once
+  per poll however many of that truck's alerts were due together. A forced second
+  sweep produced zero duplicate events and zero duplicate alerts.
 - Guards: cron route rejects a wrong secret, suspended accounts are excluded, the
   global kill switch stops everything, an expired plan pauses every truck.
 - All 21 routes render, and the CSV export produces correct billing rows.

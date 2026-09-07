@@ -448,32 +448,41 @@ export async function saveReferralSettings(
   };
 
   /*
-   * The four fixed amounts, two events by two sides.
+   * The four percentages, two events by two sides. 0043 turned these back from
+   * fixed credit amounts into a share of the payment, so the bound moved with
+   * them: a share of a payment cannot exceed the payment.
    *
    * Absent-tolerated, like the floor below: this action also serves any older
    * form that has never heard of a field, and resetting a reward a form was
    * never shown is how a promotion quietly switches itself off. A field that
    * IS present must be a real number - a blank box is a mistake, not a zero.
    *
-   * referral_percent and referral_invitee_percent are gone from the form and
-   * are no longer written. Their rows stay in app_settings because a settings
-   * loader owned elsewhere still reads them into a typed object; nothing
-   * computes a reward from them any more.
+   * referral_percent and referral_invitee_percent - 0037's single-event pair -
+   * are gone from the form and are no longer written. Their rows stay in
+   * app_settings because a settings loader owned elsewhere still reads them
+   * into a typed object; nothing computes a reward from them any more.
    */
   const TERMS = [
-    ["referral_plan_referrer_credits", "The inviter's reward for a first plan"],
-    ["referral_plan_invitee_credits", "The new customer's reward for their first plan"],
-    ["referral_topup_referrer_credits", "The inviter's reward for a first top-up"],
-    ["referral_topup_invitee_credits", "The new customer's reward for their first top-up"],
+    ["referral_plan_referrer_percent", "The inviter's share of a first plan"],
+    ["referral_plan_invitee_percent", "The new customer's share of their first plan"],
+    ["referral_topup_referrer_percent", "The inviter's share of a first top-up"],
+    ["referral_topup_invitee_percent", "The new customer's share of their first top-up"],
   ] as const;
 
+  /*
+   * 100 is the ceiling per box, deliberately, and there is no check on the two
+   * sides adding to less than 100 either. Giving a whole first payment back as
+   * credits is a launch promotion, not a typo, and the scheme's real cost cap
+   * is the credit ladder's own economics rather than a number this form can
+   * guess. What IS refused is a percentage that could never be honoured.
+   */
   const terms: Record<string, number> = {};
   for (const [key, label] of TERMS) {
     const raw = str(fd, key);
     if (raw === null) continue;
     const value = Number(raw);
-    if (!Number.isFinite(value) || value < 0 || value > 1_000_000) {
-      return fail(`${label} must be between 0 and 10,00,000 credits. Use 0 to pay nothing.`);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      return fail(`${label} must be between 0 and 100 per cent. Use 0 to pay nothing.`);
     }
     terms[key] = Math.round(value * 100) / 100;
   }

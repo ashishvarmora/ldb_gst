@@ -100,11 +100,11 @@ export default async function PricingPage() {
 
           <div className="mt-2 flex justify-center">
             <HelpNote title="Why two things and not one price?">
-              A plan is a standing allowance - it decides how many trucks may be under watch at
-              once, and nothing more. Credits are the running cost of actually looking: every search
-              and every automatic check draws on one balance you top up whenever it runs low. Kept
-              apart, a quiet month costs you almost nothing and a busy one does not need a bigger
-              plan.
+              A plan decides how many trucks may be under watch at once, and for how long - it
+              carries its own term and is what allows automatic checking at all. Credits are the
+              running cost of looking: every search and every automatic check draws one credit from
+              a balance you top up whenever it runs low, and credits never expire. Kept apart, a
+              quiet spell costs you almost nothing and a busy one does not need a bigger plan.
             </HelpNote>
           </div>
         </header>
@@ -254,8 +254,8 @@ export default async function PricingPage() {
                   {/* Said plainly because it is the condition, not the small
                       print: a sign-up on its own earns nothing at all. */}
                   <p className="mt-2 text-sm leading-relaxed text-muted">
-                    Fixed credits, twice over: once when they buy their first plan, and again when
-                    they first top up. Nothing arrives when they merely register.
+                    Twice over: once when they buy their first plan, and again when they first top
+                    up. Nothing arrives when they merely register.
                   </p>
                   {/* The invitee's half. This is the public page a person
                       holding an invite link reads before deciding, so the half

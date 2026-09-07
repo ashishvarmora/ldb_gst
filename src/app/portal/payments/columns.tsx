@@ -7,6 +7,7 @@ import {
   hasGatewayReference,
   isSettled,
   listInr,
+  paymentCredits,
   settledSum,
   type PaymentRow,
 } from "./payments";
@@ -135,16 +136,35 @@ export const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
   },
   {
     key: "credits",
-    label: "Credits",
+    label: "Credits added",
     align: "right",
     sortBy: PAYMENT_SORT.credits,
-    cell: (row) =>
-      isSettled(row) ? (
-        <span className="text-sm text-brand-500">{formatCredits(row.credits)}</span>
-      ) : (
-        <span className="text-sm text-faint">—</span>
-      ),
-    total: (rows) => formatCredits(settledSum(rows, (row) => Number(row.credits) || 0)),
+    /*
+     * THE WHOLE GRANT, and the split under it when there is one.
+     *
+     * This printed row.credits, which on a plan payment is only the plan's
+     * included allowance - so a customer who bought a plan with credits
+     * attached in one payment was shown the smaller half of what they had paid
+     * for. The figure is now the total, and the second line says how it is
+     * made up, because a total nobody can decompose is the same problem in the
+     * other direction. Terse and abbreviated: this cell shares a row with
+     * seven others, and the receipt spells both parts out in full.
+     */
+    cell: (row) => {
+      if (!isSettled(row)) return <span className="text-sm text-faint">—</span>;
+      const { plan, topup, total } = paymentCredits(row);
+      return (
+        <>
+          <span className="block text-sm text-brand-500">{formatCredits(total)}</span>
+          {plan > 0 && topup > 0 ? (
+            <span className="block text-xs whitespace-nowrap text-faint">
+              {formatCredits(plan)} plan + {formatCredits(topup)} top-up
+            </span>
+          ) : null}
+        </>
+      );
+    },
+    total: (rows) => formatCredits(settledSum(rows, (row) => paymentCredits(row).total)),
   },
   {
     key: "reference",

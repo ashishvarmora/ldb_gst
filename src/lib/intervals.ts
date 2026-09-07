@@ -56,8 +56,15 @@ export function checksPerDay(minutes: number): number {
 }
 
 /**
- * The sentence shown under an interval field: what it does, and what it costs
- * in checks. "We look every 30 minutes - 48 times a day."
+ * The sentence shown under an interval field: what it does, and how many checks
+ * that is. "We look every 30 minutes - 48 times a day."
+ *
+ * DELIBERATELY DOES NOT PRINT CREDITS, though at today's rate the two numbers
+ * are the same. This function is given minutes and nothing else, and the price
+ * of a check is a credit_rates row an admin edits without a deploy - so "48
+ * credits a day" here would be a figure this file has no way to know is still
+ * true. The credit arithmetic is stated once, in prose, beside the field: see
+ * the (i) in TruckAlertForm.
  */
 export function describeCadence(minutes: number): string {
   const perDay = checksPerDay(minutes);

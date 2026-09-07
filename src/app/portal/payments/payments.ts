@@ -158,11 +158,94 @@ export function listInr(row: PaymentRow): number {
  */
 export function boughtLabel(row: PaymentRow): string {
   if (row.kind === "plan") {
-    return `${row.plan?.name ?? "Plan"} plan`;
+    const plan = `${row.plan?.name ?? "Plan"} plan`;
+    /* A combined payment bought two things, and naming only the plan is how a
+       customer who paid for a plan AND a top-up in one go came to have no
+       record of the second half anywhere on this screen. The credits
+       themselves are broken out below; this is the description of the sale. */
+    return (Number(row.topup_credits) || 0) > 0 ? `${plan} + credit top-up` : plan;
   }
   // A pack that has since been deleted leaves nothing to name, and an open-tier
   // top-up was never a named pack in the first place.
   return row.pack?.name ?? "Credit top-up";
+}
+
+/* -------------------------------------------------------------------------- */
+/* The credits one payment granted                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The two kinds of credit a single payment can hand over, and their total.
+ *
+ * A plan payment records its plan's included allowance in `credits` and
+ * anything bought alongside it in `topup_credits` - 0036 refused to let the two
+ * share a column, and settle_payment() grants them as two separate ledger rows.
+ * Every billing surface here was reading `credits` alone, so the owner's "500
+ * plan + 1500 top-up" checkout showed as 500: the customer paid for a figure
+ * that appeared nowhere on their own receipt.
+ *
+ * A credits-only payment is the other way round. There, `credits` IS the
+ * top-up and a check constraint pins topup_credits to zero, so the top-up half
+ * is read off `credits` and the plan half is nought. Callers can print the two
+ * lines without branching on kind.
+ *
+ * `total` is what payment_credit_effect.credits_added comes to for the same
+ * payment, which is the figure the receipt's balance line reconciles against.
+ */
+export type PaymentCredits = { plan: number; topup: number; total: number };
+
+export function paymentCredits(row: PaymentRow): PaymentCredits {
+  const credits = Number(row.credits) || 0;
+  const topup = Number(row.topup_credits) || 0;
+  return row.kind === "plan"
+    ? { plan: credits, topup, total: credits + topup }
+    : { plan: 0, topup: credits, total: credits };
+}
+
+/**
+ * The words themselves, in one place because four surfaces print them.
+ *
+ * "Included with the plan" rather than "plan credits": an accountant reading a
+ * receipt has to be able to tell an allowance that came with a subscription
+ * from credits that were bought outright. They are the same money and the same
+ * balance, but they are not the same purchase.
+ */
+export const CREDIT_LABEL = {
+  plan: "Credits included with the plan",
+  topup: "Top-up credits bought",
+  total: "Credits added in total",
+  /** For a column heading or a dash, where there is no room for a sentence. */
+  short: "Credits added",
+} as const;
+
+/** One line of a receipt's credit breakdown. */
+export type CreditLine = { label: string; credits: number; total?: boolean };
+
+/**
+ * How a payment's credits read on a billing document, as the lines to print.
+ *
+ * The wording lives here rather than at four call sites because a receipt, a
+ * table cell, a phone card and a spreadsheet column that describe the same
+ * grant in four ways is the thing a customer forwards to an accountant. One
+ * line when a payment granted one kind of credit; three when it granted both,
+ * so the sum is on screen rather than left to the reader.
+ *
+ * Empty when nothing was granted at all - a plan with no included credits and
+ * nothing attached - so a caller can print no credit section rather than a nought.
+ */
+export function creditLines(row: PaymentRow): CreditLine[] {
+  const { plan, topup, total } = paymentCredits(row);
+
+  if (plan > 0 && topup > 0) {
+    return [
+      { label: CREDIT_LABEL.plan, credits: plan },
+      { label: CREDIT_LABEL.topup, credits: topup },
+      { label: CREDIT_LABEL.total, credits: total, total: true },
+    ];
+  }
+  if (plan > 0) return [{ label: CREDIT_LABEL.plan, credits: plan, total: true }];
+  if (topup > 0) return [{ label: CREDIT_LABEL.topup, credits: topup, total: true }];
+  return [];
 }
 
 /**
@@ -215,8 +298,12 @@ export type PaymentTotals = {
   paidInr: number;
   /** What codes took off those same payments. */
   discountInr: number;
-  /** Credits that actually landed. */
+  /** Credits that actually landed, both kinds together. */
   credits: number;
+  /** Of those, the allowance that came with a plan. */
+  planCredits: number;
+  /** And the ones bought as a top-up, attached to a plan or on their own. */
+  topupCredits: number;
   settled: number;
   /** Started and never paid. The commonest support question on this screen. */
   unfinished: number;
@@ -230,6 +317,8 @@ export function totalPayments(rows: PaymentRow[]): PaymentTotals {
     paidInr: 0,
     discountInr: 0,
     credits: 0,
+    planCredits: 0,
+    topupCredits: 0,
     settled: 0,
     unfinished: 0,
     failed: 0,
@@ -241,7 +330,13 @@ export function totalPayments(rows: PaymentRow[]): PaymentTotals {
       totals.settled += 1;
       totals.paidInr += Number(row.amount_inr) || 0;
       totals.discountInr += Number(row.discount_inr) || 0;
-      totals.credits += Number(row.credits) || 0;
+      /* Both halves, which this summed as row.credits alone until now - so a
+         range containing one combined purchase reported fewer credits than the
+         balance had actually gained, on the screen a customer checks it on. */
+      const granted = paymentCredits(row);
+      totals.credits += granted.total;
+      totals.planCredits += granted.plan;
+      totals.topupCredits += granted.topup;
     } else if (row.status === "failed") {
       totals.failed += 1;
     } else {
@@ -279,7 +374,10 @@ export const PAYMENT_SORT = {
   method: (row: PaymentRow) => methodLabel(row.method),
   price: (row: PaymentRow) => listInr(row),
   paid: (row: PaymentRow) => (isSettled(row) ? Number(row.amount_inr) || 0 : -1),
-  credits: (row: PaymentRow) => (isSettled(row) ? Number(row.credits) || 0 : -1),
+  /* The whole grant, matching the figure the column prints. Ordering by the
+     plan's half alone would have put a 2,000-credit combined purchase below a
+     1,000-credit top-up. */
+  credits: (row: PaymentRow) => (isSettled(row) ? paymentCredits(row).total : -1),
 } satisfies Record<string, (row: PaymentRow) => number | string>;
 
 /* -------------------------------------------------------------------------- */
@@ -291,8 +389,9 @@ export const PAYMENT_SORT = {
  *
  * This is the file that gets forwarded to an accountant or attached to a
  * support ticket, so nothing is summarised away: both timestamps, both
- * references, the list price and the discount as separate figures, and the
- * failure reason in the customer's own record rather than only in our logs.
+ * references, the list price and the discount as separate figures, the two
+ * kinds of credit as separate figures beside their sum, and the failure reason
+ * in the customer's own record rather than only in our logs.
  *
  * Rupees and credits go in RAW. A spreadsheet cannot add up "Rs 1,234" once a
  * locale has put a symbol and a group separator in it. Dates are the exception
@@ -311,7 +410,14 @@ export function paymentsCsv(rows: PaymentRow[]): string {
     "Discount (Rs)",
     "Code",
     "Paid (Rs)",
-    "Credits received",
+    /* Three columns, not one. A combined purchase is one payment that bought
+       two things, and a spreadsheet with a single credit column cannot show
+       which half of it was the plan's allowance - which is the question an
+       accountant asks of it. The sum stays as its own column rather than being
+       left to a formula, so the file reconciles against the receipt as it is. */
+    "Credits with the plan",
+    "Top-up credits",
+    "Credits added in total",
     "Razorpay order id",
     "Razorpay payment id",
     "Note",
@@ -320,6 +426,7 @@ export function paymentsCsv(rows: PaymentRow[]): string {
 
   const body = rows.map((row) => {
     const settled = isSettled(row);
+    const granted = paymentCredits(row);
     return [
       fmtDateTime(row.created_at),
       row.paid_at ? fmtDateTime(row.paid_at) : "",
@@ -333,7 +440,11 @@ export function paymentsCsv(rows: PaymentRow[]): string {
       // Blank rather than zero on anything unsettled: a nought in a money
       // column reads as "charged nothing", and this was never charged at all.
       settled ? Number(row.amount_inr) || 0 : "",
-      settled ? Number(row.credits) || 0 : "",
+      // Blank on anything unsettled for the same reason as the amount: nothing
+      // arrived, and a nought in a credit column reads as a grant of nothing.
+      settled ? granted.plan : "",
+      settled ? granted.topup : "",
+      settled ? granted.total : "",
       row.razorpay_order_id,
       row.razorpay_payment_id ?? "",
       row.note ?? "",
@@ -344,7 +455,7 @@ export function paymentsCsv(rows: PaymentRow[]): string {
   return toCsv(header, body);
 }
 
-/** How the credits on one payment read. Used by the screen and the receipt. */
-export function creditsLine(row: PaymentRow): string {
-  return `${formatCredits(Number(row.credits) || 0)} credits`;
+/** One credit figure, with its unit. Used by the receipt and the phone cards. */
+export function creditsLine(credits: number): string {
+  return `${formatCredits(credits)} credits`;
 }
