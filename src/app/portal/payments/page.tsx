@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Download, Wallet } from "lucide-react";
 
 import { PAYMENT_COLUMNS } from "./columns";
-import { PaymentCards } from "./PaymentCards";
+import { PaymentList } from "./PaymentList";
 import { Receipt } from "./Receipt";
 import {
   MAX_ROWS,
@@ -43,8 +43,18 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * both, in that order, rather than two screens that each hold half of it.
  */
 
-/** Long enough to scan on a phone without a pager on every visit. */
-const PAGE_SIZE = 20;
+/**
+ * Long enough to scan on a phone without a pager on every visit.
+ *
+ * Twenty, while a phone row was a 284px card, was already 5,700px - close to
+ * eight screens for one page of a list. Since the rows fold (see PaymentList) a
+ * row is about 64px, so fifty of them is four and a half screens and a customer
+ * with a hundred payments turns one page instead of four. The ceiling is MAX_ROWS,
+ * not this: sorting and totalling both describe the whole window rather than
+ * the page, so the window is in memory either way and a bigger page costs
+ * nothing but markup. Fifty is what the other long lists here use.
+ */
+const PAGE_SIZE = 50;
 
 type PaymentsQuery = {
   /** The shared date range: see resolveRange. */
@@ -125,16 +135,16 @@ export default async function PaymentsPage({
   const ordered = sortRows(rows, PAYMENT_COLUMNS, sort);
   const pages = pageCount(ordered.length, PAGE_SIZE);
   const page = pageFromParam(params.page, pages);
-  /* Sliced once and handed to both renderings. The table and the phone cards
-     must be looking at the same twenty rows: two calls to pageSlice would be
+  /* Sliced once and handed to both renderings. The table and the phone list
+     must be looking at the same fifty rows: two calls to pageSlice would be
      two chances for the pager underneath to describe one of them. */
   const visible = pageSlice(ordered, page, PAGE_SIZE);
 
   /**
-   * Where a card's "Full receipt" goes.
+   * Where a folded row's "Full receipt" goes.
    *
-   * Only the phone cards use it. The table puts both ids in its last column,
-   * but a card is not a link - the ids on it are select-all text, so tapping
+   * Only the phone list uses it. The table puts both ids in its last column,
+   * but a row is not a link - the ids inside it are select-all text, so tapping
    * one has to highlight it rather than navigate - which leaves the receipt
    * needing a link of its own, and the receipt is where the copy buttons and
    * the balance either side of the payment live.
@@ -142,10 +152,10 @@ export default async function PaymentsPage({
    * The range, the sort and the page all come along so that closing the
    * receipt with the browser's back button lands on the list as it was. The
    * hash is not decoration: the receipt renders at the very top of the page,
-   * and a reader who tapped a card twelve rows down would otherwise see the
-   * query string change and nothing move.
+   * and a reader who opened a row twelve down would otherwise see the query
+   * string change and nothing move.
    */
-  const cardReceiptHref = (row: (typeof visible)[number]) =>
+  const rowReceiptHref = (row: (typeof visible)[number]) =>
     `/portal/payments?${queryString({
       ...carried,
       ref: row.razorpay_order_id,
@@ -315,10 +325,18 @@ export default async function PaymentsPage({
               rather than sm. Eight columns need about 700px before the cells
               stop being one word wide; a 640px tablet in portrait would have
               got a table it still had to drag sideways, which is the thing the
-              cards exist to avoid. Both read the same `visible` slice and both
-              take every figure from payments.ts, so neither can drift.
+              phone list exists to avoid. Both read the same `visible` slice and
+              both take every figure from payments.ts, so neither can drift.
+
+              The table is deliberately NOT given the folding treatment. Eight
+              columns and a footer that totals the window is the right shape for
+              a screen wide enough to hold it: every field is already visible
+              without a tap, the headings sort, and folding a table row would
+              hide the columns that make it a table. The fold exists because a
+              390px screen cannot show eight columns at once, not because the
+              fields are unwanted.
             */}
-            <PaymentCards rows={visible} receiptHref={cardReceiptHref} />
+            <PaymentList rows={visible} receiptHref={rowReceiptHref} />
 
             <div className="hidden md:block">
               <DataTable

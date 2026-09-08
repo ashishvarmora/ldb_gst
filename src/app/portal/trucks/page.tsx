@@ -189,7 +189,22 @@ export default async function TrucksPage({
                 download
               >
                 <Download size={15} />
-                Crossings CSV
+                {/*
+                  "Crossings" only where the row has room for the word.
+
+                  Both buttons at full length are 274px of the 358px a 390px
+                  phone gives this row, and PageHeader lets its title column
+                  shrink to whatever is left - 72px, where "My trucks" needs 88.
+                  That is the heading the owner reported splitting across two
+                  lines; the ten characters this hides are what it needed.
+
+                  sr-only rather than hidden below sm, so the button is still
+                  called "Crossings CSV" to a screen reader on the size where
+                  the word is off. The short form is not a new name either: the
+                  credit ledger's own export is a Download icon and the word
+                  CSV, on every screen.
+                */}
+                <span className="max-sm:sr-only">Crossings </span>CSV
               </a>
             ) : null}
             <Modal

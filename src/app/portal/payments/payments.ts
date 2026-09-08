@@ -225,7 +225,7 @@ export type CreditLine = { label: string; credits: number; total?: boolean };
  * How a payment's credits read on a billing document, as the lines to print.
  *
  * The wording lives here rather than at four call sites because a receipt, a
- * table cell, a phone card and a spreadsheet column that describe the same
+ * table cell, a phone row and a spreadsheet column that describe the same
  * grant in four ways is the thing a customer forwards to an accountant. One
  * line when a payment granted one kind of credit; three when it granted both,
  * so the sum is on screen rather than left to the reader.
@@ -455,7 +455,14 @@ export function paymentsCsv(rows: PaymentRow[]): string {
   return toCsv(header, body);
 }
 
-/** One credit figure, with its unit. Used by the receipt and the phone cards. */
+/**
+ * One credit figure, with its unit.
+ *
+ * The receipt's own, and only the receipt's: it prints these against labels
+ * that read as a billing document, where "500" alone under a heading would be
+ * a bare number in a column of money. The phone list drops the unit, because
+ * every one of its labels already ends in the word.
+ */
 export function creditsLine(credits: number): string {
   return `${formatCredits(credits)} credits`;
 }

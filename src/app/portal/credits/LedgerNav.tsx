@@ -104,7 +104,11 @@ export function SideTabs({
             href={qs ? `/portal/credits?${qs}` : "/portal/credits"}
             aria-current={active ? "page" : undefined}
             className={cx(
-              "flex min-h-11 flex-col items-center justify-center rounded-lg px-2 py-1 text-center transition",
+              /* min-h-10, not 11. The two lines inside come to 30px, so 44
+                 was 14px of air in a control that sits between two other
+                 bands - and 40px is still a comfortable half-width target,
+                 four above the floor this codebase asks of a tap. */
+              "flex min-h-10 flex-col items-center justify-center rounded-lg px-2 py-1 text-center transition",
               active
                 ? "bg-panel [box-shadow:var(--shadow-pop)]"
                 : "text-muted hover:bg-panel/60 hover:text-ink",

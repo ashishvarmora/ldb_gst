@@ -205,6 +205,14 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
       return `Not enough credits. This needs ${formatCredits(verdict.cost ?? 0)} and you have ${formatCredits(verdict.balance ?? 0)}.`;
     case "account_suspended":
       return "This account has been suspended. Contact support if you think that is wrong.";
+    case "no_active_plan":
+      /*
+       * Names the half that stopped and the half that has not, because both
+       * are true at once and a reader who is told only "no plan" assumes their
+       * credits are gone too. They are not: the balance is theirs and manual
+       * search still spends it.
+       */
+      return "Automatic tracking needs a plan that is still running. Your credits are untouched and searching still works — choose a plan to start checking trucks again.";
     case "trial_ended":
       /*
        * Says what ended and what to do, and deliberately does not quote the

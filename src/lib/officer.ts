@@ -159,18 +159,20 @@ export function blockedReason(overview: OfficerOverview): string | null {
  * for a page to import. Two copies of a money rule is how the two halves of a
  * screen end up disagreeing.
  *
- * A LAPSED PLAN COUNTS. The gate exists to stop somebody buying ten thousand
- * never-expiring credits, running manual search off them forever and never
- * paying for a plan at all - and a customer who has already bought a plan is
- * not that person. Their balance is spendable with no plan (blockedReason above
- * does not test one), so refusing them more of it would be refusing money for
- * a thing that works, and it would put a "buy a plan first" wall in front of
- * the customer most likely to come back.
+ * ONLY AN ACTIVE, NON-TRIAL PLAN COUNTS, and this comment previously argued
+ * the opposite of the code beneath it - which is worse than no comment, so it
+ * is worth saying what changed.
  *
- * A LIVE TRIAL COUNTS. It is a plan row, it grants access, and the plan page
- * already offers a trial customer a top-up and explains what it does and does
- * not change ("Your trial still ends on ..."). Refusing it would break a screen
- * that was written on purpose.
+ * A LAPSED PLAN DOES NOT COUNT. I argued that it should: a customer who has
+ * already paid is not the person the gate exists to stop, their balance is
+ * spendable without a plan anyway, and refusing them reads as refusing money.
+ * The owner set the rule explicitly and it is narrower - top-up requires a
+ * plan that is still running. Their product, their call.
+ *
+ * A TRIAL DOES NOT COUNT EITHER, live or finished. plan_active is true for a
+ * running trial, so this cannot be left implied - the exclusion is spelled out
+ * in the predicate. A trial is a demonstration, not a footing for buying
+ * credits that outlive it.
  *
  * A FINISHED TRIAL DOES NOT, and that is the whole reason this is not simply
  * "has ever held a plan". A free trial that counted forever would reopen the

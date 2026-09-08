@@ -1,13 +1,15 @@
 import { Skeleton, SkeletonPageHeader } from "@/components/Skeleton";
 
 /**
- * Mirrors the page: the sibling links, three credit tiles, the two folded help
- * notes, then the ledger panel - its header, the group-by row, the row of
+ * Mirrors the page: the sibling links, three credit tiles, the one folded help
+ * note, then the ledger panel - its header, the group-by row, the row of
  * filter pills, the totals, the spend split and the charges.
  *
- * TWO totals columns, not three. This page is spend-only now, so the strip
- * carries "Credits used" and "Charges" and nothing else; a three-column
- * placeholder would resolve into two and visibly shift the divider.
+ * ONE totals column, not two and not the three it started as. This page is
+ * spend-only, so the strip carries "Credits used" and then the charge count as
+ * the caption under it - the count used to be a second tile reading the same
+ * number, see Totals in CreditLedger - and a two-column placeholder would
+ * resolve into one and visibly shift the divider.
  *
  * Hand-rolled rather than assembled from SkeletonStatCards and SkeletonPanel,
  * because neither draws the shape this page actually has: the tiles are a
@@ -35,15 +37,18 @@ export default function ActivityLoading() {
         ))}
       </div>
 
-      <div className="mt-3 space-y-2">
+      {/* One fold, one 36px summary row. The second note - the paragraph that
+          taught the controls below it - has gone, and the switches and pills it
+          described say it themselves. */}
+      <div className="mt-3 flex h-9 items-center">
         <Skeleton className="h-3 w-56 max-w-full" />
-        <Skeleton className="h-3 w-48 max-w-full" />
       </div>
 
       <section className="panel mt-3 overflow-hidden">
+        {/* One bar, at the height of the <h2> it stands in for. The second was
+            a panel description this mount no longer passes. */}
         <div className="border-b border-line/70 px-4 py-3.5 sm:px-5">
-          <Skeleton className="h-3 w-32" />
-          <Skeleton className="mt-2 h-2.5 w-64 max-w-full" />
+          <Skeleton className="h-5 w-32" />
         </div>
 
         {/* The two control rows: the group-by chips with the sort button at the
@@ -52,7 +57,9 @@ export default function ActivityLoading() {
             visibly change shape and shift the row when the ledger lands. */}
         <div className="space-y-2 border-b border-divider px-4 py-3">
           <div className="flex items-center gap-1.5">
-            <Skeleton className="h-8 w-16 rounded-full" />
+            {/* Wider than they were: each switch carries a tick or a plus now
+                as well as its word. */}
+            <Skeleton className="h-8 w-14 rounded-full" />
             <Skeleton className="h-8 w-16 rounded-full" />
             <Skeleton className="ml-auto h-9 w-24 rounded-lg" />
           </div>
@@ -63,13 +70,20 @@ export default function ActivityLoading() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 divide-x divide-divider border-b border-divider bg-raised/40">
-          {[0, 1].map((i) => (
-            <div key={i} className="px-4 py-2.5">
-              <Skeleton className="h-2 w-16 max-w-full" />
-              <Skeleton className="mt-2 h-3 w-10" />
-            </div>
-          ))}
+        {/* Each bar stands in for the line box it replaces - 20px for the
+            figure, 16px for the count line - so the strip is 87px either side
+            of the ledger arriving rather than 73px and then 87px. */}
+        <div className="border-b border-divider bg-raised/40">
+          <div className="px-4 py-2.5">
+            <Skeleton className="h-2.5 w-16 max-w-full" />
+            <Skeleton className="mt-2 h-5 w-10" />
+          </div>
+          {/* The count line under the figure, which the placeholder used to
+              leave out entirely - 29px of strip that appeared with the
+              ledger. */}
+          <div className="border-t border-divider px-4 py-1.5">
+            <Skeleton className="h-4 w-28 max-w-full" />
+          </div>
         </div>
 
         {/* The spend split: a 6px bar and its legend. */}

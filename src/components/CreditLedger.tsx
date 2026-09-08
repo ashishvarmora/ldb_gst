@@ -582,10 +582,19 @@ export async function CreditLedger({
   const sort = parseSort(query.sort);
   const page = Math.max(Number(query.page) || 1, 1);
 
-  /* What one row of the raw list is called. "Charge" is wrong for a purchase,
-     and this is the noun the count line, the pager and the empty state all use,
-     so it is decided once. */
-  const entryNoun = only === "added" ? "entry" : "charge";
+  /*
+   * What one row of the raw list is called. This is the noun the count line,
+   * the pager, the row sub-lines and the empty state all use, so it is decided
+   * once.
+   *
+   * "Charge" only where every row IS one. It used to be the default, with
+   * "entry" reserved for the grants-only mount - which left the console's full
+   * ledger, the one mount that carries purchases and spending together, calling
+   * a 5,000-credit top-up a charge. That was invisible while the count sat in a
+   * tile labelled "Charges"; now that it is a sentence under the figures it is
+   * a sentence that would be wrong.
+   */
+  const entryNoun = only === "used" ? "charge" : "entry";
 
   const from = parseDate(query.from);
   const to = parseDate(query.to);
@@ -749,23 +758,24 @@ export async function CreditLedger({
                 Group by
               </span>
               {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
-                <Chip
+                <Toggle
                   key={dim.key}
                   href={dimensionHref(basePath, query, keep, dimensions, dim.key)}
                   active={dimensions.includes(dim.key)}
                 >
                   {dim.label}
-                </Chip>
+                </Toggle>
               ))}
 
               {/* Off on a phone, where the toggles plus the sort button already
                   fill the row and this sentence is what would wrap it to a
                   second line - the thing these two rows exist to avoid. Nothing
-                  is lost: the count line under the totals says "individual
-                  charges" the moment the toggles are all off. It is also the
-                  only remaining hint about the toggles anywhere - the activity
-                  page's fold explaining them in a paragraph has gone - so it
-                  stays where the control it describes is. */}
+                  is lost there: each toggle now wears its own tick or plus, and
+                  the count line under the totals says "individual charges" the
+                  moment they are all off. It is still the only hint in words
+                  anywhere - the activity page's fold explaining them in a
+                  paragraph has gone - so it stays where the control it
+                  describes is. */}
               <span className="ml-1 hidden text-[11px] text-faint sm:inline">
                 {rawEntries ? `every individual ${entryNoun}` : `turn all off for every ${entryNoun}`}
               </span>
@@ -1255,25 +1265,38 @@ function totalsOf(rows: { credits: number; entries: number }[]): {
  * is the answer somebody wants whether or not they narrowed the dates, and a
  * total that appears and disappears with a filter reads as a different total.
  *
- * A pinned side loses the column that cannot move. Three tiles across a 390px
- * phone leaves 130px each, so the one reading "Credits added: 0" for ever was
+ * A pinned side loses the column that cannot move. Two tiles across a 390px
+ * phone leave 175px each, so a third reading "Credits added: 0" for ever was
  * spending a third of the strip to say nothing - and worse, saying it in the
  * place where somebody checks whether their top-up landed.
+ *
+ * THE COUNT IS A CAPTION NOW, NOT A TILE. On the spend page this strip read
+ * "Credits used 53" beside "Charges 53", and the owner quoted the pair back at
+ * us as noise - correctly, because two tiles carrying the same number in the
+ * same weight read as a screen that has printed one figure twice. They are only
+ * equal while a check costs exactly one credit, which is a rate an
+ * administrator can change: reprice tomorrow and the same window is 106 credits
+ * over 53 charges. So the count is kept and demoted rather than dropped - the
+ * credits are what the page is about and the charges are what they were spent
+ * over, which is a rate, and a rate belongs under the figure rather than beside
+ * it. It also has a job no tile could do: it is the line that says "individual
+ * charges" when the grouping switches are all off, which on a phone is the only
+ * confirmation of what turning them off did.
+ *
+ * What went with it is the sentence that used to sit here - "3 groups, by day
+ * and truck" - which was the two lit switches an inch above, read out.
  */
 function Totals({
   added,
   spent,
-  entries,
   scope,
   only,
-  countLabel,
 }: {
   added: number;
   spent: number;
-  entries: number;
+  /** The row count, and any cap that bit, as one line under the figures. */
   scope: string;
   only?: "used" | "added";
-  countLabel: string;
 }) {
   const tiles = [
     only === "used"
@@ -1282,7 +1305,6 @@ function Totals({
     only === "added"
       ? null
       : { label: "Credits used", value: formatCredits(spent), tone: "text-ink" },
-    { label: countLabel, value: entries.toLocaleString("en-IN"), tone: "text-ink" },
   ].filter((tile): tile is { label: string; value: string; tone: string } => tile !== null);
 
   return (
@@ -1290,7 +1312,7 @@ function Totals({
       <dl
         className={cx(
           "grid divide-x divide-divider",
-          tiles.length === 2 ? "grid-cols-2" : "grid-cols-3",
+          tiles.length === 1 ? "grid-cols-1" : "grid-cols-2",
         )}
       >
         {tiles.map(({ label, value, tone }) => (
@@ -1490,22 +1512,27 @@ async function RollupList({
   const current = Math.min(page, pageCount);
   const shown = list.slice((current - 1) * ROLLUP_PAGE, current * ROLLUP_PAGE);
 
-  const grouping = dimensions
-    .map((d) => DIMENSIONS.find((x) => x.key === d)!.label.toLowerCase())
-    .join(" and ");
   /* A cap that bit is said out loud. A truncated total reads as an exact one. */
   const capped =
     rows.length >= FOLD_CAP
       ? ` — capped at the ${FOLD_CAP.toLocaleString("en-IN")} most recent rows, so narrow the dates for an exact total`
       : "";
-  /* Grouped by day and nothing else, the rows ARE days, so they are counted as
-     days. "31 groups, by day" is the same fact spelt in the component's own
-     vocabulary rather than the reader's. */
+  /* Grouped by day and nothing else, the rows ARE days, so the pager counts
+     them as days. "31 groups, by day" was the same fact spelt in the
+     component's own vocabulary rather than the reader's. */
   const dayOnly = dimensions.length === 1 && dimensions[0] === "day";
   const noun = dayOnly ? "day" : "group";
-  const scope = `${list.length.toLocaleString("en-IN")} ${noun}${list.length === 1 ? "" : "s"}${
-    dayOnly ? "" : `, by ${grouping}`
-  }${capped}`;
+  /*
+   * WHAT THE CREDITS WERE SPENT OVER, not how the rows happen to be stacked.
+   *
+   * This line used to read "3 groups, by day and truck", which said the number
+   * of rows on screen - countable by eye - and then read out the two switches
+   * directly above it. The charge count is the figure that is not on screen
+   * anywhere else and the one that makes the credits total mean something: 53
+   * credits over 53 charges is a credit a check today, and would be two a check
+   * after a reprice.
+   */
+  const scope = `${totals.entries.toLocaleString("en-IN")} ${plural(entryNoun, totals.entries)}${capped}`;
 
   /* Once per list rather than once per row: istToday reads the clock, and the
      year is the same for every row on the page. */
@@ -1522,14 +1549,7 @@ async function RollupList({
 
   return (
     <>
-      <Totals
-        added={totals.added}
-        spent={totals.spent}
-        entries={totals.entries}
-        scope={scope}
-        only={only}
-        countLabel={entryNoun === "entry" ? "Entries" : "Charges"}
-      />
+      <Totals added={totals.added} spent={totals.spent} scope={scope} only={only} />
 
       {split && only === "used" && filters.reasons.length === 0 ? (
         <SpendSplit
@@ -1774,9 +1794,10 @@ async function EntryList({
       <Totals
         added={totals.added}
         spent={totals.spent}
-        entries={totals.entries}
         only={only}
-        countLabel={entryNoun === "entry" ? "Entries" : "Charges"}
+        /* "individual" only on this list, where a row IS one charge. It is what
+           tells a reader who has just switched every grouping toggle off that
+           the switches did what they said - see Toggle. */
         scope={`${total.toLocaleString("en-IN")} individual ${plural(entryNoun, total)}${
           capped
             ? ` — the ${FOLD_CAP.toLocaleString("en-IN")} most recent, sorted by size, so narrow the dates for the whole ledger`
@@ -1897,7 +1918,34 @@ function SheetOption({
   );
 }
 
-function Chip({
+/**
+ * One grouping dimension, worn as a switch that shows which way it is set.
+ *
+ * This was a chip that went brand when it was on, and the colour was the whole
+ * of the state - so the default view is two blue pills reading "Day" and
+ * "Truck", which an officer reads as a caption saying "grouped by day and
+ * truck". That is what the owner reported: nothing said these were two
+ * independent switches, or that switching both off is what gives every
+ * individual charge. Colour cannot say "this is a switch"; it says "this word
+ * matters".
+ *
+ * A TICK WHEN ON, A PLUS WHEN OFF, which is the checkbox vocabulary everybody
+ * already owns and the same tick the filter sheets put against a chosen option.
+ * Two things follow from it and neither costs a pixel of height. With both on -
+ * the state the owner was looking at - the ticks say the row is a set of
+ * choices somebody made rather than a label the screen printed. And the moment
+ * one is off, the row is showing its own off state next to its on state, so
+ * what the other switch would do is on screen rather than a thing to be
+ * guessed at. The dashed border says the same thing again for anyone who cannot
+ * separate the two colours.
+ *
+ * role="switch" for the same reason, and it is worth losing the link role over:
+ * these announce as "Day, switch, on" instead of as two links whose effect you
+ * find out by following them. They are still <a>s underneath, so the grouping
+ * still lives in the URL, is still linkable, and the back button still steps
+ * through it.
+ */
+function Toggle({
   href: to,
   active,
   children,
@@ -1909,13 +1957,22 @@ function Chip({
   return (
     <Link
       href={to}
+      role="switch"
+      aria-checked={active}
       className={cx(
-        "inline-flex min-h-8 items-center rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition",
+        "inline-flex min-h-8 items-center gap-1 rounded-full border px-2 text-xs font-medium whitespace-nowrap transition",
         active
           ? "border-brand-500 bg-brand-500/10 text-brand-500"
-          : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink",
+          : "border-line border-dashed bg-panel text-muted hover:border-line-strong hover:text-ink",
       )}
     >
+      {/* aria-hidden: the switch role and aria-checked above already say on or
+          off, and a lucide icon with no title exposes nothing anyway. */}
+      {active ? (
+        <Check size={12} aria-hidden className="shrink-0" />
+      ) : (
+        <Plus size={12} aria-hidden className="shrink-0 opacity-60" />
+      )}
       {children}
     </Link>
   );

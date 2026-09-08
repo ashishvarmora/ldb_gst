@@ -173,10 +173,10 @@ export function Receipt({
     : [];
 
   return (
-    /* id and scroll-mt for the phone cards' "Full receipt" link. This panel is
-       the first thing on the page, so a reader who tapped a card twelve rows
-       down needs the browser to bring them back up to it rather than leaving
-       them looking at the same list with a longer URL. The margin clears the
+    /* id and scroll-mt for the phone list's "Full receipt" link. This panel is
+       the first thing on the page, so a reader who opened a row twelve down
+       needs the browser to bring them back up to it rather than leaving them
+       looking at the same list with a longer URL. The margin clears the
        portal's sticky header, matching the list panel's own scroll-mt-20. */
     <section id="receipt" className={cx("mb-4 scroll-mt-20 rounded-xl border p-4", TONES[tone])}>
       <div className="flex items-start gap-3">
@@ -324,7 +324,7 @@ export function Receipt({
           for a plan plus 1,500 credits was handed a receipt naming the plan's
           500 and nothing else, which is the half they did not choose. The
           lines and their wording come from creditLines() in payments.ts, so
-          the receipt, the table, the phone card and the CSV cannot describe
+          the receipt, the table, the phone list and the CSV cannot describe
           the same grant differently.
 
           WHERE THE FIGURES COME FROM. The top-up half is payments.topup_credits,

@@ -77,7 +77,16 @@ export default async function CreditHistoryPage({
           below, in longer words. */}
       <PageHeader title="Credit history" />
 
-      <div className="space-y-3">
+      {/*
+        space-y-2, not 3. Four bands stacked - the sibling links, the balance,
+        the side switch, the ledger - and the prose that used to separate them
+        has gone, so the 12px gaps were holding apart things that now read as
+        one column of controls. 8px still groups them as four bands rather than
+        one slab; what it stops doing is pushing the first row of the ledger
+        down the screen. The remaining margin above all of this is PageHeader's
+        own mb-5, in src/components/ui.tsx.
+      */}
+      <div className="space-y-2">
         <LedgerLinks current="credits" />
 
         {/*
@@ -89,7 +98,11 @@ export default async function CreditHistoryPage({
           the mirroring the owner keeps asking us to stop. A statement needs one
           anchor and gets one line.
         */}
-        <div className="rounded-xl border border-line bg-panel px-4 py-3">
+        {/* py-2 rather than py-3: everything in this card is on one 28px line -
+            the label, the figure and the (i) - so 24px of vertical padding was
+            making a 54px card out of a 46px row. px-4 stays, because it is what
+            lines the label up with "Credits used" in the panel below. */}
+        <div className="rounded-xl border border-line bg-panel px-4 py-2">
           {/*
             The whole of this page's explanation, on the figure it explains.
 

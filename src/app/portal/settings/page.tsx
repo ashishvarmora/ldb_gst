@@ -1,13 +1,10 @@
 import Link from "next/link";
 import {
-  Bell,
   CheckCircle2,
   ExternalLink,
   KeyRound,
   MessageCircle,
   Send,
-  Sheet,
-  User,
 } from "lucide-react";
 
 import { CopyAddress } from "./CopyAddress";
@@ -19,7 +16,7 @@ import { InfoTip } from "@/components/InfoTip";
 import { PhoneField } from "@/components/PhoneInput";
 import { publicSettings } from "@/components/SiteFooter";
 import { TelegramChatIdHelp } from "@/components/TelegramChatIdInfo";
-import { Badge, DescRow, PageHeader, Panel } from "@/components/ui";
+import { Badge, DescRow, Mono, PageHeader, Panel } from "@/components/ui";
 import { env, integrationHealth } from "@/lib/env";
 import { friendlyError } from "@/lib/errors";
 import { fmtDate, fmtRelative } from "@/lib/format";
@@ -33,30 +30,56 @@ export async function generateMetadata() {
   return { title: `Settings — ${brandName}` };
 }
 
-/** The three sections, for the jump row a phone reads before it scrolls. */
-const SECTIONS = [
-  { href: "#profile", label: "Profile", icon: User },
-  { href: "#alerts", label: "Alerts", icon: Bell },
-  { href: "#backup", label: "Backup", icon: Sheet },
-] as const;
-
 /**
- * Three things and nothing else: who you are, where alerts go, and where your
+ * Three things and nothing else: where alerts go, who you are, and where your
  * history is kept.
  *
- * What used to be here as well: a copy of the plan panel, a copy of the
- * referral card, and a read-only list of details with no way to change them.
- * The first two are one tap away in the profile menu, on every screen, and the
- * third is now the form at the top. A settings page that restates other pages
- * is a page whose numbers can disagree with them.
+ * WHY THIS PAGE READ AS TWO PAGES, WHICH IS WHAT IT WAS ACTUALLY ASKED TO FIX
  *
- * And nothing on it explains itself any more. Every panel here had grown a
- * description under its title and a hint under its inputs, all of it read once
- * and then scrolled past for ever, and on a phone it doubled the page. What is
- * left is the three forms, the state of each connection, and two dropdowns for
- * the two things nobody can do without being told how - getting a chat id, and
- * sharing a sheet. The rule for the rest: a detail somebody might want goes
- * behind an (i), and anything that only restated a label or reassured is gone.
+ * The owner asked for /portal/settings and /portal/settings#profile to be
+ * "merged". They are one route and always were - #profile is an anchor into it
+ * - so there was nothing to merge. The finding is that they believed otherwise,
+ * and three things told them so:
+ *
+ *   1. A jump row of three pills - Profile / Alerts / Backup - sat under the
+ *      h1, styled exactly like a tab bar: bordered, panel-coloured, min-h-9,
+ *      equal thirds. Tapping one changed the address bar and moved the content.
+ *      That is a tab bar in every respect a reader can observe.
+ *   2. Three sibling Panels of identical weight underneath it. One h1 at
+ *      text-xl over three h2s at text-sm, each in its own bordered card, each
+ *      the same size, none subordinate to another. Nothing on the screen said
+ *      these three belonged to one page rather than being three pages' worth of
+ *      card that happened to be stacked.
+ *   3. The account menu listed "My profile" -> #profile AND "Settings" -> the
+ *      same route, as two destinations with two icons and two descriptions.
+ *      That is where the two URLs in the owner's message came from; it is fixed
+ *      at the source in AccountMenu.tsx, which now lists one.
+ *
+ * So the jump row is gone - it was the tab bar - and the three equals are now
+ * one primary, one secondary and one folded extra:
+ *
+ *   ALERTS first and at full weight, carrying the only live status on the page.
+ *   It is the section that can be broken while looking fine, it is the only one
+ *   that costs money when it is (see AlertDeliveryBanner, which is site-wide
+ *   and links to #alerts), and it is where two other screens deep-link to.
+ *   Whoever arrives here overwhelmingly arrives to fix alerts. It also matches
+ *   what the desktop already did: profile carried lg:order-2 and this column
+ *   lg:order-1, so the wide layout put alerts first and the phone put profile
+ *   first, and the two viewports disagreed about the page's own subject. They
+ *   agree now, in the direction the desktop had already chosen, and the order
+ *   classes are gone with the disagreement.
+ *
+ *   MY PROFILE second, keeping its name so the owner's own word for this page
+ *   still appears on it.
+ *
+ *   BACKUP folded into a Disclosure. It is optional, most accounts never set it
+ *   up, and it was 567px of open form saying so. Shut it still reports its own
+ *   state on the summary row, and it opens itself when it is broken.
+ *
+ * And nothing on it explains itself in prose any more. The rule, unchanged: a
+ * task nobody can do without being told how goes behind a labelled dropdown, a
+ * detail one reader in a hundred wants goes behind an (i), and anything that
+ * only restated a label or reassured is gone.
  */
 export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
@@ -85,230 +108,56 @@ export default async function PortalSettingsPage() {
 
   return (
     <>
-      {/* No subtitle: it listed the three sections, which the jump row below
-          and the three panel titles already are. */}
-      <PageHeader title="Settings" />
+      {/*
+        The subtitle is back, and for the opposite reason it was removed. It went
+        because it listed the three sections "which the jump row below and the
+        three panel titles already are" - and the jump row is now gone,
+        deliberately, because it was the thing impersonating a set of tabs. One
+        line naming all three parts is what is left to say "this one page holds
+        these three things", which is precisely the sentence the owner needed and
+        did not get.
+      */}
+      <PageHeader
+        title="Settings"
+        subtitle="Where alerts are sent, your own details, and where your history is kept."
+      />
 
-      {/* Three sections is a long scroll on a phone and a short one everywhere
-          else, so the jump row is a phone-only affordance. */}
-      <nav aria-label="Sections" className="mb-4 flex gap-2 lg:hidden">
-        {SECTIONS.map(({ href, label, icon: Icon }) => (
-          <a
-            key={href}
-            href={href}
-            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line bg-panel text-xs font-medium text-muted transition active:bg-sunken"
-          >
-            <Icon size={13} />
-            {label}
-          </a>
-        ))}
-      </nav>
-
+      {/*
+        Two panels side by side on a wide screen with the folded extra spanning
+        beneath them, and the same three in the same order stacked on a phone.
+        No order classes: DOM order is now the reading order on both, so there
+        is one answer to "what is this page about" instead of two.
+      */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-        {/* ================= who you are ================= */}
-        <div className="lg:order-2">
-          <Panel id="profile" title="My profile" className="scroll-mt-20">
-            <ActionForm action={updateMyProfile} closeOnSuccess={false}>
-              <div className="space-y-4">
-                <Field label="Full name" name="full_name">
-                  <Input
-                    name="full_name"
-                    required
-                    maxLength={80}
-                    defaultValue={profile.full_name ?? ""}
-                    placeholder="Your name"
-                    autoComplete="name"
-                  />
-                </Field>
-
-                <FormGrid cols={2}>
-                  {/* Was a free-text 20-character box that accepted a
-                      landline, a five-digit number and a foreign number - none
-                      of which sign-up allows, so one account could hold a
-                      format another refused. Same field as every other form
-                      now, and compulsory: this is the number we ring when
-                      somebody cannot get into their account, which is exactly
-                      when they cannot use the app to tell us a better one.
-
-                      That reason no longer sits under the box, though, so
-                      PhoneField's own "10 digits, no country code" comes back:
-                      why we want the number is read once at sign-up, and the
-                      format is what is wanted at the moment of typing. */}
-                  <PhoneField label="Mobile number" value={profile.phone} />
-                  <Field label="Job title" name="designation">
-                    <Input
-                      name="designation"
-                      maxLength={60}
-                      defaultValue={profile.designation ?? ""}
-                      placeholder="Fleet manager"
-                      autoComplete="organization-title"
-                    />
-                  </Field>
-                </FormGrid>
-
-                <Field label="Company or organisation" name="office">
-                  <Input
-                    name="office"
-                    maxLength={120}
-                    defaultValue={profile.office ?? ""}
-                    placeholder="Patel Roadlines"
-                    autoComplete="organization"
-                  />
-                </Field>
-
-                <FormGrid cols={2}>
-                  <Field label="City or district" name="district">
-                    <Input
-                      name="district"
-                      maxLength={60}
-                      defaultValue={profile.district ?? ""}
-                      placeholder="Ahmedabad"
-                      autoComplete="address-level2"
-                    />
-                  </Field>
-                  <Field label="State" name="state">
-                    <Input
-                      name="state"
-                      maxLength={60}
-                      defaultValue={profile.state ?? ""}
-                      placeholder="Gujarat"
-                      autoComplete="address-level1"
-                    />
-                  </Field>
-                </FormGrid>
-              </div>
-
-              <FormActions>
-                <SubmitButton>Save changes</SubmitButton>
-              </FormActions>
-            </ActionForm>
-
-            {/*
-              Sign-in sits inside the profile panel rather than in one of its
-              own: it is the same subject, and the reason it is read-only is
-              only clear next to the boxes that are not.
-            */}
-            <div className="mt-5 border-t border-divider pt-4">
-              {/*
-                An (i) and not a dropdown, deliberately: moving your account to
-                a new address is a detail one reader in a hundred wants, not a
-                task this screen is asking anybody to do. The line used to sit
-                open under the rows, where it read as an apology for the one
-                field that has no box.
-              */}
-              <InfoTip
-                label="changing your sign-in email"
-                info={
-                  <p>
-                    Your email is how you sign in, so it is not changed from here.
-                    {supportEmail ? (
-                      <>
-                        {" "}
-                        Write to{" "}
-                        <a
-                          href={`mailto:${supportEmail}`}
-                          className="text-brand-500 hover:underline"
-                        >
-                          {supportEmail}
-                        </a>{" "}
-                        to move the account to a new address.
-                      </>
-                    ) : (
-                      " Contact support to move the account to a new address."
-                    )}
-                  </p>
-                }
-              >
-                <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
-                  <KeyRound size={12} />
-                  Sign-in
-                </p>
-              </InfoTip>
-              <dl className="mt-2">
-                <DescRow label="Email">
-                  <span className="break-all">{email}</span>
-                </DescRow>
-                <DescRow label="Password">
-                  <Link
-                    href="/forgot-password"
-                    className="font-medium text-brand-500 hover:underline"
-                  >
-                    Send me a reset link
-                  </Link>
-                </DescRow>
-                <DescRow label="Member since">{fmtDate(profile.created_at)}</DescRow>
-              </dl>
-            </div>
-          </Panel>
-        </div>
-
-        <div className="space-y-4 lg:order-1">
-          {/* ================= where alerts go ================= */}
-          {/* No description: it said Telegram is the only channel, which the
-              "coming soon" row at the foot of this panel says better. */}
-          <Panel
-            id="alerts"
-            title="Telegram alerts"
-            className="scroll-mt-20"
-            actions={
-              connected ? (
+        {/* ================= where alerts go ================= */}
+        {/*
+          No `actions` badge on the header, which is not a demotion - the status
+          moved into the body and got more room. Panel gives its actions slot
+          `w-full sm:w-auto`, so on a phone the badge always dropped to a second
+          line of its own and every panel with one wore an 83px header instead
+          of a 49px header. Two of those was 68px spent on making two badges sit
+          alone.
+        */}
+        <Panel id="alerts" title="Telegram alerts" className="scroll-mt-20">
+          {/*
+            One row for the whole state of this connection: whether it works,
+            what it last did or last failed at, and the button that re-tests it.
+            It was three things in two places - a badge in the header, a
+            paragraph under the form, and the test button on a row of its own -
+            and two of the three were usually saying nothing.
+          */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-line bg-raised/60 px-3 py-2.5">
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+              {connected ? (
                 <Badge tone="good">
                   <CheckCircle2 size={10} />
                   connected
                 </Badge>
               ) : (
                 <Badge tone="warn">not connected</Badge>
-              )
-            }
-          >
-            <ActionForm action={saveMyTelegram} closeOnSuccess={false}>
-              <div className="space-y-4">
-                {/*
-                  The steps were behind an (i) beside this label, and on the
-                  live page people did not find them - which is fatal here,
-                  because nobody has a chat id until these three steps give
-                  them one. A dropdown labelled with the question is a thing a
-                  reader can see is there; an (i) is a thing you have to
-                  already know about. See TelegramChatIdHelp.
+              )}
 
-                  The old hint under the box is gone with it: "a plain number"
-                  is step 2, and "your phone number is never used" was
-                  reassurance about a field nobody had filled in yet.
-                */}
-                <div>
-                  <Field label="Chat id" name="chat_id">
-                    <Input
-                      name="chat_id"
-                      defaultValue={telegram?.chat_id ?? ""}
-                      inputMode="numeric"
-                      placeholder="e.g. 123456789"
-                      className="font-mono"
-                    />
-                  </Field>
-                  <TelegramChatIdHelp className="mt-1.5" />
-                </div>
-                <Checkbox
-                  name="is_enabled"
-                  label="Send me alerts on Telegram"
-                  defaultChecked={telegram?.is_enabled ?? true}
-                />
-              </div>
-              <FormActions>
-                <SubmitButton>Save</SubmitButton>
-              </FormActions>
-            </ActionForm>
-
-            {/* The button and what it last reported, on one row. Three stacked
-                notes used to say this, two of them usually empty. */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <InlineActionForm action={testMyTelegram} className="items-start">
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Sending...">
-                  <Send size={13} />
-                  Send test
-                </SubmitButton>
-              </InlineActionForm>
-
-              <p className="min-w-0 flex-1 text-xs leading-relaxed">
+              <span className="min-w-0 text-xs leading-relaxed">
                 {telegram?.last_error ? (
                   <span className="text-bad-500">{friendlyError(telegram.last_error)}</span>
                 ) : telegram?.verified_at ? (
@@ -316,56 +165,350 @@ export default async function PortalSettingsPage() {
                     Last verified {fmtRelative(telegram.verified_at)}.
                   </span>
                 ) : (
-                  /* State, not instruction: the button that fixes it is on
-                     this row, so the second half of this line was telling
-                     somebody to press what their thumb is already on. */
+                  /* State, not instruction: the button that fixes it is on this
+                     row, so telling somebody to press what their thumb is
+                     already on was the second half of this line. */
                   <span className="text-faint">Not verified yet.</span>
                 )}
-                {!env.telegramBotToken ? (
-                  /* Ours to fix, not the reader's, so this says what it means
-                     for them and where to ask - never who to chase. */
-                  <span className="mt-1 block text-warn-500">
-                    Telegram delivery is not switched on yet, so a test will fail.
-                    {supportEmail ? (
-                      <>
-                        {" "}
-                        Let us know at{" "}
-                        <a href={`mailto:${supportEmail}`} className="underline">
-                          {supportEmail}
-                        </a>
-                        .
-                      </>
-                    ) : null}
-                  </span>
-                ) : null}
-              </p>
-            </div>
-
-            {/*
-              The second channel, visible and unusable.
-              It is built and switched off - there is no WhatsApp account behind
-              it yet - and saying so is better than either hiding it, which
-              turns "can I get these on WhatsApp?" into a support email, or
-              offering a switch that silently sends nothing.
-            */}
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
-              <span className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                <MessageCircle size={14} className="shrink-0 text-faint" />
-                WhatsApp alerts
               </span>
-              <Badge tone="neutral">coming soon</Badge>
-            </div>
-          </Panel>
+            </span>
 
-          {/* ================= where history is kept ================= */}
-          {/* The description - why anybody would want a copy - moved into the
-              "What ends up in the sheet?" dropdown at the foot of this panel,
-              which is where somebody weighing it up is already looking. */}
-          <Panel
-            id="backup"
+            <InlineActionForm action={testMyTelegram} className="shrink-0">
+              <SubmitButton variant="secondary" size="sm" pendingLabel="Sending...">
+                <Send size={13} />
+                Send test
+              </SubmitButton>
+            </InlineActionForm>
+          </div>
+
+          {!env.telegramBotToken ? (
+            /* Ours to fix, not the reader's, so this says what it means for
+               them and where to ask - never who to chase. */
+            <p className="mb-4 text-xs leading-relaxed text-warn-500">
+              Telegram delivery is not switched on yet, so a test will fail.
+              {supportEmail ? (
+                <>
+                  {" "}
+                  Let us know at{" "}
+                  <a href={`mailto:${supportEmail}`} className="underline">
+                    {supportEmail}
+                  </a>
+                  .
+                </>
+              ) : null}
+            </p>
+          ) : null}
+
+          <ActionForm action={saveMyTelegram} closeOnSuccess={false}>
+            <div className="space-y-4">
+              {/*
+                The steps were behind an (i) beside this label, and on the live
+                page people did not find them - which is fatal here, because
+                nobody has a chat id until these three steps give them one. A
+                dropdown labelled with the question is a thing a reader can see
+                is there; an (i) is a thing you have to already know about. See
+                TelegramChatIdHelp.
+              */}
+              <div>
+                <Field label="Chat id" name="chat_id">
+                  <Input
+                    name="chat_id"
+                    defaultValue={telegram?.chat_id ?? ""}
+                    inputMode="numeric"
+                    placeholder="e.g. 123456789"
+                    className="font-mono"
+                  />
+                </Field>
+                <TelegramChatIdHelp className="mt-1.5" />
+              </div>
+              <Checkbox
+                name="is_enabled"
+                label="Send me alerts on Telegram"
+                defaultChecked={telegram?.is_enabled ?? true}
+              />
+            </div>
+            <FormActions>
+              <SubmitButton>Save</SubmitButton>
+            </FormActions>
+          </ActionForm>
+
+          {/*
+            THE OWNER'S SECOND QUESTION, ANSWERED ON THE SCREEN IT IS ASKED ON.
+            "notification is not showing on mobile as a notification. home
+            screen pe yeh added hai but notification show nahi hoti."
+
+            Nothing was wrong with their phone and nothing is broken: this app
+            has never sent a phone notification of its own. There is a service
+            worker (public/sw.js) and a manifest, so it installs and opens full
+            screen, but the worker has no push handler, there is no VAPID key,
+            no subscription anywhere and no server that sends one - so an
+            installed icon cannot buzz, and would not on any device. Alerts are
+            Telegram messages; the bell in the header is the in-app list of the
+            same rows.
+
+            A dropdown and not an (i): this is a five-place checklist somebody
+            has to walk, and the reader who needs it is the reader who has
+            already concluded the product is broken - which is exactly the
+            person an (i) does not reach. It is the same call as the chat id
+            above.
+          */}
+          <HelpNote title="Alerts do not show on my phone" className="mt-4">
+            <p>
+              Alerts arrive as a <strong className="text-ink">Telegram message</strong>, so it is
+              Telegram that has to be allowed to notify you — not this app. Adding this app to your
+              home screen opens it full screen; it does not make the icon buzz.
+            </p>
+            {/* Explicit margins, because preflight zeroes every <p> and
+                HelpNote's body carries no p+p rule of its own - unlike
+                InfoTip's panel, which does. Without these the three paragraphs
+                below butt against each other as one block of text. */}
+            <p className="mt-2">Worth checking, in this order:</p>
+            <ol className="mt-1.5 space-y-1.5">
+              {[
+                <>
+                  Telegram is installed and signed in on <em>that</em> phone.
+                </>,
+                <>
+                  Telegram&apos;s own notifications are on in the phone&apos;s Settings — on an
+                  iPhone, Settings &rsaquo; Notifications &rsaquo; Telegram.
+                </>,
+                <>The chat id above is saved and the switch under it is on.</>,
+                <>
+                  You sent the alerts bot a <Mono className="text-[11px]">/start</Mono>. Telegram
+                  forbids a bot from messaging anyone who has not.
+                </>,
+                <>
+                  <strong className="text-ink">Send test</strong> above reports connected.
+                </>,
+              ].map((step, index) => (
+                <li key={index} className="flex gap-2">
+                  <span className="font-mono text-brand-500">{index + 1}.</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-2">
+              The bell at the top of the screen is this app&apos;s own list of the same alerts. It
+              is there to look at, not to interrupt you — the interrupting is Telegram&apos;s job.
+            </p>
+          </HelpNote>
+
+          {/*
+            The second channel, visible and unusable.
+            It is built and switched off - there is no WhatsApp account behind it
+            yet - and saying so is better than either hiding it, which turns
+            "can I get these on WhatsApp?" into a support email, or offering a
+            switch that silently sends nothing.
+          */}
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
+            <span className="flex min-w-0 items-center gap-2 text-sm text-muted">
+              <MessageCircle size={14} className="shrink-0 text-faint" />
+              WhatsApp alerts
+            </span>
+            <Badge tone="neutral">coming soon</Badge>
+          </div>
+        </Panel>
+
+        {/* ================= who you are ================= */}
+        <Panel id="profile" title="My profile" className="scroll-mt-20">
+          <ActionForm action={updateMyProfile} closeOnSuccess={false}>
+            <div className="space-y-4">
+              <Field label="Full name" name="full_name">
+                <Input
+                  name="full_name"
+                  required
+                  maxLength={80}
+                  defaultValue={profile.full_name ?? ""}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </Field>
+
+              {/*
+                Was a free-text 20-character box that accepted a landline, a
+                five-digit number and a foreign number - none of which sign-up
+                allows, so one account could hold a format another refused. Same
+                field as every other form now, and compulsory: this is the number
+                we ring when somebody cannot get into their account, which is
+                exactly when they cannot use the app to tell us a better one.
+
+                PhoneField's own "10 digits, no country code" carries the format,
+                which is what is wanted at the moment of typing; why we want the
+                number at all is read once at sign-up.
+              */}
+              <PhoneField label="Mobile number" value={profile.phone} />
+
+              {/*
+                THE FOUR OPTIONAL FIELDS, FOLDED.
+
+                Job title, company, city and state were four more full-width
+                boxes of exactly the weight of the two above them, and at 390px
+                FormGrid's cols={2} collapses to one column - so the pairing
+                this used to be written as was invisible on the device it
+                mattered on. Six identical boxes, and a reader had no way to
+                tell that two of them are required and four are decoration.
+
+                Decoration is not unfair: grep says office, designation, district
+                and state are read by the admin console and nowhere else - the
+                officers list, the explore screen and one account's overview.
+                They are how whoever answers the phone recognises an account.
+                They change roughly never, they are never shown back to the
+                customer, and nothing in the product behaves differently for
+                them. That is the definition of something that should start shut.
+
+                The inputs are still inside this form and still submit: a closed
+                <details> hides its content, it does not disable or detach the
+                controls in it, so updateMyProfile receives all six fields
+                whether the group was opened or not. Folding a form group would
+                otherwise silently blank four columns on every save, which is why
+                this is worth writing down.
+
+                Disclosure rather than a bordered card of its own: it is the
+                sanctioned dropdown and it brings the <details> semantics that
+                make the paragraph above true. Its .panel skin is lightened here
+                because a card carrying a card shadow inside a panel body of the
+                same colour reads as a second panel that has drifted inside the
+                first.
+              */}
+              <Disclosure
+                title="Company and location"
+                /* One line at 390px. Two states - filled and not - were tried
+                   here and neither earned the second line they cost: the
+                   question a reader has at a shut group is "must I open this",
+                   and the title answers that. */
+                hint="Optional. Used when you call us."
+                className="border-line/70 bg-raised/40 [box-shadow:none]"
+                bodyClassName="border-t border-divider px-3 py-3.5"
+              >
+                <div className="space-y-4">
+                  <FormGrid cols={2}>
+                    <Field label="Job title" name="designation">
+                      <Input
+                        name="designation"
+                        maxLength={60}
+                        defaultValue={profile.designation ?? ""}
+                        placeholder="Fleet manager"
+                        autoComplete="organization-title"
+                      />
+                    </Field>
+                    <Field label="Company or organisation" name="office">
+                      <Input
+                        name="office"
+                        maxLength={120}
+                        defaultValue={profile.office ?? ""}
+                        placeholder="Patel Roadlines"
+                        autoComplete="organization"
+                      />
+                    </Field>
+                  </FormGrid>
+                  <FormGrid cols={2}>
+                    <Field label="City or district" name="district">
+                      <Input
+                        name="district"
+                        maxLength={60}
+                        defaultValue={profile.district ?? ""}
+                        placeholder="Ahmedabad"
+                        autoComplete="address-level2"
+                      />
+                    </Field>
+                    <Field label="State" name="state">
+                      <Input
+                        name="state"
+                        maxLength={60}
+                        defaultValue={profile.state ?? ""}
+                        placeholder="Gujarat"
+                        autoComplete="address-level1"
+                      />
+                    </Field>
+                  </FormGrid>
+                </div>
+              </Disclosure>
+            </div>
+
+            <FormActions>
+              <SubmitButton>Save changes</SubmitButton>
+            </FormActions>
+          </ActionForm>
+
+          {/*
+            Sign-in sits inside the profile panel rather than in one of its own:
+            it is the same subject, and the reason it is read-only is only clear
+            next to the boxes that are not.
+          */}
+          <div className="mt-5 border-t border-divider pt-4">
+            {/*
+              An (i) and not a dropdown, deliberately: moving your account to a
+              new address is a detail one reader in a hundred wants, not a task
+              this screen is asking anybody to do. The line used to sit open
+              under the rows, where it read as an apology for the one field that
+              has no box.
+            */}
+            <InfoTip
+              label="changing your sign-in email"
+              info={
+                <p>
+                  Your email is how you sign in, so it is not changed from here.
+                  {supportEmail ? (
+                    <>
+                      {" "}
+                      Write to{" "}
+                      <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
+                        {supportEmail}
+                      </a>{" "}
+                      to move the account to a new address.
+                    </>
+                  ) : (
+                    " Contact support to move the account to a new address."
+                  )}
+                </p>
+              }
+            >
+              <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
+                <KeyRound size={12} />
+                Sign-in
+              </p>
+            </InfoTip>
+            <dl className="mt-2">
+              <DescRow label="Email">
+                <span className="break-all">{email}</span>
+              </DescRow>
+              <DescRow label="Password">
+                <Link href="/forgot-password" className="font-medium text-brand-500 hover:underline">
+                  Send me a reset link
+                </Link>
+              </DescRow>
+              <DescRow label="Member since">{fmtDate(profile.created_at)}</DescRow>
+            </dl>
+          </div>
+        </Panel>
+
+        {/* ================= where history is kept ================= */}
+        {/*
+          The anchor lives on this wrapper because Disclosure takes no id, and
+          #backup has to keep working - it was in the jump row that has just been
+          deleted, and an anchor somebody may have bookmarked is not worth
+          breaking to save a div.
+        */}
+        <div id="backup" className="scroll-mt-20 lg:col-span-2">
+          {/*
+            FOLDED, AND THE ONLY SECTION THAT IS.
+
+            567px of open form for a feature most accounts never turn on, and it
+            was the last thing on the page: a phone reader scrolled two full
+            screens of Google Sheets setup to reach the end of Settings. Shut, it
+            is one row that still reports its own state - the badge and the hint
+            below say whether a sheet is connected, when it last copied and
+            whether it has stopped working - so nothing that was visible is now
+            hidden, only unexpanded.
+
+            It opens itself when it is broken. A sheet that has stopped taking
+            rows is the one state where the reader has something to do and does
+            not know it, and a fault folded away is a fault nobody finds.
+          */}
+          <Disclosure
             title="Backup to your Google Sheet"
-            className="scroll-mt-20"
-            actions={
+            defaultOpen={Boolean(sheet?.last_error)}
+            badge={
               /* A sheet that stopped working is the whole reason this badge is
                  here - it is the only place the failure is visible. */
               sheet?.last_error ? (
@@ -379,6 +522,24 @@ export default async function PortalSettingsPage() {
                 <Badge tone="neutral">not set</Badge>
               )
             }
+            hint={
+              sheet?.last_error ? (
+                /* One line, but it keeps the one thing to go and check: the
+                   sharing is the cause nine times in ten. */
+                <span className="text-bad-500">
+                  Last copy failed — {friendlyError(sheet.last_error)} Check it is still shared as
+                  Editor.
+                </span>
+              ) : sheet?.last_synced_at ? (
+                <>Last copied {fmtRelative(sheet.last_synced_at)}.</>
+              ) : sheetId ? (
+                /* Not a fault: copying runs on a schedule, so a sheet named
+                   this morning has nothing in it yet. */
+                <>Nothing copied across yet — it runs on a schedule, not on save.</>
+              ) : (
+                <>Keep your own copy of every record, in a sheet you own.</>
+              )
+            }
           >
             {/* Nothing can be written to a sheet that was never shared, so the
                 address comes before the box asking for the link. */}
@@ -388,8 +549,8 @@ export default async function PortalSettingsPage() {
                 the rest of the steps: it is the one requirement that fails
                 silently - a sheet shared as Viewer looks shared and takes no
                 rows - so it stays where it cannot be missed. How to do the
-                sharing is a task, and tasks go behind a labelled dropdown,
-                the same call as the chat id above.
+                sharing is a task, and tasks go behind a labelled dropdown, the
+                same call as the chat id above.
               */}
               <p className="text-xs font-semibold text-ink">
                 1. Share your sheet with this address as <strong>Editor</strong>
@@ -427,9 +588,6 @@ export default async function PortalSettingsPage() {
 
             <ActionForm action={saveMySheet} closeOnSuccess={false} className="mt-4">
               <div className="space-y-4">
-                {/* Hint gone: "blank is a fine answer" reassured somebody
-                    about a box that is not marked required and refuses
-                    nothing. */}
                 <Field label="2. Paste the link to your sheet" name="sheet_url">
                   <Input
                     name="sheet_url"
@@ -463,28 +621,12 @@ export default async function PortalSettingsPage() {
               </FormActions>
             </ActionForm>
 
-            <p className="mt-3 text-xs leading-relaxed">
-              {sheet?.last_error ? (
-                /* One line, but it keeps the one thing to go and check: the
-                   sharing is the cause nine times in ten. */
-                <span className="text-bad-500">
-                  Last copy failed — {friendlyError(sheet.last_error)} Check it is still shared as
-                  Editor.
-                </span>
-              ) : sheet?.last_synced_at ? (
-                <span className="text-muted">Last copied {fmtRelative(sheet.last_synced_at)}.</span>
-              ) : sheetId ? (
-                /* Not a fault: copying runs on a schedule, so a sheet named
-                   this morning has nothing in it yet. */
-                <span className="text-muted">
-                  Nothing copied across yet — it runs on a schedule, not on save.
-                </span>
-              ) : (
-                <span className="text-faint">No sheet of your own yet.</span>
-              )}
-            </p>
-
-            <Disclosure title="What ends up in the sheet?" hint="One tab per kind of record." className="mt-4">
+            <Disclosure
+              title="What ends up in the sheet?"
+              hint="One tab per kind of record."
+              className="mt-4 border-line/70 bg-raised/40 [box-shadow:none]"
+              bodyClassName="border-t border-divider px-3 py-3.5"
+            >
               {/* Straight from the exporter, so this list cannot promise a tab
                   that is never written. */}
               <ul className="grid grid-cols-1 gap-1.5 text-xs text-muted sm:grid-cols-2">
@@ -501,7 +643,7 @@ export default async function PortalSettingsPage() {
                 records in time; your sheet keeps them.
               </p>
             </Disclosure>
-          </Panel>
+          </Disclosure>
         </div>
       </div>
     </>

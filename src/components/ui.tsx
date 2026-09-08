@@ -28,9 +28,24 @@ export function PageHeader({
    * WHOLE page scrolls sideways - sticky header, stat cards and tab strip
    * included - for any account whose owner never filled in a name.
    */
+  /*
+   * A FLOOR ON THE TITLE, so the actions wrap instead of crushing it.
+   *
+   * min-w-0 alone means flex-basis 0: the actions never trigger the row's own
+   * flex-wrap, they just squeeze the heading until it breaks. On My trucks at
+   * 390px two buttons took 274px of a 358px row, leaving "My trucks" 72px for
+   * a word that needs 88 - so the page title split across two lines, which is
+   * what the owner reported.
+   *
+   * 12rem is chosen against the narrowest phone worth supporting: 192px plus
+   * the 288px content box at 320px still leaves the actions somewhere to go,
+   * and below that they wrap to their own line - which is the right answer,
+   * not a broken heading. break-words still catches the account page, which
+   * passes an email address as its title when a name was never filled in.
+   */
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
-      <div className="min-w-0 flex-1">
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
+      <div className="min-w-48 flex-1">
         <h1 className="text-xl font-semibold tracking-tight break-words text-strong sm:text-2xl">
           {title}
         </h1>
@@ -273,8 +288,17 @@ export function StatCard({
     bad: "text-bad-500",
   }[tone];
 
+  /*
+   * Tighter on a phone, because three of these stacked is a screen of chrome.
+   *
+   * On the payments list the strip of three took about 435px at 390px - so the
+   * first payment began below the fold and the reader scrolled past the summary
+   * to reach the thing they came for. The card was 137px around roughly 60px of
+   * content. Padding and the value's top margin shrink below sm and return at
+   * sm, where the three sit side by side and have the room.
+   */
   return (
-    <div className="panel px-4 py-3.5">
+    <div className="panel px-3 py-2.5 sm:px-4 sm:py-3.5">
       <div className="flex items-start justify-between gap-2">
         <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</p>
         {icon ? <span className="text-faint">{icon}</span> : null}
@@ -282,7 +306,9 @@ export function StatCard({
       {/* break-words on the value: "Rs 12,34,56,789" in a two-column grid on a
           360px phone is wider than its card, and a number that overflows its
           own panel is worse than one that wraps. */}
-      <p className={cx("mt-2 text-2xl font-semibold break-words tabular-nums", accent)}>{value}</p>
+      <p className={cx("mt-1 text-xl font-semibold break-words tabular-nums sm:mt-2 sm:text-2xl", accent)}>
+        {value}
+      </p>
       {sub ? <p className="mt-1 text-xs text-muted">{sub}</p> : null}
     </div>
   );

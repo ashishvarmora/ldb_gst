@@ -193,6 +193,11 @@ export async function SiteFooter({ className }: { className?: string }) {
       heading: "Product",
       links: [
         { key: "pricing", href: "/pricing", label: "Plans and pricing" },
+        /* On every public page, because it is the only place a prospective
+           customer will come across it - and an officer whose sign-in is
+           broken or whose plan has lapsed is exactly the reader who needs it
+           and cannot reach the portal to find it. */
+        { key: "guide", href: "/guide", label: "User guide" },
         { key: "sources", href: "/data-sources", label: "Where the data comes from" },
       ],
     },

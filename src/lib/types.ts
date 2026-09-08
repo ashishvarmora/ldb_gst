@@ -297,7 +297,18 @@ export type CreditVerdict = {
      * from 0041, and only while the account has never made a paid payment -
      * credits somebody has since bought are theirs.
      */
-    | "trial_ended";
+    | "trial_ended"
+    /**
+     * Automatic tracking needs an ACTIVE plan, and this account has not got
+     * one - an expired plan, or one that was never bought.
+     *
+     * Returned only for auto_check. A manual search is deliberately still
+     * allowed on the same account, because credits are a lifetime wallet and
+     * a lapsed customer keeps what they paid for. Added by 0049, which put the
+     * rule in the function rather than leaving it to the worker's candidate
+     * query - one layer is not enough for a money rule.
+     */
+    | "no_active_plan";
   cost?: number;
   balance?: number;
   /** True when the rate is zero: allowed, charged nothing, no ledger row. */

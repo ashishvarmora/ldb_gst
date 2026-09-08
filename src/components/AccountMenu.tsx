@@ -13,7 +13,6 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
-  User,
   Wallet,
   X,
 } from "lucide-react";
@@ -124,9 +123,32 @@ function itemGroups({
     });
   }
 
+  /*
+   * ONE ROW, BECAUSE IT IS ONE ROUTE.
+   *
+   * This listed "My profile" -> /portal/settings#profile and "Settings" ->
+   * /portal/settings: two icons, two labels, two descriptions and two hrefs
+   * into the same page, one of them an anchor into the other. That is where the
+   * owner's "merge /portal/settings and /portal/settings#profile, i guess both
+   * are same so" came from - they had been handed two names for one screen by
+   * this menu and reasonably assumed there were two screens.
+   *
+   * Merging them here rather than making the anchors land somewhere more
+   * distinct, because there is no distinction to make: the page is three
+   * panels, all three of them settings, one of them the profile form. A second
+   * row could only ever point at the same page.
+   *
+   * Both words are kept in the one label on purpose. Somebody hunting for
+   * "profile" and somebody hunting for "settings" are looking for the same
+   * place, and each needs to see their own word to believe they have found it.
+   */
   const account: Item[] = [
-    { href: "/portal/settings#profile", label: "My profile", icon: User, hint: "Your name, phone and organisation" },
-    { href: "/portal/settings", label: "Settings", icon: Settings, hint: "Alerts and history backup" },
+    {
+      href: "/portal/settings",
+      label: "Profile and settings",
+      icon: Settings,
+      hint: "Your details, where alerts go, and backup",
+    },
   ];
 
   if (isSuperAdmin) {
@@ -395,12 +417,16 @@ export function AccountMenu(props: AccountMenuProps) {
         {/*
           STICKY, IN BOTH VARIANTS.
 
-          This panel is ten rows tall - who you are, the balance, a top-up, five
-          money rows, three account rows and the support block - about 880px of
-          it. The phone sheet is capped at 85vh and the dropdown is now capped
+          This panel is nine rows tall - who you are, the balance, a top-up,
+          five money rows, one or two account rows and the support block - about
+          820px of it, having lost a row to the profile/settings merge above.
+          The phone sheet is capped at 85vh and the dropdown is now capped
           against the window, so in both cases the last thing in the panel was
           off the end of it: measured at 390x844 the sign-out button was 150px
-          below the fold, and on a 1280x800 desktop 128px below it. The one
+          below the fold, and on a 1280x800 desktop 128px below it. The merge
+          above took one min-h-14 row out, so both figures improve by 56px and
+          neither reaches zero - the button is still off the end on both
+          devices, which is why this stays. The one
           control somebody opens this panel to hunt for by name was the one
           control they had to scroll to the very bottom to reach - which is the
           "make it workable" half of the owner's complaint, on both devices.
