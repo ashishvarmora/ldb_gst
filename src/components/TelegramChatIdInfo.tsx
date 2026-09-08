@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
+import { HelpNote } from "@/components/Disclosure";
 import { Mono } from "@/components/ui";
 
 /**
@@ -10,9 +11,10 @@ import { Mono } from "@/components/ui";
  * settings tab - and steps that differ by a word between screens are steps
  * somebody has to reconcile before they can trust either version.
  *
- * Meant to be handed to LabelWithInfo as `info`, so it lives behind the (i)
- * beside the field rather than as a paragraph under it: it is read once, by one
- * person, on the day they set alerts up, and never again.
+ * Just the steps, with no trigger of its own, because the two screens want
+ * different triggers: an admin filling this in for somebody gets it behind the
+ * (i) beside the field (LabelWithInfo's `info`), and the customer setting their
+ * own alerts up gets the labelled dropdown below - see TelegramChatIdHelp.
  *
  * The bot is a real anchor and not @userinfobot in prose, because the whole
  * difficulty here is finding the bot at all - a t.me link opens the app straight
@@ -57,5 +59,27 @@ export function TelegramChatIdInfo() {
         allowed to send anything.
       </span>
     </>
+  );
+}
+
+/**
+ * The same steps, as a dropdown a customer can see is there.
+ *
+ * An (i) is right for a detail somebody might want and wrong for this. Nobody
+ * owns a "chat id" before we ask for one, so the instructions are not optional
+ * reading - they are the only route through the field - and an (i) is a thing
+ * you only click if you already suspect it exists. The owner watched people on
+ * the live page miss it entirely and asked for the FAQ dropdown instead, which
+ * is the right call: a labelled question announces that there is an answer.
+ *
+ * HelpNote and not Disclosure, because a bordered card here would carry more
+ * weight than the field it belongs to. Under the input rather than beside the
+ * label, so opening it pushes nothing the reader is using out from under them.
+ */
+export function TelegramChatIdHelp({ className }: { className?: string }) {
+  return (
+    <HelpNote title="How do I get my chat id?" className={className}>
+      <TelegramChatIdInfo />
+    </HelpNote>
   );
 }

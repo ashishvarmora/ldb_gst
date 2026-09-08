@@ -102,6 +102,23 @@ const ENFORCED_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  /*
+   * WHERE THIS PROJECT ACTUALLY STARTS.
+   *
+   * There is a stray package-lock.json in the user's home directory, and Next
+   * infers the workspace root from the outermost lockfile it can find - so
+   * every dev and build run warned that it had picked the home directory as
+   * the root. That is not cosmetic: the root is what output file tracing is
+   * computed against, which decides which files are bundled into each
+   * serverless function on Vercel. Getting it wrong risks a function that
+   * either drags in the whole home directory or misses a file it needed.
+   *
+   * Pinned here rather than by deleting somebody's file: another project may
+   * depend on that lockfile, and a config line cannot break anything outside
+   * this repository.
+   */
+  outputFileTracingRoot: import.meta.dirname,
+
   experimental: {
     // Server Actions receive plan/limit payloads; keep the default 1MB cap.
     serverActions: { bodySizeLimit: "1mb" },

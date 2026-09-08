@@ -13,12 +13,12 @@ import {
 import { CopyAddress } from "./CopyAddress";
 import { saveMySheet, saveMyTelegram, testMyTelegram, updateMyProfile } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
-import { Disclosure } from "@/components/Disclosure";
+import { Disclosure, HelpNote } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form";
-import { LabelWithInfo } from "@/components/InfoTip";
+import { InfoTip } from "@/components/InfoTip";
 import { PhoneField } from "@/components/PhoneInput";
 import { publicSettings } from "@/components/SiteFooter";
-import { TelegramChatIdInfo } from "@/components/TelegramChatIdInfo";
+import { TelegramChatIdHelp } from "@/components/TelegramChatIdInfo";
 import { Badge, DescRow, PageHeader, Panel } from "@/components/ui";
 import { env, integrationHealth } from "@/lib/env";
 import { friendlyError } from "@/lib/errors";
@@ -49,6 +49,14 @@ const SECTIONS = [
  * The first two are one tap away in the profile menu, on every screen, and the
  * third is now the form at the top. A settings page that restates other pages
  * is a page whose numbers can disagree with them.
+ *
+ * And nothing on it explains itself any more. Every panel here had grown a
+ * description under its title and a hint under its inputs, all of it read once
+ * and then scrolled past for ever, and on a phone it doubled the page. What is
+ * left is the three forms, the state of each connection, and two dropdowns for
+ * the two things nobody can do without being told how - getting a chat id, and
+ * sharing a sheet. The rule for the rest: a detail somebody might want goes
+ * behind an (i), and anything that only restated a label or reassured is gone.
  */
 export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
@@ -77,7 +85,9 @@ export default async function PortalSettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Your details, where alerts reach you, and where your history is kept." />
+      {/* No subtitle: it listed the three sections, which the jump row below
+          and the three panel titles already are. */}
+      <PageHeader title="Settings" />
 
       {/* Three sections is a long scroll on a phone and a short one everywhere
           else, so the jump row is a phone-only affordance. */}
@@ -97,12 +107,7 @@ export default async function PortalSettingsPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
         {/* ================= who you are ================= */}
         <div className="lg:order-2">
-          <Panel
-            id="profile"
-            title="My profile"
-            description="How your account is named on screen and in anything we send you."
-            className="scroll-mt-20"
-          >
+          <Panel id="profile" title="My profile" className="scroll-mt-20">
             <ActionForm action={updateMyProfile} closeOnSuccess={false}>
               <div className="space-y-4">
                 <Field label="Full name" name="full_name">
@@ -123,12 +128,13 @@ export default async function PortalSettingsPage() {
                       format another refused. Same field as every other form
                       now, and compulsory: this is the number we ring when
                       somebody cannot get into their account, which is exactly
-                      when they cannot use the app to tell us a better one. */}
-                  <PhoneField
-                    label="Mobile number"
-                    hint="How we reach you if something goes wrong with your account."
-                    value={profile.phone}
-                  />
+                      when they cannot use the app to tell us a better one.
+
+                      That reason no longer sits under the box, though, so
+                      PhoneField's own "10 digits, no country code" comes back:
+                      why we want the number is read once at sign-up, and the
+                      format is what is wanted at the moment of typing. */}
+                  <PhoneField label="Mobile number" value={profile.phone} />
                   <Field label="Job title" name="designation">
                     <Input
                       name="designation"
@@ -183,10 +189,41 @@ export default async function PortalSettingsPage() {
               only clear next to the boxes that are not.
             */}
             <div className="mt-5 border-t border-divider pt-4">
-              <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
-                <KeyRound size={12} />
-                Sign-in
-              </p>
+              {/*
+                An (i) and not a dropdown, deliberately: moving your account to
+                a new address is a detail one reader in a hundred wants, not a
+                task this screen is asking anybody to do. The line used to sit
+                open under the rows, where it read as an apology for the one
+                field that has no box.
+              */}
+              <InfoTip
+                label="changing your sign-in email"
+                info={
+                  <p>
+                    Your email is how you sign in, so it is not changed from here.
+                    {supportEmail ? (
+                      <>
+                        {" "}
+                        Write to{" "}
+                        <a
+                          href={`mailto:${supportEmail}`}
+                          className="text-brand-500 hover:underline"
+                        >
+                          {supportEmail}
+                        </a>{" "}
+                        to move the account to a new address.
+                      </>
+                    ) : (
+                      " Contact support to move the account to a new address."
+                    )}
+                  </p>
+                }
+              >
+                <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
+                  <KeyRound size={12} />
+                  Sign-in
+                </p>
+              </InfoTip>
               <dl className="mt-2">
                 <DescRow label="Email">
                   <span className="break-all">{email}</span>
@@ -201,31 +238,17 @@ export default async function PortalSettingsPage() {
                 </DescRow>
                 <DescRow label="Member since">{fmtDate(profile.created_at)}</DescRow>
               </dl>
-              <p className="mt-2.5 text-xs leading-relaxed text-muted">
-                Your email is how you sign in, so it is not changed from here.
-                {supportEmail ? (
-                  <>
-                    {" "}
-                    Write to{" "}
-                    <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
-                      {supportEmail}
-                    </a>{" "}
-                    to move the account to a new address.
-                  </>
-                ) : (
-                  " Contact support to move the account to a new address."
-                )}
-              </p>
             </div>
           </Panel>
         </div>
 
         <div className="space-y-4 lg:order-1">
           {/* ================= where alerts go ================= */}
+          {/* No description: it said Telegram is the only channel, which the
+              "coming soon" row at the foot of this panel says better. */}
           <Panel
             id="alerts"
             title="Telegram alerts"
-            description="The only place an alert reaches you outside the app."
             className="scroll-mt-20"
             actions={
               connected ? (
@@ -240,26 +263,29 @@ export default async function PortalSettingsPage() {
           >
             <ActionForm action={saveMyTelegram} closeOnSuccess={false}>
               <div className="space-y-4">
-                {/* The steps used to be a Disclosure under the whole panel,
-                    which put the answer three rows below the question and left
-                    a heading of prose on screen for everyone who already knew.
-                    Behind the (i) beside the field it is in reach of the box it
-                    describes, and invisible until asked for. */}
+                {/*
+                  The steps were behind an (i) beside this label, and on the
+                  live page people did not find them - which is fatal here,
+                  because nobody has a chat id until these three steps give
+                  them one. A dropdown labelled with the question is a thing a
+                  reader can see is there; an (i) is a thing you have to
+                  already know about. See TelegramChatIdHelp.
+
+                  The old hint under the box is gone with it: "a plain number"
+                  is step 2, and "your phone number is never used" was
+                  reassurance about a field nobody had filled in yet.
+                */}
                 <div>
-                  <LabelWithInfo
-                    label="Chat id"
-                    htmlFor="chat_id"
-                    info={<TelegramChatIdInfo />}
-                  />
-                  <Input
-                    id="chat_id"
-                    name="chat_id"
-                    defaultValue={telegram?.chat_id ?? ""}
-                    inputMode="numeric"
-                    placeholder="e.g. 123456789"
-                    className="mt-1.5 font-mono"
-                  />
-                  <p className="field-hint">A plain number. Your phone number is never used.</p>
+                  <Field label="Chat id" name="chat_id">
+                    <Input
+                      name="chat_id"
+                      defaultValue={telegram?.chat_id ?? ""}
+                      inputMode="numeric"
+                      placeholder="e.g. 123456789"
+                      className="font-mono"
+                    />
+                  </Field>
+                  <TelegramChatIdHelp className="mt-1.5" />
                 </div>
                 <Checkbox
                   name="is_enabled"
@@ -290,9 +316,10 @@ export default async function PortalSettingsPage() {
                     Last verified {fmtRelative(telegram.verified_at)}.
                   </span>
                 ) : (
-                  <span className="text-faint">
-                    Not verified yet — save your chat id, then send a test.
-                  </span>
+                  /* State, not instruction: the button that fixes it is on
+                     this row, so the second half of this line was telling
+                     somebody to press what their thumb is already on. */
+                  <span className="text-faint">Not verified yet.</span>
                 )}
                 {!env.telegramBotToken ? (
                   /* Ours to fix, not the reader's, so this says what it means
@@ -331,10 +358,12 @@ export default async function PortalSettingsPage() {
           </Panel>
 
           {/* ================= where history is kept ================= */}
+          {/* The description - why anybody would want a copy - moved into the
+              "What ends up in the sheet?" dropdown at the foot of this panel,
+              which is where somebody weighing it up is already looking. */}
           <Panel
             id="backup"
             title="Backup to your Google Sheet"
-            description="Your own copy of every row, before the app clears its own."
             className="scroll-mt-20"
             actions={
               /* A sheet that stopped working is the whole reason this badge is
@@ -354,20 +383,34 @@ export default async function PortalSettingsPage() {
             {/* Nothing can be written to a sheet that was never shared, so the
                 address comes before the box asking for the link. */}
             <div className="rounded-xl border border-line bg-raised px-3 py-3">
-              <p className="text-xs font-semibold text-ink">1. Share your sheet with this address</p>
-              <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-muted">
-                In your sheet tap <strong className="text-ink">Share</strong>, paste this in and set
-                it to <strong className="text-ink">Editor</strong>. Anything less and rows cannot be
-                added.
+              {/*
+                "as Editor" is in the heading rather than in the dropdown with
+                the rest of the steps: it is the one requirement that fails
+                silently - a sheet shared as Viewer looks shared and takes no
+                rows - so it stays where it cannot be missed. How to do the
+                sharing is a task, and tasks go behind a labelled dropdown,
+                the same call as the chat id above.
+              */}
+              <p className="text-xs font-semibold text-ink">
+                1. Share your sheet with this address as <strong>Editor</strong>
               </p>
 
               {sheetsReady ? (
-                <CopyAddress address={env.googleServiceAccountEmail} />
+                <>
+                  <div className="mt-2.5">
+                    <CopyAddress address={env.googleServiceAccountEmail} />
+                  </div>
+                  <HelpNote title="How do I share it?" className="mt-1.5">
+                    In your sheet tap <strong className="text-ink">Share</strong>, paste this
+                    address in, set it to <strong className="text-ink">Editor</strong> and send.
+                    Anything less and rows cannot be added.
+                  </HelpNote>
+                </>
               ) : (
                 /* Ours to fix, not the reader's. */
-                <p className="text-xs leading-relaxed text-warn-500">
-                  Copying to sheets is not switched on yet, so there is no address to share and
-                  nothing is being written to any sheet.
+                <p className="mt-1 text-xs leading-relaxed text-warn-500">
+                  Copying to sheets is not switched on yet, so nothing is being written to any
+                  sheet.
                   {supportEmail ? (
                     <>
                       {" "}
@@ -384,11 +427,10 @@ export default async function PortalSettingsPage() {
 
             <ActionForm action={saveMySheet} closeOnSuccess={false} className="mt-4">
               <div className="space-y-4">
-                <Field
-                  label="2. Paste the link to your sheet"
-                  name="sheet_url"
-                  hint="Blank is a fine answer — the copy is kept on our side instead."
-                >
+                {/* Hint gone: "blank is a fine answer" reassured somebody
+                    about a box that is not marked required and refuses
+                    nothing. */}
+                <Field label="2. Paste the link to your sheet" name="sheet_url">
                   <Input
                     name="sheet_url"
                     // Not type="url": a bare sheet id is accepted too, and the
@@ -423,10 +465,11 @@ export default async function PortalSettingsPage() {
 
             <p className="mt-3 text-xs leading-relaxed">
               {sheet?.last_error ? (
+                /* One line, but it keeps the one thing to go and check: the
+                   sharing is the cause nine times in ten. */
                 <span className="text-bad-500">
-                  The last copy did not go through, so nothing has been added since.{" "}
-                  {friendlyError(sheet.last_error)} Check the sheet still exists and is shared as
-                  Editor with the address above, then save again.
+                  Last copy failed — {friendlyError(sheet.last_error)} Check it is still shared as
+                  Editor.
                 </span>
               ) : sheet?.last_synced_at ? (
                 <span className="text-muted">Last copied {fmtRelative(sheet.last_synced_at)}.</span>
@@ -454,7 +497,8 @@ export default async function PortalSettingsPage() {
               </ul>
               <p className="mt-2.5 text-xs leading-relaxed text-muted">
                 Rows are only ever added to the end of a tab. Nothing in your sheet is read, changed
-                or removed, so anything you write there yourself is safe.
+                or removed, so anything you write there yourself is safe. The app clears its own
+                records in time; your sheet keeps them.
               </p>
             </Disclosure>
           </Panel>
