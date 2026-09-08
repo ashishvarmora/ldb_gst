@@ -1,6 +1,6 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { CheckCircle2, Clock, Coins, Gift, Users } from "lucide-react";
+import { Fragment, type ReactNode } from "react";
+import { CheckCircle2, ChevronRight, Clock, Coins, Gift, Users } from "lucide-react";
 
 import { ShareLink } from "./ShareLink";
 import { Pager, pageFromParam, pageSlice, pagerHref } from "@/components/Pager";
@@ -198,6 +198,24 @@ export default async function ReferralsPage({
               {referralOfferHeadline(terms)}
             </span>
           </InfoTip>
+
+          {/*
+            HOW IT WORKS, BEFORE WHAT IT PAYS.
+
+            The owner's note on this page was that it does not show how refer
+            and earn actually works. Everything above and below this was about
+            the MONEY - a percentage in the headline, credits in the table, the
+            terms behind the (i) - and none of it said the sequence: you send a
+            link, they join on it, they pay, and only then does anybody earn.
+
+            Three short steps rather than a paragraph. Somebody who has to
+            assemble the mechanism out of prose - "a referral earns nothing
+            until the person invited makes their first payment" - has usually
+            decided whether to share the link before they get to the end of the
+            sentence. Three labels with arrows between them are taken in at a
+            glance, which is the only speed this particular fact is useful at.
+          */}
+          <HowItWorks paysInvitee={paysInvitee} />
 
           {/*
             The worked example, as a table rather than as two sentences.
@@ -447,6 +465,58 @@ function Legend() {
         </span>
       </HelpNote>
     </div>
+  );
+}
+
+/**
+ * The mechanism, as three steps with arrows between them.
+ *
+ * WHY THE MIDDLE STEP SAYS "AND PAY".
+ *
+ * It is the whole scheme in two words, and the thing every reader gets wrong.
+ * A sign-up earns nothing here - the rewards are granted by reward_referral()
+ * inside settle_payment, on the path from "money arrived" to "everyone owed
+ * was paid" - so a flow that read "share, they join, you earn" would be
+ * promising money that is not coming, which is the complaint this whole page is
+ * built to avoid. The Waiting tile below counts exactly the people this step
+ * has not happened to yet.
+ *
+ * NO FIGURES AND NO PERCENTAGES IN HERE, deliberately. The headline above
+ * carries the live percentage and the table below turns it into credits, both
+ * off the settings; repeating either here would be a third place for an admin's
+ * edit to go stale, and a percentage is not what this component is for. The one
+ * thing it does read from the terms is whether the invited person is paid at
+ * all, because with both welcome shares at zero "you both" is simply untrue.
+ *
+ * Three across at every width rather than stacking on a phone: the arrows are
+ * the content. A vertical list of three lines is a list, and a list does not
+ * say "this happens, then this".
+ */
+function HowItWorks({ paysInvitee }: { paysInvitee: boolean }) {
+  const steps = [
+    "Share your link",
+    "They sign up and pay",
+    paysInvitee ? "You both get credits" : "You get credits",
+  ];
+
+  return (
+    <ol className="mt-3 flex max-w-md items-start gap-1">
+      {steps.map((step, index) => (
+        <Fragment key={step}>
+          {index > 0 ? (
+            /* mt-2 lines a 12px chevron up with the numbered circle rather
+               than with the middle of a label that may be one line or two. */
+            <ChevronRight size={12} aria-hidden className="mt-2 shrink-0 text-brand-500/50" />
+          ) : null}
+          <li className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
+            <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-brand-500/40 bg-brand-500/12 text-[10px] font-semibold text-brand-400">
+              {index + 1}
+            </span>
+            <span className="text-[11px] leading-tight font-medium text-ink">{step}</span>
+          </li>
+        </Fragment>
+      ))}
+    </ol>
   );
 }
 

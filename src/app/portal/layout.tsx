@@ -4,6 +4,7 @@ import { ShieldCheck, Truck } from "lucide-react";
 
 import { AccountMenu, type AccountMenuProps } from "@/components/AccountMenu";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
+import { AlertDeliveryBanner, loadAlertDelivery } from "@/components/AlertDeliveryBanner";
 import { CreditPill } from "@/components/CreditBalance";
 import { LogoBadge } from "@/components/Logo";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
@@ -62,8 +63,12 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await requirePortalSession();
   const { overview } = session;
 
-  const [{ brandName, referralEnabled, supportEmail, supportPhone }, searchCost, { data: alertRows }] =
-    await Promise.all([
+  const [
+    { brandName, referralEnabled, supportEmail, supportPhone },
+    searchCost,
+    { data: alertRows },
+    delivery,
+  ] = await Promise.all([
     publicSettings(),
     // What a search costs, so "low" means "nearly out of searches" rather than
     // a number picked in this file. Cached per request - see loadSearchCost.
@@ -78,6 +83,12 @@ export default async function PortalLayout({ children }: { children: React.React
       .is("cleared_at", null)
       .order("created_at", { ascending: false })
       .limit(BELL_LIMIT),
+    /* Whether an alert would actually reach this account, for the strip at the
+       top of the header. Skipped entirely for an account with no truck yet, because
+       that is the one case where the answer cannot change what is shown - see
+       AlertDeliveryBanner, which needs a truck before it says anything. A
+       round trip to Tokyo is worth avoiding on every page of a fresh account. */
+    overview.total_trucks > 0 ? loadAlertDelivery(overview.id) : Promise.resolve("ready" as const),
   ]);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
@@ -127,8 +138,21 @@ export default async function PortalLayout({ children }: { children: React.React
           reports better; only the balance is left, because that is the one
           number that decides whether the next tap will work.
         */}
-        <header className="sticky top-0 z-30 border-b border-divider bg-page/85 px-4 py-2.5 backdrop-blur">
-          <div className="flex items-center justify-between gap-2">
+        {/*
+          The padding moved off <header> and onto the row below it, so the
+          delivery strip can run edge to edge - a warning that stops short of
+          both margins reads as a card somebody put on the page, and one that
+          spans it reads as an announcement about the whole site.
+
+          INSIDE the sticky block rather than above it: a strip that scrolls
+          away is one the reader passes once, and this is the notice that says
+          their credits are buying nothing. It costs about 36px of a phone's
+          screen and it is gone the moment they fix it.
+        */}
+        <header className="sticky top-0 z-30 border-b border-divider bg-page/85 backdrop-blur">
+          <AlertDeliveryBanner delivery={delivery} trucks={overview.total_trucks} />
+
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5">
             <Link
               href="/portal"
               className="-ml-1 flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-1 lg:hidden"

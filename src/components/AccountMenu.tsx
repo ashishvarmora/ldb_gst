@@ -234,8 +234,17 @@ export function AccountMenu(props: AccountMenuProps) {
                  normally on a desktop header - but a narrow window puts the
                  button close enough to the left edge that a fixed 320px panel
                  hangs off the screen, and an absolutely positioned overflow
-                 scrolls the whole document sideways rather than itself. */
-              "animate-in absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl",
+                 scrolls the whole document sideways rather than itself.
+
+                 CAPPED VERTICALLY TOO, which it was not. The panel is about
+                 880px tall with every row in it, and it hung off the bottom of
+                 any window shorter than that with no way to scroll to what was
+                 missing - on a 1280x800 laptop the thing cut off was the sign
+                 out button, 128px below the fold. It is the same fault the
+                 phone sheet has, and the shared overflow-hidden above is why
+                 neither could be scrolled: 5rem leaves room for the header the
+                 panel hangs from and a gap at the bottom. */
+              "animate-in absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-5rem)] overflow-y-auto overscroll-contain rounded-xl",
         )}
       >
         {/* ---------------- who you are ---------------- */}
@@ -383,7 +392,25 @@ export function AccountMenu(props: AccountMenuProps) {
           className="border-t border-divider px-4 py-3"
         />
 
-        <div className="border-t border-divider px-4 py-3">
+        {/*
+          STICKY, IN BOTH VARIANTS.
+
+          This panel is ten rows tall - who you are, the balance, a top-up, five
+          money rows, three account rows and the support block - about 880px of
+          it. The phone sheet is capped at 85vh and the dropdown is now capped
+          against the window, so in both cases the last thing in the panel was
+          off the end of it: measured at 390x844 the sign-out button was 150px
+          below the fold, and on a 1280x800 desktop 128px below it. The one
+          control somebody opens this panel to hunt for by name was the one
+          control they had to scroll to the very bottom to reach - which is the
+          "make it workable" half of the owner's complaint, on both devices.
+
+          Pinned to the bottom of the scroll container instead, with the panel's
+          own colour behind it so the rows do not show through as they pass
+          underneath. In a panel short enough not to scroll, sticky is inert and
+          the button sits exactly where it always did.
+        */}
+        <div className="sticky bottom-0 border-t border-divider bg-panel px-4 py-3">
           <SignOutButton variant="secondary" size="sm" className="w-full" />
         </div>
       </div>

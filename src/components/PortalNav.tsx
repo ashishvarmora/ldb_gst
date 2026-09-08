@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
+import { SignOutButton } from "@/components/SignOutButton";
 import { cx } from "@/components/ui";
 
 /** Everything in the sidebar. Alerts live under the bell in the header. */
@@ -98,38 +99,69 @@ export function PortalSidebar({
   const items = NAV.filter((item) => referralsEnabled || item.href !== "/portal/referrals");
 
   return (
-    <div className="hidden w-56 shrink-0 border-r border-divider px-3 py-4 lg:block">
-      <Link href="/portal" className="flex items-center gap-2.5 px-1">
-        <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
-          <Truck size={16} />
-        </span>
-        <span className="leading-tight">
-          <span className="block truncate text-sm font-semibold text-strong">{brandName}</span>
-          <span className="block text-[11px] text-faint">Truck tracking</span>
-        </span>
-      </Link>
+    /*
+     * The border stays on the outer box so it runs the whole height of the
+     * document; the contents are sticky inside it, so the nav and the sign-out
+     * under it are still on screen halfway down a long truck list. Padding
+     * moved inwards with them.
+     */
+    <div className="hidden w-56 shrink-0 border-r border-divider lg:block">
+      <div className="sticky top-0 flex h-screen flex-col px-3 py-4">
+        <Link href="/portal" className="flex shrink-0 items-center gap-2.5 px-1">
+          <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
+            <Truck size={16} />
+          </span>
+          <span className="leading-tight">
+            <span className="block truncate text-sm font-semibold text-strong">{brandName}</span>
+            <span className="block text-[11px] text-faint">Truck tracking</span>
+          </span>
+        </Link>
 
-      <nav className="mt-5 flex flex-col gap-0.5">
-        {items.map(({ href, label, icon: Icon }) => {
-          const active = isActive(pathname, href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cx(
-                "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm transition",
-                active
-                  ? "bg-brand-500/10 font-semibold text-brand-500"
-                  : "text-muted hover:bg-sunken hover:text-ink",
-              )}
-            >
-              <Icon size={16} className="shrink-0" />
-              {label}
-              <NavSpinner />
-            </Link>
-          );
-        })}
-      </nav>
+        {/* flex-1 with min-h-0, so a short desktop window scrolls the nav
+            rather than pushing the sign-out below the fold - which is the
+            whole point of pinning it. */}
+        <nav className="mt-5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          {items.map(({ href, label, icon: Icon }) => {
+            const active = isActive(pathname, href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cx(
+                  "flex min-h-10 shrink-0 items-center gap-2.5 rounded-lg px-3 text-sm transition",
+                  active
+                    ? "bg-brand-500/10 font-semibold text-brand-500"
+                    : "text-muted hover:bg-sunken hover:text-ink",
+                )}
+              >
+                <Icon size={16} className="shrink-0" />
+                {label}
+                <NavSpinner />
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/*
+          SIGN OUT WAS NOT ON THIS SCREEN AT ALL.
+
+          On a desktop it existed only behind the avatar in the top right - two
+          clicks deep, in a panel of ten other rows, and past the bottom edge of
+          the window on a laptop - while the sidebar, the one piece of chrome
+          that is permanently visible and already carries every other way out of
+          a page, had nothing. That is the "sign out shows proper" half of the
+          owner's complaint.
+
+          At the foot of a sticky, viewport-high column, so it is at the bottom
+          of the sidebar on a short page and still at the bottom of the sidebar
+          halfway down a long one. It stays in the account menu as well: that
+          is the phone's only route to it, and somebody who opens a panel
+          labelled Account looking for the way out has to find it there.
+        */}
+        <div className="mt-3 shrink-0 border-t border-divider pt-3">
+          <SignOutButton variant="secondary" size="sm" className="w-full" />
+        </div>
+      </div>
     </div>
   );
 }

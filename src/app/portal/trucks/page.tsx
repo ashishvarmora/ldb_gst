@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { BellOff, Download, Plus } from "lucide-react";
 
-import { AddTruckForm, type TelegramReadiness } from "./AddTruckForm";
+import { AddTruckForm } from "./AddTruckForm";
+import { loadAlertDelivery } from "@/components/AlertDeliveryBanner";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { TruckCard, isWatching } from "@/components/TruckCard";
@@ -12,7 +13,6 @@ import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
   AlertRuleTemplate,
-  TelegramConfig,
   TrackedTruck,
   TruckAlertWithTemplate,
 } from "@/lib/types";
@@ -75,26 +75,6 @@ function parseFilter(raw: string | undefined): Filter {
   return "live";
 }
 
-/**
- * Would an alert this officer sets up actually be messaged to them?
- *
- * The same test dispatchAlerts() applies in src/lib/tracking.ts, deliberately
- * spelled the same way round: an alert with no chat id, or with the switch off,
- * is still evaluated, still charged and still written to alert_logs - so it
- * shows in the bell - and no message is ever sent. Nothing on the add-truck
- * form used to say so, which made the first alert somebody created the way they
- * found out.
- *
- * A missing row and a row with a null chat id are the same answer to the
- * officer, so both collapse to "no-chat-id" - they are told to go and add one
- * either way.
- */
-function telegramReadiness(
-  config: Pick<TelegramConfig, "chat_id" | "is_enabled"> | null,
-): TelegramReadiness {
-  if (!config?.chat_id) return "no-chat-id";
-  return config.is_enabled ? "ready" : "switched-off";
-}
 
 function hrefFor(filter: Filter, page: number): string {
   const params = new URLSearchParams();
@@ -115,7 +95,7 @@ export default async function TrucksPage({
 
   const filter = parseFilter(params.filter);
 
-  const [{ data: trucks }, { data: alerts }, { data: templates }, settings, { data: telegram }] =
+  const [{ data: trucks }, { data: alerts }, { data: templates }, settings, telegram] =
     await Promise.all([
       admin
         .from("tracked_trucks")
@@ -132,15 +112,14 @@ export default async function TrucksPage({
         .eq("is_active", true)
         .order("sort_order", { ascending: true }),
       loadSettings(admin),
-      /* Read on this screen rather than inside the modal, because the add form
-         is a Client Component and this is one more row on a query that was
-         already going out. See telegramReadiness() above for why the answer is
-         worth a round trip at all. */
-      admin
-        .from("telegram_configs")
-        .select("chat_id, is_enabled")
-        .eq("user_id", overview.id)
-        .maybeSingle<Pick<TelegramConfig, "chat_id" | "is_enabled">>(),
+      /*
+       * The same read the layout's delivery banner does, and deliberately the
+       * same function: loadAlertDelivery is cache()d, so this shares the
+       * layout's round trip rather than adding one. It used to be a second
+       * query here with its own local helper - identical state names, computed
+       * two ways - which is two places for one rule to drift.
+       */
+      loadAlertDelivery(overview.id),
     ]);
 
   const all = (trucks ?? []) as TrackedTruck[];
@@ -230,7 +209,7 @@ export default async function TrucksPage({
                 templates={templateList}
                 defaultFailureCutoff={settings.trackingFailureCutoff}
                 defaultInactiveHours={settings.inactivePauseHours}
-                telegram={telegramReadiness(telegram)}
+                telegram={telegram}
               />
             </Modal>
           </div>

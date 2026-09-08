@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowRight, BellRing, Coins, History, Search, Send, Wallet } from "lucide-react";
+import { ArrowRight, BellRing, Coins, History, Search, Wallet } from "lucide-react";
 
 import { InviteCard } from "./referrals/InviteCard";
 import { InfoTip } from "@/components/InfoTip";
@@ -62,10 +62,6 @@ export default async function PortalHome() {
     );
   }
 
-  // Telegram is the only way an alert reaches a phone, so alerts running with
-  // no chat id means the account is quietly getting nothing.
-  const telegramGap = overview.active_alerts > 0 && !overview.telegram_connected;
-
   const expiresOn = overview.plan_expires_on;
   const expired = expiresOn !== null && expiresOn < istToday();
   const daysLeft = expiresOn
@@ -120,19 +116,21 @@ export default async function PortalHome() {
         </div>
       ) : null}
 
-      {telegramGap ? (
-        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-warn-500/40 bg-warn-500/10 px-4 py-3">
-          <Send size={16} className="mt-0.5 shrink-0 text-warn-500" />
-          <p className="text-sm text-warn-500">
-            Your trucks have alerts running, but Telegram is not connected — nothing is reaching
-            your phone. Add your chat id in{" "}
-            <Link href="/portal/settings" className="font-medium underline">
-              Settings
-            </Link>
-            .
-          </p>
-        </div>
-      ) : null}
+      {/*
+        THE TELEGRAM WARNING LIVES IN THE LAYOUT NOW, not here.
+        
+        It used to be this block, and it was both duplicated and weaker. Weaker
+        in two ways: it required active_alerts > 0, and it sat after the early
+        return for an account with no live plan - so it never fired for exactly
+        the accounts most likely to be caught. And it read
+        overview.telegram_connected, which is `chat_id is not null and
+        is_enabled` and therefore cannot tell a missing chat id from a switched-
+        off one, while treating an empty string as connected where the worker
+        treats it as missing.
+
+        See AlertDeliveryBanner, which asks the question the way dispatchAlerts
+        asks it and appears on every portal page.
+      */}
 
       {/* ------------------------------- 1. credits ---------------------- */}
       <Panel className="mb-5">
