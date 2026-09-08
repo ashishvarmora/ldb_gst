@@ -110,6 +110,10 @@ export function ResetPasswordForm({
 
   return (
     <form action={formAction} className="space-y-4">
+      <p className="text-sm leading-relaxed text-muted">
+        Pick something you have not used here before.
+      </p>
+
       <Field label="New password" name="password">
         <Input
           name="password"

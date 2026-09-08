@@ -9,9 +9,43 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  /*
+   * BOTH NAMES, READ LITERALLY, AND A LOUD COMPLAINT IF NEITHER IS SET.
+   *
+   * This was `process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY` alone, followed by a
+   * silent `return response`. On production that variable did not exist - the
+   * Supabase/Vercel integration injects NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+   * instead, which is the same trap documented at length in src/lib/env.ts -
+   * so this middleware did nothing on every request the live site ever served.
+   * Sessions were therefore never refreshed here, and each Server Component
+   * that needed a fresh token had to fetch one itself and could not persist it,
+   * because a component render cannot write cookies. An extra Supabase round
+   * trip on every navigation, which is a large part of why the owner reported
+   * page changes being slow.
+   *
+   * It went unnoticed for exactly one reason: the early return said nothing.
+   * env.ts's own health check reports these as configured, because it reads
+   * them through firstOf() and finds the integration's spelling - so the admin
+   * panel showed green while this file was inert.
+   *
+   * The names are spelled out rather than looked up in a loop because Next.js
+   * inlines NEXT_PUBLIC_* at build time only when it can see the literal
+   * property access. A dynamic process.env[name] is not substituted, so the
+   * helper in env.ts - correct everywhere else - would read undefined here.
+   */
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return response;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !key) {
+    console.error(
+      "Middleware is not refreshing sessions: " +
+        `${!url ? "NEXT_PUBLIC_SUPABASE_URL" : "NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"}` +
+        " is not set at build time. Every request will re-fetch its own token.",
+    );
+    return response;
+  }
 
   const supabase = createServerClient(url, key, {
     cookies: {

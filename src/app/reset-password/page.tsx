@@ -48,15 +48,17 @@ export default async function ResetPasswordPage({
 
   return (
     <PublicShell action={null} mainClassName="flex flex-1 items-center px-4 py-10">
-      <AuthCard
-        icon={<KeyRound size={22} />}
-        title="Choose a new password"
-        intro={
-          hasToken
-            ? "Pick something you have not used here before."
-            : "This page needs the link from your reset email."
-        }
-      >
+      {/*
+        NO intro HERE, deliberately. It used to be chosen from hasToken, and
+        after a successful save that produced a card headed "This page needs the
+        link from your reset email." directly above "Your password has been
+        changed" - because the token cookie is spent by then, so the server says
+        there is no link, while the form is showing the result of having used
+        one. Two states, two owners, one card.
+        The lead line now lives inside the form, next to the branch it belongs
+        to, so it cannot contradict what is underneath it.
+      */}
+      <AuthCard icon={<KeyRound size={22} />} title="Choose a new password">
         <ResetPasswordForm hasToken={hasToken} linkBroken={params.link === "broken"} />
       </AuthCard>
     </PublicShell>

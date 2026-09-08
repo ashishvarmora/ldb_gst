@@ -3,7 +3,7 @@
 import { useFormStatus } from "react-dom";
 import { LogOut } from "lucide-react";
 
-import { buttonClass, type ButtonVariant } from "@/components/ui";
+import { buttonClass, cx, type ButtonVariant } from "@/components/ui";
 import { signOutAction } from "@/lib/session-actions";
 
 /**
@@ -44,7 +44,13 @@ function SignOutSubmit({
     <button
       type="submit"
       disabled={pending}
-      className={buttonClass(variant, size, className)}
+      /*
+       * At least 44px tall whatever size the caller asks for. The sheet and the
+       * sidebar both ask for "sm", which is 36px - under Apple's 44px minimum
+       * and Android's 48dp, on the one control somebody reaches for when they
+       * have already decided they want out. Measured at 36px on the live site.
+       */
+      className={buttonClass(variant, size, cx("min-h-11", className))}
     >
       <LogOut size={14} />
       {pending ? "Signing out..." : label}
