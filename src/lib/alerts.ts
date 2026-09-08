@@ -1,3 +1,4 @@
+import { matchPlaza, DEFAULT_PLAZA_MATCH_THRESHOLD } from "@/lib/plaza-match";
 import { intervalLabel, intervalShort } from "@/lib/intervals";
 import type { AlertRuleKind, TruckAlert, TruckAlertWithTemplate } from "@/lib/types";
 
@@ -229,11 +230,19 @@ export function evaluateAlert({
   alert,
   position,
   now,
+  plazaThreshold = DEFAULT_PLAZA_MATCH_THRESHOLD,
 }: {
   truckNumber: string;
   alert: TruckAlertWithTemplate;
   position: Position;
   now: Date;
+  /**
+   * The similarity a typed plaza name must reach before its alert fires. The
+   * caller passes the admin's `plaza_match_threshold`; the default is here so
+   * that a caller who has no settings to hand still gets the measured number
+   * rather than zero, which would fire on everything.
+   */
+  plazaThreshold?: number;
 }): AlertOutcome {
   const stamp = now.toISOString();
   const stateUpdate: AlertStateUpdate = { last_run_at: stamp };
@@ -309,7 +318,32 @@ export function evaluateAlert({
       if (!watched || current === null) return { draft: null, stateUpdate };
 
       stateUpdate.last_location = position.locName;
-      if (current !== watched) return { draft: null, stateUpdate };
+
+      /*
+       * WHY THIS IS NO LONGER `current !== watched`.
+       *
+       * It was, and that meant an alert on a plaza the officer TYPED could
+       * never fire: they type "hathijan", the portal records "Hathijan Toll
+       * Plaza", and those are not equal. 77% of the live catalogue carries that
+       * furniture, so the form's confirm-and-watch path was almost always a
+       * promise this line then broke - silently, at a credit a check.
+       *
+       * matchPlaza() owns the rules and the reasoning; the short version is
+       * that both modes match on the folded name and on plaza_core() equality,
+       * and only a typed plaza is additionally compared by similarity.
+       *
+       * plaza_match is null on an alert made before 0055 that the backfill has
+       * not reached. "exact" is the safe reading of a missing value: it is what
+       * this line did before, so a null can only ever behave as it always has.
+       */
+      const mode = alert.plaza_match ?? "exact";
+      const hit = matchPlaza({
+        watched: alert.plaza,
+        seen: position.locName,
+        mode,
+        threshold: plazaThreshold,
+      });
+      if (!hit.matched) return { draft: null, stateUpdate };
 
       // Sitting at the watched plaza must not report on every interval, but
       // arriving a second time later that day must. So the guard is the
@@ -319,17 +353,40 @@ export function evaluateAlert({
       const alreadyReported =
         seenAt && reportedAt
           ? new Date(seenAt).getTime() <= new Date(reportedAt).getTime()
-          : normaliseLocation(alert.last_location) === watched;
+          /*
+           * The name fallback goes through the same matcher rather than
+           * comparing to `watched` directly. With a typed plaza the last
+           * recorded location is the portal's spelling and `watched` is the
+           * officer's, so an equality test here would call every crossing new
+           * and report the truck as arriving on every single check.
+           */
+          : matchPlaza({
+              watched: alert.plaza,
+              seen: alert.last_location,
+              mode,
+              threshold: plazaThreshold,
+            }).matched;
 
       if (alreadyReported) return { draft: null, stateUpdate };
       stateUpdate.last_event_at = seenAt;
+
+      /*
+       * A similarity match is a judgement, not an identity, so it says so. The
+       * officer asked about a name we have never recorded and we decided this
+       * crossing was it; if we are wrong, the one thing that lets them notice
+       * is seeing both names. An exact or core match needs no such note - the
+       * message already names the plaza as recorded.
+       */
+      const guessed = hit.basis === "similar";
 
       return {
         draft: {
           alertId: alert.id,
           kind: "plaza_crossing",
           title: `${truckNumber} reached ${alert.plaza}`,
-          message: `Recorded at ${place(position)}${heading(position)}.`,
+          message: guessed
+            ? `Recorded at ${place(position)}${heading(position)}. You asked about "${alert.plaza}" and this is the closest name on record, so check it is the plaza you meant.`
+            : `Recorded at ${place(position)}${heading(position)}.`,
           position,
         },
         stateUpdate,

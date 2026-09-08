@@ -1,3 +1,4 @@
+import { DEFAULT_PLAZA_MATCH_THRESHOLD } from "@/lib/plaza-match";
 import { cache } from "react";
 import { env } from "@/lib/env";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -17,6 +18,10 @@ export const SETTINGS_FALLBACK: AppSettings = {
   inactivePauseHours: 8,
   signupFreeCredits: 0,
   revisitMinutes: 90,
+  /* Matches DEFAULT_PLAZA_MATCH_THRESHOLD. The number is justified against the
+     live catalogue in 0055 and in src/lib/plaza-match.ts; below 0.56 it starts
+     confusing Bhat with Bhatia. */
+  plazaMatchThreshold: DEFAULT_PLAZA_MATCH_THRESHOLD,
   dataRetentionDays: 30,
   backupIntervalDays: 7,
   sheetExportIntervalDays: 1,
@@ -89,6 +94,7 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     inactivePauseHours: number("inactive_pause_hours", SETTINGS_FALLBACK.inactivePauseHours),
     signupFreeCredits: number("signup_free_credits", SETTINGS_FALLBACK.signupFreeCredits),
     revisitMinutes: number("revisit_minutes", SETTINGS_FALLBACK.revisitMinutes),
+    plazaMatchThreshold: number("plaza_match_threshold", SETTINGS_FALLBACK.plazaMatchThreshold),
     dataRetentionDays: number("data_retention_days", SETTINGS_FALLBACK.dataRetentionDays),
     backupIntervalDays: number("backup_interval_days", SETTINGS_FALLBACK.backupIntervalDays),
     sheetExportIntervalDays: number("sheet_export_interval_days", SETTINGS_FALLBACK.sheetExportIntervalDays),

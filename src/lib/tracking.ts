@@ -952,6 +952,7 @@ export async function checkTruck({
       alert,
       position,
       now,
+      plazaThreshold: settings.plazaMatchThreshold,
     });
     if (draft) drafts.push(draft);
     await admin.from("truck_alerts").update(stateUpdate).eq("id", alert.id);

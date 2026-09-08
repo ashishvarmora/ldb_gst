@@ -199,17 +199,26 @@ export function isKnownPlaza(typed: string, lookup: PlazaLookup): boolean {
 /**
  * The one refusal worth making, and why it is a refusal rather than a hint.
  *
- * A plaza_crossing alert on a name no toll record produces is silent for ever,
- * indistinguishable from "it has not got there yet", and spends a credit on
- * every check while being silent. That is the worst thing this form can build,
- * so it is not built without the officer saying so.
- *
  * It is NOT refused outright, because an unrecorded plaza is a legitimate thing
- * to watch: this catalogue holds 80 names and the country has well over a
- * thousand tolled plazas, so a plaza the platform has never seen is far more
- * often new than misspelt. The discrimination that matters is whether anything
- * close exists - a near miss is a typo and gets offered as one; nothing close
- * is either a new plaza or nonsense, and only the officer can tell which.
+ * to watch: this catalogue holds under a hundred names and the country has well
+ * over a thousand tolled plazas, so a plaza the platform has never seen is far
+ * more often new than misspelt. The discrimination that matters is whether
+ * anything close exists - a near miss is a typo and gets offered as one;
+ * nothing close is either a new plaza or nonsense, and only the officer can
+ * tell which.
+ *
+ * WHY THESE WORDS CHANGED. They used to say the alert "stays silent for ever
+ * and still spends a credit on every check", which was true when the evaluator
+ * compared the two names for equality: the officer typed "hathijan", the record
+ * said "Hathijan Toll Plaza", and nothing ever matched. Since 0055 a typed name
+ * is compared with the road furniture removed and with a tolerance for
+ * misspelling, so it does fire - and telling somebody their alert is doomed
+ * when it is not would talk them out of the thing that now works.
+ *
+ * What is still worth warning about is narrower and worth saying plainly: a
+ * name that is a misspelling of a DIFFERENT plaza, or not a plaza at all, still
+ * never fires. That is the case the officer is being asked to rule out, and it
+ * is the only one they can rule out - we cannot.
  *
  * Shared with the server action so the words a stale form is refused with are
  * the same words it would have shown.
@@ -217,13 +226,13 @@ export function isKnownPlaza(typed: string, lookup: PlazaLookup): boolean {
 export function unlistedPlazaError(typed: string, closest: string | null): string {
   const name = typed.trim();
   return closest
-    ? `We have no plaza recorded as "${name}" - did you mean ${closest}? An alert only fires on the name the toll record uses. Pick the match, or confirm you want "${name}" watched as typed.`
-    : `We have no plaza recorded as "${name}", and nothing close to it. An alert on a name the toll record never uses stays silent for ever and still spends a credit on every check. Check the spelling, or confirm you want it watched anyway.`;
+    ? `We have no plaza recorded as "${name}" - did you mean ${closest}? Picking the match is surest. Otherwise confirm "${name}" and we will watch for it, allowing for "Toll Plaza" and small spelling differences.`
+    : `We have no plaza recorded as "${name}", and nothing close to it. If it is a plaza we have simply never seen, confirm it and we will watch for it - we allow for "Toll Plaza" and small spelling differences. If it is a misspelling of somewhere else, the alert will never fire, so check it first.`;
 }
 
 /** The tick-box's own words. Short, because the panel above it has said it. */
 export function unlistedPlazaConfirm(typed: string): string {
-  return `Watch "${typed.trim()}" anyway`;
+  return `Watch for "${typed.trim()}" anyway`;
 }
 
 /**

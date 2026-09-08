@@ -323,6 +323,8 @@ export type CreditVerdict = {
  * The alert kinds the worker knows how to evaluate. The admin composes rules
  * out of these; an officer picks a rule and sets its interval.
  */
+import type { PlazaMatchMode } from "@/lib/plaza-match";
+
 export type AlertRuleKind = "periodic_location" | "location_change" | "plaza_crossing";
 
 /** A rule in the admin's catalogue. Officers choose from these; they never write one. */
@@ -359,6 +361,14 @@ export type TruckAlert = {
   interval_minutes: number;
   /** plaza_crossing only: the plaza being watched. */
   plaza: string | null;
+  /**
+   * plaza_crossing only: how that plaza was chosen, which decides how a
+   * crossing is compared to it. "exact" was picked from the catalogue;
+   * "fuzzy" was typed and confirmed as unlisted, and is additionally matched
+   * by trigram similarity. See src/lib/plaza-match.ts. Null on any other kind,
+   * and on a plaza alert made before 0055 that the backfill has not classified.
+   */
+  plaza_match: PlazaMatchMode | null;
   last_run_at: string | null;
   last_location: string | null;
   /**
@@ -521,6 +531,14 @@ export type AppSettings = {
    * re-reported. Past it, the truck has come back and that is news.
    */
   revisitMinutes: number;
+  /**
+   * How alike a typed plaza name and a recorded crossing must be before a
+   * "reached a toll plaza" alert fires, as a trigram similarity from 0 to 1.
+   * Only consulted for an alert whose plaza was typed rather than chosen.
+   * 0.6 by default; see src/lib/plaza-match.ts for why that number and not
+   * another.
+   */
+  plazaMatchThreshold: number;
   /** Days of history kept in the database before a backup-and-purge. */
   dataRetentionDays: number;
   /** How often the backup-and-purge runs. */

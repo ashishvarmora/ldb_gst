@@ -1,5 +1,6 @@
 "use server";
 
+import type { PlazaMatchMode } from "@/lib/plaza-match";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -245,8 +246,19 @@ export async function plazasAhead(truckId: string): Promise<PlazasAhead> {
   };
 }
 
-/** Either the plaza to store, or the reason this alert is not being created. */
-type PlazaDecision = { ok: true; plaza: string | null } | { ok: false; error: string };
+/**
+ * Either the plaza to store, or the reason this alert is not being created.
+ *
+ * `match` travels with the name because only this function knows how the name
+ * was arrived at, and that is what decides how a crossing is later compared to
+ * it: a catalogue pick is matched on the name, a typed one is also matched on
+ * similarity. Recovering it afterwards would mean asking the catalogue a second
+ * time and getting a different answer once somebody's lorry has been through
+ * the plaza. See src/lib/plaza-match.ts.
+ */
+type PlazaDecision =
+  | { ok: true; plaza: string | null; match: PlazaMatchMode | null }
+  | { ok: false; error: string };
 
 /**
  * What goes in truck_alerts.plaza, and the one case where nothing does.
@@ -268,7 +280,7 @@ type PlazaDecision = { ok: true; plaza: string | null } | { ok: false; error: st
  *    call to this action get the same answer.
  */
 async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<PlazaDecision> {
-  if (!needsPlaza(template.kind)) return { ok: true, plaza: null };
+  if (!needsPlaza(template.kind)) return { ok: true, plaza: null, match: null };
 
   const typed = str(fd, "plaza");
   if (!typed) {
@@ -288,12 +300,15 @@ async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<P
    */
   if (error) {
     reportError("checking the toll plaza name", error);
-    return { ok: true, plaza: typed };
+    /* "fuzzy", because the catalogue is exactly what could not be read: there
+       is no evidence this name is in it, and the looser comparison is the one
+       that still fires if it is not. */
+    return { ok: true, plaza: typed, match: "fuzzy" };
   }
 
   const lookup = readLookup(data);
-  if (lookup.exact) return { ok: true, plaza: lookup.exact };
-  if (bool(fd, PLAZA_UNLISTED_FIELD)) return { ok: true, plaza: typed };
+  if (lookup.exact) return { ok: true, plaza: lookup.exact, match: "exact" };
+  if (bool(fd, PLAZA_UNLISTED_FIELD)) return { ok: true, plaza: typed, match: "fuzzy" };
 
   return { ok: false, error: unlistedPlazaError(typed, didYouMean(lookup)) };
 }
@@ -425,6 +440,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   if (templateId && !template) return fail("That alert is no longer available. Pick another one.");
 
   let plaza: string | null = null;
+  let plazaMatch: PlazaMatchMode | null = null;
   let minutes = 0;
   let clampedFrom: number | null = null;
 
@@ -432,6 +448,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     const decided = await decidePlaza(fd, template);
     if (!decided.ok) return fail(decided.error);
     plaza = decided.plaza;
+    plazaMatch = decided.match;
 
     const interval = readInterval(fd, template);
     if (!interval.ok) return fail(interval.error);
@@ -521,6 +538,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
           is_enabled: true,
           interval_minutes: minutes,
           plaza,
+          plaza_match: plazaMatch,
         });
 
     // The truck is already saved, so a failed alert is not worth throwing the
@@ -706,6 +724,7 @@ export async function addTruckAlert(
   const decided = await decidePlaza(fd, template);
   if (!decided.ok) return fail(decided.error);
   const plaza = decided.plaza;
+  const plazaMatch = decided.match;
 
   const interval = readInterval(fd, template);
   if (!interval.ok) return fail(interval.error);
@@ -727,6 +746,7 @@ export async function addTruckAlert(
     is_enabled: true,
     interval_minutes: interval.minutes,
     plaza,
+    plaza_match: plazaMatch,
   });
 
   if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));

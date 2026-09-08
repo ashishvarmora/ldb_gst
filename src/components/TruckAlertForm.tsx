@@ -609,11 +609,21 @@ function PlazaPicker({
         <div className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5">
           <p className="flex gap-1.5 text-xs leading-relaxed text-warn-500">
             <AlertTriangle size={13} aria-hidden className="mt-0.5 shrink-0" />
+            {/*
+              These words changed with 0055. They used to say the alert "would
+              stay silent and still cost a credit a check", which was true while
+              the evaluator compared the two names for equality - and is now
+              wrong, because a typed name is matched with the road furniture
+              removed and a tolerance for misspelling. Saying an alert is doomed
+              when it is not would talk the officer out of the path that works.
+              What remains worth warning about is the narrower case: a
+              misspelling of a DIFFERENT plaza still never fires.
+            */}
             <span>
-              {closest ? <>Did you mean {closest}? </> : null}
-              No plaza we hold is spelt &ldquo;{value.trim()}&rdquo;. An alert fires on the toll
-              record&rsquo;s own spelling, so this one would stay silent and still cost a credit a
-              check.
+              {closest ? <>Did you mean {closest}? Picking it is surest. </> : null}
+              No plaza we hold is spelt &ldquo;{value.trim()}&rdquo;. We will still watch for it,
+              allowing for &ldquo;Toll Plaza&rdquo; and small spelling differences &mdash; but if
+              it is a misspelling of somewhere else, it will never fire.
             </span>
           </p>
           <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warn-500">

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node scripts/push-migrations.mjs",
     "migrate:check": "node scripts/dry-run-migrations.mjs",
-    "check-secrets": "node scripts/check-secrets.mjs"
+    "check-secrets": "node scripts/check-secrets.mjs",
+    "check-plaza-match": "node scripts/check-plaza-match.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
