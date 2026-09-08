@@ -197,7 +197,13 @@ export async function SiteFooter({ className }: { className?: string }) {
            customer will come across it - and an officer whose sign-in is
            broken or whose plan has lapsed is exactly the reader who needs it
            and cannot reach the portal to find it. */
-        { key: "guide", href: "/guide", label: "User guide" },
+        /* "and FAQs" because the guide became a help centre with a whole page
+           of questions in it, and "FAQ" is the word a visitor scans a footer
+           for. Still not called "Help centre": the Company column already has
+           "Help and support", and two links a column apart with almost the
+           same label is how a reader ends up opening both to learn which is
+           which. The href is unchanged - /guide is still the front door. */
+        { key: "guide", href: "/guide", label: "User guide and FAQs" },
         { key: "sources", href: "/data-sources", label: "Where the data comes from" },
       ],
     },

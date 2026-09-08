@@ -146,7 +146,14 @@ on its own. Two ways:
   It replies with their `Id` — a plain number. They paste it themselves in
   **Portal → Settings**, or send it to you.
 
-Then use the **Send test message** button to confirm delivery.
+**Either way, they must also send `/start` to our own bot,
+[@Gst_truck_watch_bot](https://t.me/Gst_truck_watch_bot?start=1).** Telegram
+forbids a bot from messaging anyone who has not started it, so a chat id read by
+either method above still delivers nothing until this is done. `@userinfobot`
+does not stand in for it — it is a third-party bot that only reports the number.
+
+Then use the **Send test message** button to confirm delivery. A failure reading
+`chat not found` means exactly this step was skipped.
 
 > Telegram keeps unread updates for about 24 hours, so run the script reasonably soon
 > after the officer presses Start.

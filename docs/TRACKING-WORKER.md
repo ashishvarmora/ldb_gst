@@ -111,8 +111,13 @@ quiet one.
 - **Telegram failures never lose an alert.** The alert row is written with
   `delivered = false` and the reason, and shows up on the officer's Alerts page and
   in Admin → Alerts.
-- **20 consecutive failures pause a truck** so a dead registration cannot burn quota
-  forever.
+- **Enough consecutive failures pause a truck** so a dead registration cannot burn
+  quota forever. The threshold is the truck's own `max_consecutive_failures` when
+  it has one, otherwise the `tracking_failure_cutoff` setting, which ships at 10.
+  A warning is messaged at 5 (`FAILURE_WARN_AT` in `src/lib/tracking.ts`).
+  This line used to say a flat 20, which no version of the code has ever done —
+  found while writing the user guide, which reads its figures from the same
+  places and so had to be checked against them.
 - **Suspending an officer or letting a plan expire pauses their trucks**, so a
   lapsed account stops consuming API calls.
 

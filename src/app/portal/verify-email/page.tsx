@@ -28,6 +28,19 @@ export default async function VerifyEmailPage() {
   const { overview, email } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
+  /*
+   * Somebody who already has a plan has nothing to prove, verified or not.
+   *
+   * email_is_verified() gates exactly one thing in this product - the free
+   * trial, in start_free_trial() - so a plan-holder who reaches this route has
+   * nothing to gain by finishing it. This read `isVerified && plan_id`, which
+   * meant an unverified plan-holder was shown the full code flow and asked to
+   * prove a mailbox for no reason, on a screen whose own footer says only the
+   * trial needs it. Checked before the RPC, so that case does not pay for a
+   * round trip on its way to a redirect.
+   */
+  if (overview.plan_id) redirect("/portal/plan");
+
   const { data: verified } = await admin.rpc("email_is_verified", { p_user: overview.id });
 
   /*
@@ -36,11 +49,6 @@ export default async function VerifyEmailPage() {
    * button that would only rate-limit them.
    */
   const isVerified = verified === true;
-
-  /* Somebody who already has a plan has nothing to prove: the gate is only on
-     the trial. Sending them back keeps this screen from looking like a hoop
-     everybody has to jump through. */
-  if (isVerified && overview.plan_id) redirect("/portal/plan");
 
   return (
     <>
@@ -55,8 +63,13 @@ export default async function VerifyEmailPage() {
                 <span className="font-medium">{email}</span> is verified.
               </span>
             </p>
+            {/* "Continue to" and not "Start": this navigates, and the button
+                that actually claims the trial is on the card it lands on.
+                Labelling a link with the thing it does not itself do is how a
+                reader ends up tapping twice and believing the first tap
+                failed. */}
             <Link href="/portal/plan" className={buttonClass("primary", "md")}>
-              Start the free trial
+              Continue to the free trial
             </Link>
           </div>
         ) : (

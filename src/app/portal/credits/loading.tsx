@@ -2,19 +2,19 @@ import { Skeleton } from "@/components/Skeleton";
 
 /**
  * Mirrors the page: the sibling links, the balance line, the two-up side
- * switch, then the ledger panel - one control row, a one-column totals strip
- * with its count line, and the rows.
+ * switch, then the ledger panel - the filter row, the totals line, the column
+ * headings and the rows.
  *
- * ONE column, not two, and not the three it was before that. The strip on this
+ * ONE figure, not two, and not the three it was before that. The strip on this
  * page carries a single credits figure - each side drops the column that cannot
- * move, and the charge count that used to be a tile beside it is the caption
- * under it now (see Totals in CreditLedger) - so a wider placeholder would
- * resolve into one column and visibly shift the divider under the reader's eye.
+ * move, and the entry count sits at the far end of the same line (see Totals in
+ * CreditLedger) - so a two-figure placeholder would resolve into one and
+ * visibly shift the row under the reader's eye.
  *
  * Hand-rolled rather than SkeletonPanel for the same reason the activity page's
- * is: this panel leads with a control row and a totals strip before its first
- * row, and a skeleton with the wrong shape is worse than none, because the page
- * rearranges itself the moment the ledger lands.
+ * is: this panel leads with a control row, a totals line and a heading row
+ * before its first row, and a skeleton with the wrong shape is worse than none,
+ * because the page rearranges itself the moment the ledger lands.
  */
 export default function CreditHistoryLoading() {
   return (
@@ -61,43 +61,48 @@ export default function CreditHistoryLoading() {
             <Skeleton className="h-5 w-28" />
           </div>
 
-          {/* The sort button alone on the first row - both mounts here pin what
-              a row is, so there are no group-by switches to draw. Square-
-              cornered and 36px, like the real one. */}
-          <div className="space-y-2 border-b border-divider px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <Skeleton className="ml-auto h-9 w-24 rounded-lg" />
-            </div>
+          {/* The filter pills, and nothing above them. Both mounts here pin
+              what a row is, so there are no group-by switches, and the sort
+              that used to sit alone on a row of its own is on the column
+              headings below - so the whole first band of this panel is one row
+              of pills at 36px inside 16px of padding. */}
+          <div className="border-b border-divider px-4 py-2">
             <div className="flex gap-1.5">
               <Skeleton className="h-9 w-28 shrink-0 rounded-full" />
               <Skeleton className="h-9 w-24 shrink-0 rounded-full" />
             </div>
           </div>
 
-          {/* Each bar stands in for the line box it replaces - 20px for the
-              figure, 16px for the count line - so the strip is 87px either
-              side of the ledger arriving rather than 73px and then 87px. */}
-          <div className="border-b border-divider bg-raised/40">
-            <div className="px-4 py-2.5">
-              <Skeleton className="h-2.5 w-16 max-w-full" />
-              <Skeleton className="mt-2 h-5 w-10" />
-            </div>
-            {/* The count line, which the placeholder used to leave out
-                entirely - 29px of strip that appeared with the ledger. */}
-            <div className="border-t border-divider px-4 py-1.5">
-              <Skeleton className="h-4 w-28 max-w-full" />
-            </div>
+          {/* The totals, on one baseline: a label, its figure, and the entry
+              count at the far end. 37px either side of the ledger arriving,
+              where the tile-and-caption card it replaced was 87px. */}
+          <div className="flex items-center gap-4 border-b border-divider bg-raised/40 px-4 py-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3.5 w-10" />
+            <Skeleton className="ml-auto h-3 w-20 max-w-full" />
           </div>
 
+          {/* The column headings, which are also the sort. One 40px band,
+              because each heading is a thumb-sized target. */}
+          <div className="flex h-10 items-center gap-3 border-b border-divider px-4">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="ml-auto h-3 w-16" />
+            <span aria-hidden className="w-4 shrink-0" />
+          </div>
+
+          {/* ONE LINE A ROW, at 40px. Credits added is the side this page
+              opens on and it is the raw ledger, so a row is a reason, a
+              stamp, a figure and the chevron that opens the rest - not the
+              two-line block with a sign badge the grouped side draws. Drawing
+              that here would resolve 21px shorter per row, which over eight
+              rows is the whole panel jumping. */}
           <div className="divide-y divide-divider">
             {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3">
-                <Skeleton className="size-9 shrink-0 rounded-xl" />
-                <div className="min-w-0 flex-1">
-                  <Skeleton className="h-3 w-1/3" />
-                  <Skeleton className="mt-2 h-2.5 w-1/2" />
-                </div>
-                <Skeleton className="h-3 w-14 shrink-0" />
+              <div key={i} className="flex h-10 items-center gap-2 px-4">
+                <Skeleton className="h-3.5 w-1/3" />
+                <Skeleton className="ml-auto h-2.5 w-20 shrink-0" />
+                <Skeleton className="h-3.5 w-8 shrink-0" />
+                <Skeleton className="size-4 shrink-0 rounded" />
               </div>
             ))}
           </div>

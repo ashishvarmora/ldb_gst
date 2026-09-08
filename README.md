@@ -420,12 +420,18 @@ success while nothing runs at all.
 You hold every credential. A customer supplies one harmless string: their Telegram chat id.
 
 **Telegram — one platform bot.** Create it with
-[@BotFather](https://t.me/BotFather), put the token in `TELEGRAM_BOT_TOKEN`. The
-customer sends your bot `/start` (Telegram will not let a bot message someone who has
-not started it), then you read their numeric chat id with
-`node scripts/get-telegram-chat-id.mjs` — or they fetch it themselves from
-`@userinfobot`. That number is all you need. **A mobile number is never involved**,
-and customers never create bots.
+[@BotFather](https://t.me/BotFather), put the token in `TELEGRAM_BOT_TOKEN`, and set
+`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` to its username so every screen sends customers
+to the right one — today that is
+[@Gst_truck_watch_bot](https://t.me/Gst_truck_watch_bot?start=1).
+
+The customer sends **two** `/start`s, and both are required. `@userinfobot` (a
+third-party bot) replies with their numeric chat id — or you read it yourself with
+`node scripts/get-telegram-chat-id.mjs`. Our own bot needs one too, because Telegram
+will not let a bot message someone who has not started it: skip it and the chat id is
+correct, the check is charged, the alert row is written, and the phone stays silent.
+That number is all you need. **A mobile number is never involved**, and customers
+never create bots.
 
 **Google Sheets — one service account.** Create a service account in Google Cloud,
 enable the Sheets API, and put the client email and private key in the env vars.

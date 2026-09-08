@@ -83,6 +83,43 @@ export const env = {
   get whatsappPhoneId() {
     return process.env.WHATSAPP_PHONE_ID ?? "";
   },
+  /**
+   * Web Push (VAPID), the third alert channel and the only one that reaches a
+   * phone with no other app installed on it.
+   *
+   * There is no account and no bill behind this: the push service is the
+   * browser vendor's own - FCM for Chrome, APNs for an installed iPhone app,
+   * Mozilla's for Firefox - and a VAPID key pair is what identifies us to all
+   * three. Generate one with `npx web-push generate-vapid-keys`.
+   *
+   * THE PUBLIC KEY HAS TWO NAMES ON PURPOSE, AND THEY ARE NOT INTERCHANGEABLE.
+   * The browser has to be handed it to subscribe at all, so it must be a
+   * NEXT_PUBLIC_ variable; the server needs the same value to sign what it
+   * sends. firstOf() below reads either spelling, so a deployment that set only
+   * the NEXT_PUBLIC_ one still signs correctly rather than sending unsigned
+   * requests every push service would reject. The reverse does NOT hold - a
+   * server-only VAPID_PUBLIC_KEY leaves the browser with nothing to subscribe
+   * with - which is why pushConfigured() insists on the public name.
+   *
+   * The private key never gets a NEXT_PUBLIC_ name. Anyone holding it can send
+   * a notification that appears to come from this app.
+   */
+  get vapidPublicKey() {
+    return firstOf(["VAPID_PUBLIC_KEY", "NEXT_PUBLIC_VAPID_PUBLIC_KEY"]) ?? "";
+  },
+  get vapidPrivateKey() {
+    return process.env.VAPID_PRIVATE_KEY ?? "";
+  },
+  /**
+   * Who a push service should contact if our sends start misbehaving. The
+   * standard requires a mailto: or an https: url; the support address is the
+   * one somebody actually reads.
+   */
+  get vapidSubject() {
+    const raw = process.env.VAPID_SUBJECT ?? "";
+    if (!raw) return "";
+    return /^(mailto:|https:)/i.test(raw) ? raw : `mailto:${raw}`;
+  },
   get googleServiceAccountEmail() {
     return process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
   },
@@ -163,6 +200,22 @@ export function integrationHealth() {
     // unbought. Shown on the health panel so it reads as "not yet" rather than
     // as a feature nobody knows exists.
     whatsapp: Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID),
+    /*
+     * Reported, and reported strictly, because a half-configured push channel
+     * fails in the one way nobody can see: the browser subscribes, the row is
+     * stored, and every send is rejected unsigned. So all three values are
+     * required, and the public key is required under its NEXT_PUBLIC_ name -
+     * without that spelling the browser has nothing to subscribe with, however
+     * complete the server side looks. Read through the accessors so this
+     * resolves what the app resolves; that is the mistake the note above is
+     * about.
+     */
+    webPush: Boolean(
+      resolves(() => env.vapidPublicKey) &&
+        resolves(() => env.vapidPrivateKey) &&
+        resolves(() => env.vapidSubject) &&
+        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    ),
     googleSheets: Boolean(
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
     ),

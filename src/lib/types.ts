@@ -470,6 +470,28 @@ export type TelegramConfig = {
   updated_at: string;
 };
 
+/**
+ * One installed copy of the app that has agreed to be notified.
+ *
+ * Several per officer, unlike TelegramConfig: a phone, a laptop, and on iOS the
+ * home-screen app and Safari separately. No is_enabled - the browser owns the
+ * permission, so rows are deleted rather than switched off. See migration 0054.
+ *
+ * Suffixed `Row` because `PushSubscription` is already a DOM type - the object
+ * the browser hands back from pushManager.subscribe() - and the two are close
+ * enough in shape that a reader would not notice which one a signature meant.
+ */
+export type PushSubscriptionRow = {
+  id: number;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string;
+};
+
 /** Resolved global knobs from public.app_settings. */
 export type AppSettings = {
   ldbApiUrl: string;

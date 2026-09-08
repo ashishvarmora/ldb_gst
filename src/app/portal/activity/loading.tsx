@@ -3,20 +3,24 @@ import { Skeleton, SkeletonPageHeader } from "@/components/Skeleton";
 /**
  * Mirrors the page: the sibling links, three credit tiles, the one folded help
  * note, then the ledger panel - its header, the group-by row, the row of
- * filter pills, the totals, the spend split and the charges.
+ * filter pills, the totals line, the column headings and the charges.
  *
- * ONE totals column, not two and not the three it started as. This page is
- * spend-only, so the strip carries "Credits used" and then the charge count as
- * the caption under it - the count used to be a second tile reading the same
- * number, see Totals in CreditLedger - and a two-column placeholder would
- * resolve into one and visibly shift the divider.
+ * ONE totals figure on ONE line. This page is spend-only, so the strip carries
+ * "Credits used" and the charge count beside it rather than a second figure
+ * reading the same number - see Totals in CreditLedger - and a two-column
+ * placeholder would resolve into one and visibly shift the row.
+ *
+ * NO SPEND SPLIT. The proportion bar and its legend that used to sit under the
+ * totals have gone from the page, so they have gone from here: a skeleton that
+ * draws a band the page no longer has is the reflow this file exists to
+ * prevent, pointing the other way.
  *
  * Hand-rolled rather than assembled from SkeletonStatCards and SkeletonPanel,
  * because neither draws the shape this page actually has: the tiles are a
  * three-column grid here, not two, and the panel leads with two rows of
- * controls and a totals strip above its first row. A skeleton with the wrong
- * shape is worse than no skeleton, because the page visibly rearranges itself
- * the moment the ledger arrives.
+ * controls, a totals line and a heading row above its first row. A skeleton
+ * with the wrong shape is worse than no skeleton, because the page visibly
+ * rearranges itself the moment the ledger arrives.
  */
 export default function ActivityLoading() {
   return (
@@ -51,17 +55,15 @@ export default function ActivityLoading() {
           <Skeleton className="h-5 w-32" />
         </div>
 
-        {/* The two control rows: the group-by chips with the sort button at the
-            far end, then the filter pills. The sort block is square-cornered and
-            36px like the real one, because a round 32px placeholder there would
-            visibly change shape and shift the row when the ledger lands. */}
-        <div className="space-y-2 border-b border-divider px-4 py-3">
-          <div className="flex items-center gap-1.5">
+        {/* The two control rows: the group-by chips, then the filter pills.
+            The sort control that used to sit at the far end of the first row
+            has moved to the column headings below. */}
+        <div className="border-b border-divider px-4 py-2">
+          <div className="mb-2 flex items-center gap-1.5">
             {/* Wider than they were: each switch carries a tick or a plus now
                 as well as its word. */}
             <Skeleton className="h-8 w-14 rounded-full" />
             <Skeleton className="h-8 w-16 rounded-full" />
-            <Skeleton className="ml-auto h-9 w-24 rounded-lg" />
           </div>
           <div className="flex gap-1.5">
             <Skeleton className="h-9 w-28 shrink-0 rounded-full" />
@@ -70,40 +72,33 @@ export default function ActivityLoading() {
           </div>
         </div>
 
-        {/* Each bar stands in for the line box it replaces - 20px for the
-            figure, 16px for the count line - so the strip is 87px either side
-            of the ledger arriving rather than 73px and then 87px. */}
-        <div className="border-b border-divider bg-raised/40">
-          <div className="px-4 py-2.5">
-            <Skeleton className="h-2.5 w-16 max-w-full" />
-            <Skeleton className="mt-2 h-5 w-10" />
-          </div>
-          {/* The count line under the figure, which the placeholder used to
-              leave out entirely - 29px of strip that appeared with the
-              ledger. */}
-          <div className="border-t border-divider px-4 py-1.5">
-            <Skeleton className="h-4 w-28 max-w-full" />
-          </div>
+        {/* The totals, on one baseline: a label, its figure, and the charge
+            count at the far end. 37px either side of the ledger arriving. */}
+        <div className="flex items-center gap-4 border-b border-divider bg-raised/40 px-4 py-2">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3.5 w-10" />
+          <Skeleton className="ml-auto h-3 w-24 max-w-full" />
         </div>
 
-        {/* The spend split: a 6px bar and its legend. */}
-        <div className="border-b border-divider bg-raised/40 px-4 pt-1 pb-2.5">
-          <Skeleton className="h-1.5 w-full rounded-full" />
-          <div className="mt-1 flex h-8 items-center gap-3">
-            <Skeleton className="h-2.5 w-28" />
-            <Skeleton className="h-2.5 w-24" />
-          </div>
+        {/* The column headings, which are also the sort. One 40px band,
+            because each heading is a thumb-sized target. */}
+        <div className="flex h-10 items-center gap-3 border-b border-divider px-4">
+          <Skeleton className="h-3 w-14" />
+          <Skeleton className="ml-auto h-3 w-16" />
+          <span aria-hidden className="w-4 shrink-0" />
         </div>
 
+        {/* No sign badge: this mount is pinned to spending, so every row
+            carries the same sign and the badge is not drawn - see RollupList. */}
         <div className="divide-y divide-divider">
           {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} className="flex items-center gap-3 px-4 py-3">
-              <Skeleton className="size-9 shrink-0 rounded-xl" />
+            <div key={i} className="flex items-center gap-3 px-4 py-2">
               <div className="min-w-0 flex-1">
-                <Skeleton className="h-3 w-1/3" />
-                <Skeleton className="mt-2 h-2.5 w-1/2" />
+                <Skeleton className="h-3.5 w-1/3" />
+                <Skeleton className="mt-1.5 h-2.5 w-1/2" />
               </div>
-              <Skeleton className="h-3 w-14 shrink-0" />
+              <Skeleton className="h-3.5 w-10 shrink-0" />
+              <Skeleton className="size-4 shrink-0 rounded" />
             </div>
           ))}
         </div>

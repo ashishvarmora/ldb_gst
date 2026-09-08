@@ -15,10 +15,15 @@
  *
  * A fetch handler is also what Chrome requires before it will offer to install
  * an app at all, so the offline fallback below is doing double duty.
+ *
+ * The push handlers at the bottom keep that promise: they read the payload the
+ * server encrypted, show a notification and open a window. Nothing on that
+ * path touches Cache Storage, and nothing on it fetches anything - so there is
+ * no response for it to keep even by accident.
  */
 
 /* Bump to throw away everything the previous worker kept. */
-const VERSION = "v1";
+const VERSION = "v2";
 const ASSETS = `assets-${VERSION}`;
 const SHELL = `shell-${VERSION}`;
 
@@ -118,3 +123,117 @@ async function cacheFirst(request, cacheName) {
   }
   return response;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Notifications                                                              */
+/*                                                                            */
+/* The half that makes the icon on the home screen buzz. Everything above is   */
+/* about what this worker will serve; this is about what it will show, and it  */
+/* deliberately shares nothing with it - no cache is opened here.              */
+/* -------------------------------------------------------------------------- */
+
+const FALLBACK_URL = "/portal/notifications";
+
+/**
+ * A path on this site, whatever arrived.
+ *
+ * Only our own server can produce a payload this worker will decrypt, so this
+ * is not guarding against an attacker - it is guarding against a bug. A wrong
+ * value here would send a tapped notification to a page on somebody else's
+ * domain, and a phone opening an unexpected site because a lorry moved is not
+ * a failure anyone would think to look for in a service worker.
+ */
+function ownUrl(candidate) {
+  if (typeof candidate !== "string" || !candidate) return FALLBACK_URL;
+  try {
+    const resolved = new URL(candidate, self.location.origin);
+    if (resolved.origin !== self.location.origin) return FALLBACK_URL;
+    return resolved.pathname + resolved.search + resolved.hash;
+  } catch {
+    return FALLBACK_URL;
+  }
+}
+
+self.addEventListener("push", (event) => {
+  /*
+   * A payload we sent, or nothing at all. Some push services send a wake-up
+   * with no data, and a browser that gets `userVisibleOnly: true` and then no
+   * notification eventually revokes the permission - so the fallback below is
+   * a real notification, not a placeholder.
+   */
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    // Not JSON. Whatever it is, something was sent, so say so rather than
+    // showing nothing.
+    payload = {};
+  }
+
+  const title = payload.title || "Truck update";
+  const body = payload.body || "Open the app to see what changed.";
+  const url = ownUrl(payload.url);
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon-192.png",
+      // The small monochrome mark Android puts in the status bar. It falls back
+      // to the icon above where it is not supported, which is everywhere else.
+      badge: "/icon-192.png",
+      /*
+       * One notification per truck, replaced rather than stacked. A lorry
+       * crossing four plazas on a night run would otherwise leave four rows to
+       * clear, three of which are already out of date. renotify because a
+       * replacement that arrives silently is a notification nobody sees.
+       */
+      tag: payload.tag || "truck-alert",
+      renotify: true,
+      // Read by notificationclick below. Nothing else is put on it: a
+      // notification is stored by the OS and outlives the session.
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  // Through ownUrl() again rather than trusted: a notification is stored by the
+  // OS and can be tapped days after the worker that showed it was replaced.
+  const target = new URL(ownUrl(event.notification.data?.url), self.location.origin);
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: "window",
+        // Without this, a window that has not been claimed by this worker
+        // version is invisible here and every tap opens a second copy of the
+        // app beside the one already open.
+        includeUncontrolled: true,
+      });
+
+      for (const client of clientList) {
+        if (new URL(client.url).origin !== target.origin) continue;
+        /*
+         * Focus what is already open and steer it, rather than opening
+         * another window. On an installed iPhone app there is only ever one,
+         * and openWindow there can land in Safari instead - which is a
+         * different context with a different session, so the officer would be
+         * asked to sign in to read an alert about their own truck.
+         */
+        await client.focus();
+        if (client.url !== target.href && "navigate" in client) {
+          await client.navigate(target.href).catch(() => {
+            /* A cross-document navigate can be refused; the window is focused
+               either way, which is most of what the tap was for. */
+          });
+        }
+        return;
+      }
+
+      await self.clients.openWindow(target.href);
+    })(),
+  );
+});
+

@@ -8,12 +8,13 @@ import type { TelegramConfig } from "@/lib/types";
 /**
  * The one failure in this product that costs money and says nothing.
  *
- * dispatchAlerts() in src/lib/tracking.ts needs a Telegram chat id to send
- * anything. Without one it STILL writes the alert_logs row - with
- * delivered:false and a delivery_error nobody reads - so the alert turns up in
- * the bell, the check that raised it has already been charged, and no message
- * ever leaves the building. From the officer's side the app looks like it is
- * working: rows appear, the balance goes down, the phone stays silent.
+ * dispatchAlerts() in src/lib/tracking.ts needs somewhere to send: a Telegram
+ * chat id, or a phone subscribed to notifications. With neither it STILL writes
+ * the alert_logs row - with delivered:false and a delivery_error nobody reads -
+ * so the alert turns up in the bell, the check that raised it has already been
+ * charged, and no message ever leaves the building. From the officer's side the
+ * app looks like it is working: rows appear, the balance goes down, the phone
+ * stays silent.
  *
  * So this is announced site-wide rather than on the one screen where it is
  * discoverable. It was already said on Home - and only there, only once a plan
@@ -24,8 +25,9 @@ import type { TelegramConfig } from "@/lib/types";
 /**
  * The same test the worker makes, spelled the same way round.
  *
- * dispatchAlerts() requires `is_enabled` AND a non-empty chat_id, so anything
- * looser here would promise a delivery the worker will not attempt. Note this
+ * dispatchAlerts() requires `is_enabled` AND a non-empty chat_id before it
+ * attempts Telegram, so anything looser here would promise a delivery the
+ * worker will not attempt. Note this
  * is deliberately NOT officer_overview.telegram_connected: that column is
  * `chat_id is not null and is_enabled`, which cannot tell a missing chat id
  * from a saved one that has been switched off - and those two need different
@@ -39,11 +41,31 @@ export type AlertDelivery = "ready" | "no-chat-id" | "switched-off";
  * round trip rather than making a second one to Tokyo.
  */
 export const loadAlertDelivery = cache(async (userId: string): Promise<AlertDelivery> => {
-  const { data } = await getSupabaseAdmin()
-    .from("telegram_configs")
-    .select("chat_id, is_enabled")
-    .eq("user_id", userId)
-    .maybeSingle<Pick<TelegramConfig, "chat_id" | "is_enabled">>();
+  const admin = getSupabaseAdmin();
+
+  const [{ data }, { count }] = await Promise.all([
+    admin
+      .from("telegram_configs")
+      .select("chat_id, is_enabled")
+      .eq("user_id", userId)
+      .maybeSingle<Pick<TelegramConfig, "chat_id" | "is_enabled">>(),
+    /*
+     * Telegram is no longer the only way an alert reaches a phone. Since 0054
+     * an officer can subscribe the installed app itself, and dispatchAlerts()
+     * sends on both channels - so "alerts are not reaching you" is false for
+     * somebody who has a phone subscribed and never wanted Telegram, and a
+     * banner that cannot be got rid of by fixing the thing it names is worse
+     * than no banner. head:true because only the count matters and an endpoint
+     * is a bearer credential that has no business being fetched to render a
+     * strip.
+     */
+    admin
+      .from("push_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+  ]);
+
+  if ((count ?? 0) > 0) return "ready";
 
   // No row and a null or empty chat_id are the same answer to the same
   // question: there is nowhere to send a message.
@@ -68,12 +90,12 @@ const COPY: Record<Exclude<AlertDelivery, "ready">, { fix: string; detail: strin
   "no-chat-id": {
     fix: "Add a Telegram chat id",
     detail:
-      "No Telegram chat id is saved, so alerts are raised and charged for but never sent to your phone. Add one in Settings.",
+      "Nowhere to send to, so alerts are raised and charged for but never reach you. In Settings, add a Telegram chat id or switch on notifications for this phone — either one clears this.",
   },
   "switched-off": {
     fix: "Turn Telegram back on",
     detail:
-      "Your Telegram chat id is saved but sending is switched off, so alerts are raised and charged for but never reach your phone. Turn it back on in Settings.",
+      "Your Telegram chat id is saved but sending is switched off, and no phone is subscribed either, so alerts are raised and charged for but never reach you. Fix either one in Settings.",
   },
 };
 

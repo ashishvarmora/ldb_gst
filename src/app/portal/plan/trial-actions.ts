@@ -73,9 +73,17 @@ export async function startFreeTrial(
            * change - but this one is not a refusal, it is a step the officer
            * has not taken yet, and hiding the way forward would just look
            * broken.
+           *
+           * A BACKSTOP NOW, not the normal route. The plan page reads
+           * email_is_verified() before it draws the card and offers the verify
+           * screen in place of this button, so reaching this means the answer
+           * changed between the render and the tap. It said "open Verify your
+           * email from the link on this page" while no such link existed
+           * anywhere under /portal - a remedy nobody could follow - so it now
+           * names the one thing that is certain to produce the link.
            */
           return fail(
-            "Verify your email address first — we will send a six-digit code. Open Verify your email from the link on this page.",
+            "Verify your email address first — we will send a six-digit code. Reload this page and the trial card will show a Verify your email button.",
           );
         case "already_claimed":
         case "had_plan":

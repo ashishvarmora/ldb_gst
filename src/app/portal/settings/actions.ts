@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { reportError } from "@/lib/errors";
 import { bool, done, fail, str } from "@/lib/forms";
 import { assertPortalUser } from "@/lib/officer";
+import { sendPushToUser } from "@/lib/push";
 import { loadSettings } from "@/lib/settings";
 import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { PHONE_ERROR, normaliseIndianMobile } from "@/lib/phone";
@@ -184,6 +185,159 @@ export async function testMyTelegram(
           "The test message did not go through. Check the chat id and that you have started the bot.",
         ),
       );
+}
+
+/* -------------------------------------------------------------------------- */
+/* notifications on the phone itself                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What the browser hands back from pushManager.subscribe(), flattened.
+ *
+ * Not the browser's own PushSubscription object: that has methods on it and
+ * cannot cross a Server Action boundary, and its JSON form nests the two keys
+ * under `keys`. PushSetup.tsx unpacks it before calling, so what arrives here
+ * is four strings and nothing that can behave.
+ */
+export type SubscriptionInput = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string | null;
+};
+
+/**
+ * Stores one install's subscription so the tracking worker can reach it.
+ *
+ * ON CONFLICT ON THE ENDPOINT, AND user_id IS PART OF THE UPDATE. The endpoint
+ * identifies an install, not a person, so the same phone signing in as somebody
+ * else must MOVE the row rather than add a second one - otherwise the previous
+ * occupant of that phone keeps receiving its notifications. On a shared handset
+ * that is the same leak public/sw.js refuses to cache HTML for. See migration
+ * 0054.
+ *
+ * Nothing is validated beyond shape and length. There is no format to check -
+ * an endpoint is whatever url the push service minted - and a wrong one fails
+ * on the first send and is pruned there.
+ */
+export async function savePushSubscription(input: SubscriptionInput): Promise<ActionResult> {
+  const session = await assertPortalUser();
+
+  const endpoint = input?.endpoint?.trim() ?? "";
+  const p256dh = input?.p256dh?.trim() ?? "";
+  const auth = input?.auth?.trim() ?? "";
+
+  // A subscription with a piece missing cannot be encrypted to, so it would sit
+  // in the table failing every send.
+  if (!endpoint || !p256dh || !auth) {
+    return fail("Your browser did not return a complete subscription. Try again.");
+  }
+  if (!/^https:\/\//i.test(endpoint) || endpoint.length > 2000) {
+    return fail("That does not look like a push address your browser produced.");
+  }
+
+  const { error } = await getSupabaseAdmin().from("push_subscriptions").upsert(
+    {
+      user_id: session.id,
+      endpoint,
+      p256dh,
+      auth,
+      // Truncated because a user-agent string is unbounded and this column is
+      // only ever read by a person trying to tell one install from another.
+      user_agent: input.userAgent?.slice(0, 400) ?? null,
+      last_seen_at: new Date().toISOString(),
+    },
+    { onConflict: "endpoint" },
+  );
+
+  if (error) {
+    /* reportError logs the original. The endpoint is not in it - Supabase
+       reports the constraint, not the value - and it must not be: an endpoint
+       is a bearer credential for that phone's notifications. */
+    return fail(reportError("saving push subscription", error, "Could not switch notifications on."));
+  }
+
+  revalidatePath("/portal/settings");
+  return done("Notifications are on for this device. Send yourself a test to be sure.");
+}
+
+/**
+ * Forgets one install.
+ *
+ * The endpoint comes from the browser rather than a row id, because the caller
+ * is the install itself: it has just cancelled its own subscription and this is
+ * the only handle it has. Scoped to the session's own rows regardless, so a
+ * guessed endpoint cannot unsubscribe somebody else's phone.
+ *
+ * Silent about an endpoint that is not there. Unsubscribing something already
+ * gone is the outcome the caller wanted, and the browser's own
+ * subscription.unsubscribe() can legitimately have run first.
+ */
+export async function removePushSubscription(endpoint: string): Promise<ActionResult> {
+  const session = await assertPortalUser();
+
+  const value = endpoint?.trim();
+  if (!value) return fail("Nothing to switch off on this device.");
+
+  const { error } = await getSupabaseAdmin()
+    .from("push_subscriptions")
+    .delete()
+    .eq("user_id", session.id)
+    .eq("endpoint", value);
+
+  if (error) {
+    return fail(reportError("removing push subscription", error, "Could not switch notifications off."));
+  }
+
+  revalidatePath("/portal/settings");
+  return done("Notifications are off for this device.");
+}
+
+/**
+ * One notification, now.
+ *
+ * THE MOST IMPORTANT BUTTON IN THIS FILE. Web Push on an iPhone needs iOS 16.4,
+ * the app added to the Home Screen, permission granted inside that installed
+ * copy, and notifications left on for it in iOS Settings - and every one of
+ * those failing looks identical from the officer's side: they tapped a button
+ * and nothing happened. Without a test they cannot tell setting it up from
+ * receiving it, and neither can whoever they ring about it.
+ *
+ * It sends to every install on the account rather than only the one that asked,
+ * which is deliberate: "my phone is quiet but my laptop buzzed" is the answer
+ * to the question they are actually asking.
+ */
+export async function testMyPush(): Promise<ActionResult> {
+  const session = await assertPortalUser();
+  const { brandName } = await loadSettings(getSupabaseAdmin());
+
+  const result = await sendPushToUser(session.id, {
+    title: `${brandName} is connected`,
+    body: "This is a test. Alerts for your tracked trucks will arrive like this.",
+    tag: "test",
+    url: "/portal/settings#alerts",
+  });
+
+  if (result.ok) {
+    return done(
+      result.sent === 1
+        ? "Sent. It should appear on your phone within a few seconds."
+        : `Sent to ${result.sent} devices. It should appear within a few seconds.`,
+    );
+  }
+
+  /* A skipped send is a state, not a fault: no keys on the platform, or nothing
+     subscribed yet. Both already have their own line on the panel, so this says
+     what happened without logging an error nobody has to act on. */
+  if (result.skipped) return fail(result.error);
+
+  return fail(
+    reportError(
+      "push test notification",
+      result.error,
+      "The test did not arrive. Check notifications are allowed for this app in your phone's Settings.",
+    ),
+  );
 }
 
 /* -------------------------------------------------------------------------- */

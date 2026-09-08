@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Gift,
   History,
+  Mail,
   Receipt,
   Truck,
   Wallet,
@@ -18,7 +19,7 @@ import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { BuyCredits, BuyPlans } from "@/components/BuyCredits";
 import { Disclosure } from "@/components/Disclosure";
 import { SupportPanel } from "@/components/SupportLine";
-import { Badge, LinkCard, PageHeader, Panel, QuotaBar, cx } from "@/components/ui";
+import { Badge, LinkCard, PageHeader, Panel, QuotaBar, buttonClass, cx } from "@/components/ui";
 import {
   creditStanding,
   describeRate,
@@ -162,6 +163,29 @@ export default async function PlanPage() {
   const trialOffered =
     trialPlan !== null && overview.plan_id === null && overview.plan_assigned_at === null;
 
+  /**
+   * Whether the trial button will actually work, asked before it is drawn.
+   *
+   * start_free_trial() refuses an unverified mailbox with 'email_unverified'
+   * (see 0045), and startFreeTrial() turned that into "Verify your email
+   * address first - open Verify your email from the link on this page." There
+   * was no such link. Nothing on this page, or anywhere else under /portal,
+   * pointed at /portal/verify-email, so the one refusal written to name its own
+   * remedy named a route the reader had no way to reach.
+   *
+   * So the card asks first and offers the verify screen instead of a button
+   * that would come back refused. The refusal stays as the backstop it should
+   * always have been - this answer is a render-time read and the endpoint is
+   * still the thing that decides - but nobody has to meet it to be told where
+   * to go.
+   *
+   * Read only when the trial is on offer: an account with a plan is never
+   * gated on this, and the round trip is not worth making to learn that.
+   */
+  const emailVerified = trialOffered
+    ? (await admin.rpc("email_is_verified", { p_user: overview.id })).data === true
+    : true;
+
   /*
    * The open pack's minimum and rate used to be computed here and appended to
    * both top-up panel descriptions as a sentence. It is gone: BuyCredits draws
@@ -252,7 +276,7 @@ export default async function PlanPage() {
         ) : (
           <>
             {trialOffered && trialPlan ? (
-              <TrialCard plan={trialPlan} className="mb-4" />
+              <TrialCard plan={trialPlan} emailVerified={emailVerified} className="mb-4" />
             ) : null}
 
             {trialOffered ? (
@@ -659,7 +683,15 @@ export default async function PlanPage() {
  * the Plans tab changes this card with it. Nothing about "7 days" or "15
  * credits" is written into this file.
  */
-function TrialCard({ plan, className }: { plan: Plan; className?: string }) {
+function TrialCard({
+  plan,
+  emailVerified,
+  className,
+}: {
+  plan: Plan;
+  emailVerified: boolean;
+  className?: string;
+}) {
   const days = plan.trial_days ?? 7;
   const trucks =
     plan.truck_limit === -1
@@ -717,9 +749,32 @@ function TrialCard({ plan, className }: { plan: Plan; className?: string }) {
         it has ended.
       </p>
 
-      <ActionForm action={startFreeTrial} closeOnSuccess={false} className="mt-3">
-        <SubmitButton pendingLabel="Starting...">Start the free trial</SubmitButton>
-      </ActionForm>
+      {/*
+        One step, or the button. Not both, and not the button alone.
+
+        A trial that cannot be claimed until the mailbox is proved needs the
+        proving to look like the next step rather than like an error - so the
+        unverified card carries the same primary control in the same place,
+        pointing one route further back. The reason is one line above it,
+        because "Verify your email" where "Start the free trial" was expected
+        is a substitution somebody has to be told about.
+      */}
+      {emailVerified ? (
+        <ActionForm action={startFreeTrial} closeOnSuccess={false} className="mt-3">
+          <SubmitButton pendingLabel="Starting...">Start the free trial</SubmitButton>
+        </ActionForm>
+      ) : (
+        <div className="mt-3">
+          <p className="mb-2 text-xs leading-relaxed text-muted">
+            One step first: the trial needs a verified email address. We will send a six-digit code
+            — it takes a minute.
+          </p>
+          <Link href="/portal/verify-email" className={buttonClass("primary", "md")}>
+            <Mail size={14} />
+            Verify your email
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

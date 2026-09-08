@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { CopyAddress } from "./CopyAddress";
+import { PushSetup } from "./PushSetup";
 import { saveMySheet, saveMyTelegram, testMyTelegram, updateMyProfile } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Disclosure, HelpNote } from "@/components/Disclosure";
@@ -23,6 +24,7 @@ import { fmtDate, fmtRelative } from "@/lib/format";
 import { requirePortalSession } from "@/lib/officer";
 import { SHEET_TABS } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { ALERT_BOT_START_URL, ALERT_BOT_USERNAME } from "@/lib/telegram-bot";
 import type { GoogleSheetConfig, TelegramConfig } from "@/lib/types";
 
 export async function generateMetadata() {
@@ -85,15 +87,27 @@ export default async function PortalSettingsPage() {
   const { overview, email, profile } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ supportEmail }, { data: telegram }, { data: sheet }] = await Promise.all([
-    publicSettings(),
-    admin.from("telegram_configs").select("*").eq("user_id", overview.id).maybeSingle<TelegramConfig>(),
-    admin
-      .from("google_sheet_configs")
-      .select("*")
-      .eq("user_id", overview.id)
-      .maybeSingle<GoogleSheetConfig>(),
-  ]);
+  const [{ supportEmail }, { data: telegram }, { data: sheet }, { count: pushDevices }] =
+    await Promise.all([
+      publicSettings(),
+      admin
+        .from("telegram_configs")
+        .select("*")
+        .eq("user_id", overview.id)
+        .maybeSingle<TelegramConfig>(),
+      admin
+        .from("google_sheet_configs")
+        .select("*")
+        .eq("user_id", overview.id)
+        .maybeSingle<GoogleSheetConfig>(),
+      /* A count, not the rows. The panel only needs to say how many devices are
+         set up, and an endpoint is a credential for that phone's notifications -
+         there is no reason for one to be sent to a browser. */
+      admin
+        .from("push_subscriptions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", overview.id),
+    ]);
 
   const connected = Boolean(telegram?.chat_id) && (telegram?.is_enabled ?? false);
 
@@ -138,7 +152,27 @@ export default async function PortalSettingsPage() {
           of a 49px header. Two of those was 68px spent on making two badges sit
           alone.
         */}
-        <Panel id="alerts" title="Telegram alerts" className="scroll-mt-20">
+        {/*
+          TWO CHANNELS IN ONE PANEL, not two panels.
+
+          The panel was called "Telegram alerts" while Telegram was the only
+          way an alert left the building. It is not any more - the app itself
+          can now notify the phone it is installed on - and the reader's
+          question is "where do my alerts go", which is one question with two
+          answers. A second panel of equal weight would have made it two
+          subjects and put the answer to "why is my phone silent" on whichever
+          of them the reader did not open.
+
+          Each channel wears a small uppercase label, the same device the
+          profile panel uses for Sign-in, so three sections can live under one
+          heading without any of them reading as the panel's own subject.
+        */}
+        <Panel id="alerts" title="Alerts" className="scroll-mt-20">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
+            <Send size={12} />
+            Telegram
+          </p>
+
           {/*
             One row for the whole state of this connection: whether it works,
             what it last did or last failed at, and the button that re-tests it.
@@ -233,30 +267,29 @@ export default async function PortalSettingsPage() {
           </ActionForm>
 
           {/*
-            THE OWNER'S SECOND QUESTION, ANSWERED ON THE SCREEN IT IS ASKED ON.
-            "notification is not showing on mobile as a notification. home
-            screen pe yeh added hai but notification show nahi hoti."
+            SCOPED TO TELEGRAM, WHICH IT WAS NOT.
 
-            Nothing was wrong with their phone and nothing is broken: this app
-            has never sent a phone notification of its own. There is a service
-            worker (public/sw.js) and a manifest, so it installs and opens full
-            screen, but the worker has no push handler, there is no VAPID key,
-            no subscription anywhere and no server that sends one - so an
-            installed icon cannot buzz, and would not on any device. Alerts are
-            Telegram messages; the bell in the header is the in-app list of the
-            same rows.
+            This was the answer to the owner's "notification is not showing on
+            mobile as a notification. home screen pe yeh added hai but
+            notification show nahi hoti", and it opened by saying that adding
+            the app to the home screen does not make the icon buzz - which was
+            true when nothing sent a push, and is not any more. The section
+            below this one now switches exactly that on.
 
-            A dropdown and not an (i): this is a five-place checklist somebody
-            has to walk, and the reader who needs it is the reader who has
-            already concluded the product is broken - which is exactly the
-            person an (i) does not reach. It is the same call as the chat id
-            above.
+            So what is left here is the Telegram checklist, which is still worth
+            walking and is still where the reader who has muted Telegram will
+            find their answer. Everything about the phone itself has moved into
+            PushSetup, where the device's own state can be shown alongside it.
+
+            A dropdown and not an (i): a checklist somebody has to walk, read by
+            somebody who has already concluded the product is broken - which is
+            exactly the person an (i) does not reach.
           */}
-          <HelpNote title="Alerts do not show on my phone" className="mt-4">
+          <HelpNote title="Telegram alerts do not reach me" className="mt-4">
             <p>
-              Alerts arrive as a <strong className="text-ink">Telegram message</strong>, so it is
-              Telegram that has to be allowed to notify you — not this app. Adding this app to your
-              home screen opens it full screen; it does not make the icon buzz.
+              A Telegram alert is a <strong className="text-ink">Telegram message</strong>, so it is
+              Telegram that has to be allowed to notify you. For the app itself to notify you, see{" "}
+              <strong className="text-ink">Notifications on this phone</strong> below.
             </p>
             {/* Explicit margins, because preflight zeroes every <p> and
                 HelpNote's body carries no p+p rule of its own - unlike
@@ -273,9 +306,24 @@ export default async function PortalSettingsPage() {
                   iPhone, Settings &rsaquo; Notifications &rsaquo; Telegram.
                 </>,
                 <>The chat id above is saved and the switch under it is on.</>,
+                /* Named and linked, not "the alerts bot". A reader working
+                   down this list has to be able to check the item, and they
+                   cannot check one that does not say which bot or where it
+                   is - Telegram's search returns imitations for any name
+                   typed into it. */
                 <>
-                  You sent the alerts bot a <Mono className="text-[11px]">/start</Mono>. Telegram
-                  forbids a bot from messaging anyone who has not.
+                  You pressed <strong className="text-ink">Start</strong> on{" "}
+                  <a
+                    href={ALERT_BOT_START_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium break-all text-brand-500 hover:underline"
+                  >
+                    t.me/{ALERT_BOT_USERNAME}
+                    <ExternalLink size={11} className="shrink-0" />
+                  </a>
+                  . Telegram forbids a bot from messaging anyone who has not sent it a{" "}
+                  <Mono className="text-[11px]">/start</Mono>.
                 </>,
                 <>
                   <strong className="text-ink">Send test</strong> above reports connected.
@@ -289,12 +337,35 @@ export default async function PortalSettingsPage() {
             </ol>
             <p className="mt-2">
               The bell at the top of the screen is this app&apos;s own list of the same alerts. It
-              is there to look at, not to interrupt you — the interrupting is Telegram&apos;s job.
+              is there to look at rather than to interrupt you.
             </p>
           </HelpNote>
 
           {/*
-            The second channel, visible and unusable.
+            THE OWNER'S ACTUAL REQUEST: "app notification mobile me jaana
+            chahiye - fix it and create if not exists. i want that free. now we
+            are using home shortcut so notification should be send to phone."
+
+            Web Push with our own VAPID keys, which costs nothing - the delivery
+            is done by the browser vendor's own service. It sits here rather
+            than in a panel of its own because it is the second answer to the
+            one question this panel asks, and beneath Telegram rather than above
+            it because Telegram is what every existing account already has
+            working.
+
+            A client component, and it has to be: what it says depends entirely
+            on facts only the device knows - whether this is the installed copy
+            or a Safari tab, what the OS has already been asked, whether a
+            subscription exists - and none of those can be read on the server.
+          */}
+          <PushSetup
+            platformReady={integrationHealth().webPush}
+            savedDevices={pushDevices ?? 0}
+            supportEmail={supportEmail}
+          />
+
+          {/*
+            The third channel, visible and unusable.
             It is built and switched off - there is no WhatsApp account behind it
             yet - and saying so is better than either hiding it, which turns
             "can I get these on WhatsApp?" into a support email, or offering a

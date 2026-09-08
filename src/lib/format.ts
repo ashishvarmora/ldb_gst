@@ -29,6 +29,33 @@ export function fmtDate(value: string | Date | null | undefined): string {
   });
 }
 
+/**
+ * "12 Aug, 3:42 pm" - fmtDateTime with the year left off.
+ *
+ * For a dense list read against itself rather than against the calendar: the
+ * credit ledger's rows all fall inside a sixty-day window, so the year is four
+ * characters every row pays for and none of them needs, while the minute is
+ * what tells one of a truck's ninety-six daily checks from the next. The full
+ * instant, year and all, is one tap away in the row's own fold.
+ *
+ * Here rather than in the component that wants it, so the timezone is named in
+ * one file. A local Intl call with "Asia/Kolkata" typed into it is how a screen
+ * ends up an hour or a day out from the one beside it.
+ */
+export function fmtDayTime(value: string | Date | null | undefined): string {
+  if (!value) return "--";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "--";
+  return d.toLocaleString("en-IN", {
+    timeZone: IST,
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 /** "3:42 PM" */
 export function fmtTime(value: string | Date | null | undefined): string {
   if (!value) return "--";

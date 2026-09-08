@@ -51,12 +51,26 @@ export async function sendTelegramMessage({
         | { description?: string }
         | null;
       const description = body?.description ?? `HTTP ${response.status}`;
+      /*
+       * Telegram's own signal words are kept, not rewritten.
+       *
+       * These two verdicts are stored as telegram_configs.last_error and shown
+       * on the officer's own Settings page through friendlyError(), which has
+       * a rule for both and names the bot they have to press Start on. Phrasing
+       * them here as well gave two sentences for one fault, and the one that
+       * reached the officer said "the officer must send /start" - written for
+       * an admin reading over their shoulder, about somebody else.
+       *
+       * "chat not found" in particular must survive to friendlyError(): the
+       * rule that catches it sits above the generic "not found" rule precisely
+       * so this string is not mistaken for a missing record.
+       */
       return {
         ok: false,
         error: /chat not found/i.test(description)
-          ? "Chat not found — the officer must send /start to the bot first."
+          ? "Telegram: chat not found — the bot has never been started."
           : /bot was blocked/i.test(description)
-            ? "The officer blocked the bot."
+            ? "Telegram: bot was blocked by the user."
             : description,
       };
     }

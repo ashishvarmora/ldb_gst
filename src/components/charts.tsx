@@ -451,6 +451,12 @@ export function MetricCard({
  * shows its dash on hover alone, so the row says "these are sortable" when a
  * reader goes looking without four arrows competing for attention when they
  * are not.
+ *
+ * EXCEPT BELOW sm, WHERE THERE IS NO HOVER AT ALL. A dash revealed only by a
+ * pointer is a control that does not exist on a phone, and the credit ledger's
+ * header is the only sort control that screen has. So the hint is painted from
+ * the start on a narrow viewport and hover-revealed from sm up, which leaves
+ * every wide table looking exactly as it did.
  */
 export function SortHeader({
   label,
@@ -458,12 +464,26 @@ export function SortHeader({
   sort,
   href,
   align = "left",
+  order = { desc: "highest first", asc: "lowest first" },
+  className,
 }: {
   label: string;
   sortKey: string;
   sort?: Sort;
   href: (key: string) => string;
   align?: "left" | "right";
+  /**
+   * How this column's two directions read out. The default suits a magnitude;
+   * a date column is not sorted "highest first", and a screen reader is the
+   * only place the direction is ever spelled out rather than drawn.
+   */
+  order?: { desc: string; asc: string };
+  /**
+   * For a header outside a `th`, which has to carry its own tap target rather
+   * than inherit one from the cell's padding - `min-h-10` here overrides the
+   * min-h-8 below, since Tailwind orders one property's utilities by value.
+   */
+  className?: string;
 }) {
   const on = sort?.key === sortKey;
 
@@ -472,13 +492,14 @@ export function SortHeader({
       href={href(sortKey)}
       aria-label={
         on
-          ? `Sorted by ${label}, ${sort?.desc ? "highest first" : "lowest first"}. Reverse it.`
+          ? `Sorted by ${label}, ${sort?.desc ? order.desc : order.asc}. Reverse it.`
           : `Sort by ${label}`
       }
       className={cx(
         "group relative inline-flex min-h-8 items-center gap-1 rounded transition",
         align === "right" && "flex-row-reverse",
         on ? "text-brand-500" : "text-muted hover:text-ink",
+        className,
       )}
     >
       {/* Sorting a large table is the slowest navigation on these screens and
@@ -496,7 +517,7 @@ export function SortHeader({
       ) : (
         <Minus
           size={12}
-          className="shrink-0 text-faint opacity-0 transition group-hover:opacity-100"
+          className="shrink-0 text-faint transition sm:opacity-0 sm:group-hover:opacity-100"
         />
       )}
     </Link>

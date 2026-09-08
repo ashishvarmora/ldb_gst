@@ -23,7 +23,7 @@ URLs in the code, so you never need to edit and redeploy to move domains.
 ## 1 · Vercel — `NEXT_PUBLIC_SITE_URL`
 
 **Where:** Vercel → project `ldb_gst` → Settings → Environment Variables.
-**Set it to:** the new address, no trailing slash, e.g. `https://rahdari.vercel.app`.
+**Set it to:** the new address, no trailing slash, e.g. `https://rahdari.in`, which is what it is set to today.
 **Then:** redeploy. Environment variables are read at build time, so an existing
 deployment keeps the old value until you rebuild.
 

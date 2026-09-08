@@ -1,9 +1,6 @@
 import Link from "next/link";
 import {
-  ArrowDown,
   ArrowDownUp,
-  ArrowDownWideNarrow,
-  ArrowUp,
   CalendarRange,
   Check,
   ChevronDown,
@@ -14,16 +11,23 @@ import {
   Plus,
   Tag,
   X,
-  type LucideIcon,
 } from "lucide-react";
 
 import { FilterSubmitButton } from "@/components/NavPending";
 import { FilterPill } from "@/components/FilterPill";
+import { SortHeader, type Sort } from "@/components/charts";
 import { TopUpLink } from "@/components/CreditBalance";
-import { EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
+import { DescRow, EmptyState, Mono, Panel, buttonClass, cx } from "@/components/ui";
 import { CREDIT_SOURCES } from "@/lib/analytics";
 import { CREDIT_REASON_LABEL, formatCredits, type CreditStanding } from "@/lib/credits";
-import { fmtDateTime, istDaysAgo, istMonthStart, istToday } from "@/lib/format";
+import {
+  fmtDateTime,
+  fmtDayTime,
+  fmtRelative,
+  istDaysAgo,
+  istMonthStart,
+  istToday,
+} from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -58,13 +62,21 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * whole point. The date range gets presets, so the common windows are one tap
  * and the two date boxes only appear for a range that is genuinely custom.
  *
- * SORTING IS NOT FILTERING, and the two rows say which is which. Order was a
- * pill in the filter row, which claimed to narrow a list it only rearranges -
- * and it went brand off its default, so "Biggest first" wore the colour this
- * screen uses to mean "something is being hidden from you". It is a sort button
- * now, square-cornered and always neutral, on the row with the grouping
- * toggles: both of those arrange rows, and everything on the second row removes
- * them.
+ * SORTING IS NOT FILTERING, and it is not a control in a row of controls
+ * either. Order was a pill in the filter row - which claimed to narrow a list
+ * it only rearranges - and then a sheet of three sentences ("Newest first",
+ * "Oldest first", "Biggest first") on the row above it. Both spent a band of a
+ * phone screen on a question that a table answers for nothing: the columns say
+ * what can be sorted, and the arrow on one of them says which way it is going.
+ * So the order lives in the list's own header now, two tappable cells over the
+ * two columns they order, using the SortHeader the console's tables use. Three
+ * fewer taps to reverse a list, one fewer band above the first row, and no
+ * control that has to say out loud what it is for.
+ *
+ * The three orders are four now, because a column header that cannot be
+ * reversed is a header that ignores a tap: `smallest` is `largest` read
+ * upwards, and it costs nothing - both are sorted in memory over the same
+ * capped read.
  *
  * A REASON THAT CANNOT HAPPEN IS NOT OFFERED. The Reason options are whatever
  * the current Show can actually produce - spending reasons under "Credits
@@ -99,7 +111,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  */
 
 export type LedgerKind = "all" | "used" | "added";
-export type LedgerSort = "newest" | "oldest" | "largest";
+export type LedgerSort = "newest" | "oldest" | "largest" | "smallest";
 
 /** What a row may be grouped by. None selected means the raw ledger. */
 export type LedgerDimension = "day" | "truck" | "user";
@@ -136,23 +148,18 @@ const DIMENSIONS: { key: LedgerDimension; label: string; adminOnly?: boolean }[]
 ];
 
 /**
- * The orders, each with the arrow that shows which way it runs.
+ * The two sortable columns, and which of the four orders each one means.
  *
- * Two labels because the control has two jobs. The sheet spells the order out -
- * "Newest first" is the sentence somebody is choosing - and the button carries
- * only the word that changes, because the button sits on a row that has to fit
- * a phone alongside the grouping toggles.
+ * `when` is last_at on a folded row and created_at on a raw one; `credits` is
+ * the SIZE of the movement, which is why largest and smallest are not simply
+ * the delta ordered both ways - see the sorts themselves.
  */
-const SORT_OPTIONS = [
-  { key: "newest", label: "Newest first", short: "Newest", icon: ArrowDown },
-  { key: "oldest", label: "Oldest first", short: "Oldest", icon: ArrowUp },
-  { key: "largest", label: "Biggest first", short: "Biggest", icon: ArrowDownWideNarrow },
-] as const satisfies readonly {
-  key: LedgerSort;
-  label: string;
-  short: string;
-  icon: LucideIcon;
-}[];
+const SORT_BY: Record<LedgerSort, Sort> = {
+  newest: { key: "when", desc: true },
+  oldest: { key: "when", desc: false },
+  largest: { key: "credits", desc: true },
+  smallest: { key: "credits", desc: false },
+};
 
 const KIND_LABEL: Record<LedgerKind, string> = {
   all: "Everything",
@@ -212,7 +219,7 @@ const ENTRY_PAGE = 50;
 const FOLD_CAP = 4000;
 
 function parseSort(raw: string | undefined): LedgerSort {
-  return raw === "oldest" || raw === "largest" ? raw : "newest";
+  return raw === "oldest" || raw === "largest" || raw === "smallest" ? raw : "newest";
 }
 
 function parseKind(raw: string | undefined): LedgerKind {
@@ -527,7 +534,6 @@ export async function CreditLedger({
   only,
   groupBy,
   drillBase,
-  split = false,
 }: {
   /** One account, or null for every account - which only the console passes. */
   userId: string | null;
@@ -563,14 +569,19 @@ export async function CreditLedger({
    * page. Defaults to this one, i.e. the raw ledger under the same filters.
    */
   drillBase?: string;
-  /**
-   * Breaks the spending down by reason under the totals. Off by default, and
-   * deliberately set on exactly ONE mount: it is analysis, and the credit
-   * history page's job is the movement of the balance. Two pages carrying the
-   * same 99%-automatic bar over the same window is the mirroring this split was
-   * meant to be an alternative to.
+  /*
+   * THERE IS NO `split` ANY MORE, and no bar for it to turn on.
+   *
+   * It drew the spending as a proportion bar under the totals - "Automatic
+   * check 98%, Manual search 2%" - with each segment a link to that reason.
+   * The owner's verdict on it was that on a phone it took space it had not
+   * earned, and measured at 390px it took 57px plus the 87px totals card it
+   * hung under. The analysis it carried is a tap away and always was: the
+   * Reason pill on the row above filters to either reason, and the count
+   * beside the totals then reads that reason's own charges. A bar whose whole
+   * content is "almost all of it is automatic" is a fact that does not change
+   * from one week to the next, and it was being redrawn on every visit.
    */
-  split?: boolean;
 }) {
   const admin = getSupabaseAdmin();
   const platformWide = userId === null;
@@ -707,9 +718,6 @@ export async function CreditLedger({
   const narrowed =
     ranged || (!only && kind !== "all") || reasons.length > 0 || Boolean(query.truck);
 
-  const ordering = SORT_OPTIONS.find((option) => option.key === sort) ?? SORT_OPTIONS[0];
-  const OrderingIcon = ordering.icon;
-
   /*
    * How the Reason pill reads when it is closed.
    *
@@ -735,103 +743,45 @@ export async function CreditLedger({
   return (
     <Panel title={title} bodyClassName="p-0">
       {/*
-        THE ARRANGING ROW: what a row is, and what order the rows come in.
-        Nothing here removes a charge from the screen, which is the whole reason
-        the sort control moved up here off the filter row.
+        WHAT NARROWS THE LIST, and - where the reader is allowed to choose it -
+        what a row is. The order is not here at all any more; it is on the
+        list's own column headings, where a table keeps it.
+
+        space-y-2 only when there are two rows to space. On a pinned mount the
+        grouping row renders nothing, and an empty flex box still collects its
+        sibling margin, so this block was carrying 8px of gap above a control
+        row that had nothing above it. py-2 rather than py-3 for the same
+        reason the whole screen is being tightened: 24px of vertical padding
+        around a 36px pill is a third of the band spent on air.
       */}
-      <div className="space-y-2 border-b border-divider px-4 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/*
-            NO "ONE ROW PER DAY" LINE ANY MORE, on either pinned mount.
+      <div className="border-b border-divider px-4 py-2">
+        {locked ? null : (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+              Group by
+            </span>
+            {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
+              <Toggle
+                key={dim.key}
+                href={dimensionHref(basePath, query, keep, dimensions, dim.key)}
+                active={dimensions.includes(dim.key)}
+              >
+                {dim.label}
+              </Toggle>
+            ))}
 
-            It was the last of the shape notes the owner asked us to take out,
-            and by the time it went it was saying what the rows say for
-            themselves: a folded row already reads "14 charges · balance 220",
-            which is the fact the note was there to supply, and the (i) on the
-            credit-history balance says a day is the unit spending is grouped
-            in. A pinned mount is left with the sort control alone, which
-            ml-auto below holds at the far end of the row.
-          */}
-          {locked ? null : (
-            <>
-              <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
-                Group by
-              </span>
-              {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
-                <Toggle
-                  key={dim.key}
-                  href={dimensionHref(basePath, query, keep, dimensions, dim.key)}
-                  active={dimensions.includes(dim.key)}
-                >
-                  {dim.label}
-                </Toggle>
-              ))}
-
-              {/* Off on a phone, where the toggles plus the sort button already
-                  fill the row and this sentence is what would wrap it to a
-                  second line - the thing these two rows exist to avoid. Nothing
-                  is lost there: each toggle now wears its own tick or plus, and
-                  the count line under the totals says "individual charges" the
-                  moment they are all off. It is still the only hint in words
-                  anywhere - the activity page's fold explaining them in a
-                  paragraph has gone - so it stays where the control it
-                  describes is. */}
-              <span className="ml-1 hidden text-[11px] text-faint sm:inline">
-                {rawEntries ? `every individual ${entryNoun}` : `turn all off for every ${entryNoun}`}
-              </span>
-            </>
-          )}
-
-          {/* Pushed to the far end rather than left beside the toggles, so the
-              row reads as two controls with a gap between them instead of five
-              chips in a queue. */}
-          <span className="ml-auto shrink-0 pl-1.5">
-            <FilterPill
-              variant="sort"
-              label="Sort"
-              value={ordering.short}
-              icon={<OrderingIcon size={13} className="shrink-0" />}
-            >
-              <div className="space-y-0.5">
-                {SORT_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-                  return (
-                    <SheetOption
-                      key={option.key}
-                      icon={<Icon size={15} className="shrink-0" />}
-                      /* The order in force taps back to newest, which is the
-                         order this list has when nobody has chosen one. Every
-                         other control on this screen can be turned off from
-                         inside its own sheet, and an order that could only ever
-                         be swapped for another order was the odd one out. */
-                      href={href(
-                        basePath,
-                        query,
-                        { sort: option.key === sort ? undefined : option.key },
-                        keep,
-                      )}
-                      active={sort === option.key}
-                    >
-                      {option.label}
-                    </SheetOption>
-                  );
-                })}
-              </div>
-
-              {/* Said here rather than only in the count line, because this is
-                  where somebody is choosing it. Only where it can happen: on a
-                  mount pinned to one side every row has the same sign, so
-                  warning about the two ranking together would be describing a
-                  list this page cannot produce. */}
-              {only ? null : (
-                <p className="mt-2 border-t border-divider px-3 pt-2 text-[11px] leading-relaxed text-faint">
-                  Biggest first sorts by size, so a 5,000-credit purchase and a
-                  5,000-credit spend rank together.
-                </p>
-              )}
-            </FilterPill>
-          </span>
-        </div>
+            {/* Off on a phone, where the toggles already fill the row and this
+                sentence is what would wrap it to a second line. Nothing is
+                lost there: each toggle wears its own tick or plus, and the
+                count beside the totals says "individual charges" the moment
+                they are all off. It is still the only hint in words anywhere -
+                the activity page's fold explaining them in a paragraph has
+                gone - so it stays where the control it describes is. */}
+            <span className="ml-1 hidden text-[11px] text-faint sm:inline">
+              {rawEntries ? `every individual ${entryNoun}` : `turn all off for every ${entryNoun}`}
+            </span>
+          </div>
+        )}
 
         {/*
           One row, scrolling sideways rather than wrapping - the pattern the
@@ -1166,7 +1116,6 @@ export async function CreditLedger({
           platformWide={platformWide}
           only={only}
           entryNoun={entryNoun}
-          split={split}
         />
       ) : (
         <RollupList
@@ -1181,7 +1130,6 @@ export async function CreditLedger({
           only={only}
           entryNoun={entryNoun}
           drillBase={drillBase ?? basePath}
-          split={split}
         />
       )}
     </Panel>
@@ -1259,32 +1207,37 @@ function totalsOf(rows: { credits: number; entries: number }[]): {
 }
 
 /**
- * The figures for the whole filtered set, above the page of rows.
+ * The figures for the whole filtered set, on ONE line above the page of rows.
  *
  * Always shown rather than only with a date range: "used 412 over 90 charges"
  * is the answer somebody wants whether or not they narrowed the dates, and a
  * total that appears and disappears with a filter reads as a different total.
  *
- * A pinned side loses the column that cannot move. Two tiles across a 390px
+ * A pinned side loses the column that cannot move. Two figures across a 390px
  * phone leave 175px each, so a third reading "Credits added: 0" for ever was
  * spending a third of the strip to say nothing - and worse, saying it in the
  * place where somebody checks whether their top-up landed.
  *
- * THE COUNT IS A CAPTION NOW, NOT A TILE. On the spend page this strip read
- * "Credits used 53" beside "Charges 53", and the owner quoted the pair back at
- * us as noise - correctly, because two tiles carrying the same number in the
- * same weight read as a screen that has printed one figure twice. They are only
+ * WHY IT IS A LINE AND NOT A CARD. This was a grid of tiles with the count
+ * ruled off underneath, which came to 87px at 390px for one figure and one
+ * short phrase - the shape the owner named when they asked for the block at the
+ * top of the activity page to go. A label, its figure and the count sit on one
+ * baseline now, in the same 11px uppercase the column headings below use, and
+ * the whole strip measures 37px. Nothing has been dropped; the card was 51px
+ * of padding and a rule around the same two facts.
+ *
+ * THE COUNT IS STILL HERE, and demoted rather than dropped. On the spend page
+ * this strip read "Credits used 53" beside "Charges 53", and the owner quoted
+ * that pair back at us as noise - correctly, because two figures in the same
+ * weight read as a screen that has printed one number twice. They are only
  * equal while a check costs exactly one credit, which is a rate an
  * administrator can change: reprice tomorrow and the same window is 106 credits
- * over 53 charges. So the count is kept and demoted rather than dropped - the
- * credits are what the page is about and the charges are what they were spent
- * over, which is a rate, and a rate belongs under the figure rather than beside
- * it. It also has a job no tile could do: it is the line that says "individual
- * charges" when the grouping switches are all off, which on a phone is the only
- * confirmation of what turning them off did.
- *
- * What went with it is the sentence that used to sit here - "3 groups, by day
- * and truck" - which was the two lit switches an inch above, read out.
+ * over 53 charges. So the count keeps its place at the quiet end of the line,
+ * in faint 11px, where it is a rate rather than a second headline. It also has
+ * a job nothing else does: it is what says "individual charges" when the
+ * grouping switches are all off, and it is where a bitten row cap says so - a
+ * truncated total that reads as an exact one is the one thing this strip must
+ * never be.
  */
 function Totals({
   added,
@@ -1294,124 +1247,140 @@ function Totals({
 }: {
   added: number;
   spent: number;
-  /** The row count, and any cap that bit, as one line under the figures. */
+  /** The row count, and any cap that bit, at the end of the line. */
   scope: string;
   only?: "used" | "added";
 }) {
-  const tiles = [
-    only === "used"
-      ? null
-      : { label: "Credits added", value: formatCredits(added), tone: "text-good-500" },
-    only === "added"
-      ? null
-      : { label: "Credits used", value: formatCredits(spent), tone: "text-ink" },
-  ].filter((tile): tile is { label: string; value: string; tone: string } => tile !== null);
+  const figures = [
+    only === "used" ? null : { label: "Credits added", value: added, tone: "text-good-500" },
+    only === "added" ? null : { label: "Credits used", value: spent, tone: "text-ink" },
+  ].filter((figure): figure is { label: string; value: number; tone: string } => figure !== null);
 
   return (
-    <div className="border-b border-divider bg-raised/40">
-      <dl
-        className={cx(
-          "grid divide-x divide-divider",
-          tiles.length === 1 ? "grid-cols-1" : "grid-cols-2",
-        )}
-      >
-        {tiles.map(({ label, value, tone }) => (
-          <div key={label} className="px-4 py-2.5">
-            <dt className="text-[10px] font-semibold tracking-wider text-faint uppercase">
+    /* Wraps rather than scrolls. With both figures and a long cap warning this
+       is more than a phone's width, and a total pushed off the right-hand edge
+       of a strip nobody thinks to swipe is a total that is not on the page. */
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 border-b border-divider bg-raised/40 px-4 py-2">
+      {/* The count is OUTSIDE the list rather than a third <dd>: it has no
+          label, and a <dd> with no <dt> in front of it is not a definition
+          list any more - it is a list a screen reader reads out with one pair
+          missing half of itself. */}
+      <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+        {figures.map(({ label, value, tone }) => (
+          <div key={label} className="flex items-baseline gap-1.5">
+            {/* 11px, the same as the column headings directly below: the two
+                bands are read as one header now that neither is a card, and
+                two uppercase labels a pixel apart in size read as a mistake. */}
+            <dt className="text-[11px] font-semibold tracking-wider text-faint uppercase">
               {label}
             </dt>
-            <dd className={cx("mt-0.5 text-sm font-semibold tabular-nums", tone)}>{value}</dd>
+            <dd className={cx("text-sm font-semibold tabular-nums", tone)}>
+              {formatCredits(value)}
+            </dd>
           </div>
         ))}
       </dl>
-      <p className="border-t border-divider px-4 py-1.5 text-[11px] text-faint">{scope}</p>
+
+      <span className="ml-auto text-[11px] text-faint">{scope}</span>
     </div>
   );
 }
 
 /**
- * What the spending went on, as one bar under the totals.
+ * The list's own column headings, which are also its sort control.
  *
- * The one thing the ledger could never answer at a glance. Both spending
- * reasons are charged at rates the admin sets independently, and a truck on a
- * 15-minute beat takes ninety-odd automatic checks a day against a handful of
- * searches somebody typed - so "you used 1,036 credits" is a figure nobody can
- * act on until they know which of the two it was. Slowing a beat down and doing
- * fewer searches are different decisions.
+ * TWO COLUMNS, BECAUSE THERE ARE TWO THINGS A LEDGER IS EVER SORTED BY: when it
+ * happened and how big it was. Both lists below carry the same two - a folded
+ * row's "when" is the last charge in the group, a raw row's is the charge - so
+ * one heading strip serves both and the reader learns the sort once.
  *
- * Read off the rollup rows already loaded for the totals, so it costs no query
- * and cannot disagree with the figure above it.
+ * This replaces a pill that opened a sheet of three sentences. What the sheet
+ * did that a heading cannot is spell the order out in words; what a heading
+ * does that the sheet could not is say which column the list is in the order OF
+ * without being opened, and reverse it in one tap instead of three. On a screen
+ * whose whole complaint was bands of controls above the first row, that trade
+ * is the right way round.
  *
- * Every segment is also the filter for that reason, which is the whole reason
- * this is a bar and not a sentence: the analysis and the way to act on it are
- * the same tap. That is also why it hides itself once a reason IS selected -
- * one segment at 100% is a bar that has stopped saying anything, and the Reason
- * pill above is already showing what is in force.
+ * SortHeader is the console's, so a column heading sorts the same way here as
+ * it does in every table in the admin reports - and its own hint arrow is now
+ * painted rather than hover-revealed below sm, because a phone has no hover and
+ * this is the only sort control that screen has.
  */
-function SpendSplit({
-  rows,
-  spent,
+function SortHead({
   basePath,
   query,
   keep,
+  sort,
+  only,
 }: {
-  rows: RollupRow[];
-  spent: number;
   basePath: string;
   query: LedgerQuery;
   keep: Record<string, string>;
+  sort: LedgerSort;
+  only?: "used" | "added";
 }) {
-  const byReason = new Map<string, number>();
-  for (const row of rows) {
-    const credits = Number(row.credits) || 0;
-    if (credits >= 0) continue;
-    byReason.set(row.reason, (byReason.get(row.reason) ?? 0) + Math.abs(credits));
-  }
+  const current = SORT_BY[sort];
 
-  const split = [...byReason.entries()]
-    .map(([reason, credits]) => ({ reason, credits }))
-    .sort((a, b) => b.credits - a.credits);
+  /* Same column reverses; a new column starts at the top. The same rule the
+     console's tables follow - see sortHrefFor in components/report.ts - so a
+     heading tap does what a heading tap does everywhere else in the app.
+     Newest is the default order, so it is the one spelled with no parameter,
+     which keeps /portal/credits itself a URL somebody can type. */
+  const to = (key: string): string => {
+    const desc = current.key === key ? !current.desc : true;
+    const next: LedgerSort =
+      key === "credits" ? (desc ? "largest" : "smallest") : desc ? "newest" : "oldest";
+    return href(basePath, query, { sort: next === "newest" ? undefined : next }, keep);
+  };
 
-  if (split.length < 2 || spent <= 0) return null;
-
-  /* Two tones, alternating, rather than a colour per reason. There are two
-     spending reasons today and a third would be a rate the admin added; a
-     palette keyed to reason names would silently give the new one no colour at
-     all, and this bar is read as proportions rather than as a legend. */
-  const tone = (index: number) => (index % 2 === 0 ? "bg-brand-500" : "bg-brand-500/45");
-
+  /* No vertical padding on the strip: both headings carry min-h-10, so it is
+     exactly one 40px tap target tall and any padding would be air stacked on
+     top of a thumb-sized target. */
   return (
-    <div className="border-b border-divider bg-raised/40 px-4 pt-1 pb-2.5">
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-sunken">
-        {split.map((part, index) => (
-          <span
-            key={part.reason}
-            aria-hidden
-            className={tone(index)}
-            style={{ width: `${(part.credits / spent) * 100}%` }}
-          />
-        ))}
-      </div>
+    <div className="flex items-center gap-3 border-b border-divider px-4 text-[11px] font-semibold tracking-wider uppercase">
+      <span className="min-w-0 flex-1">
+        <SortHeader
+          label="When"
+          sortKey="when"
+          sort={current}
+          href={to}
+          order={{ desc: "newest first", asc: "oldest first" }}
+          className="min-h-10"
+        />
+      </span>
 
-      {/* Wraps rather than scrolls: two or three of these fit a phone on two
-          lines, and a legend behind a sideways scroll is a legend nobody reads.
-          Each is a real tap target, so min-h-8 rather than bare text. */}
-      <ul className="mt-1 flex flex-wrap items-center gap-x-3">
-        {split.map((part, index) => (
-          <li key={part.reason}>
-            <Link
-              href={href(basePath, query, { reason: part.reason }, keep)}
-              className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-muted transition hover:text-ink"
-            >
-              <span aria-hidden className={cx("size-2 shrink-0 rounded-full", tone(index))} />
-              <span className="truncate">{reasonLabel(part.reason)}</span>
-              <span className="font-semibold tabular-nums text-ink">
-                {Math.round((part.credits / spent) * 100)}%
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {/*
+        The caveat that used to be a paragraph in the sort sheet, as the
+        heading's own tooltip and only where it can happen: on a mount pinned to
+        one side every row has the same sign, so warning about the two ranking
+        together would be describing a list that page cannot produce. A title
+        rather than a line of type - it is worth reading once, by somebody who
+        wonders, and it is not worth a band of the screen.
+      */}
+      <span
+        title={
+          only
+            ? undefined
+            : "Sorts by size, so a 5,000-credit purchase and a 5,000-credit spend rank together."
+        }
+      >
+        {/* Deliberately NOT align="right", which would flip the icon to the
+            left of the label: the unsorted hint is a dash, and a dash printed
+            immediately before the word CREDITS over a column of signed figures
+            reads as a minus sign rather than as "not sorted". */}
+        <SortHeader
+          label="Credits"
+          sortKey="credits"
+          sort={current}
+          href={to}
+          order={{ desc: "biggest first", asc: "smallest first" }}
+          className="min-h-10"
+        />
+      </span>
+
+      {/* The gutter every row spends on its chevron, so the Credits heading
+          sits over the figures rather than over the chevrons. */}
+      <span aria-hidden className="w-4 shrink-0" />
     </div>
   );
 }
@@ -1432,7 +1401,6 @@ async function RollupList({
   only,
   entryNoun,
   drillBase,
-  split,
 }: {
   basePath: string;
   query: LedgerQuery;
@@ -1445,7 +1413,6 @@ async function RollupList({
   only?: "used" | "added";
   entryNoun: string;
   drillBase: string;
-  split: boolean;
 }) {
   const { rows, error } = await loadRollups(filters);
   if (error) return <LoadFailed message={error} />;
@@ -1501,9 +1468,15 @@ async function RollupList({
    * four of Monday. Biggest first deliberately breaks that - it is asked for
    * when the question is "what cost the most", and answering it inside each day
    * would be a different question.
+   *
+   * Both credit orders compare the SIZE of the movement, which is why they are
+   * not the delta ordered two ways: on a mount that carries both signs, -5,000
+   * and +5,000 are the same size, and ordering by the signed figure would put
+   * the biggest spend at the bottom of "biggest first".
    */
   const list = [...folded.values()].sort((a, b) => {
     if (sort === "largest") return Math.abs(b.credits) - Math.abs(a.credits);
+    if (sort === "smallest") return Math.abs(a.credits) - Math.abs(b.credits);
     if (sort === "oldest") return a.last_at.localeCompare(b.last_at);
     return b.last_at.localeCompare(a.last_at);
   });
@@ -1550,16 +1523,7 @@ async function RollupList({
   return (
     <>
       <Totals added={totals.added} spent={totals.spent} scope={scope} only={only} />
-
-      {split && only === "used" && filters.reasons.length === 0 ? (
-        <SpendSplit
-          rows={rows}
-          spent={totals.spent}
-          basePath={basePath}
-          query={query}
-          keep={keep}
-        />
-      ) : null}
+      <SortHead basePath={basePath} query={query} keep={keep} sort={sort} only={only} />
 
       <ul className="divide-y divide-divider">
         {shown.map((row) => {
@@ -1617,40 +1581,57 @@ async function RollupList({
             <li key={row.key}>
               <Link
                 href={drill}
-                className="flex items-center gap-3 px-4 py-3 transition hover:bg-sunken"
+                className="flex items-center gap-3 px-4 py-2 transition hover:bg-sunken"
               >
-                <span
-                  className={cx(
-                    "inline-flex size-9 shrink-0 items-center justify-center rounded-xl border",
-                    spent
-                      ? "border-line bg-raised text-muted"
-                      : "border-good-500/30 bg-good-500/12 text-good-500",
-                  )}
-                >
-                  {spent ? <Minus size={15} /> : <Plus size={15} />}
-                </span>
+                {/*
+                  THE SIGN BADGE IS PRINTED BY EXCEPTION, like the payment
+                  list's status. On a mount pinned to one side every row has
+                  the same sign, so 36px of the row's width and 8px of its
+                  height went on a symbol that separated nothing - it read as a
+                  bullet. Where both signs can appear, which is the console's
+                  full ledger, it is the fastest way to tell a top-up from a
+                  day of checks and it stays. The signed figure at the other
+                  end says which it is either way.
+                */}
+                {only ? null : (
+                  <span
+                    className={cx(
+                      "inline-flex size-7 shrink-0 items-center justify-center rounded-lg border",
+                      spent
+                        ? "border-line bg-raised text-muted"
+                        : "border-good-500/30 bg-good-500/12 text-good-500",
+                    )}
+                  >
+                    {spent ? <Minus size={13} /> : <Plus size={13} />}
+                  </span>
+                )}
 
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-ink">
                     {heading.length > 0 ? heading : <span>Everything</span>}
                   </span>
+                  {/* What the group holds and where it left the balance. The
+                      only line here that is not one of the owner's three, and
+                      it stays because a statement's whole question is what the
+                      balance did - there is no fold on this row to put it in,
+                      the chevron is spoken for by the breakdown. */}
                   <span className="mt-0.5 block text-[11px] text-faint">
                     {row.entries} {plural(entryNoun, row.entries)} · balance{" "}
                     {formatCredits(row.balance_after)}
                   </span>
                 </span>
 
-                <span className="shrink-0 text-right">
-                  <span
-                    className={cx(
-                      "block text-sm font-semibold tabular-nums",
-                      spent ? "text-ink" : "text-good-500",
-                    )}
-                  >
-                    {spent ? "−" : "+"}
-                    {formatCredits(Math.abs(row.credits))}
-                  </span>
-                  <span className="text-[10px] text-faint">credits</span>
+                {/* "credits" left off the figure: the column it sits under is
+                    headed Credits, which is where the unit belongs once there
+                    is a heading to put it in. */}
+                <span
+                  className={cx(
+                    "shrink-0 text-sm font-semibold tabular-nums",
+                    spent ? "text-ink" : "text-good-500",
+                  )}
+                >
+                  {spent ? "−" : "+"}
+                  {formatCredits(Math.abs(row.credits))}
                 </span>
 
                 <ChevronRight size={15} className="shrink-0 text-faint" />
@@ -1688,7 +1669,6 @@ async function EntryList({
   platformWide,
   only,
   entryNoun,
-  split,
 }: {
   basePath: string;
   query: LedgerQuery;
@@ -1700,7 +1680,6 @@ async function EntryList({
   platformWide: boolean;
   only?: "used" | "added";
   entryNoun: string;
-  split: boolean;
 }) {
   /* Built by a function because it is run twice - once to count what matches,
      once for the rows - and both have to see exactly the same filters. */
@@ -1733,7 +1712,7 @@ async function EntryList({
   let current: number;
   let capped = false;
 
-  if (sort === "largest") {
+  if (sort === "largest" || sort === "smallest") {
     /*
      * Biggest means biggest by SIZE, and a 5,000-credit purchase and a
      * 5,000-credit spend are the same size. This used to order by delta itself,
@@ -1745,6 +1724,10 @@ async function EntryList({
      * an expression, so the charges are read once and sorted here, the same way
      * the grouped view has always done it. Capped like the rollups are, and the
      * count line says so when the cap bites.
+     *
+     * Smallest first is the same read reversed, which is why reversing the
+     * Credits heading costs nothing: the cap is on what is scanned, not on the
+     * direction it is then ordered in.
      */
     const { data, error } = await build(false)
       .order("created_at", { ascending: false })
@@ -1753,7 +1736,10 @@ async function EntryList({
 
     const scanned = (data ?? []) as EntryRow[];
     capped = scanned.length >= FOLD_CAP;
-    scanned.sort((a, b) => Math.abs(Number(b.delta)) - Math.abs(Number(a.delta)));
+    const direction = sort === "largest" ? -1 : 1;
+    scanned.sort(
+      (a, b) => (Math.abs(Number(a.delta)) - Math.abs(Number(b.delta))) * direction,
+    );
 
     total = scanned.length;
     current = Math.min(page, Math.max(Math.ceil(total / ENTRY_PAGE), 1));
@@ -1805,52 +1791,119 @@ async function EntryList({
         }`}
       />
 
-      {split && only === "used" && filters.reasons.length === 0 ? (
-        <SpendSplit
-          rows={rollups.rows}
-          spent={totals.spent}
-          basePath={basePath}
-          query={query}
-          keep={keep}
-        />
-      ) : null}
+      <SortHead basePath={basePath} query={query} keep={keep} sort={sort} only={only} />
 
+      {/*
+        ONE MOVEMENT A ROW: WHAT IT WAS, WHEN, AND HOW MUCH.
+
+        The owner's instruction for this list, word for word, was that an entry
+        carries "name, time, money" and that the brief details go behind a tap.
+        What the row used to carry beside those three was the truck number, the
+        account name on the console's mount, the running balance after the
+        movement, and the administrator's note - six fields on every row, of
+        which four are only read once somebody has already found the row they
+        were looking for. A reader scanning fifty entries for a top-up is
+        reading the reason and the figure and nothing else.
+
+        So the row is one line at 40px instead of two at 61px, and everything
+        else is in the fold - which on a page of fifty is 1,050px of scrolling
+        that answers nothing. The three that stay are the three that identify a
+        movement: the reason names it, the minute separates it from the
+        ninety-five other automatic checks of the same day, and the figure is
+        what was being looked for.
+
+        A NATIVE <details>, for the reasons PaymentList sets out at length: it
+        opens before any JavaScript has arrived, brings the button role and
+        aria-expanded with it, survives a filter navigation with its open rows
+        open, and lets find-in-page open a shut row onto a match - which is
+        exactly how somebody hunts for a note or a truck number in fifty rows.
+        Deliberately not <details name>, so two rows a customer thinks they
+        were charged for twice can be held open side by side.
+      */}
       <ul className="divide-y divide-divider">
         {rows.map((row) => {
           const spent = Number(row.delta) < 0;
           return (
-            <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-xs font-medium text-ink">{reasonLabel(row.reason)}</span>
-                  {row.truck_number ? (
-                    <Mono className="text-[11px] text-muted">{row.truck_number}</Mono>
-                  ) : null}
-                  {platformWide ? (
-                    <span className="text-[11px] text-muted">
-                      {nameOf.get(row.user_id) ?? "Unknown account"}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block text-[11px] text-faint">
-                  {fmtDateTime(row.created_at)}
-                  {row.note ? ` · ${row.note}` : ""}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span
+            <li key={row.id}>
+              <details className="group">
+                <summary
                   className={cx(
-                    "block text-xs font-semibold tabular-nums",
-                    spent ? "text-ink" : "text-good-500",
+                    "flex min-h-10 cursor-pointer list-none items-center gap-2 px-4 py-2",
+                    "transition hover:bg-raised/70 [&::-webkit-details-marker]:hidden",
                   )}
                 >
-                  {spent ? "−" : "+"}
-                  {formatCredits(Math.abs(Number(row.delta)))}
-                </span>
-                <span className="text-[10px] text-faint tabular-nums">
-                  → {formatCredits(row.balance_after)}
-                </span>
-              </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+                    {reasonLabel(row.reason)}
+                  </span>
+
+                  {/* The minute, without the year - see fmtDayTime, and the
+                      fold below for the whole instant. Beside the figure
+                      rather than under the reason, so the row is three columns
+                      under the three headings above rather than two stacked
+                      lines with a figure alongside. */}
+                  <span className="shrink-0 text-[11px] whitespace-nowrap text-muted">
+                    {fmtDayTime(row.created_at)}
+                  </span>
+
+                  <span
+                    className={cx(
+                      "shrink-0 text-sm font-semibold tabular-nums",
+                      spent ? "text-ink" : "text-good-500",
+                    )}
+                  >
+                    {spent ? "−" : "+"}
+                    {formatCredits(Math.abs(Number(row.delta)))}
+                  </span>
+
+                  <ChevronDown
+                    size={15}
+                    aria-hidden
+                    className="shrink-0 text-faint transition group-open:rotate-180"
+                  />
+                </summary>
+
+                {/* DescRow, the same component and the same shape the payment
+                    list's fold and the receipt panel use, so a detail read here
+                    and the same detail read there cannot be worded two ways. */}
+                <div className="border-t border-divider bg-raised/60 px-4 py-1">
+                  <dl>
+                    {row.truck_number ? (
+                      <DescRow label="Truck">
+                        <Mono>{row.truck_number}</Mono>
+                      </DescRow>
+                    ) : null}
+
+                    {platformWide ? (
+                      <DescRow label="Account">
+                        {nameOf.get(row.user_id) ?? "Unknown account"}
+                      </DescRow>
+                    ) : null}
+
+                    {/* The full instant that the row rounds to a minute of an
+                        unnamed year, with the relative age beside it - the pair
+                        is worth its line here and neither of its lines up
+                        there. */}
+                    <DescRow label={spent ? "Charged" : "Added"}>
+                      <span className="whitespace-nowrap">
+                        {fmtDateTime(row.created_at)}
+                        <span className="ml-1.5 text-xs text-faint">
+                          {fmtRelative(row.created_at)}
+                        </span>
+                      </span>
+                    </DescRow>
+
+                    {/* Where this movement left the balance. The one field in
+                        here that is about the ACCOUNT rather than about the
+                        movement, and the reason a statement is read at all - so
+                        it is in every fold, not only the ones with a note. */}
+                    <DescRow label="Balance after">
+                      <span className="tabular-nums">{formatCredits(row.balance_after)}</span>
+                    </DescRow>
+
+                    {row.note ? <DescRow label="Note">{row.note}</DescRow> : null}
+                  </dl>
+                </div>
+              </details>
             </li>
           );
         })}
@@ -1890,13 +1943,11 @@ async function EntryList({
 function SheetOption({
   href: to,
   active,
-  icon,
   nested,
   children,
 }: {
   href: string;
   active: boolean;
-  icon?: React.ReactNode;
   /** One tier in: a reason listed under its source bucket. */
   nested?: boolean;
   children: React.ReactNode;
@@ -1911,7 +1962,10 @@ function SheetOption({
         active ? "bg-brand-500/10 font-medium text-brand-500" : "text-ink hover:bg-sunken",
       )}
     >
-      {icon}
+      {/* There was an optional leading icon here, and the sort sheet - the
+          arrow beside "Newest first" - was the only thing that ever passed
+          one. It went with the sheet: a date range and a reason have no glyph
+          worth 15px of every row in their own sheets. */}
       <span className="min-w-0 flex-1">{children}</span>
       {active ? <Check size={15} className="shrink-0" /> : null}
     </Link>

@@ -28,9 +28,8 @@ export async function generateMetadata() {
  * were never analysed here - nobody groups a coupon by truck - and keeping them
  * meant a Show pill whose two useful settings were on different pages and whose
  * third mixed them. What is left is one question asked properly: what did the
- * spending go on. Reasons narrow to the two spending ones, the totals strip has
- * dropped the column that would read zero for ever, and the split under it says
- * which of the two rates the balance actually went on.
+ * spending go on. Reasons narrow to the two spending ones, and the totals strip
+ * has dropped the column that would read zero for ever.
  *
  * The grouping, the drill-down and the filters are untouched - that is the part
  * the owner asked us to keep.
@@ -94,19 +93,27 @@ export default async function ActivityPage({
           how many trucks may be watched at once and for how long, not what the looking costs.
         </HelpNote>
 
-        {/* only="used" is the whole of the page split. The admin console mounts
-            the same component without it and keeps the full ledger.
+        {/*
+          only="used" is the whole of the page split. The admin console mounts
+          the same component without it and keeps the full ledger.
 
-            split is the analysis, and this is the only mount that gets it: the
-            credit history page shows the same window and would carry the same
-            bar, which is the duplication the two pages exist to avoid. */}
+          NO SPEND SPLIT ANY MORE. This mount was the only one that turned it
+          on: a proportion bar under the totals reading "Automatic check 98% /
+          Manual search 2%", with each segment a link to that reason. The
+          owner's verdict was that on a phone it took space it had not earned,
+          and it did - 57px of bar and legend, hanging under an 87px totals
+          card that has itself become one 34px line. The reader who wants that
+          breakdown has the Reason pill in the row above, which is the same
+          filter the bar's segments were; what has gone is the picture, not the
+          answer. The prop and the component are both gone rather than left
+          switched off, because a bar nothing turns on is a bar that comes back.
+        */}
         <CreditLedger
           userId={overview.id}
           basePath="/portal/activity"
           query={query}
           title="Credits used"
           only="used"
-          split
         />
       </div>
     </>

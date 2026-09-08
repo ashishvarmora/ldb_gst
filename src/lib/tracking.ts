@@ -12,6 +12,7 @@ import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
 import { PLAN_GRACE_DAYS } from "@/lib/officer";
 import { dueForAutoPause } from "@/lib/pause";
+import { formatPushAlert, sendPushToUser } from "@/lib/push";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
@@ -217,23 +218,118 @@ export type OfficerContext = {
   userId: string;
   limits: EffectiveLimits | null;
   telegram: TelegramConfig | null;
+  /**
+   * How many installs of the app are subscribed to notifications.
+   *
+   * A count and not the rows: the endpoints and keys are read inside
+   * sendPushToUser(), which is also where a dead one is pruned, and an endpoint
+   * is a credential that has no reason to be carried around a sweep. All this
+   * is for is knowing whether to make the call at all - one officer's forty
+   * trucks would otherwise each ask the database for a subscription list that
+   * is usually empty.
+   */
+  pushDevices: number;
 };
 
 async function loadOfficerContext(admin: Admin, userId: string): Promise<OfficerContext> {
-  const [{ data: limits }, { data: telegram }] = await Promise.all([
+  const [{ data: limits }, { data: telegram }, { count: pushDevices }] = await Promise.all([
     admin
       .from("officer_effective_limits")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle<EffectiveLimits>(),
     admin.from("telegram_configs").select("*").eq("user_id", userId).maybeSingle<TelegramConfig>(),
+    admin
+      .from("push_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
   ]);
 
   return {
     userId,
     limits: limits ?? null,
     telegram: telegram ?? null,
+    pushDevices: pushDevices ?? 0,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* the channels, in one place                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** What every alert_logs row needs to know about its own delivery. */
+type Delivery = { sent: boolean; error: string | null };
+
+/**
+ * Sends one alert on every channel this officer has set up.
+ *
+ * BOTH, NOT EITHER. An officer with Telegram and a subscribed phone gets both:
+ * the two are read in different places - Telegram in a chat somebody may have
+ * muted, a notification on the lock screen - and choosing one for them would be
+ * choosing which of their own settings to ignore. `sent` is true if either
+ * landed, because the question alert_logs.delivered answers is "did this reach
+ * them", not "did every channel work".
+ *
+ * In parallel: Telegram is one round trip to api.telegram.org and push is one
+ * per install, and a sweep that runs them one after the other pays for both on
+ * every alert.
+ *
+ * Nothing here throws. Both senders return a result by design - see the note on
+ * sendTelegramMessage() and sendPushToUser() - and this is on the hot path of a
+ * sweep where an exception would abandon the rest of a truck's checks.
+ */
+async function deliverAlert({
+  context,
+  telegramText,
+  push,
+}: {
+  context: OfficerContext;
+  telegramText: string;
+  push: { title: string; body: string; tag: string; url: string };
+}): Promise<Delivery> {
+  const telegramAllowed =
+    (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
+  const pushAllowed = context.pushDevices > 0;
+
+  if (!telegramAllowed && !pushAllowed) {
+    return {
+      sent: false,
+      error:
+        "No Telegram chat id saved and no phone set up for notifications. Add one in Settings to receive alerts.",
+    };
+  }
+
+  const [telegram, phone] = await Promise.all([
+    telegramAllowed
+      ? sendTelegramMessage({
+          chatId: context.telegram!.chat_id!,
+          botToken: context.telegram!.bot_token,
+          text: telegramText,
+        })
+      : null,
+    pushAllowed ? sendPushToUser(context.userId, push) : null,
+  ]);
+
+  const sent = Boolean(telegram?.ok) || Boolean(phone?.ok);
+  if (sent) {
+    // A channel that failed while the other worked is not this alert's problem
+    // to report: the alert reached them. The failure is already in the log.
+    return { sent: true, error: null };
+  }
+
+  /*
+   * Both channels were tried and neither landed, so the reasons are worth
+   * keeping - and both of them, because "Telegram says chat not found" and
+   * "every device is gone" need different fixes and an officer told only the
+   * first would fix the wrong thing. A push that reports `skipped` is left out:
+   * it means the platform has no keys, which is ours and not theirs.
+   */
+  const reasons = [
+    telegram && !telegram.ok ? `Telegram: ${telegram.error}` : null,
+    phone && !phone.ok && !phone.skipped ? `Phone: ${phone.error}` : null,
+  ].filter(Boolean);
+
+  return { sent: false, error: reasons.join(" ") || "The alert could not be delivered." };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -247,43 +343,48 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
 async function dispatchAlerts({
   admin,
   context,
+  truckId,
   truckNumber,
   drafts,
 }: {
   admin: Admin;
   context: OfficerContext;
+  /** Where a tapped notification should land. */
+  truckId: string;
   truckNumber: string;
   drafts: AlertDraft[];
 }): Promise<{ created: number; delivered: number }> {
   if (drafts.length === 0) return { created: 0, delivered: 0 };
 
-  const telegramAllowed =
-    (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
-
   let delivered = 0;
 
   for (const draft of drafts) {
-    let deliveryError: string | null = null;
-    let sent = false;
+    const position = {
+      title: draft.title,
+      truckNumber,
+      location: draft.position.locName,
+      direction: draft.position.direction,
+      eventTime: draft.position.eventTime,
+      extra: draft.message,
+    };
 
-    if (telegramAllowed) {
-      const result = await sendTelegramMessage({
-        chatId: context.telegram!.chat_id!,
-        botToken: context.telegram!.bot_token,
-        text: formatAlertMessage({
-          title: draft.title,
-          truckNumber,
-          location: draft.position.locName,
-          direction: draft.position.direction,
-          eventTime: draft.position.eventTime,
-          extra: draft.message,
-        }),
-      });
-      sent = result.ok;
-      if (!result.ok) deliveryError = result.error;
-    } else {
-      deliveryError = "No Telegram chat id saved. Add it in Settings to receive alerts.";
-    }
+    const { sent, error: deliveryError } = await deliverAlert({
+      context,
+      telegramText: formatAlertMessage(position),
+      push: {
+        ...formatPushAlert(position),
+        /*
+         * Tagged per truck and per kind of alert. A lorry crossing four plazas
+         * on a night run should leave one notification showing the latest
+         * crossing rather than four rows to clear, three of which are already
+         * out of date - but "it has moved" and "it has come back to a plaza it
+         * already passed" are different news about the same truck and must not
+         * replace each other.
+         */
+        tag: `${truckId}:${draft.kind}`,
+        url: `/portal/trucks/${truckId}`,
+      },
+    });
 
     if (sent) delivered += 1;
 
@@ -299,18 +400,17 @@ async function dispatchAlerts({
     if (error) console.error("alert_logs insert failed", error.message);
   }
 
-
   return { created: drafts.length, delivered };
 }
 
 /**
  * An alert about the watching itself rather than about a truck's movement.
  *
- * deliverAlerts() cannot carry these: it formats a position, and the whole
+ * dispatchAlerts() cannot carry these: it formats a position, and the whole
  * point of "this truck keeps failing" is that there is no position to report.
  * The row still lands in alert_logs, so the bell shows it even for an account
- * that has never connected Telegram - which is exactly the account most likely
- * to be missing the news.
+ * with no channel set up at all - which is exactly the account most likely to
+ * be missing the news.
  */
 async function sendSystemAlert({
   admin,
@@ -327,22 +427,30 @@ async function sendSystemAlert({
   title: string;
   message: string;
 }): Promise<void> {
-  const telegramAllowed =
-    (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
+  const heading = truckNumber ? `${title}\n${truckNumber}` : title;
 
-  let delivered = false;
-  let deliveryError: string | null = "No Telegram chat id saved. Add it in Settings to receive alerts.";
-
-  if (telegramAllowed) {
-    const heading = truckNumber ? `${title}\n${truckNumber}` : title;
-    const result = await sendTelegramMessage({
-      chatId: context.telegram!.chat_id!,
-      botToken: context.telegram!.bot_token,
-      text: `${heading}\n\n${message}`,
-    });
-    delivered = result.ok;
-    deliveryError = result.ok ? null : result.error;
-  }
+  const { sent: delivered, error: deliveryError } = await deliverAlert({
+    context,
+    telegramText: `${heading}\n\n${message}`,
+    push: {
+      title: truckNumber ? `${truckNumber} — ${title}` : title,
+      body: message,
+      /*
+       * Tagged per kind and NOT per truck, unlike a movement alert. These are
+       * mostly account-wide - the balance ran out, the plan lapsed - and the
+       * two that do name a lorry say the same thing about it twice as it fails
+       * its way to being paused. One notification per kind is the news.
+       */
+      tag: `system:${kind}`,
+      /*
+       * The bell, not the truck. A notification body is two lines on a phone
+       * and these messages are a paragraph explaining what to do next; the
+       * notifications list is where the whole thing is readable. Account-wide
+       * ones have no truck to open anyway.
+       */
+      url: "/portal/notifications",
+    },
+  });
 
   const { error } = await admin.from("alert_logs").insert({
     user_id: context.userId,
@@ -852,6 +960,7 @@ export async function checkTruck({
   const alertResult = await dispatchAlerts({
     admin,
     context,
+    truckId: truck.id,
     truckNumber: truck.truck_number,
     drafts,
   });

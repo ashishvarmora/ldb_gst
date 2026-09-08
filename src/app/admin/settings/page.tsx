@@ -29,6 +29,7 @@ import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { ALERT_BOT_USERNAME, ID_BOT_USERNAME } from "@/lib/telegram-bot";
 import type { Plan } from "@/lib/types";
 
 export const metadata = { title: "Settings — Admin" };
@@ -592,12 +593,19 @@ export default async function SettingsPage({
           >
             <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
               <p className="text-sm font-medium text-ink">Telegram chat id</p>
+              {/* Both bots named, because an admin walking a customer through
+                  this on the phone can only name what this panel names - and
+                  the two jobs are the thing that gets conflated: one hands
+                  over the number, the other has to be started or nothing we
+                  send is allowed through. */}
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                You run one bot for the whole platform. The customer sends it <Mono>/start</Mono> —
-                Telegram only allows a bot to message someone who has started it. Then read their
-                numeric chat id with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>, or have them
-                fetch it from <Mono>@userinfobot</Mono>. Paste it on their account page. Never ask
-                for a phone number — Telegram alerts do not use it.
+                Two bots, and the customer sends <Mono>/start</Mono> to both.{" "}
+                <Mono>@{ID_BOT_USERNAME}</Mono> replies with their numeric chat id — or read it
+                yourself with <Mono>node scripts/get-telegram-chat-id.mjs</Mono>. Then{" "}
+                <Mono>@{ALERT_BOT_USERNAME}</Mono>, ours, which alerts are sent from: Telegram only
+                allows a bot to message someone who has started it, so without that second{" "}
+                <Mono>/start</Mono> a correct chat id still delivers nothing. Paste the number on
+                their account page. Never ask for a phone number — Telegram alerts do not use it.
               </p>
             </div>
           </Panel>
@@ -772,6 +780,14 @@ export default async function SettingsPage({
                 ok={health.telegram}
                 label="Platform Telegram bot"
                 detail="TELEGRAM_BOT_TOKEN"
+              />
+              {/* The one channel whose failure is invisible from the customer's
+                  side: with a key missing the phone still subscribes and every
+                  send is rejected, so this row is where it shows. */}
+              <HealthRow
+                ok={health.webPush}
+                label="Phone notifications"
+                detail="VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY + VAPID_SUBJECT, and the public key again as NEXT_PUBLIC_VAPID_PUBLIC_KEY so a browser can subscribe. Generate a pair with npx web-push generate-vapid-keys — no account, no cost"
               />
               {/* Expected to be red, and here anyway: the channel is built and
                   waiting on an account, so this row is the only place that says

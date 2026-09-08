@@ -11,6 +11,8 @@
  * lost for debugging - it is just not shown to someone who cannot act on it.
  */
 
+import { ALERT_BOT_USERNAME } from "@/lib/telegram-bot";
+
 /** What is shown when nothing more specific fits. */
 const FALLBACK = "Something went wrong at our end. Please try again in a moment.";
 
@@ -32,6 +34,32 @@ const RULES: Rule[] = [
   {
     match: /\b40[13]\b|forbidden|unauthorized|not authorised|not authorized/i,
     message: "You do not have access to that.",
+  },
+  /*
+   * TELEGRAM'S TWO REFUSALS, ABOVE THE 404 RULE ON PURPOSE.
+   *
+   * "chat not found" is what Telegram answers when the officer has never
+   * pressed Start on our bot, and it is the single most common way alerts
+   * silently do not arrive. It also contains the words "not found", so the
+   * generic rule below used to claim it and the officer's own Settings page -
+   * which renders telegram_configs.last_error through friendlyError() - showed
+   * "That is no longer here. It may have been removed." for the one failure on
+   * this platform with a thirty-second fix. Naming the bot is the fix, so the
+   * message names it.
+   *
+   * Matched here rather than left to sendTelegramMessage()'s own wording,
+   * because an officer running their own bot token gets Telegram's raw
+   * description instead, and both paths land in this function.
+   */
+  /* Blocked first: it is the one where pressing Start is not enough on its
+     own, so it must not be answered by the sentence below. */
+  {
+    match: /bot was blocked/i,
+    message: `Our alerts bot is blocked on your Telegram. Open t.me/${ALERT_BOT_USERNAME}, unblock it, press Start, then send another test.`,
+  },
+  {
+    match: /chat not found|bot can'?t initiate conversation/i,
+    message: `Telegram has no conversation with our bot yet, so it refused the message. Open t.me/${ALERT_BOT_USERNAME}, press Start, then send another test.`,
   },
   { match: /\b404\b|not found/i, message: "That is no longer here. It may have been removed." },
 
