@@ -1,141 +1,81 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useActionState } from "react";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { useFormStatus } from "react-dom";
 
+import { setNewPassword } from "./actions";
 import { Field, Input } from "@/components/form";
 import { LinkButton, buttonClass } from "@/components/ui";
-import { friendlyError } from "@/lib/errors";
-import { getSupabaseBrowser } from "@/lib/supabase/browser";
+import type { ActionResult } from "@/lib/types";
 
-/** checking the link -> form on screen -> changed, or the link was no good. */
-type Stage = "checking" | "ready" | "invalid" | "changed";
+/**
+ * Two password boxes and a button. That is the whole component now.
+ *
+ * WHAT IT USED TO DO, AND WHY IT STOPPED.
+ *
+ * There was a "checking" stage: on mount it read the URL fragment, called
+ * setSession() against Supabase, waited for the reply and only then put the form
+ * on screen. So the reader watched "Checking your link..." for as long as the
+ * bundle took to download plus a round trip - and the bundle was the largest on
+ * the site, because importing the Supabase browser client pulls in about 120 kB
+ * before any of it is needed. That spinner was the owner's complaint, and there
+ * was nothing to do behind it that could not wait until they pressed the button.
+ *
+ * So the link is now opened by /auth/recover, the token is spent by the Server
+ * Action, and this file imports no Supabase client at all. The form is in the
+ * HTML of the first response: on screen before hydration, and typeable as soon
+ * as it is painted.
+ *
+ * `link_expired` as an error string is a sentinel rather than a message. It is
+ * the one failure that is not about what the reader typed, so it replaces the
+ * form instead of appearing under it - there is no point leaving two password
+ * boxes on screen when nothing that goes in them can be saved.
+ */
 
-export function ResetPasswordForm() {
-  const [stage, setStage] = useState<Stage>("checking");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+function SaveButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={buttonClass("primary", "md", "w-full")}>
+      {pending ? <Loader2 size={15} className="animate-spin" /> : null}
+      {pending ? "Saving..." : "Save new password"}
+    </button>
+  );
+}
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function openRecoverySession() {
-      /*
-       * Read the URL before touching the Supabase client. The recovery link
-       * hands the session over in the fragment, and the browser client parses
-       * and clears that fragment by itself the moment it is constructed - so
-       * whatever we want from it has to be in hand first.
-       */
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const query = new URLSearchParams(window.location.search);
-
-      const linkError =
-        hash.get("error_description") ??
-        query.get("error_description") ??
-        hash.get("error") ??
-        query.get("error");
-      const accessToken = hash.get("access_token");
-      const refreshToken = hash.get("refresh_token");
-      const code = query.get("code");
-
-      // Tokens do not belong in the address bar, where they are copied into
-      // chats and left in screenshots. Cleared before anything can go wrong.
-      window.history.replaceState(null, "", window.location.pathname);
-
-      if (linkError) {
-        if (!cancelled) setStage("invalid");
-        return;
-      }
-
-      const supabase = getSupabaseBrowser();
-
-      if (accessToken && refreshToken) {
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (!cancelled) setStage(sessionError ? "invalid" : "ready");
-        return;
-      }
-
-      if (code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (!cancelled) setStage(exchangeError ? "invalid" : "ready");
-        return;
-      }
-
-      // Nothing in the URL: either the client got there first and already has
-      // the session, or somebody typed this address in by hand.
-      const { data } = await supabase.auth.getSession();
-      if (!cancelled) setStage(data.session ? "ready" : "invalid");
-    }
-
-    void openRecoverySession();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    if (password.length < 8) {
-      setError("Choose a password of at least 8 characters.");
-      return;
-    }
-    if (password !== confirm) {
-      setError("The two passwords do not match.");
-      return;
-    }
-
-    setPending(true);
-    const { error: updateError } = await getSupabaseBrowser().auth.updateUser({ password });
-    if (updateError) {
-      // A session that has gone missing means the link ran out while the form
-      // was open, which is a different problem from a password we rejected.
-      if (/session|jwt|token/i.test(updateError.message)) {
-        setStage("invalid");
-        return;
-      }
-      setError(friendlyError(updateError));
-      setPending(false);
-      return;
-    }
-
-    setPending(false);
-    setStage("changed");
-  }
-
-  if (stage === "checking") {
-    return (
-      <p className="flex items-center justify-center gap-2 py-4 text-sm text-muted">
-        <Loader2 size={15} className="animate-spin" />
-        Checking your link...
+function NeedsNewLink({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="space-y-4">
+      <p className="flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
+        <AlertCircle size={15} className="mt-0.5 shrink-0" />
+        <span>{children}</span>
       </p>
-    );
-  }
+      <LinkButton href="/forgot-password" variant="primary" className="w-full">
+        Send me a new link
+      </LinkButton>
+    </div>
+  );
+}
 
-  if (stage === "invalid") {
-    return (
-      <div className="space-y-4">
-        <p className="flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
-          <AlertCircle size={15} className="mt-0.5 shrink-0" />
-          <span>
-            This link has expired or has already been used. Reset links last an hour and work once.
-          </span>
-        </p>
-        <LinkButton href="/forgot-password" variant="primary" className="w-full">
-          Send me a new link
-        </LinkButton>
-      </div>
-    );
-  }
+export function ResetPasswordForm({
+  hasToken,
+  linkBroken,
+}: {
+  /** The server found a recovery token for this browser. Decided before render,
+      so there is no client-side check and no spinner. */
+  hasToken: boolean;
+  /** The address in the email was mangled in transit - a different problem from
+      an expired one, and worth saying so, because requesting another link will
+      not help if the mail client keeps breaking it. */
+  linkBroken: boolean;
+}) {
+  const [state, formAction] = useActionState<ActionResult | null, FormData>(
+    setNewPassword,
+    null,
+  );
 
-  if (stage === "changed") {
+  if (state?.ok) {
     return (
       <div className="space-y-4">
         <p className="flex items-start gap-2 rounded-lg border border-good-500/40 bg-good-500/10 px-3 py-2 text-sm text-good-500">
@@ -149,8 +89,27 @@ export function ResetPasswordForm() {
     );
   }
 
+  if (linkBroken) {
+    return (
+      <NeedsNewLink>
+        That link came through incomplete — some email apps cut long links short.
+        Request another and open it by tapping the button in the email rather than
+        copying the address.
+      </NeedsNewLink>
+    );
+  }
+
+  if (!hasToken || state?.error === "link_expired") {
+    return (
+      <NeedsNewLink>
+        This link has expired or has already been used. Reset links last an hour
+        and work once — if yours is newer than that, open it again from the email.
+      </NeedsNewLink>
+    );
+  }
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form action={formAction} className="space-y-4">
       <Field label="New password" name="password">
         <Input
           name="password"
@@ -159,8 +118,6 @@ export function ResetPasswordForm() {
           required
           autoFocus
           minLength={8}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
           placeholder="At least 8 characters"
         />
       </Field>
@@ -172,23 +129,18 @@ export function ResetPasswordForm() {
           autoComplete="new-password"
           required
           minLength={8}
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
           placeholder="Type it once more"
         />
       </Field>
 
-      {error ? (
+      {state && !state.ok ? (
         <p className="flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
           <AlertCircle size={15} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
+          <span>{state.error}</span>
         </p>
       ) : null}
 
-      <button type="submit" disabled={pending} className={buttonClass("primary", "md", "w-full")}>
-        {pending ? <Loader2 size={15} className="animate-spin" /> : null}
-        {pending ? "Saving..." : "Save new password"}
-      </button>
+      <SaveButton />
 
       <p className="text-center text-xs text-muted">
         <Link href="/login" className="hover:text-brand-500">

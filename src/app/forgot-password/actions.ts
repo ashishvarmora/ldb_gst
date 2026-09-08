@@ -90,7 +90,25 @@ export async function requestPasswordReset(
     options: { redirectTo: `${env.siteUrl}/reset-password` },
   });
 
-  const link = data?.properties?.action_link;
+  /*
+   * The token, not the link Supabase built around it.
+   *
+   * generateLink() hands back both: `action_link`, which points at GoTrue's own
+   * /verify endpoint, and `hashed_token`, which is what that endpoint would have
+   * checked. Emailing the action_link meant the reader's first click went to
+   * supabase.co, waited for the token to be verified there, and came back to us
+   * with the session in a URL fragment that only JavaScript could read - three
+   * requests in series before a password box appeared, which is the delay the
+   * owner reported.
+   *
+   * Sending them to our own /auth/recover instead costs one hop and no
+   * verification: the token is put in a cookie and the form is on screen. It is
+   * checked when the form is submitted, by the same GoTrue call under a
+   * different name. redirectTo above is now only what Supabase records against
+   * the token; nothing follows it.
+   */
+  const token = data?.properties?.hashed_token;
+  const link = token ? `${env.siteUrl}/auth/recover?t=${encodeURIComponent(token)}` : null;
 
   if (error || !link) {
     // An unknown address is the ordinary case and not worth a log line; a
