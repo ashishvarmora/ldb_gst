@@ -15,13 +15,20 @@ import {
   loadOverview,
   truckSlotsLeft,
 } from "@/lib/officer";
+import {
+  NO_MATCHES,
+  NO_POSITION,
+  PLAZA_LIST_LIMIT,
+  PLAZA_UNLISTED_FIELD,
+  didYouMean,
+  unlistedPlazaError,
+  type AheadBasis,
+  type PlazaLookup,
+  type PlazaSuggestion,
+  type PlazasAhead,
+} from "@/lib/plazas";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type {
-  ActionResult,
-  AlertRuleTemplate,
-  PlazaMatch,
-  TrackedTruck,
-} from "@/lib/types";
+import type { ActionResult, AlertRuleTemplate, TrackedTruck } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
 /* shared bits of the alert forms                                              */
@@ -128,25 +135,167 @@ function alreadyWatchedMessage(existing: ExistingAlert, name: string): string {
     : `${name} is already on this truck, switched off. Turn it back on instead of adding a second one.`;
 }
 
+/* -------------------------------------------------------------------------- */
+/* which toll plaza                                                            */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Toll plaza suggestions for the alert form, straight from what the platform
- * has recorded. Fuzzy, so a misspelling still finds the plaza - see
- * search_plazas() in migration 0010.
+ * A typed plaza name, matched fuzzily - and, separately, whether it is a name
+ * an alert could ever fire on.
+ *
+ * Both come from match_plazas() in migration 0051 in one round trip, because
+ * the form asks on every keystroke and the second answer is the one it gates
+ * the submit on. Replaces search_plazas() from 0010, which compared the whole
+ * name including the "Toll Plaza" that two thirds of the catalogue shares:
+ * that scored 'qqqqq plaza' at 0.38 against eight real plazas and missed
+ * 'waashi' for Vashi Toll Plaza altogether. See section 4 of the migration for
+ * the measurements.
  */
-export async function findPlazas(query: string): Promise<PlazaMatch[]> {
+export async function findPlazas(query: string): Promise<PlazaLookup> {
   await assertPortalUser();
 
-  const q = query.trim();
-  const { data, error } = await getSupabaseAdmin().rpc("search_plazas", {
-    p_q: q === "" ? null : q,
-    p_limit: 8,
+  const { data, error } = await getSupabaseAdmin().rpc("match_plazas", {
+    p_q: query,
+    p_limit: PLAZA_LIST_LIMIT,
   });
 
   if (error) {
     reportError("searching toll plazas", error);
-    return [];
+    return NO_MATCHES;
   }
-  return (data ?? []) as PlazaMatch[];
+  return readLookup(data);
+}
+
+/** The RPC envelope, which arrives as loose jsonb. */
+function readLookup(data: unknown): PlazaLookup {
+  const row = (data ?? {}) as {
+    query?: string | null;
+    exact?: string | null;
+    matches?: PlazaSuggestion[] | null;
+  };
+  return {
+    query: row.query ?? null,
+    exact: row.exact ?? null,
+    matches: (row.matches ?? []).map((match) => ({
+      name: match.name,
+      seen_count: match.seen_count,
+      km: null,
+      score: match.score,
+    })),
+  };
+}
+
+/**
+ * The toll plazas one lorry is pointed at.
+ *
+ * Asked once when the picker appears rather than on every keystroke: the
+ * truck's position does not change while somebody types, and the plaza box is
+ * only shown for the one rule that names a plaza - so a truck page nobody adds
+ * a plaza alert on never runs this at all.
+ *
+ * Everything about what "ahead" means, and what it degrades to when the data
+ * will not support it, is in plazas_ahead() in migration 0051 and in
+ * src/lib/plazas.ts. Nothing is inferred here.
+ */
+export async function plazasAhead(truckId: string): Promise<PlazasAhead> {
+  const session = await assertPortalUser();
+  const admin = getSupabaseAdmin();
+
+  /* The truck has to be theirs before its crossings are read - the id arrives
+     from a form field, and truck_events is per account. */
+  const { data: truck } = await admin
+    .from("tracked_trucks")
+    .select("truck_number")
+    .eq("id", truckId)
+    .eq("user_id", session.id)
+    .maybeSingle<{ truck_number: string }>();
+
+  if (!truck) return NO_POSITION;
+
+  const { data, error } = await admin.rpc("plazas_ahead", {
+    p_user: session.id,
+    p_truck: truck.truck_number,
+    p_limit: PLAZA_LIST_LIMIT,
+  });
+
+  if (error) {
+    reportError("looking up what is ahead of the truck", error);
+    return NO_POSITION;
+  }
+
+  const row = (data ?? {}) as {
+    basis?: AheadBasis;
+    at?: string | null;
+    heading?: string | null;
+    heading_from?: PlazasAhead["headingFrom"];
+    plazas?: PlazaSuggestion[] | null;
+  };
+
+  return {
+    basis: row.basis ?? "none",
+    at: row.at ?? null,
+    heading: row.heading ?? null,
+    headingFrom: row.heading_from ?? null,
+    plazas: (row.plazas ?? []).map((plaza) => ({
+      name: plaza.name,
+      seen_count: plaza.seen_count,
+      km: plaza.km,
+      score: null,
+    })),
+  };
+}
+
+/** Either the plaza to store, or the reason this alert is not being created. */
+type PlazaDecision = { ok: true; plaza: string | null } | { ok: false; error: string };
+
+/**
+ * What goes in truck_alerts.plaza, and the one case where nothing does.
+ *
+ * Two jobs, and the first is the quiet one:
+ *
+ * 1. CANONICALISE. What gets stored is the CATALOGUE's spelling, not the
+ *    officer's. The worker compares case- and space-insensitively, so
+ *    "bhatia toll plaza" would have matched anyway - but the stored value is
+ *    what the alert message quotes back ("GJ02ZZ8799 reached ..."), what the
+ *    truck page prints, and what the duplicate warning names. Storing the
+ *    officer's own lower-case typing means the platform reads their typo back
+ *    to them for the life of the alert.
+ *
+ * 2. REFUSE A NAME NOTHING WILL EVER MATCH, unless they say otherwise. See
+ *    unlistedPlazaError() in src/lib/plazas.ts for why this is a refusal and
+ *    why it is not absolute. The form shows the same words and posts the
+ *    confirmation; this is what makes a stale form, a second tab or a direct
+ *    call to this action get the same answer.
+ */
+async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<PlazaDecision> {
+  if (!needsPlaza(template.kind)) return { ok: true, plaza: null };
+
+  const typed = str(fd, "plaza");
+  if (!typed) {
+    return { ok: false, error: `"${template.name}" watches one toll plaza. Type which plaza to watch.` };
+  }
+
+  const { data, error } = await getSupabaseAdmin().rpc("match_plazas", {
+    p_q: typed,
+    p_limit: 1,
+  });
+
+  /*
+   * Fails open. If the catalogue cannot be read, the choice is between
+   * refusing an alert on a plaza that is probably fine and accepting one that
+   * might be misspelt - and the second is recoverable by the officer while the
+   * first is just the platform being broken at them.
+   */
+  if (error) {
+    reportError("checking the toll plaza name", error);
+    return { ok: true, plaza: typed };
+  }
+
+  const lookup = readLookup(data);
+  if (lookup.exact) return { ok: true, plaza: lookup.exact };
+  if (bool(fd, PLAZA_UNLISTED_FIELD)) return { ok: true, plaza: typed };
+
+  return { ok: false, error: unlistedPlazaError(typed, didYouMean(lookup)) };
 }
 
 /**
@@ -275,14 +424,15 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   const template = templateId ? await loadTemplate(templateId) : null;
   if (templateId && !template) return fail("That alert is no longer available. Pick another one.");
 
-  const plaza = str(fd, "plaza");
+  let plaza: string | null = null;
   let minutes = 0;
   let clampedFrom: number | null = null;
 
   if (template) {
-    if (needsPlaza(template.kind) && !plaza) {
-      return fail(`"${template.name}" watches one toll plaza. Type which plaza to watch.`);
-    }
+    const decided = await decidePlaza(fd, template);
+    if (!decided.ok) return fail(decided.error);
+    plaza = decided.plaza;
+
     const interval = readInterval(fd, template);
     if (!interval.ok) return fail(interval.error);
     minutes = interval.minutes;
@@ -352,11 +502,10 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
      * Only looked up for a truck that already existed. A genuinely new one
      * cannot have an alert yet, and this is the hot path.
      */
+    /* `plaza` is already null for the kinds that do not name one -
+       decidePlaza() is what nulls it, so needsPlaza() is not asked twice. */
     const existingAlert = existing
-      ? sameQuestion(
-          await loadTruckAlerts(truckId, session.id),
-          alertIdentity(template.kind, needsPlaza(template.kind) ? plaza : null),
-        )
+      ? sameQuestion(await loadTruckAlerts(truckId, session.id), alertIdentity(template.kind, plaza))
       : null;
 
     const { error: alertError } = existingAlert
@@ -371,7 +520,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
           template_id: template.id,
           is_enabled: true,
           interval_minutes: minutes,
-          plaza: needsPlaza(template.kind) ? plaza : null,
+          plaza,
         });
 
     // The truck is already saved, so a failed alert is not worth throwing the
@@ -554,15 +703,18 @@ export async function addTruckAlert(
   const template = await loadTemplate(templateId);
   if (!template) return fail("That alert is no longer available. Pick another one.");
 
-  const plaza = str(fd, "plaza");
-  if (needsPlaza(template.kind) && !plaza) {
-    return fail(`"${template.name}" watches one toll plaza. Type which plaza to watch.`);
-  }
+  const decided = await decidePlaza(fd, template);
+  if (!decided.ok) return fail(decided.error);
+  const plaza = decided.plaza;
 
   const interval = readInterval(fd, template);
   if (!interval.ok) return fail(interval.error);
 
-  const wanted = alertIdentity(template.kind, needsPlaza(template.kind) ? plaza : null);
+  /* The identity is computed from the CANONICAL plaza, which is what will be
+     stored - so the duplicate this refuses is the duplicate the index would.
+     It makes no difference to the comparison, since alertIdentity() normalises
+     both sides, and every difference to what the refusal then quotes back. */
+  const wanted = alertIdentity(template.kind, plaza);
   const existing = sameQuestion(await loadTruckAlerts(truckId, session.id), wanted);
   if (existing) {
     return fail(alreadyWatchedMessage(existing, existing.template?.name ?? template.name));
@@ -574,7 +726,7 @@ export async function addTruckAlert(
     template_id: template.id,
     is_enabled: true,
     interval_minutes: interval.minutes,
-    plaza: needsPlaza(template.kind) ? plaza : null,
+    plaza,
   });
 
   if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));

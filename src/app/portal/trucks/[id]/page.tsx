@@ -30,7 +30,7 @@ import {
   InlineActionForm,
   SubmitButton,
 } from "@/components/ActionForm";
-import { Disclosure, HelpNote } from "@/components/Disclosure";
+import { Disclosure } from "@/components/Disclosure";
 import { InfoTip, LabelWithInfo } from "@/components/InfoTip";
 import { Checkbox, Field, FormActions, Input, Select } from "@/components/form";
 import { LatestPosition, RouteHistory } from "@/components/Timeline";
@@ -42,13 +42,7 @@ import { intervalLabel, splitInterval } from "@/lib/intervals";
 import { CREDIT_ACTIONS, TOPUP_HREF, costOf, formatCredits, loadRate } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
-import {
-  AUTO_PAUSE_RULES,
-  PAUSE_HELP_LINE,
-  autoPauseCountdown,
-  pauseCopyFor,
-  pauseWhy,
-} from "@/lib/pause";
+import { PAUSE_HELP_LINE, autoPauseCountdown, pauseCopyFor, pauseWhy } from "@/lib/pause";
 import { getSessionUser } from "@/lib/auth";
 import { SupportLine } from "@/components/SupportLine";
 import { loadSettings } from "@/lib/settings";
@@ -212,6 +206,21 @@ export default async function TruckDetailPage({
   const status = truck.is_active ? truck.status : "unknown";
   const totalCrossings = eventCount ?? eventList.length;
 
+  /*
+   * Was this truck stopped by one of the three limits that are edited on this
+   * page? If so the fold holding them opens on arrival, so the "Change when it
+   * stops by itself" link on the pause (i) above lands on the field rather than
+   * on a closed summary the reader then has to find.
+   *
+   * The other reasons are deliberately not here: an empty balance, a lapsed
+   * plan and a suspension all stopped every truck on the account at once and
+   * none of them has a setting on this lorry to change.
+   */
+  const stopsPaused =
+    truck.paused_reason === "repeated_failures" ||
+    truck.paused_reason === "schedule" ||
+    truck.paused_reason === "inactive";
+
   return (
     <div className="space-y-3">
       <Link
@@ -275,10 +284,48 @@ export default async function TruckDetailPage({
           ) : pausedCopy ? (
             <Badge tone={pausedCopy.tone}>{pausedCopy.badge}</Badge>
           ) : null}
+
+          {/* The label belongs with the number, not in front of the timestamp.
+              It is the officer's own name for this lorry - identity, like the
+              registration - and prefixed onto the line below it pushed the
+              exact last-checked time onto a second line at 390px. This is also
+              where the fleet card puts it, so the two now agree. */}
+          {truck.label ? (
+            <span className="min-w-0 truncate text-xs text-muted">{truck.label}</span>
+          ) : null}
         </div>
+        {/*
+          THE EXACT TIME OF THE LAST CHECK, NOT "9m ago".
+
+          The owner's instruction for this page. A relative time is fine on the
+          fleet list, where twenty cards are being scanned for the one that has
+          gone quiet - but this page is opened to answer "when exactly was this
+          lorry last looked at", and "9m ago" is an answer somebody then has to
+          do arithmetic on, against a clock they cannot see. So the timestamp
+          leads, in IST, and the relative form stays behind it in brackets
+          because "two days ago" is the half that lands at a glance.
+
+          lastCheckedLabel is still the fallback and only the fallback: it is
+          the one place that knows the difference between a truck that has never
+          been checked, one with no alert on it at all, and one whose alerts are
+          all switched off - three sentences that are not a timestamp. Note it
+          returns the PAUSE line in preference to anything else, so a paused
+          truck used to show no last-checked time here at all; the pause is
+          already a badge and an (i) two lines above this, and the time it was
+          last looked at is a fact the officer asked to be able to read.
+        */}
         <p className="mt-1 text-xs text-muted">
-          {truck.label ? `${truck.label} · ` : ""}
-          {lastCheckedLabel(truck, ruleList)}
+          {truck.last_polled_at ? (
+            <>
+              Last checked{" "}
+              <span className="font-medium tabular-nums text-ink">
+                {fmtDateTime(truck.last_polled_at)}
+              </span>{" "}
+              <span className="text-faint">({fmtRelative(truck.last_polled_at)})</span>
+            </>
+          ) : (
+            lastCheckedLabel(truck, ruleList)
+          )}
         </p>
 
         {/*
@@ -320,18 +367,15 @@ export default async function TruckDetailPage({
           </InlineActionForm>
         </div>
 
-        {/* Stays: it is state, not explanation - and one line of it. The
-            second sentence ("tell your administrator if it stays this way")
-            was advice, and the same advice is on the support line at the foot
-            of this page and behind the failure-budget (i) in Settings.
-            "Checking carries on" only while it does: on a truck the failure
-            budget has already stopped, that half was flatly contradicted by
-            the pause note further down the same page. */}
+        {/* One line, and only the fact. "Checking carries on" was a
+            reassurance, and it wrapped this to two lines on a phone to deliver
+            news the reader had not asked for - the status badge above already
+            says whether the truck is running. What to do about repeated
+            failures is behind the failure-budget (i) in Settings. */}
         {truck.consecutive_errors > 0 ? (
           <p className="mt-3 rounded-lg border border-bad-500/35 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
             The last {truck.consecutive_errors} check
             {truck.consecutive_errors === 1 ? "" : "s"} did not go through.
-            {truck.is_active ? " Checking carries on." : ""}
           </p>
         ) : null}
       </Panel>
@@ -340,11 +384,13 @@ export default async function TruckDetailPage({
       {added ? (
         <p className="flex items-start gap-2 rounded-xl border border-good-500/40 bg-good-500/10 px-3 py-2.5 text-sm text-good-500">
           <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+          {/* "Here is what will reach you about it" was a caption for the panel
+              directly underneath, which is titled "Alerts on this truck". The
+              other half survives because it is not a restatement - it is the
+              one case where the truck is on the list and nothing will happen. */}
           <span>
-            {truck.truck_number} is on your list.{" "}
-            {enabledRules.length > 0
-              ? "Here is what will reach you about it."
-              : "Nothing is watching it yet — add an alert below."}
+            {truck.truck_number} is on your list.
+            {enabledRules.length > 0 ? "" : " Nothing is watching it yet — add an alert below."}
           </span>
         </p>
       ) : null}
@@ -356,12 +402,12 @@ export default async function TruckDetailPage({
           beat and the number can change their answer. */}
       <Panel title="Alerts on this truck">
         {ruleList.length === 0 ? (
-          <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-sm leading-relaxed text-warn-500">
-            <BellOff size={15} className="mt-0.5 shrink-0" />
-            <span>
-              Nothing is watching {truck.truck_number}. It will not be checked and nothing will
-              reach you until you add an alert below.
-            </span>
+          /* One sentence. The second one said the same thing twice - "it will
+             not be checked" and "nothing will reach you" are one fact, and the
+             fold below is already titled "Add the first alert" and open. */
+          <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
+            <BellOff size={14} className="mt-0.5 shrink-0" />
+            <span>No alert yet, so {truck.truck_number} is never checked.</span>
           </p>
         ) : (
           <ul className="divide-y divide-divider overflow-hidden rounded-lg border border-line">
@@ -521,10 +567,14 @@ export default async function TruckDetailPage({
 
       <Disclosure
         title="Alerts raised"
+        /* The exact time here too, for the same reason as the last-checked
+           line above: the rows inside are timestamped, so a relative hint on
+           the closed section disagreed with the first row the moment it
+           opened. */
         hint={
           alertList.length === 0
             ? "Nothing raised yet"
-            : `Last one ${fmtRelative(alertList[0].created_at)}`
+            : `Last one ${fmtDateTime(alertList[0].created_at)}`
         }
         bodyClassName="p-0"
       >
@@ -558,11 +608,14 @@ export default async function TruckDetailPage({
         the complete list is one tap away on the activity page, already narrowed
         to this lorry, instead of an incomplete one being repeated here.
       */}
+      {/* One line, title only. "With what each one cost." was a subtitle
+          under a title that had room for the same three words, and it cost a
+          second line on every view of this page. "on this truck" went with it:
+          the card is on the truck's own page. */}
       <LinkCard
         href={`/portal/activity?truck=${encodeURIComponent(truck.truck_number)}&by=none`}
         icon={<History size={16} />}
-        title="Every check on this truck"
-        description="With what each one cost."
+        title="Every check, and its cost"
       />
 
       {/* Not folded away like the sections above it. There are only two fields
@@ -604,15 +657,16 @@ export default async function TruckDetailPage({
             ) : (
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             )}
+            {/* The failure count is gone from here: it is a red strip at the
+                top of this same page, and saying it twice on one screen made
+                the paragraph a line longer for no new fact. The stop time is
+                the exact one now, on the same line rather than under it - the
+                officer wants to know when this lorry stopped, not roughly how
+                long ago in a unit that changes every hour. */}
             <span>
               {pausedCopy.detail}
-              {truck.paused_reason === "repeated_failures" && truck.consecutive_errors > 0 ? (
-                <> The last {truck.consecutive_errors} checks in a row could not be completed.</>
-              ) : null}
               {truck.paused_at ? (
-                <span className="mt-1 block opacity-80">
-                  Stopped {fmtRelative(truck.paused_at)}.
-                </span>
+                <> Stopped <span className="tabular-nums">{fmtDateTime(truck.paused_at)}</span>.</>
               ) : null}
             </span>
           </p>
@@ -655,144 +709,160 @@ export default async function TruckDetailPage({
             <Checkbox name="is_active" label="Tracking active" defaultChecked={truck.is_active} />
           </div>
 
-          <div className="mt-4 max-w-xs">
-            <LabelWithInfo
-              label="Stop checking after this many failures"
-              htmlFor="max_consecutive_failures"
-              info={
-                <>
-                  A check fails when the portal cannot answer for this number. After five failures
-                  in a row we message you; at this number the truck is paused, because a failed
-                  check costs a credit like any other and retrying a number the portal will not
-                  answer only buys errors. Nothing is deleted.
-                  <span className="mt-1.5 block text-faint">
-                    Leave it empty to follow the platform default, currently {defaultFailureCutoff}.
-                    Setting your own here fixes it for this truck only, and it will not move when
-                    the default does.
-                  </span>
-                </>
-              }
-            />
-            <Input
-              id="max_consecutive_failures"
-              name="max_consecutive_failures"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={1000}
-              step={1}
-              defaultValue={truck.max_consecutive_failures ?? ""}
-              placeholder={`Default (${defaultFailureCutoff})`}
-              className="mt-1.5"
-            />
-          </div>
-
           {/*
-            The other two stops, editable in the same place as the first. One
-            heading, because all three answer a single question - when should
-            this stop by itself - and somebody deciding that wants all three
-            answers in front of them rather than across three panels.
+            THE THREE STOP LIMITS, FOLDED.
+
+            Three labels, three (i)s and four inputs, all of them set once when
+            a truck is added and then never touched again - and on a phone they
+            were about 200px of the page, standing between the two fields that
+            are actually edited (the label and the switch) and the Save button.
+            The owner's instruction for this screen was to use a dropdown to
+            make it clean, and this is the block that answer was written for.
+
+            A native <details> rather than Disclosure, matching "Change how
+            often" on the alert rows above: a bordered card inside this panel
+            would give a folded-away setting the same weight as the panel it is
+            folded inside. Form controls in a closed <details> are still in the
+            document and still submit - only a disabled control is left out -
+            so a save with this shut writes exactly what a save with it open
+            would, which is what makes folding it safe at all.
+
+            Open when the platform stopped this truck for one of these three
+            reasons, so the "Change when it stops by itself" link on the pause
+            (i) at the top of the page still lands on a field rather than on a
+            closed summary.
           */}
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <LabelWithInfo
-                label="Stop checking automatically after"
-                htmlFor="auto_pause_amount"
-                info={
-                  <>
-                    A countdown that starts when you save. Use it when you only need to follow this
-                    truck for a while — when the time is up it is paused and you are told, so it
-                    stops spending credits whether or not you remembered to come back. Its
-                    tracking slot goes back to your plan at the same moment.
-                    <span className="mt-1.5 block text-faint">
-                      Leave it empty to keep checking until you pause it yourself. Saving with a
-                      number in the box restarts the countdown from now.
-                    </span>
-                  </>
-                }
+          <details
+            open={stopsPaused}
+            className="group/stops mt-4 rounded-lg border border-line bg-raised/40"
+          >
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-xs font-medium text-muted transition hover:text-ink [&::-webkit-details-marker]:hidden">
+              <Timer size={13} className="shrink-0" />
+              When this stops by itself
+              <ChevronDown
+                size={13}
+                aria-hidden
+                className="ml-auto shrink-0 transition group-open/stops:rotate-180"
               />
-              <div className="mt-1.5 flex gap-2">
+            </summary>
+
+            <div className="border-t border-divider px-3 py-3.5">
+              <div className="max-w-xs">
+                <LabelWithInfo
+                  label="Stop checking after this many failures"
+                  htmlFor="max_consecutive_failures"
+                  info={
+                    <>
+                      A check fails when the portal cannot answer for this number. After five
+                      failures in a row we message you; at this number the truck is paused, because
+                      a failed check costs a credit like any other and retrying a number the portal
+                      will not answer only buys errors. Nothing is deleted.
+                      <span className="mt-1.5 block text-faint">
+                        Leave it empty to follow the platform default, currently{" "}
+                        {defaultFailureCutoff}. Setting your own here fixes it for this truck only,
+                        and it will not move when the default does.
+                      </span>
+                    </>
+                  }
+                />
                 <Input
-                  id="auto_pause_amount"
-                  name="auto_pause_amount"
+                  id="max_consecutive_failures"
+                  name="max_consecutive_failures"
                   type="number"
                   inputMode="numeric"
                   min={1}
-                  max={8760}
+                  max={1000}
                   step={1}
-                  placeholder="No limit"
-                  className="flex-1"
+                  defaultValue={truck.max_consecutive_failures ?? ""}
+                  placeholder={`Default (${defaultFailureCutoff})`}
+                  className="mt-1.5"
                 />
-                <Select name="auto_pause_unit" defaultValue="hours" className="w-24 shrink-0">
-                  <option value="hours">hours</option>
-                  <option value="days">days</option>
-                </Select>
               </div>
-            </div>
 
-            <div>
-              <LabelWithInfo
-                label="Pause if it stops moving for"
-                htmlFor="inactive_pause_hours"
-                info={
-                  <>
-                    Counted from the last toll crossing that came through. A parked lorry answers
-                    every check with the same crossing as yesterday, so this pauses it rather than
-                    spending a credit every fifteen minutes to be told nothing new.
-                    <span className="mt-1.5 block text-faint">
-                      Leave it empty to follow the platform default, currently{" "}
-                      {defaultInactiveHours} hours. Set it longer for a truck you expect to be
-                      parked.
-                    </span>
-                  </>
-                }
-              />
-              <Input
-                id="inactive_pause_hours"
-                name="inactive_pause_hours"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={8760}
-                step={1}
-                defaultValue={truck.inactive_pause_hours ?? ""}
-                placeholder={`Default (${defaultInactiveHours} hours)`}
-                className="mt-1.5"
-              />
-            </div>
-          </div>
+              {/* The other two stops, beside the first, because all three answer
+                  one question - when should this stop by itself. */}
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <LabelWithInfo
+                    label="Stop checking automatically after"
+                    htmlFor="auto_pause_amount"
+                    info={
+                      <>
+                        A countdown that starts when you save. Use it when you only need to follow
+                        this truck for a while — when the time is up it is paused and you are told,
+                        so it stops spending credits whether or not you remembered to come back. Its
+                        tracking slot goes back to your plan at the same moment.
+                        <span className="mt-1.5 block text-faint">
+                          Leave it empty to keep checking until you pause it yourself. Saving with a
+                          number in the box restarts the countdown from now.
+                        </span>
+                      </>
+                    }
+                  />
+                  <div className="mt-1.5 flex gap-2">
+                    <Input
+                      id="auto_pause_amount"
+                      name="auto_pause_amount"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={8760}
+                      step={1}
+                      placeholder="No limit"
+                      className="flex-1"
+                    />
+                    <Select name="auto_pause_unit" defaultValue="hours" className="w-24 shrink-0">
+                      <option value="hours">hours</option>
+                      <option value="days">days</option>
+                    </Select>
+                  </div>
+                </div>
 
-          {/*
-            The fuller explanation the (i)s elsewhere link to, folded so it is
-            one line until somebody wants it. It belongs beside the three boxes
-            that cause it rather than on the support site, because this is where
-            an officer decides how patient to be with a lorry - and the decision
-            is only sensible once you know a check costs a credit.
-          */}
-          <HelpNote title="What stops this truck by itself" className="mt-4">
-            <p>
-              A tracked truck is checked every fifteen minutes and each check costs one credit —
-              about 96 credits a day for one lorry. Pausing it is the largest thing you can do
-              about that, and these stop the checks on their own:
-            </p>
-            <ul className="mt-2 space-y-1.5">
-              {AUTO_PAUSE_RULES.map((rule) => (
-                <li key={rule.label}>
-                  <span className="font-medium text-ink">{rule.label}.</span> {rule.body}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2">
-              {PAUSE_HELP_LINE}{" "}
-              <Link
-                href="/portal/trucks?filter=watchlist"
-                className="font-medium text-brand-500 hover:underline"
-              >
-                See every paused truck
-              </Link>
-              .
-            </p>
-          </HelpNote>
+                <div>
+                  <LabelWithInfo
+                    label="Pause if it stops moving for"
+                    htmlFor="inactive_pause_hours"
+                    info={
+                      <>
+                        Counted from the last toll crossing that came through. A parked lorry
+                        answers every check with the same crossing as yesterday, so this pauses it
+                        rather than spending a credit every fifteen minutes to be told nothing new.
+                        <span className="mt-1.5 block text-faint">
+                          Leave it empty to follow the platform default, currently{" "}
+                          {defaultInactiveHours} hours. Set it longer for a truck you expect to be
+                          parked.
+                        </span>
+                      </>
+                    }
+                  />
+                  <Input
+                    id="inactive_pause_hours"
+                    name="inactive_pause_hours"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={8760}
+                    step={1}
+                    defaultValue={truck.inactive_pause_hours ?? ""}
+                    placeholder={`Default (${defaultInactiveHours} hours)`}
+                    className="mt-1.5"
+                  />
+                </div>
+              </div>
+
+              {/*
+                THE AUTO-PAUSE ESSAY IS GONE, not moved.
+
+                It restated the three (i)s it sat under - every one of the five
+                AUTO_PAUSE_RULES that applies to a single truck is the label of
+                a field in this very fold, and its own (i) explains it where the
+                decision is made. What was left was the arithmetic ("about 96
+                credits a day") and a link to the paused list, neither of which
+                belongs on the page for one truck: My trucks carries both, and
+                that is where somebody comparing lorries already is.
+              */}
+            </div>
+          </details>
 
           <FormActions>
             <SubmitButton>Save</SubmitButton>
@@ -800,18 +870,18 @@ export default async function TruckDetailPage({
         </ActionForm>
 
         <div className="mt-5 border-t border-divider pt-4">
-          {/* One line, and the half worth keeping: what removal destroys and
-              what it does not. The comparison with pausing went - the pause
-              switch is six inches up this same panel and says what it does
-              when you press it. */}
-          <p className="text-xs leading-relaxed text-muted">
-            Removing deletes this truck&apos;s alerts and frees its slot. Its {totalCrossings} toll
-            crossing{totalCrossings === 1 ? "" : "s"} on record are kept.
-          </p>
-          <ActionForm action={removeTruck} closeOnSuccess={false} className="mt-3">
+          {/*
+            The paragraph above this button has gone into the button's own
+            confirmation. It was three lines of small print explaining a
+            destructive action, sitting permanently on a page that is opened to
+            find out where a lorry is - and it was read, if at all, before the
+            reader had decided to remove anything. In the confirm dialog it is
+            read at the one moment it can change the answer.
+          */}
+          <ActionForm action={removeTruck} closeOnSuccess={false}>
             <input type="hidden" name="truck_id" value={truck.id} />
             <ConfirmSubmitButton
-              message={`Remove ${truck.truck_number} from tracking?`}
+              message={`Remove ${truck.truck_number} from tracking? Its alerts go and its slot is freed. The ${totalCrossings} toll crossing${totalCrossings === 1 ? "" : "s"} on record are kept.`}
               size="md"
             >
               <Trash2 size={13} />

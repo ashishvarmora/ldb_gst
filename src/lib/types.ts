@@ -667,9 +667,6 @@ export type TruckDirectoryRow = {
 };
 
 
-/** One row of the search_plazas() RPC. */
-export type PlazaMatch = { name: string; seen_count: number; score: number };
-
 /* -------------------------------------------------------------------------- */
 /* referrals                                                                   */
 /* -------------------------------------------------------------------------- */

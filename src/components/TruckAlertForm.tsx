@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, MapPin, Plus, Search } from "lucide-react";
+import { AlertTriangle, Check, Loader2, MapPin, Navigation, Plus, Search } from "lucide-react";
 
-import { addTruckAlert, findPlazas } from "@/app/portal/trucks/actions";
+import { addTruckAlert, findPlazas, plazasAhead } from "@/app/portal/trucks/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { FormActions, Input, Select } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
@@ -24,7 +24,20 @@ import {
   toMinutes,
   type IntervalUnit,
 } from "@/lib/intervals";
-import type { AlertRuleTemplate, PlazaMatch } from "@/lib/types";
+import {
+  NO_MATCHES,
+  PLAZA_INFO_LINES,
+  PLAZA_UNLISTED_FIELD,
+  aheadEmptyNote,
+  aheadLabel,
+  didYouMean,
+  isKnownPlaza,
+  unlistedPlazaConfirm,
+  type PlazaLookup,
+  type PlazaSuggestion,
+  type PlazasAhead,
+} from "@/lib/plazas";
+import type { AlertRuleTemplate } from "@/lib/types";
 
 /**
  * Choosing an alert.
@@ -99,11 +112,19 @@ export function offeredTemplates(
 export function AlertChooser({
   templates,
   taken = [],
+  truckId,
   className,
 }: {
   templates: AlertRuleTemplate[];
   /** What the truck is already watched for. Empty while adding a new truck. */
   taken?: TakenAlert[];
+  /**
+   * The truck the alert is being added to, when there is one. Absent on the
+   * add-truck form, and that absence is the honest reason the plaza box there
+   * cannot suggest anything: a truck nobody has checked yet has no crossings,
+   * so it has no position and nothing is ahead of it.
+   */
+  truckId?: string;
   className?: string;
 }) {
   const offered = offeredTemplates(templates, taken);
@@ -278,7 +299,7 @@ export function AlertChooser({
 
       {wantsPlaza ? (
         <div>
-          <PlazaPicker value={plaza} onChange={setPlaza} />
+          <PlazaPicker value={plaza} onChange={setPlaza} truckId={truckId} />
           {/* State, not explanation: it appears only when the plaza typed is
               one this truck is already watching, and it says where to change
               that one instead. */}
@@ -345,37 +366,123 @@ function AlreadyOn({ rows }: { rows: TakenAlert[] }) {
   );
 }
 
+/** One offered plaza, in either list. The note on the right is the difference. */
+function PlazaRow({
+  plaza,
+  picked,
+  onPick,
+}: {
+  plaza: PlazaSuggestion;
+  picked: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onPick}
+        className={cx(
+          "flex w-full items-center gap-2 px-3 py-2.5 text-left transition",
+          picked ? "bg-brand-500/8" : "hover:bg-raised",
+        )}
+      >
+        <MapPin size={13} className="shrink-0 text-faint" />
+        <span className="min-w-0 flex-1 truncate text-xs text-ink">{plaza.name}</span>
+        <span className="shrink-0 text-[11px] whitespace-nowrap text-faint">
+          {plaza.km !== null ? (
+            /* How far in front of the lorry. Straight-line - the (i) says so -
+               and the number is here rather than in the heading because it is
+               what tells two plazas in the same direction apart. */
+            `${plaza.km.toLocaleString("en-IN")} km`
+          ) : (
+            <>
+              {/* Two plazas with near-identical names are common - Bhat, Bhatia
+                  and Bhatwada are all on this network - and how often each has
+                  been recorded is what tells them apart. */}
+              seen {plaza.seen_count.toLocaleString("en-IN")} time
+              {plaza.seen_count === 1 ? "" : "s"}
+            </>
+          )}
+        </span>
+        {picked ? <Check size={13} className="shrink-0 text-brand-500" /> : null}
+      </button>
+    </li>
+  );
+}
+
 /**
  * The toll plaza box.
  *
- * A dropdown of recorded plazas used to be the only way in, which made every
- * plaza the platform had not seen yet unwatchable. The typed text is the
- * answer here and the suggestions only fill it in, so a plaza missing from the
- * list is still perfectly usable - and the matching at alert time ignores case
- * and spacing, so only the spelling has to be right.
+ * THE LIST USED TO BE A POPULARITY RANKING. It was headed MOST RECORDED PLAZAS
+ * and it was toll_plazas ordered by seen_count - the plazas the whole platform
+ * has crossed most often, which is a fact about the platform and not about the
+ * lorry on the screen. The owner's complaint is exactly right: the officer
+ * wants the toll AHEAD of the truck, and the plaza at the top of a popularity
+ * list is usually one it passed days ago or will never see.
+ *
+ * So an empty box now answers with this truck's own geometry - see
+ * plazasAhead() and migration 0051 - and a typed box answers with fuzzy
+ * matching. Neither ever invents anything: when the crossings will not support
+ * a claim about what is ahead, the list is empty and says which fact was
+ * missing, because a list that looks the same whether or not it means anything
+ * is how the old one got away with meaning nothing.
+ *
+ * The typed text remains the answer and the lists only fill it in, so a plaza
+ * this platform has never recorded is still watchable - with a confirmation,
+ * because that is also what a misspelling looks like.
  */
 function PlazaPicker({
   value,
   onChange,
+  truckId,
 }: {
   value: string;
   onChange: (next: string) => void;
+  /** Absent while a truck is being added: there are no crossings to reason from. */
+  truckId?: string;
 }) {
-  const [matches, setMatches] = useState<PlazaMatch[]>([]);
+  const [lookup, setLookup] = useState<PlazaLookup>(NO_MATCHES);
   const [busy, setBusy] = useState(false);
+  /** null until asked, and on the add form it is never asked. */
+  const [ahead, setAhead] = useState<PlazasAhead | null>(null);
+  /**
+   * "Yes, watch the name I typed." Reset on every edit of the box below,
+   * because a confirmation of one spelling must not silently authorise the
+   * next one.
+   */
+  const [confirmed, setConfirmed] = useState(false);
   // Answers can come back out of order; only the newest query may paint.
   const latest = useRef(0);
 
+  /* Once, when the picker appears. The truck's position does not change while
+     somebody types, so re-asking on every keystroke would be a query per
+     letter for an answer that cannot have moved. */
+  useEffect(() => {
+    if (!truckId) return;
+    let live = true;
+    plazasAhead(truckId)
+      .then((result) => {
+        if (live) setAhead(result);
+      })
+      .catch(() => {
+        if (live) setAhead(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [truckId]);
+
   useEffect(() => {
     const id = ++latest.current;
+    setConfirmed(false);
     setBusy(true);
     const timer = setTimeout(() => {
       findPlazas(value)
-        .then((rows) => {
-          if (latest.current === id) setMatches(rows);
+        .then((result) => {
+          if (latest.current === id) setLookup(result);
         })
         .catch(() => {
-          if (latest.current === id) setMatches([]);
+          if (latest.current === id) setLookup(NO_MATCHES);
         })
         .finally(() => {
           if (latest.current === id) setBusy(false);
@@ -385,31 +492,41 @@ function PlazaPicker({
     return () => clearTimeout(timer);
   }, [value]);
 
+  const typed = value.trim() !== "";
   const normalised = normaliseLocation(value);
-  const known = matches.some((match) => normaliseLocation(match.name) === normalised);
-  // Only once the search has settled: saying "we have not recorded that" after
-  // every keystroke of a name that is in the list is just noise.
-  const isNew = normalised !== null && !known && !busy;
+  /* Only once the search has settled. Announcing "we have no such plaza" after
+     every keystroke of a name that IS in the catalogue is just noise, and here
+     it would be noise attached to a tick box. */
+  const settled = !busy && normaliseLocation(lookup.query) === normalised;
+  const known = isKnownPlaza(value, lookup);
+  const unlisted = typed && settled && !known;
+  const closest = unlisted ? didYouMean(lookup) : null;
+
+  /* One list, and which one depends only on whether anything has been typed.
+     Neither is a fallback for the other: a typed name is a question about that
+     name, and an empty box is a question about the truck. */
+  const offered = typed ? lookup.matches : (ahead?.plazas ?? []);
+  const heading = typed ? "Closest matches" : ahead ? aheadLabel(ahead) : null;
 
   return (
     <div>
-      {/* Behind the (i) with every other explanation on this form. The list
-          below the box already demonstrates what it is; the only part worth
-          words is that a plaza missing from it is still usable.
+      {/* Everything this box needs explaining is behind the (i), which is where
+          this form put the rest of its prose when it was cut from 927px to
+          805px. Two lines, and the first is the one nobody could guess: that
+          the list is about THIS lorry and what its limits are.
 
-          "Which toll plaza?" lost its question mark. InfoButton builds its
-          accessible name as `What is ${label}?`, so a label that is already a
-          question came out as "What is Which toll plaza??" to a screen reader.
-          A noun phrase also matches the other labels on this form, which are
-          statements now rather than questions. */}
+          "Which toll plaza?" lost its question mark long ago. InfoButton builds
+          its accessible name as `What is ${label}?`, so a label that is already
+          a question came out as "What is Which toll plaza??" to a screen
+          reader. */}
       <LabelWithInfo
         label="Toll plaza to watch"
         htmlFor="plaza"
         required
         info={
           <>
-            The list is the toll plazas this platform has recorded so far. Not there? Type the name
-            and we will watch for it.
+            <p>{PLAZA_INFO_LINES.ahead}</p>
+            <p>{PLAZA_INFO_LINES.typing}</p>
           </>
         }
       />
@@ -424,7 +541,10 @@ function PlazaPicker({
           required
           autoComplete="off"
           spellCheck={false}
-          placeholder="Start typing: nadiad"
+          /* Not a plaza name any more. It used to read "Start typing: nadiad"
+             and there is no Nadiad in this catalogue, so the one worked example
+             on the form was a name the box would then refuse. */
+          placeholder="Start typing a plaza name"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className="pl-9"
@@ -438,47 +558,81 @@ function PlazaPicker({
         ) : null}
       </div>
 
-      {matches.length > 0 ? (
+      {offered.length > 0 && heading ? (
         <>
-          <p className="mt-2 mb-1 text-[11px] font-semibold tracking-wider text-faint uppercase">
-            {value.trim() === "" ? "Most recorded plazas" : "Closest matches"}
+          <p className="mt-2 mb-1 flex items-center gap-1 text-[11px] font-semibold tracking-wider text-faint uppercase">
+            {/* The heading carries the basis of the list, because a list of
+                plazas under no explanation is what let the old one pass for
+                relevant. The arrow only appears when the rows really are
+                directional. */}
+            {!typed && ahead?.basis === "ahead" ? (
+              <Navigation size={11} aria-hidden className="shrink-0" />
+            ) : null}
+            {heading}
           </p>
-          <ul className="divide-y divide-divider overflow-hidden rounded-lg border border-line">
-            {matches.map((match) => {
-              const picked = normaliseLocation(match.name) === normalised;
-              return (
-                <li key={match.name}>
-                  <button
-                    type="button"
-                    onClick={() => onChange(match.name)}
-                    className={cx(
-                      "flex w-full items-center gap-2 px-3 py-2.5 text-left transition",
-                      picked ? "bg-brand-500/8" : "hover:bg-raised",
-                    )}
-                  >
-                    <MapPin size={13} className="shrink-0 text-faint" />
-                    <span className="min-w-0 flex-1 truncate text-xs text-ink">{match.name}</span>
-                    {/* Two plazas with near-identical names are common; how
-                        often each has been recorded is what tells them apart. */}
-                    <span className="shrink-0 text-[11px] whitespace-nowrap text-faint">
-                      seen {match.seen_count.toLocaleString("en-IN")} time
-                      {match.seen_count === 1 ? "" : "s"}
-                    </span>
-                    {picked ? <Check size={13} className="shrink-0 text-brand-500" /> : null}
-                  </button>
-                </li>
-              );
-            })}
+          {/* Height-bounded rather than trusted to be short: six rows is 246px
+              on a 390px screen, which is a third of everything this form is
+              allowed. */}
+          <ul className="max-h-52 divide-y divide-divider overflow-y-auto rounded-lg border border-line">
+            {offered.map((plaza) => (
+              <PlazaRow
+                key={plaza.name}
+                plaza={plaza}
+                picked={normaliseLocation(plaza.name) === normalised}
+                onPick={() => onChange(plaza.name)}
+              />
+            ))}
           </ul>
         </>
       ) : null}
 
-      {isNew ? (
+      {/* State, not explanation: only ever drawn in place of a list, and only
+          for a truck whose position was actually asked about. */}
+      {!typed && ahead && ahead.plazas.length === 0 ? (
         <p className="mt-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs leading-relaxed text-muted">
-          We have not recorded a plaza named exactly &ldquo;{value.trim()}&rdquo; yet. That is
-          fine — we will watch for it. The spelling has to match what the toll record says;
-          capitals and extra spaces do not matter.
+          {aheadEmptyNote(ahead)}
         </p>
+      ) : null}
+
+      {/*
+        The one thing worth blocking a submit for.
+        A plaza_crossing alert on a name no toll record produces is silent for
+        ever - indistinguishable from "it has not got there yet" - and spends a
+        credit on every check while being silent. Not refused outright, because
+        a plaza this platform has not seen is far more often new than misspelt:
+        80 names here against well over a thousand tolled plazas in the country.
+        The tick is `required`, so the browser refuses the submit until it is
+        made, and decidePlaza() in the trucks actions refuses the same thing
+        server-side for a stale form or a second tab.
+      */}
+      {unlisted ? (
+        <div className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5">
+          <p className="flex gap-1.5 text-xs leading-relaxed text-warn-500">
+            <AlertTriangle size={13} aria-hidden className="mt-0.5 shrink-0" />
+            <span>
+              {closest ? <>Did you mean {closest}? </> : null}
+              No plaza we hold is spelt &ldquo;{value.trim()}&rdquo;. An alert fires on the toll
+              record&rsquo;s own spelling, so this one would stay silent and still cost a credit a
+              check.
+            </span>
+          </p>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warn-500">
+            {/* The hidden companion is what makes an unticked box post "false"
+                rather than nothing, so bool() can tell it from an absent
+                field - the same trick the shared Checkbox uses. */}
+            <input type="hidden" name={PLAZA_UNLISTED_FIELD} value="false" />
+            <input
+              type="checkbox"
+              name={PLAZA_UNLISTED_FIELD}
+              value="true"
+              required
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+              className="size-4 shrink-0 accent-[color:var(--color-warn-500)]"
+            />
+            {unlistedPlazaConfirm(value)}
+          </label>
+        </div>
       ) : null}
     </div>
   );
@@ -502,7 +656,7 @@ export function TruckAlertForm({
   return (
     <ActionForm action={addTruckAlert} closeOnSuccess={false}>
       <input type="hidden" name="truck_id" value={truckId} />
-      <AlertChooser templates={templates} taken={taken} />
+      <AlertChooser templates={templates} taken={taken} truckId={truckId} />
 
       {offered.length > 0 ? (
         <FormActions>
