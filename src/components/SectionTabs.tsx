@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { LinkPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
@@ -58,10 +58,14 @@ export function SectionTabs({
   return (
     <nav
       aria-label="Sections"
-      className={cx(
-        "-mx-4 mb-5 overflow-x-auto px-4 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-        className,
-      )}
+      /*
+       * `swipeable` carries the edge shadow that says this scrolls - without
+       * it the last tab simply ended mid-word and read as a rendering fault.
+       * --swipe-bg is the page rather than the default panel, because the
+       * strip sits directly on the background. See globals.css.
+       */
+      style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
+      className={cx("swipeable -mx-4 mb-5 px-4 sm:mx-0 sm:px-0", className)}
     >
       <ul className="flex w-max min-w-full gap-1.5 border-b border-divider pb-2 sm:w-auto">
         {sections.map(({ key, label, icon, hint }) => {

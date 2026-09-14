@@ -40,7 +40,9 @@ export function OverridesPanel({
       <ActionForm action={saveOverrides} closeOnSuccess={false}>
         <input type="hidden" name="user_id" value={account.id} />
 
-        <div className="overflow-x-auto">
+        {/* swipeable, like every other table here: four columns of limits do
+            not fit a phone, and the edge is what says so. */}
+        <div className="swipeable">
           <table className="w-full border-collapse">
             <thead className="border-b border-line/70 bg-raised/60">
               <tr>

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bell,
   ClipboardList,
@@ -150,6 +151,111 @@ export function AdminSidebar({ brandName }: { brandName?: string }) {
 export function AdminMobileNav({ brandName }: { brandName?: string }) {
   const [open, setOpen] = useState(false);
 
+  /*
+   * THE DRAWER HAS TO LEAVE THE HEADER TO BE A DRAWER AT ALL.
+   *
+   * It is `fixed inset-0`, which everyone reads as "cover the viewport". It
+   * did not. The header it is mounted in carries `backdrop-blur`, and
+   * backdrop-filter - like transform and filter - makes an element a
+   * CONTAINING BLOCK for its fixed-position descendants. So inset-0 resolved
+   * against the header, and the whole overlay was laid out inside a 68px-tall
+   * strip: the panel came out 68px tall instead of full height, the backdrop
+   * dimmed only the header rather than the page, and the navigation spilled
+   * out below the box it was supposed to be inside. On a phone it read as a
+   * small card stuck to the top of an undimmed page, which is what the owner
+   * photographed and reported as the menu being broken.
+   *
+   * A portal to document.body is the fix that stays fixed: it puts the overlay
+   * outside every ancestor, so no future transform, filter or `contain` on
+   * anything above it can capture it again. mounted gates it because
+   * document.body does not exist while this renders on the server.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  /*
+   * The page behind a modal drawer must not scroll. Without this, dragging
+   * anywhere outside the 256px panel scrolls the console underneath it, so the
+   * reader closes the drawer to find they have lost their place in a long
+   * table. Restored on close and on unmount, including when the drawer is open
+   * as the route changes.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
+  /* Escape closes it, the way every other dismissible layer in this app does. */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const overlay = (
+    <div className="fixed inset-0 z-50 flex lg:hidden">
+      <div className="fixed inset-0 bg-strong/25 backdrop-blur-sm" onClick={() => setOpen(false)} />
+      {/* max-w-[85vw] so the drawer never covers the whole screen on a small
+          phone - the strip of dimmed page behind it is what tells a reader
+          this closes rather than navigates. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation"
+        className="animate-in relative z-10 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-panel px-3 py-4"
+      >
+        <div className="flex shrink-0 items-center justify-between">
+          <Brand brandName={brandName} />
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close navigation"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-sunken hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto">
+          <NavLinks onNavigate={() => setOpen(false)} />
+        </div>
+
+        {/*
+         * OFFICER VIEW LIVES HERE ON A PHONE, AND ONLY HERE.
+         *
+         * The header's copy of this link is `hidden sm:inline-flex`, and this
+         * drawer is the whole of the navigation below that width - so between
+         * them there was no way at all to reach the customer-facing side of
+         * the product from a phone. Not a cramped way: none. The link was
+         * display:none and nothing else on the page pointed at /portal.
+         *
+         * Pinned under the scroller rather than added to NavLinks, because it
+         * leaves the console rather than moving around inside it, and a
+         * fourteenth entry in a list of admin destinations is exactly how
+         * somebody ends up in the portal without meaning to be.
+         */}
+        <div className="mt-3 shrink-0 border-t border-line pt-3">
+          <Link
+            href="/portal"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-sunken/70 hover:text-ink"
+          >
+            <LayoutDashboard size={16} className="shrink-0" />
+            Officer view
+            <NavSpinner />
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="lg:hidden">
       <button
@@ -168,33 +274,7 @@ export function AdminMobileNav({ brandName }: { brandName?: string }) {
         <Menu size={16} />
       </button>
 
-      {open ? (
-        <div className="fixed inset-0 z-50 flex">
-          <div
-            className="fixed inset-0 bg-strong/25 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
-          {/* max-w-[85vw] so the drawer never covers the whole screen on a small
-              phone - the strip of dimmed page behind it is what tells a reader
-              this closes rather than navigates. */}
-          <div className="animate-in relative z-10 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-panel px-3 py-4">
-            <div className="flex items-center justify-between">
-              <Brand brandName={brandName} />
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close navigation"
-                className="rounded-lg p-1.5 text-muted hover:bg-sunken hover:text-ink"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="mt-5 min-h-0 flex-1 overflow-y-auto">
-              <NavLinks onNavigate={() => setOpen(false)} />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {open && mounted ? createPortal(overlay, document.body) : null}
     </div>
   );
 }

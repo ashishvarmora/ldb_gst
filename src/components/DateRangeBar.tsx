@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { CalendarRange, Check, X } from "lucide-react";
 
 import { BUCKETS, RANGE_PRESETS, type DateRange } from "@/lib/analytics";
@@ -65,7 +65,10 @@ export function DateRangeBar({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
         {/* Scrolls sideways on a phone rather than stacking into four rows and
             pushing the report itself below the fold. */}
-        <div className="-mx-4 flex-1 overflow-x-auto px-4 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
+          className="swipeable -mx-4 min-w-0 flex-1 px-4 sm:mx-0 sm:px-0"
+        >
           <div className="flex w-max min-w-full items-center gap-1.5">
             {RANGE_PRESETS.map((preset) => (
               <Link

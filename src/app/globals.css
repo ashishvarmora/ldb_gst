@@ -263,6 +263,86 @@ body {
     @apply text-brand-500 underline decoration-brand-500/30 underline-offset-2
       transition hover:decoration-brand-500;
   }
+
+  /*
+   * A SIDEWAYS SCROLLER THAT LOOKS LIKE ONE.
+   *
+   * Several things in this console are too wide for a phone and scroll
+   * sideways rather than wrap: the section tabs, and every table. That was the
+   * right call - a six-column table reflowed into a phone is unreadable, and
+   * tabs wrapped to three rows push the content below the fold. But a scroller
+   * with no edge is indistinguishable from content that has simply been cut
+   * off, and that is what it was read as: the owner photographed a tab strip
+   * whose fourth tab ended mid-word and a table whose last column - the one
+   * with the row's actions in it - was 250px past the right edge, and reported
+   * that the options were missing. They were reachable the whole time. Nothing
+   * on screen said so.
+   *
+   * So the edges say so. A shadow appears at whichever side has more content
+   * behind it and goes when that side is reached, which is the same signal a
+   * native scroll area gives and the only one people already know how to read.
+   *
+   * No JavaScript and no scroll listener. Four backgrounds: two opaque covers
+   * attached `local` so they travel with the content, and two shadows attached
+   * `scroll` so they stay pinned to the element. At rest a cover sits exactly
+   * over its shadow and hides it; scrolling slides the cover away and reveals
+   * it. Both covers fade to a TRANSPARENT VERSION OF THE SURFACE rather than
+   * to `transparent`, which in sRGB is transparent *black* and would draw a
+   * grey smear across a white panel.
+   *
+   * --swipe-bg is whatever the scroller sits on. It defaults to the panel
+   * colour because most of these are tables inside a panel; the tab strip sits
+   * on the page itself and overrides it.
+   */
+  .swipeable {
+    --swipe-bg: var(--color-panel);
+    --swipe-fade: color-mix(in srgb, var(--swipe-bg), transparent 100%);
+    overflow-x: auto;
+    background-image:
+      linear-gradient(to right, var(--swipe-bg) 40%, var(--swipe-fade)),
+      linear-gradient(to left, var(--swipe-bg) 40%, var(--swipe-fade)),
+      linear-gradient(to right, rgb(16 24 40 / 0.13), rgb(16 24 40 / 0)),
+      linear-gradient(to left, rgb(16 24 40 / 0.13), rgb(16 24 40 / 0));
+    background-position:
+      left center,
+      right center,
+      left center,
+      right center;
+    background-repeat: no-repeat;
+    background-size:
+      32px 100%,
+      32px 100%,
+      16px 100%,
+      16px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  /* The shadow has to read against a near-black page, where a darker smudge is
+     invisible. Same geometry, lit rather than shaded. */
+  .theme-dark .swipeable {
+    background-image:
+      linear-gradient(to right, var(--swipe-bg) 40%, var(--swipe-fade)),
+      linear-gradient(to left, var(--swipe-bg) 40%, var(--swipe-fade)),
+      linear-gradient(to right, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0)),
+      linear-gradient(to left, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0));
+  }
+
+  /* Thin, and only where a pointer can actually use it. A phone gets no
+     scrollbar track eating 8px of a 375px row; a mouse gets something to
+     drag. */
+  @media (pointer: fine) {
+    .swipeable {
+      scrollbar-width: thin;
+    }
+  }
+  @media (pointer: coarse) {
+    .swipeable {
+      scrollbar-width: none;
+    }
+    .swipeable::-webkit-scrollbar {
+      display: none;
+    }
+  }
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator,

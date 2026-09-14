@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import {
   ArrowDownUp,
   CalendarRange,
@@ -810,7 +811,12 @@ export async function CreditLedger({
         */}
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <div className="-ml-4 overflow-x-auto pl-4 [scrollbar-width:none] sm:ml-0 sm:pl-0 [&::-webkit-scrollbar]:hidden">
+            {/* swipeable carries the edge shadow that says this strip scrolls;
+                see globals.css. It sits on the page, not on a panel. */}
+            <div
+              style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
+              className="swipeable -ml-4 pl-4 sm:ml-0 sm:pl-0"
+            >
               <div className="flex w-max min-w-full items-center gap-1.5 pr-6 sm:pr-1">
                 {/*
                   A truck filter leads the row, ahead of the pills, and only

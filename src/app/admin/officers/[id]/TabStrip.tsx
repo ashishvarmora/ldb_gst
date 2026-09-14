@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { CreditCard, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
 
 import { LinkPending } from "@/components/NavPending";
@@ -94,7 +94,10 @@ export function TabStrip({
   return (
     <nav
       aria-label="Account sections"
-      className="mb-5 flex gap-1 overflow-x-auto border-b border-divider pb-px"
+      /* swipeable: five tabs and their counts do not fit a phone, and without
+         an edge the last one just ended mid-word. See globals.css. */
+      style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
+      className="swipeable mb-5 flex gap-1 border-b border-divider pb-px"
     >
       {TABS.map(({ key, label, icon: Icon }) => {
         const active = key === current;

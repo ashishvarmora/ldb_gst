@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { Coins, Package } from "lucide-react";
 
 import { LinkPending } from "@/components/NavPending";
@@ -84,7 +85,10 @@ export function TabStrip({ current }: { current: Tab }) {
   return (
     <nav
       aria-label="Plans and credits sections"
-      className="mb-5 flex gap-1 overflow-x-auto border-b border-divider pb-px"
+      /* swipeable: see globals.css - the strip scrolls on a phone and needs
+         to look like it does. */
+      style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
+      className="swipeable mb-5 flex gap-1 border-b border-divider pb-px"
     >
       {TABS.map(({ key, label, icon: Icon }) => {
         const active = key === current;

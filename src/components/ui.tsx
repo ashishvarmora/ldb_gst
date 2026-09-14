@@ -239,9 +239,15 @@ export function LinkButton({
 /* Tables                                                                      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * `swipeable` rather than a bare overflow-x-auto: these tables are routinely
+ * two hundred pixels wider than a phone, and the column that goes off the edge
+ * is the last one - which in this console is almost always the row's actions.
+ * A scroller nobody can see is a column nobody knows exists. See globals.css.
+ */
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="swipeable">
       <table className="w-full min-w-full border-collapse">{children}</table>
     </div>
   );
