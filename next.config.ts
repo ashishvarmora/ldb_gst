@@ -119,6 +119,30 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingRoot: import.meta.dirname,
 
+  /*
+   * STOPS A DEPLOY BREAKING THE PAGES THAT ARE ALREADY OPEN.
+   *
+   * A browser holding a document from the previous build keeps asking for that
+   * build's content-hashed chunks. Those are not in the new deployment, so
+   * they 404 - and what the customer sees is a button that does nothing, with
+   * no clue that a refresh is the cure.
+   *
+   * Stamping the deployment id into the build makes every asset request say
+   * which build it came from, which is what lets Vercel's Skew Protection
+   * answer it from THAT deployment instead of the current one. The old page
+   * then keeps working until it is reloaded, rather than breaking the moment
+   * the deploy lands.
+   *
+   * This line alone does nothing: Skew Protection is a project setting
+   * (Vercel → Settings → Advanced), and it is the toggle that does the
+   * routing. Without it this is harmless, and VersionWatcher still gets
+   * everyone onto the new build - it just does so after a fault rather than
+   * before one.
+   *
+   * Undefined off Vercel, which is the documented way to leave it unset.
+   */
+  deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
+
   experimental: {
     // Server Actions receive plan/limit payloads; keep the default 1MB cap.
     serverActions: { bodySizeLimit: "1mb" },

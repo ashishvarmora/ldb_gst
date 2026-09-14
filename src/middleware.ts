@@ -85,7 +85,14 @@ export const config = {
    * timeout is also the wrong latency to add to the one path where a timeout
    * costs somebody their credits.
    */
+  /*
+   * api/version is excluded for the sw.js reason exactly: every open tab and
+   * every installed app polls it on each return to the foreground, it reads no
+   * cookie and nothing reads the refreshed one back. Leaving it in would put a
+   * Supabase round trip in front of the smallest and most frequent request the
+   * app makes.
+   */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

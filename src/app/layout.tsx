@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 
 import { ServiceWorkerRegistrar } from "@/components/Pwa";
 import { publicSettings } from "@/components/SiteFooter";
+import { VersionWatcher } from "@/components/VersionWatcher";
+import { BUILD_ID } from "@/lib/build-id";
 import { env } from "@/lib/env";
 import "./globals.css";
 
@@ -73,6 +75,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen antialiased">
         {children}
         <ServiceWorkerRegistrar />
+        {/*
+         * Mounted at the root, so it covers the signed-out pages too. A
+         * customer sitting on /pricing across a deploy has the same stale
+         * chunks as one inside the portal, and the checkout they open from
+         * there is the most expensive thing in the app to have fail.
+         *
+         * BUILD_ID is read here, on the server, which makes the prop the
+         * build that rendered THIS document - the thing that actually has to
+         * be compared against what is live. Baking it into the client bundle
+         * through an env var would say the same thing far less directly.
+         */}
+        <VersionWatcher current={BUILD_ID} />
       </body>
     </html>
   );
