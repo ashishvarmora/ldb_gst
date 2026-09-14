@@ -112,6 +112,34 @@ export default async function SettingsPage({
   const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const cronUrl = host ? `${proto}://${host}/api/cron/track` : "https://your-app/api/cron/track";
 
+  /*
+   * THE PUBLIC ADDRESS, AND WHETHER IT IS STILL TRUE.
+   *
+   * NEXT_PUBLIC_SITE_URL is the value every link that leaves the building is
+   * built from - password resets, the welcome email, referral links. It has a
+   * fallback to the *.vercel.app host Vercel maintains, so when it is stale
+   * nothing on this site looks broken: the failures all happen in somebody
+   * else's inbox, where nobody here can see them.
+   *
+   * So it is shown rather than merely checked, and compared against the host
+   * actually serving this page. A mismatch is the signature of a domain that
+   * moved without this variable following it. www is ignored on both sides -
+   * reaching the admin through www.example.com does not make example.com wrong.
+   */
+  const configuredSiteUrl = env.siteUrl;
+  const bareHost = (value: string) => value.replace(/^www\./i, "").toLowerCase();
+  const siteUrlHost = (() => {
+    try {
+      return bareHost(new URL(configuredSiteUrl).host);
+    } catch {
+      return "";
+    }
+  })();
+  // Only judged against a real request. A local run serves localhost and would
+  // otherwise report the production address as wrong every time.
+  const siteUrlChecked = Boolean(host) && !host.startsWith("localhost");
+  const siteUrlMatchesHost = !siteUrlChecked || siteUrlHost === bareHost(host);
+
   return (
     <>
       <PageHeader
@@ -812,6 +840,18 @@ export default async function SettingsPage({
                 label="Razorpay key secret"
                 detail="RAZORPAY_KEY_SECRET, needed before anyone can pay"
               />
+              {/* Every outbound link is built from this, and all of them fail
+                  somewhere nobody here can see. See the banner below. */}
+              <HealthRow
+                ok={siteUrlMatchesHost}
+                label="Public address"
+                badPrefix={null}
+                detail={
+                  siteUrlMatchesHost
+                    ? `NEXT_PUBLIC_SITE_URL — ${configuredSiteUrl}`
+                    : `NEXT_PUBLIC_SITE_URL is ${configuredSiteUrl}, but this page came from ${proto}://${host}`
+                }
+              />
               <HealthRow
                 ok={!emailProblem}
                 label="Password reset email"
@@ -824,6 +864,30 @@ export default async function SettingsPage({
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <span>
                   <strong>Nobody can reset their password.</strong> {emailProblem}
+                </span>
+              </p>
+            ) : null}
+
+            {/*
+              Shown only when the address disagrees, and it lists the places the
+              address is written down rather than just reporting the mismatch.
+              This site moved to a new domain and took every payment with it:
+              Razorpay refuses any payment started from a site it does not have
+              on file, so checkout broke on the day of the move, in a way that
+              looked from here like ordinary card failures.
+            */}
+            {!siteUrlMatchesHost ? (
+              <p className="mt-4 flex items-start gap-2.5 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2.5 text-xs leading-relaxed text-bad-500">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  <strong>This site has moved and something was left behind.</strong> Every link
+                  sent out by email — password resets, welcome mails, referral links — still points
+                  at <Mono className="text-xs">{configuredSiteUrl}</Mono>. A domain change has to be
+                  made in four places: <strong>NEXT_PUBLIC_SITE_URL</strong> in Vercel,{" "}
+                  <strong>Razorpay</strong> (both the registered website and the webhook URL —
+                  Razorpay blocks payments from a site it does not have on file),{" "}
+                  <strong>Supabase</strong> (Site URL and Redirect URLs), and your{" "}
+                  <strong>cron scheduler</strong>. See docs/CHANGING-THE-DOMAIN.md.
                 </span>
               </p>
             ) : null}
@@ -930,7 +994,23 @@ export default async function SettingsPage({
   );
 }
 
-function HealthRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+/**
+ * `badPrefix` exists because not every red row here is a missing value. Almost
+ * all of them are, so "Not set" stays the default and no existing row changed;
+ * a row whose failure is a disagreement rather than an absence says so instead,
+ * and reads as the sentence it is rather than as "Not set — <a value>".
+ */
+function HealthRow({
+  ok,
+  label,
+  detail,
+  badPrefix = "Not set",
+}: {
+  ok: boolean;
+  label: string;
+  detail: string;
+  badPrefix?: string | null;
+}) {
   return (
     <li className="flex items-start gap-2.5">
       {ok ? (
@@ -940,7 +1020,9 @@ function HealthRow({ ok, label, detail }: { ok: boolean; label: string; detail: 
       )}
       <span>
         <span className="block text-sm text-ink">{label}</span>
-        <span className="block text-xs text-faint">{ok ? detail : `Not set — ${detail}`}</span>
+        <span className="block text-xs text-faint">
+          {ok || !badPrefix ? detail : `${badPrefix} — ${detail}`}
+        </span>
       </span>
     </li>
   );

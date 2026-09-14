@@ -1053,6 +1053,75 @@ export async function confirmCheckout(
   }
 }
 
+/**
+ * Closes a payment the buyer watched fail, and records WHY.
+ *
+ * There is already a webhook for this - payment.failed - and it is the
+ * authority. This exists because it is not a reliable one for failures: of
+ * twenty-four payments refused over five days, Razorpay delivered exactly one
+ * payment.failed event. A payment blocked before it is ever attempted, which is
+ * what a risk check does, frequently produces no event at all. The other
+ * twenty-three rows sat in 'created' for ever - shown as "pending" on the
+ * buyer's receipts and on the admin's finance page, describing money that was
+ * never going to arrive.
+ *
+ * The reason is the point. The browser is handed Razorpay's own description
+ * and it used to be thrown away, so the one sentence that explained a week of
+ * refused payments - "Payment blocked as website does not match registered
+ * website(s)" - was shown to nobody and stored nowhere. It is written to the
+ * row here so it survives the tab being closed, and so the admin can read what
+ * the gateway actually said rather than inferring it from an empty table.
+ *
+ * NOTHING HERE IS TRUSTED TO MOVE MONEY, which is what makes it safe to accept
+ * a browser's word for it. It only ever closes a row that is still 'created',
+ * only within the caller's own account, and only ever towards 'failed'. A
+ * payment that really did succeed has been moved to 'paid' by the webhook or
+ * by confirmCheckout, and the status guard means this cannot touch it - so the
+ * worst a forged call can achieve is to close one of the caller's own dead
+ * rows, which is what it is for.
+ */
+export async function reportCheckoutFailure(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  try {
+    const orderId = str(fd, "razorpay_order_id");
+    if (!orderId) return fail("Nothing to report.");
+
+    // Razorpay's own words where it gave any, capped because this is a string
+    // from the browser going into a column somebody will read.
+    const reason = (str(fd, "reason") ?? "Payment failed.").slice(0, 300);
+
+    const session = await assertPortalUser();
+    const admin = getSupabaseAdmin();
+
+    const { data: closed, error } = await admin
+      .from("payments")
+      .update({ status: "failed", failure_reason: reason })
+      .eq("razorpay_order_id", orderId)
+      .eq("user_id", session.id)
+      .eq("status", "created")
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (error) {
+      return fail(reportError("could not close a failed payment", error, "Payment failed."));
+    }
+
+    // A code held against a payment that just died goes back now rather than
+    // waiting out the database's thirty-minute lazy release - the buyer's very
+    // next move is usually to try the same code again with another card.
+    if (closed) await releaseCoupon(admin, closed.id);
+
+    // The finance page and the buyer's own receipts both list this row.
+    revalidatePath("/portal/payments");
+
+    return done(reason);
+  } catch (error) {
+    return fail(reportError("reportCheckoutFailure crashed", error, "Payment failed."));
+  }
+}
+
 
 /* -------------------------------------------------------------------------- */
 /* bonus codes                                                                 */

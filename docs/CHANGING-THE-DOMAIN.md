@@ -45,7 +45,39 @@ Resolution order is in `src/lib/env.ts` (`siteUrl`):
 
 ---
 
-## 2 · Razorpay — the webhook
+## 2 · Razorpay — **two** separate things
+
+Razorpay has to be told the new address in two unrelated places. §2a is the one
+that stops payments dead, and it is not the webhook.
+
+### 2a · The registered website — *this one stops every payment*
+
+**Where:** Razorpay Dashboard → Account & Settings → Website and app settings.
+**Set it to:** the new address, e.g. `https://rahdari.in`.
+
+Razorpay checks the site a payment was started from against the websites
+registered on the account, and **refuses any payment from a site not on the
+list** before it is even attempted. Adding a domain can need re-verification by
+Razorpay, so do this *before* pointing customers at the new address, not after.
+
+**If you skip it:** every payment fails, from the first minute, for everyone.
+The order is created normally — the API does not check the domain — so the
+failure is invisible from this side: `payments` fills with rows stuck in
+`created`, and it reads like customers abandoning checkout. What the buyer is
+told, in Razorpay's own window, is:
+
+> Payment blocked as website does not match registered website(s)
+
+That sentence never reaches a log here unless somebody reads it off the
+dashboard. **This is exactly what happened on 2026-09-11** when the site moved
+from `rahdari.vercel.app` to `rahdari.in`: 24 payments across 5 days, every one
+blocked, nothing in `payments` but a growing pile of `created`.
+
+**Check it:** Razorpay Dashboard → Transactions → a failed payment → the error
+reads `payment_risk_check_failed` at step `payment_initiation`. If you see
+that, the website list is wrong — nothing in this repository will fix it.
+
+### 2b · The webhook
 
 **Where:** Razorpay Dashboard → Settings → Webhooks.
 
@@ -149,8 +181,17 @@ for p in / /login /signup /pricing; do curl -s -o /dev/null -w "$p -> %{http_cod
 All four should be `200`. Then, by hand:
 
 1. Request a password reset and click the link in the email — proves §1 and §3.
-2. Make one small real purchase and confirm the credits land — proves §2. Check
-   the delivery shows as succeeded in Razorpay's webhook log.
+2. Make one small real purchase and confirm the credits land — proves §2a and
+   §2b. Getting as far as the card form is **not** the test: §2a fails at the
+   moment you submit it. Then check the delivery shows as succeeded in
+   Razorpay's webhook log.
 3. Wait for one cron interval and confirm `last_polled_at` moved — proves §4.
 
 Steps 1 and 3 are the ones people skip, and they are the two that fail silently.
+Step 2 is the one people cut short, and §2a is why.
+
+The admin **Settings → health panel** carries a "Public address" row that
+compares `NEXT_PUBLIC_SITE_URL` against the host actually serving the page, and
+names all four systems when they disagree. It catches §1 immediately; it is a
+reminder about §2a, not a check of it, because nothing here can see Razorpay's
+website list.

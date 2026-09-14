@@ -22,6 +22,7 @@ import { buttonClass, Badge, cx, Panel } from "@/components/ui";
 import {
   confirmCheckout,
   previewCoupon,
+  reportCheckoutFailure,
   startCheckout,
   startPlanCheckout,
   type CheckoutBuyer,
@@ -90,6 +91,44 @@ type CheckoutInstance = {
   open: () => void;
   on: (event: string, handler: (payload: unknown) => void) => void;
 };
+
+/**
+ * What Razorpay hands the payment.failed listener.
+ *
+ * Every field is optional because this is read defensively - it arrives from a
+ * third-party script, and a checkout that failed is the worst possible moment
+ * to throw on a missing key.
+ */
+type FailurePayload = {
+  error?: {
+    description?: string;
+    reason?: string;
+    step?: string;
+    code?: string;
+  };
+};
+
+/**
+ * The most useful sentence Razorpay gave us, or nothing.
+ *
+ * `description` is written for a person ("Payment was unsuccessful as you could
+ * not complete it in time."). `reason` and `code` are machine tokens and read
+ * badly, but a token beats silence when it is all there is - it is still enough
+ * to search for, which is more than the generic sentence this replaced offered.
+ */
+function failureReason(payload: unknown): string | null {
+  const error = (payload as FailurePayload | null)?.error;
+  if (!error) return null;
+  const raw = error.description ?? error.reason ?? error.code ?? null;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Razorpay's descriptions are inconsistently punctuated; ours are not. */
+function asSentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
 
 declare global {
   interface Window {
@@ -952,9 +991,40 @@ function useCheckout(brandName: string, onPaid?: () => void) {
         theme: { color: brandColour() },
       });
 
-      checkout.on("payment.failed", () => {
+      /*
+       * A refused payment, said plainly and written down.
+       *
+       * This used to discard the payload and show one fixed sentence. The
+       * sentence was true and useless: when the gateway began refusing every
+       * payment on this site because the domain had moved, what it was actually
+       * saying - "Payment blocked as website does not match registered
+       * website(s)" - reached no screen and no table, and the refusals read as
+       * ordinary card failures for five days.
+       *
+       * So the reason is now shown to the buyer and sent to the server, which
+       * closes the row with it. The send is deliberately not awaited before the
+       * message appears: the buyer should not watch a spinner to be told their
+       * payment failed, and a report that does not arrive costs only the row's
+       * tidiness, which the webhook may fix anyway.
+       */
+      checkout.on("payment.failed", (payload) => {
         setBusy(null);
-        setError("That payment did not go through. Nothing was charged - you can try again.");
+
+        const reason = failureReason(payload);
+        setError(
+          reason
+            ? `${asSentence(reason)} Nothing was charged - you can try again.`
+            : "That payment did not go through. Nothing was charged - you can try again.",
+        );
+
+        const fd = new FormData();
+        fd.set("razorpay_order_id", started.orderId);
+        if (reason) fd.set("reason", reason);
+        void reportCheckoutFailure(null, fd)
+          // The row stays 'created' and the webhook remains its only chance of
+          // being closed. Nothing more to tell the buyer - they have the reason.
+          .catch(() => {})
+          .finally(() => router.refresh());
       });
 
       checkout.open();
