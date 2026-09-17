@@ -1,7 +1,7 @@
 import { LinkPending } from "@/components/NavPending";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -267,6 +267,85 @@ export function Tbody({ children }: { children: ReactNode }) {
 
 export function Tr({ children, className }: { children: ReactNode; className?: string }) {
   return <tr className={cx("transition hover:bg-raised/50", className)}>{children}</tr>;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Switch                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A setting that is on or off, drawn the way a phone draws one.
+ *
+ * WHY THIS IS NOT A CHECKBOX. A checkbox is part of a form somebody submits;
+ * a switch takes effect the moment it is moved. Using the wrong one is not a
+ * styling choice - it tells the reader whether anything has happened yet, and
+ * a checkbox that silently saved itself is the reason people tap Save twice
+ * looking for a button that is not there.
+ *
+ * role="switch" with aria-checked rather than a styled input: assistive
+ * technology announces "on"/"off" instead of "checked", which is what this
+ * actually means. `label` is required and never rendered - a row of identical
+ * switches down a settings page is indistinguishable without one.
+ *
+ * Extracted from the truck list, which had grown a good one privately. That
+ * copy stays where it is for now because it is a form submit button driven by
+ * useFormStatus, and folding those two together would make both worse.
+ */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled = false,
+  busy = false,
+  className,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  /** Announced, not shown. Say what it controls, not "toggle". */
+  label: string;
+  disabled?: boolean;
+  /** Mid-round-trip. Shows a spinner on the knob and blocks a second tap. */
+  busy?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled || busy}
+      onClick={onChange}
+      className={cx(
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition",
+        "focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:outline-none",
+        /*
+         * A SWITCH IS 24px TALL AND A THUMB IS NOT.
+         *
+         * Every other control in this app keeps to a 36px floor - see
+         * BUTTON_SIZES - but a switch drawn at 36px looks like a slab, so the
+         * shape stays 24px and the TARGET is grown instead. The pseudo-element
+         * adds 6px above and below and a little to each side, which is
+         * invisible, costs no layout, and is the difference between a setting
+         * you flip and one you poke at twice on a moving lorry.
+         */
+        "after:absolute after:-inset-x-1 after:-inset-y-1.5 after:content-['']",
+        checked ? "border-brand-500 bg-brand-500" : "border-line-strong bg-sunken",
+        (disabled || busy) && "cursor-not-allowed opacity-60",
+        className,
+      )}
+    >
+      <span
+        aria-hidden
+        className={cx(
+          "flex size-5 items-center justify-center rounded-full bg-white shadow-sm transition-transform",
+          checked ? "translate-x-[22px]" : "translate-x-[2px]",
+        )}
+      >
+        {busy ? <Loader2 size={11} className="animate-spin text-muted" /> : null}
+      </span>
+    </button>
+  );
 }
 
 /* -------------------------------------------------------------------------- */

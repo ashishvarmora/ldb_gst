@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  BellOff,
   BellRing,
   CheckCircle2,
   Loader2,
@@ -14,7 +13,7 @@ import {
 
 import { removePushSubscription, savePushSubscription, testMyPush } from "./actions";
 import { HelpNote } from "@/components/Disclosure";
-import { Badge, Mono, buttonClass, cx } from "@/components/ui";
+import { Badge, Mono, Switch, buttonClass, cx } from "@/components/ui";
 
 /**
  * Switching on notifications that arrive on the phone itself.
@@ -323,64 +322,72 @@ export function PushSetup({
       </p>
 
       {/*
-        One row for the whole state, the same shape as the Telegram row above:
-        what it is, one line about it, and the button that changes it. On a
-        390px screen the button wraps under the badge rather than squeezing the
-        text to two characters.
-      */}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-line bg-raised/60 px-3 py-2.5">
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-          <StateBadge state={state} />
-          <span className="min-w-0 text-xs leading-relaxed text-muted">
-            <StateLine state={state} savedDevices={savedDevices} apple={apple} />
-          </span>
-        </span>
+        A SWITCH, NOT A PAIR OF BUTTONS.
 
-        {/* Not offered when the platform has no keys. With none, subscribe()
-            throws and the officer has tapped a button that could never have
-            worked - which is the exact failure this panel exists to replace
-            with a sentence. The warning below says whose problem it is. */}
-        {state === "ready" && platformReady ? (
+        This was "Turn on" and, once on, a bare bell-with-a-slash icon beside
+        Send test - so the control that turned the feature OFF was an unlabelled
+        icon sitting next to the one that sent a notification, and the two were
+        a tap apart. A switch is what a phone uses for a setting that takes
+        effect immediately, it states on/off without being read, and there is
+        only one of it.
+
+        The label line and the switch are one row; everything conditional -
+        the test button, the obstacle sentence - sits under it, so nothing
+        reflows sideways on a narrow screen.
+      */}
+      <div className="mt-2 rounded-xl border border-line bg-raised/60 px-3 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink">Alerts on this device</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted">
+              <StateLine state={state} savedDevices={savedDevices} apple={apple} />
+            </p>
+          </div>
+
+          {/*
+            Shown only where it can actually do something. On an iPhone that
+            has not been added to the home screen, or a browser with no push
+            at all, there is nothing to switch and a dead switch invites
+            somebody to keep tapping it - the sentence beside it is the honest
+            answer. Same for a platform with no VAPID keys: subscribe() would
+            throw, so the tap could never have worked.
+          */}
+          {state === "ready" || state === "subscribed" ? (
+            <Switch
+              checked={state === "subscribed"}
+              onChange={state === "subscribed" ? turnOff : turnOn}
+              busy={busy === "on" || busy === "off"}
+              disabled={spinning || !platformReady}
+              label={
+                state === "subscribed"
+                  ? "Turn off notifications on this device"
+                  : "Turn on notifications on this device"
+              }
+            />
+          ) : (
+            <StateBadge state={state} />
+          )}
+        </div>
+
+        {/*
+          Its own row under the switch rather than beside it. Full width on a
+          phone, so the one thing somebody does after switching this on - check
+          that it actually buzzes - is a target they cannot miss.
+        */}
+        {state === "subscribed" ? (
           <button
             type="button"
-            onClick={turnOn}
+            onClick={test}
             disabled={spinning}
-            className={cx(buttonClass("primary", "sm"), "shrink-0")}
+            className={cx(buttonClass("secondary", "sm"), "mt-3 w-full sm:w-auto")}
           >
-            {busy === "on" ? <Loader2 size={13} className="animate-spin" /> : <BellRing size={13} />}
-            {busy === "on" ? "Allowing..." : "Turn on"}
+            {busy === "test" ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Send size={13} />
+            )}
+            {busy === "test" ? "Sending…" : "Send a test notification"}
           </button>
-        ) : null}
-
-        {state === "subscribed" ? (
-          <span className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={test}
-              disabled={spinning}
-              className={buttonClass("primary", "sm")}
-            >
-              {busy === "test" ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Send size={13} />
-              )}
-              {busy === "test" ? "Sending..." : "Send test"}
-            </button>
-            <button
-              type="button"
-              onClick={turnOff}
-              disabled={spinning}
-              aria-label="Turn notifications off on this device"
-              className={buttonClass("secondary", "sm")}
-            >
-              {busy === "off" ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <BellOff size={13} />
-              )}
-            </button>
-          </span>
         ) : null}
       </div>
 
