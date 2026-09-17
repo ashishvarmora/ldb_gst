@@ -189,6 +189,24 @@ self.addEventListener("push", (event) => {
        */
       tag: payload.tag || "truck-alert",
       renotify: true,
+      /*
+       * SOUND AND A BUZZ, WHICH IS MOSTLY NOT OURS TO DECIDE.
+       *
+       * A web push cannot choose its own sound - the OS plays whatever the
+       * user has set for the channel, and there is no API to override it. What
+       * a page CAN do is avoid the two things that silence one, and both are
+       * here: silent:false, and renotify:true above, without which a
+       * replacement for a notification already on screen arrives with no sound
+       * or buzz at all. That is the case that matters for a chat, where the
+       * second message in a conversation reuses the first one's tag.
+       *
+       * vibrate is honoured on Android and ignored on iOS. A short
+       * buzz-pause-buzz reads as a message rather than as the single long
+       * pulse an alert gets.
+       */
+      silent: false,
+      vibrate: [180, 80, 180],
+      timestamp: Date.now(),
       // Read by notificationclick below. Nothing else is put on it: a
       // notification is stored by the OS and outlives the session.
       data: { url },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send } from "lucide-react";
+import { Check, CheckCheck, Clock, Loader2, Send } from "lucide-react";
 
 import { cx } from "@/components/ui";
 import type { ChatMessage } from "@/lib/chat";
@@ -27,6 +27,90 @@ import type { ActionResult } from "@/lib/types";
  */
 
 const POLL_MS = 4000;
+
+/** Optimistic rows carry this until the server hands back the real one. */
+const PENDING_PREFIX = "pending-";
+
+/**
+ * The tick, the way every messaging app draws it - and only claiming what is
+ * actually known.
+ *
+ * WhatsApp has three states because it has a delivery receipt from the device.
+ * There is no such receipt here: a web push is handed to Google's or Apple's
+ * push service and nothing comes back to say a phone took it. Drawing two grey
+ * ticks for "delivered" would therefore be a guess, and the one thing a read
+ * receipt must never be is a guess. So there are two honest states plus the
+ * moment before either:
+ *
+ *   clock        in flight - typed, not yet acknowledged by the server
+ *   one tick     stored. It exists and the other side can load it
+ *   two ticks    they opened the conversation with it on screen
+ */
+function Ticks({ id, readAt }: { id: string; readAt: string | null }) {
+  if (id.startsWith(PENDING_PREFIX)) {
+    return <Clock size={12} aria-label="Sending" className="opacity-60" />;
+  }
+  if (readAt) {
+    /*
+     * Full white against the 75% the timestamp beside it is set at. WhatsApp
+     * turns this blue, which works there because the bubble is pale - on a
+     * blue bubble a blue tick is the one combination that disappears. The
+     * glyph carries the meaning either way, one tick against two; the
+     * brightness is what makes it readable at a glance rather than a thing to
+     * squint at.
+     */
+    return <CheckCheck size={14} aria-label="Read" className="text-white" />;
+  }
+  return <Check size={14} aria-label="Sent" className="opacity-60" />;
+}
+
+/**
+ * A short two-note chime when a message arrives while the window is open.
+ *
+ * Synthesised rather than a file: it is about forty lines of nothing, needs no
+ * asset fetched over a phone connection, and cannot 404 after a deploy. Built
+ * on first use because a browser refuses to create an AudioContext before the
+ * page has been interacted with, and resumed each time because it is suspended
+ * whenever the tab goes to the background.
+ *
+ * Every step is guarded. A device with no Web Audio, a muted tab or a refused
+ * autoplay policy must cost nothing more than silence - the notification and
+ * the badge are what carry the message; this is the flourish on top.
+ */
+let audioContext: AudioContext | null = null;
+
+function playChime(): void {
+  try {
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+
+    audioContext ??= new Ctor();
+    const context = audioContext;
+    if (context.state === "suspended") void context.resume();
+
+    const now = context.currentTime;
+    // Two rising notes, ~90ms apart. Short enough not to be a nuisance on the
+    // twentieth message of a conversation.
+    for (const [index, frequency] of [880, 1170].entries()) {
+      const at = now + index * 0.09;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      // A ramp rather than a square start and stop, which clicks.
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.09, at + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(at);
+      oscillator.stop(at + 0.18);
+    }
+  } catch {
+    /* Silence is an acceptable outcome. */
+  }
+}
 
 export function ChatWindow({
   initial,
@@ -114,6 +198,14 @@ export function ChatWindow({
         const grew = next.length !== countRef.current;
         setMessages(next);
         if (grew) {
+          /*
+           * Chime only for THEIR messages. The poll that lands right after you
+           * send replaces your optimistic row with the server's, which grows
+           * the list by nothing and must not make a noise at yourself.
+           */
+          const newest = next[next.length - 1];
+          if (newest && !newest.mine) playChime();
+
           scrollToEnd();
           // It arrived while they were looking at it, so it has been read.
           // Without this the badge lights up behind an open conversation.
@@ -153,7 +245,7 @@ export function ChatWindow({
      * back in the box rather than lost.
      */
     const optimistic: ChatMessage = {
-      id: `pending-${Date.now()}`,
+      id: `${PENDING_PREFIX}${Date.now()}`,
       body,
       senderRole: viewerRole,
       createdAt: new Date().toISOString(),
@@ -233,14 +325,17 @@ export function ChatWindow({
                     <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
                       {message.body}
                     </p>
+                    {/* Time and state on one baseline, ticks only on your own
+                        messages - a tick beside something they sent you would
+                        be telling them whether THEY had read it. */}
                     <p
                       className={cx(
-                        "mt-1 text-[10px] tabular-nums",
-                        message.mine ? "text-on-brand/70" : "text-faint",
+                        "mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums",
+                        message.mine ? "text-on-brand/75" : "text-faint",
                       )}
                     >
                       {fmtTime(message.createdAt)}
-                      {message.mine && message.readAt ? " · Seen" : ""}
+                      {message.mine ? <Ticks id={message.id} readAt={message.readAt} /> : null}
                     </p>
                   </div>
                 </div>

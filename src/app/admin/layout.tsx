@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 
+import { AdminMessageBell } from "@/components/AdminMessageBell";
 import { AdminMobileNav, AdminSidebar } from "@/components/AdminNav";
 import { NavProgress } from "@/components/NavProgress";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -67,6 +68,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
            * up its width instead, which costs nothing.
            */}
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {/* Before Officer view, and never hidden: on a phone this is the
+                only place an unanswered message is visible, since the sidebar
+                is behind the hamburger. */}
+            <AdminMessageBell unread={unreadMessages} />
+
             <Link
               href="/portal"
               className="hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs whitespace-nowrap text-muted transition hover:bg-sunken hover:text-ink sm:inline-flex"

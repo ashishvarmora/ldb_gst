@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, PenSquare } from "lucide-react";
 
 import { Badge, EmptyState, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
@@ -37,13 +37,23 @@ export default async function AdminChatPage() {
             ? `${waiting} waiting for a reply.`
             : "Nothing is waiting for a reply."
         } Messages are deleted after ${CHAT_KEEP_DAYS} days.`}
+        actions={
+          <Link
+            href="/admin/chat/new"
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-brand-500 px-4 text-sm font-medium text-on-brand transition hover:bg-brand-600"
+          >
+            <PenSquare size={15} />
+            New message
+          </Link>
+        }
       />
 
       <Panel bodyClassName="p-0">
         {threads.length === 0 ? (
           <EmptyState
             title="No conversations yet"
-            description={`When a customer sends a message from their Messages page it appears here, and your phone buzzes. Nothing is kept longer than ${CHAT_KEEP_DAYS} days.`}
+            description={`When a customer sends a message from their Messages page it appears here, and your phone buzzes. You can also write first. Nothing is kept longer than ${CHAT_KEEP_DAYS} days.`}
+            action={<Link href="/admin/chat/new">Message a customer</Link>}
           />
         ) : (
           <ul className="divide-y divide-divider">

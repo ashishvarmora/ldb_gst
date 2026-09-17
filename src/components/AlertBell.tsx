@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck } from "lucide-react";
+import Link from "next/link";
+import { Bell, CheckCheck, MessageSquare } from "lucide-react";
 
 import { clearAlerts, markAlertsRead } from "@/app/portal/notifications/actions";
 import { Badge, EmptyState, Mono, cx } from "@/components/ui";
@@ -30,9 +31,23 @@ export type AlertBellItem = {
 export function AlertBell({
   alerts: allAlerts,
   unreadCount,
+  /**
+   * Replies from the desk this customer has not opened.
+   *
+   * The bell is where people look when something has happened, and a message
+   * waiting is something that has happened - so it is counted in the badge
+   * beside the truck alerts rather than only on the Messages row of the nav,
+   * which is off screen on a phone. It is NOT folded into alert_logs: an alert
+   * is a thing the tracker raised and a message is a person talking, and one
+   * list that means both is a list nobody can act on.
+   */
+  unreadMessages = 0,
+  messagesHref = "/portal/support",
 }: {
   alerts: AlertBellItem[];
   unreadCount: number;
+  unreadMessages?: number;
+  messagesHref?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -48,7 +63,7 @@ export function AlertBell({
   const [cleared, setCleared] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const badge = seen || cleared ? 0 : unreadCount;
+  const badge = (seen || cleared ? 0 : unreadCount) + unreadMessages;
   const alerts = cleared ? [] : allAlerts;
   const close = useCallback(() => setOpen(false), []);
 
@@ -113,7 +128,7 @@ export function AlertBell({
         onClick={toggle}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={badge > 0 ? `Alerts, ${badge} unread` : "Alerts"}
+        aria-label={badge > 0 ? `Notifications, ${badge} unread` : "Notifications"}
         className={cx(
           "relative inline-flex size-10 items-center justify-center rounded-lg border border-line bg-panel transition",
           open ? "bg-sunken text-ink" : "text-muted hover:bg-sunken hover:text-ink",
@@ -158,10 +173,40 @@ export function AlertBell({
             ) : null}
           </header>
 
+          {/*
+            MESSAGES SIT ABOVE THE ALERTS, and only when there are some.
+            A person waiting on a reply outranks a truck that moved, and an
+            empty row here every day would train everybody to ignore the panel.
+            It is a link rather than a list: the conversation itself is one tap
+            away and reproducing it in a dropdown would be a second place for
+            the same thread to be half-read.
+          */}
+          {unreadMessages > 0 ? (
+            <Link
+              href={messagesHref}
+              onClick={close}
+              className="flex items-center gap-3 border-b border-divider bg-brand-500/[0.07] px-4 py-3 transition hover:bg-brand-500/[0.12]"
+            >
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
+                <MessageSquare size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-ink">
+                  {unreadMessages === 1 ? "1 new message" : `${unreadMessages} new messages`}
+                </span>
+                <span className="block text-xs text-muted">Tap to open the conversation</span>
+              </span>
+            </Link>
+          ) : null}
+
           {alerts.length === 0 ? (
             <EmptyState
-              title="No alerts yet"
-              description="Switch an alert on for a truck and anything it reports shows up here."
+              title={unreadMessages > 0 ? "No truck alerts" : "Nothing yet"}
+              description={
+                unreadMessages > 0
+                  ? "Nothing from the tracker. The message above is waiting for you."
+                  : "Switch an alert on for a truck and anything it reports shows up here, along with replies from the team."
+              }
             />
           ) : (
             // Capped short of the bottom tab bar, which paints over this.

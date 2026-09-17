@@ -193,7 +193,11 @@ export default async function PortalLayout({ children }: { children: React.React
                 </Link>
               ) : null}
 
-              <AlertBell alerts={alerts} unreadCount={overview.alerts_unread} />
+              <AlertBell
+                  alerts={alerts}
+                  unreadCount={overview.alerts_unread}
+                  unreadMessages={unreadMessages}
+                />
 
               {/* Phones get this as the profile button in the tab bar instead,
                   where the thumb already is. */}
