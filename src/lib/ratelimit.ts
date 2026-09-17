@@ -144,6 +144,18 @@ export const RATE_LIMITS = {
    * spreadsheet six times in five minutes on purpose.
    */
   "export:user": { limit: 5, windowSeconds: 5 * MINUTE },
+
+  /*
+   * SENDING A DIRECT MESSAGE. Generous, because this is a conversation and
+   * somebody explaining a problem legitimately sends six short lines in a row
+   * rather than one paragraph - being told off mid-sentence by a support chat
+   * is worse than the flooding it would prevent.
+   *
+   * It is here at all because every message can wake a phone: one send is one
+   * push to each of the other side's installs, so an unbounded box is a way to
+   * make somebody's pocket buzz forty times.
+   */
+  "chat:user": { limit: 30, windowSeconds: 5 * MINUTE },
 } as const satisfies Record<string, Rule>;
 
 export type RateBucket = keyof typeof RATE_LIMITS;

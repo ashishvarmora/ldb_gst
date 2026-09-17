@@ -9,6 +9,7 @@ import {
   Coins,
   Gift,
   History,
+  MessageSquare,
   Receipt,
   ReceiptText,
   Settings,
@@ -143,6 +144,24 @@ function itemGroups({
    * place, and each needs to see their own word to believe they have found it.
    */
   const account: Item[] = [
+    /*
+     * MESSAGES IS ONLY REACHABLE FROM HERE ON A PHONE.
+     *
+     * The bottom bar carries three tabs and this button; the sidebar that
+     * carries everything else is lg: and up. So a row missing from this list is
+     * a page a phone cannot open at all, which is what happened to Invite and
+     * earn once already - see the note above TAB_HREFS in PortalNav.
+     *
+     * First in the account group, above settings: somebody opening this menu
+     * because something has gone wrong is looking for a way to ask about it,
+     * not for a form.
+     */
+    {
+      href: "/portal/support",
+      label: "Messages",
+      icon: MessageSquare,
+      hint: "Talk to the team directly",
+    },
     {
       href: "/portal/settings",
       label: "Profile and settings",

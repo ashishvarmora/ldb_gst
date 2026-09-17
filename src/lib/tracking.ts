@@ -10,6 +10,7 @@ import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
 import { istDaysAgo, istToday } from "@/lib/format";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
+import { purgeOldChat } from "@/lib/chat";
 import { PLAN_GRACE_DAYS } from "@/lib/officer";
 import { dueForAutoPause } from "@/lib/pause";
 import { formatPushAlert, sendPushToUser } from "@/lib/push";
@@ -1500,6 +1501,22 @@ export async function runTrackingSweep(
     console.error("export and purge failed", error);
     errors.push("The export could not run, so nothing was deleted.");
   }
+
+  /*
+   * Direct messages older than a week.
+   *
+   * Separate from maybeExportAndPurge, and deliberately so. That path exists to
+   * copy rows into a customer's Google Sheet before deleting them, and it skips
+   * any table it has no export shape for - a private conversation between a
+   * customer and the desk is exactly the thing that must not be written to a
+   * spreadsheet on its way out, so it gets its own delete instead of a shape.
+   *
+   * Every read is independently windowed to the same seven days, so a tick that
+   * misses this - or a month of them - still shows nobody a message older than
+   * the promise. This only keeps the table small.
+   */
+  const chatDeleted = await purgeOldChat();
+  if (chatDeleted > 0) console.info(`[chat] purged ${chatDeleted} expired messages`);
 
   /* Counted off the outcomes rather than accumulated as the sweep runs,
      because the checks run concurrently and a shared counter would be a race.

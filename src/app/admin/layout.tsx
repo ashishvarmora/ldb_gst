@@ -6,6 +6,7 @@ import { NavProgress } from "@/components/NavProgress";
 import { SignOutButton } from "@/components/SignOutButton";
 import { Avatar } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { unreadForAdmin } from "@/lib/chat";
 import { initials } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -14,7 +15,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const session = await requireSuperAdmin();
   // The product names itself from a setting, so the console has to read it too
   // rather than carrying a second, drifting copy of the name.
-  const { brandName } = await loadSettings(getSupabaseAdmin());
+  const admin = getSupabaseAdmin();
+  const { brandName } = await loadSettings(admin);
+  // Customers waiting on a reply, for the badge in the navigation.
+  const unreadMessages = await unreadForAdmin(admin);
 
   return (
     <div className="theme-light flex min-h-screen">
@@ -29,7 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        */}
       <NavProgress />
 
-      <AdminSidebar brandName={brandName} />
+      <AdminSidebar brandName={brandName} unreadMessages={unreadMessages} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
@@ -51,7 +55,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
            * every page under it, down with it.
            */}
           <div className="flex min-w-0 items-center gap-3">
-            <AdminMobileNav brandName={brandName} />
+            <AdminMobileNav brandName={brandName} unreadMessages={unreadMessages} />
             <span className="hidden min-w-0 truncate text-xs text-faint sm:block">
               Admin console — every account, plan and payment is managed here.
             </span>

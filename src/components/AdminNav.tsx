@@ -14,6 +14,7 @@ import {
   IndianRupee,
   LayoutDashboard,
   Menu,
+  MessageSquare,
   Search,
   Settings,
   Truck,
@@ -64,6 +65,9 @@ const NAV = [
       { href: "/admin/trucks", label: "Trucks", icon: Truck },
       { href: "/admin/explore", label: "Explore", icon: Search },
       { href: "/admin/logs", label: "Logs", icon: ClipboardList },
+      // Under OPERATE rather than CONFIGURE: answering a customer is the day's
+      // work, not a setting.
+      { href: "/admin/chat", label: "Messages", icon: MessageSquare },
     ],
   },
   {
@@ -86,7 +90,13 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({
+  onNavigate,
+  unreadMessages = 0,
+}: {
+  onNavigate?: () => void;
+  unreadMessages?: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -116,6 +126,13 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 >
                   <Icon size={16} className="shrink-0" />
                   {label}
+                  {/* Customers waiting on a reply. Same rule as the portal
+                      side: shown only when it is not zero. */}
+                  {href === "/admin/chat" && unreadMessages > 0 ? (
+                    <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-semibold text-on-brand tabular-nums">
+                      {unreadMessages}
+                    </span>
+                  ) : null}
                   <NavSpinner />
                 </Link>
               );
@@ -134,7 +151,13 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
  */
 const DEFAULT_BRAND = "Rahdari";
 
-export function AdminSidebar({ brandName }: { brandName?: string }) {
+export function AdminSidebar({
+  brandName,
+  unreadMessages = 0,
+}: {
+  brandName?: string;
+  unreadMessages?: number;
+}) {
   return (
     /* Its own scroller, pinned: fourteen entries plus three headings is taller
        than a laptop viewport, and a sidebar that scrolls the page away from the
@@ -142,13 +165,19 @@ export function AdminSidebar({ brandName }: { brandName?: string }) {
     <div className="sticky top-0 hidden h-screen w-60 shrink-0 overflow-y-auto border-r border-divider px-3 py-4 lg:block">
       <Brand brandName={brandName} />
       <div className="mt-5">
-        <NavLinks />
+        <NavLinks unreadMessages={unreadMessages} />
       </div>
     </div>
   );
 }
 
-export function AdminMobileNav({ brandName }: { brandName?: string }) {
+export function AdminMobileNav({
+  brandName,
+  unreadMessages = 0,
+}: {
+  brandName?: string;
+  unreadMessages?: number;
+}) {
   const [open, setOpen] = useState(false);
 
   /*
@@ -224,7 +253,7 @@ export function AdminMobileNav({ brandName }: { brandName?: string }) {
         </div>
 
         <div className="mt-5 min-h-0 flex-1 overflow-y-auto">
-          <NavLinks onNavigate={() => setOpen(false)} />
+          <NavLinks onNavigate={() => setOpen(false)} unreadMessages={unreadMessages} />
         </div>
 
         {/*

@@ -11,6 +11,7 @@ import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
+import { unreadForCustomer } from "@/lib/chat";
 import { creditStanding, searchesLeft } from "@/lib/credits";
 import { initials } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
@@ -105,6 +106,10 @@ export default async function PortalLayout({ children }: { children: React.React
    */
   const standing = creditStanding(overview.credits, searchCost);
 
+  // Replies from the desk this customer has not opened. Drives the badge on
+  // Messages in the sidebar.
+  const unreadMessages = await unreadForCustomer(getSupabaseAdmin(), session.id);
+
   const account: Omit<AccountMenuProps, "variant"> = {
     name: displayName,
     email: session.email,
@@ -129,7 +134,11 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="theme-light flex min-h-screen">
       <NavProgress />
 
-      <PortalSidebar brandName={brandName} referralsEnabled={referralEnabled} />
+      <PortalSidebar
+        brandName={brandName}
+        referralsEnabled={referralEnabled}
+        unreadMessages={unreadMessages}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/*

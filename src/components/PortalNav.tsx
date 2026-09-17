@@ -8,6 +8,7 @@ import {
   Gift,
   History,
   Home,
+  MessageSquare,
   ReceiptText,
   Search,
   Truck,
@@ -54,6 +55,12 @@ const NAV = [
   { href: "/portal/credits", label: "Credit history", icon: ReceiptText },
   { href: "/portal/activity", label: "Activity", icon: History },
   { href: "/portal/referrals", label: "Invite and earn", icon: Gift },
+  /*
+   * Last, and on its own. It is not one of the money questions above and it is
+   * not something anybody comes to the portal to do - it is where they go when
+   * one of the other pages has not answered them.
+   */
+  { href: "/portal/support", label: "Messages", icon: MessageSquare },
 ] as const;
 
 /**
@@ -91,9 +98,12 @@ export function PortalSidebar({
   brandName,
   /** False hides Invite and earn, matching the page, which shows nothing. */
   referralsEnabled,
+  /** Messages from the desk this customer has not opened yet. */
+  unreadMessages = 0,
 }: {
   brandName: string;
   referralsEnabled: boolean;
+  unreadMessages?: number;
 }) {
   const pathname = usePathname();
   const items = NAV.filter((item) => referralsEnabled || item.href !== "/portal/referrals");
@@ -136,6 +146,13 @@ export function PortalSidebar({
               >
                 <Icon size={16} className="shrink-0" />
                 {label}
+                {/* Only ever on Messages, and only when there is something to
+                    see. A zero badge is a permanent small distraction. */}
+                {href === "/portal/support" && unreadMessages > 0 ? (
+                  <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-semibold text-on-brand tabular-nums">
+                    {unreadMessages}
+                  </span>
+                ) : null}
                 <NavSpinner />
               </Link>
             );
