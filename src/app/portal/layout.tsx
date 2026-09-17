@@ -7,6 +7,7 @@ import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { AlertDeliveryBanner, loadAlertDelivery } from "@/components/AlertDeliveryBanner";
 import { CreditPill } from "@/components/CreditBalance";
 import { LogoBadge } from "@/components/Logo";
+import { MessageBell } from "@/components/MessageBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
@@ -193,11 +194,25 @@ export default async function PortalLayout({ children }: { children: React.React
                 </Link>
               ) : null}
 
+              {/*
+                Phone only. On a large screen the sidebar carries Messages with
+                the same badge a few pixels away, and two of them in view at
+                once is clutter rather than emphasis.
+
+                Before the bell, not after: the account button is the last
+                thing in this row and is what a thumb reaches first, so the
+                control somebody opens many times a day sits inboard of the
+                one they open occasionally.
+              */}
+              <span className="lg:hidden">
+                <MessageBell unread={unreadMessages} href="/portal/support" />
+              </span>
+
               <AlertBell
-                  alerts={alerts}
-                  unreadCount={overview.alerts_unread}
-                  unreadMessages={unreadMessages}
-                />
+                alerts={alerts}
+                unreadCount={overview.alerts_unread}
+                unreadMessages={unreadMessages}
+              />
 
               {/* Phones get this as the profile button in the tab bar instead,
                   where the thumb already is. */}

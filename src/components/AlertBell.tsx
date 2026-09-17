@@ -34,12 +34,22 @@ export function AlertBell({
   /**
    * Replies from the desk this customer has not opened.
    *
-   * The bell is where people look when something has happened, and a message
-   * waiting is something that has happened - so it is counted in the badge
-   * beside the truck alerts rather than only on the Messages row of the nav,
-   * which is off screen on a phone. It is NOT folded into alert_logs: an alert
-   * is a thing the tracker raised and a message is a person talking, and one
-   * list that means both is a list nobody can act on.
+   * SHOWN IN THE PANEL, DELIBERATELY NOT IN THE BADGE.
+   *
+   * There is a Messages icon with its own count sitting immediately beside
+   * this bell on a phone, and the sidebar carries the same count on a desktop.
+   * Adding messages to this badge as well would put two red circles side by
+   * side, both reading "1", for one message - which a reader counts as two
+   * things waiting. The number stops meaning anything the moment it can be
+   * double-counted.
+   *
+   * The row inside the panel stays: opening the bell to see what happened
+   * should still tell you somebody wrote to you, and a row that is only ever
+   * shown when it is non-empty costs nothing when there is nothing to say.
+   *
+   * It is not folded into alert_logs either. An alert is a thing the tracker
+   * raised and a message is a person talking; one list meaning both is a list
+   * nobody can act on.
    */
   unreadMessages = 0,
   messagesHref = "/portal/support",
@@ -63,7 +73,7 @@ export function AlertBell({
   const [cleared, setCleared] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const badge = (seen || cleared ? 0 : unreadCount) + unreadMessages;
+  const badge = seen || cleared ? 0 : unreadCount;
   const alerts = cleared ? [] : allAlerts;
   const close = useCallback(() => setOpen(false), []);
 
@@ -128,7 +138,7 @@ export function AlertBell({
         onClick={toggle}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={badge > 0 ? `Notifications, ${badge} unread` : "Notifications"}
+        aria-label={badge > 0 ? `Alerts, ${badge} unread` : "Alerts"}
         className={cx(
           "relative inline-flex size-10 items-center justify-center rounded-lg border border-line bg-panel transition",
           open ? "bg-sunken text-ink" : "text-muted hover:bg-sunken hover:text-ink",

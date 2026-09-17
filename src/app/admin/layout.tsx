@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 
-import { AdminMessageBell } from "@/components/AdminMessageBell";
+import { MessageBell } from "@/components/MessageBell";
 import { AdminMobileNav, AdminSidebar } from "@/components/AdminNav";
 import { NavProgress } from "@/components/NavProgress";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -71,7 +71,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {/* Before Officer view, and never hidden: on a phone this is the
                 only place an unanswered message is visible, since the sidebar
                 is behind the hamburger. */}
-            <AdminMessageBell unread={unreadMessages} />
+            <MessageBell unread={unreadMessages} href="/admin/chat" />
 
             <Link
               href="/portal"
