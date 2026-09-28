@@ -122,12 +122,6 @@ export type SweepSummary = {
    */
   planExpired: { trucks: number; accounts: number };
   /**
-   * Expired trials whose leftover balance was cleared. Trial credits are not
-   * lifetime credits, so when the trial ends the unused ones are taken back
-   * rather than left frozen on the row promising something no action can spend.
-   */
-  trialCreditsCleared: { accounts: number; credits: number };
-  /**
    * Trucks this sweep stopped by itself, and why.
    *
    * Reported rather than left implicit because it is the one thing in a sweep
@@ -1136,28 +1130,6 @@ async function applyAutoPauses(
  * be pausing a truck by hand at the same moment, and whoever gets there first
  * owns the reason.
  */
-/**
- * Clears the leftover balance of an expired trial that never paid.
- *
- * Thin on purpose: every rule about who qualifies lives in
- * expire_trial_credits(), because a rule in a worker is a rule the admin
- * console and any future caller do not share.
- */
-async function clearExpiredTrialCredits(
-  admin: Admin,
-): Promise<{ accounts: number; credits: number }> {
-  const { data, error } = await admin.rpc("expire_trial_credits");
-  if (error) {
-    console.error("could not clear expired trial credits", error.message);
-    return { accounts: 0, credits: 0 };
-  }
-  const result = (data ?? {}) as { accounts?: number; credits_cleared?: number };
-  return {
-    accounts: Number(result.accounts) || 0,
-    credits: Number(result.credits_cleared) || 0,
-  };
-}
-
 async function applyPlanExpiryTeardown(
   admin: Admin,
   now: Date,
@@ -1291,7 +1263,6 @@ export async function runTrackingSweep(
     alertsDelivered: 0,
     deferred: 0,
     planExpired: { trucks: 0, accounts: 0 },
-    trialCreditsCleared: { accounts: 0, credits: 0 },
     autoPaused: { schedule: 0, inactive: 0 },
     noCreditsPaused: { trucks: 0, accounts: 0 },
     errors: [] as string[],
@@ -1328,7 +1299,17 @@ export async function runTrackingSweep(
    * zero), writes through the ledger so the drop is explained, and is
    * idempotent, so a second sweep in the same minute finds nothing.
    */
-  const trialCredits = await clearExpiredTrialCredits(admin);
+  /*
+   * A plan ending no longer touches anybody's balance.
+   *
+   * This used to call expire_trial_credits() on every tick, which zeroed the
+   * leftover credits of an expired trial that had never paid. 0057 reversed
+   * that rule - credits survive every plan ending, and the only consequence
+   * of a lapse is that automatic checking stops, which applyPlanExpiryTeardown
+   * below and the auto_check guard in spend_credits already handle between
+   * them. So there is nothing to do here, and the sweep is one round trip
+   * lighter every two minutes.
+   */
 
   /*
    * Active trucks, belonging to active officers, WHOSE PLAN HAS NOT RUN OUT.
@@ -1384,11 +1365,11 @@ export async function runTrackingSweep(
 
   const { data: candidates, error } = await query;
   if (error) {
-    return finish({ ...base, planExpired, trialCreditsCleared: trialCredits, errors: [`Could not list trucks: ${error.message}`] });
+    return finish({ ...base, planExpired, errors: [`Could not list trucks: ${error.message}`] });
   }
 
   const all = (candidates ?? []) as TrackedTruck[];
-  if (all.length === 0) return finish({ ...base, planExpired, trialCreditsCleared: trialCredits });
+  if (all.length === 0) return finish({ ...base, planExpired });
 
   /*
    * The trucks that have reached a stop of their own, dealt with before
@@ -1407,7 +1388,7 @@ export async function runTrackingSweep(
   // Every candidate stopped itself. Still a complete sweep, and the summary has
   // to say what it did rather than reading as "nothing happened".
   if (running.length === 0) {
-    return finish({ ...base, planExpired, trialCreditsCleared: trialCredits, candidates: all.length, autoPaused: autoPaused.counts });
+    return finish({ ...base, planExpired, candidates: all.length, autoPaused: autoPaused.counts });
   }
 
   // A truck is checked because one of its alerts came due. Nothing else calls

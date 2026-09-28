@@ -215,19 +215,20 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
       return "Automatic tracking needs a plan that is still running. Your credits are untouched and searching still works — choose a plan to start checking trucks again.";
     case "trial_ended":
       /*
-       * Says what ended and what to do, and deliberately does not quote the
-       * leftover balance. Those credits are not coming back - the trial was
-       * free and it is over - so printing "you still have 14" alongside a
-       * refusal reads as a fault to report rather than a trial that finished.
+       * LEGACY, AND KEPT ONLY FOR THE LENGTH OF A DEPLOY.
+       *
+       * 0057 removed the guard in spend_credits() that produced this, so the
+       * database no longer returns it at all. The case stays because new code
+       * can run against the old function for the minutes between a deploy and
+       * its migration, and a reason with no message falls through to "contact
+       * support" - which would send somebody to the desk over a rule that no
+       * longer exists.
+       *
+       * What it must NOT still say is that the credits are gone. They are
+       * not: a trial ending now costs automatic tracking and nothing else, so
+       * this says what the account can actually still do.
        */
-      /*
-       * "or top up" is gone with it. A top-up needs a plan now - see
-       * topUpBlockedReason() - and a spent-out trial is precisely the account
-       * that has not got one, so the old sentence sent the reader to a shop
-       * that would refuse them. The mirror of this string in
-       * blockedReason() says the same thing.
-       */
-      return "Your free trial has ended, so its credits have finished with it. Choose a plan to carry on — a plan can bring credits with it.";
+      return "Automatic tracking needs a plan that is still running. Your credits are untouched and searching still works — choose a plan to start checking trucks again.";
     case "unknown_action":
       return "That is not something this account can be charged for yet. Contact support.";
     default:

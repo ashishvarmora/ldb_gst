@@ -91,26 +91,6 @@ export const loadOverview = cache(async (userId: string): Promise<OfficerOvervie
 export const PLAN_GRACE_DAYS = 7;
 
 /**
- * True when the free trial has ended and nothing has been bought since.
- *
- * The one account state where a balance exists and cannot be spent. A trial is
- * not a purchase - "only free trial expire all" - so when the seventh day
- * passes its credits finish with it.
- *
- * The `credits_purchased` escape is the same escape spend_credits() makes, and
- * for the same reason: the top-up panel is open to lapsed accounts on purpose,
- * and freezing credits somebody has just paid for would be taking their money.
- * The database tests "has this account any paid payment"; this tests the sum of
- * its 'purchase' ledger rows, which officer_overview already carries and which
- * is non-zero for exactly those accounts. Two readings of one rule, but only
- * this one is load-bearing on a screen - spend_credits() is what enforces it,
- * and it reads payments directly.
- */
-export function trialSpentOut(overview: OfficerOverview): boolean {
-  return overview.plan_is_trial && !overview.plan_active && overview.credits_purchased <= 0;
-}
-
-/**
  * Plain-language reason a MANUAL SEARCH would be refused, or null when it is
  * fine.
  *
@@ -131,14 +111,14 @@ export function trialSpentOut(overview: OfficerOverview): boolean {
  * is what a screen can usefully say in advance.
  */
 export function blockedReason(overview: OfficerOverview): string | null {
-  if (trialSpentOut(overview)) {
-    /* "or top up" was the way out until a top-up needed a plan, and this is
-       the exact account it is now refused to - a finished trial that has
-       bought nothing. Offering it would send them to a shop that turns them
-       away. A plan is the one door left, and it can carry credits in the same
-       payment. */
-    return "Your free trial has ended, so its credits have finished with it. Choose a plan to carry on — a plan can bring credits with it.";
-  }
+  /*
+   * THE FREE TRIAL USED TO BE AN EXCEPTION HERE and no longer is. A finished
+   * trial's leftover credits were treated as unspendable, mirroring a guard
+   * in spend_credits() - and 0057 removed that guard, so this branch would
+   * now be a screen refusing something the database would happily allow.
+   * Every plan ending, trial included, costs automatic tracking and nothing
+   * else.
+   */
   if (overview.credits <= 0) {
     return "You have run out of credits. Top up on the Plan and credits page.";
   }
@@ -177,8 +157,9 @@ export function blockedReason(overview: OfficerOverview): string | null {
  * A FINISHED TRIAL DOES NOT, and that is the whole reason this is not simply
  * "has ever held a plan". A free trial that counted forever would reopen the
  * leak through the front door: take the trial, let it lapse, top up for life.
- * It is also the one account whose wallet is frozen (trialSpentOut), so the
- * route out is buying a plan - which is exactly where the owner wants it.
+ * Its credits are NOT frozen - 0057 - so the account can still search on what
+ * the trial gave it. What it cannot do is top that balance up without a plan,
+ * which is where the owner wants the route out to be.
  *
  * NOT tested: credits_purchased. An account that bought credits during the
  * window when this gate was open would be refused more of them, which is a real

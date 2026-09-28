@@ -36,7 +36,6 @@ import {
   loadSearchCost,
   requirePortalSession,
   topUpBlockedReason,
-  trialSpentOut,
 } from "@/lib/officer";
 import { razorpayConfigured } from "@/lib/razorpay";
 import { loadSettings } from "@/lib/settings";
@@ -105,14 +104,6 @@ export default async function PlanPage() {
   /** The plan row they are on, archived or not. Null when there is no plan. */
   const currentPlan = plans.find((plan) => plan.id === overview.plan_id) ?? null;
   const onTrial = currentPlan?.is_trial === true;
-  /*
-   * The trial has ended and nothing has been bought since, so its credits have
-   * ended with it - the one state in the product where a balance is showing a
-   * figure that cannot be spent. Read from the same helper spend_credits()
-   * mirrors, so the page and the refusal cannot disagree.
-   */
-  const trialOver = trialSpentOut(overview);
-
   const support = { email: settings.supportEmail, phone: settings.supportPhone };
 
   const today = istToday();
@@ -241,25 +232,21 @@ export default async function PlanPage() {
             {graceLeft !== null && graceLeft > 0
               ? `Your trucks are still here - renew within ${graceLeft} ${graceLeft === 1 ? "day" : "days"} and everything carries on exactly where it stopped.`
               : "Your trucks have been switched off, but nothing has been deleted - renew and switch them back on from My trucks."}{" "}
-            {/* The trial is the one plan whose ending takes the credits with
-                it. Saying "your credits never expire" to somebody whose balance
-                has just stopped working would be the worst sentence on the
-                site. */}
-            {trialOver
-              ? "The trial's credits have finished with it - a plan starts you again, and can bring credits with it."
-              : "Manual search still works: credits you have bought never expire."}
+            {/* One sentence for every lapse now. The trial used to be the
+                exception - its ending took the credits with it - and 0057
+                removed that, so there is no longer a reader for whom this
+                sentence would be false. */}
+            Manual search still works: your credits never expire.
           </Notice>
         ) : null}
 
-        {/* Only where the balance is actually spendable. On a finished trial the
-            figure is a leftover, not an asset, and the notice above has already
-            said so. */}
         {/* Four sentences, cut to one. The last two explained what a plan adds
             - which is what the three Step cards below the grid are for, and
             what every card in the grid states in figures. What is left is the
             only thing this reader cannot see anywhere: their balance survived
-            the plan. */}
-        {overview.credits > 0 && !trialOver ? (
+            the plan. Shown on a finished trial too, since 0057: that balance
+            is spendable like any other. */}
+        {overview.credits > 0 ? (
           <Notice tone="warn">
             You still have {formatCredits(overview.credits)} credits — they never expire, and still
             buy a search today.
