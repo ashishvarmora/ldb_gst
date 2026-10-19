@@ -71,7 +71,25 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    /*
+     * suppressHydrationWarning because the script below adds a class to this
+     * element before React hydrates it, on purpose.
+     */
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+         * Marks the Android app (RahdariApp/ in its user agent - see
+         * src/lib/native-app.ts) before the first paint, so app-only styles in
+         * globals.css apply from the first frame instead of flashing the
+         * website's footer and then hiding it. Inline and tiny for that reason.
+         */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(navigator.userAgent.indexOf('RahdariApp/')>-1)document.documentElement.classList.add('native-app')}catch(e){}",
+          }}
+        />
+      </head>
       <body className="min-h-screen antialiased">
         {children}
         <ServiceWorkerRegistrar />

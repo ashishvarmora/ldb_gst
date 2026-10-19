@@ -207,29 +207,39 @@ export function PortalBottomNav({ account }: { account: React.ReactNode }) {
               href={href}
               aria-current={active ? "page" : undefined}
               className={cx(
-                "relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium transition",
-                active ? "text-brand-500" : "text-muted active:text-ink",
+                "pressable relative flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
+                active ? "text-brand-600" : "text-muted active:text-ink",
               )}
             >
-              {/* A bar on the edge the tab touches reads faster than colour
-                  alone, and still works for a colour-blind reader. */}
-              <span
-                aria-hidden
-                className={cx(
-                  "absolute inset-x-3 top-0 h-0.5 rounded-full transition",
-                  active ? "bg-brand-500" : "bg-transparent",
-                )}
-              />
               <NavTabPending />
-              <Icon size={20} strokeWidth={active ? 2.3 : 1.8} />
-              {label}
+              {/*
+                The active tab's icon sits in a pill, the way Android's own
+                navigation bar marks it - shape as well as colour, so it reads
+                for a colour-blind reader too. Keyed on the state so the pill
+                grows in each time a tab becomes active.
+              */}
+              <span className="relative inline-flex h-8 w-14 items-center justify-center">
+                {active ? (
+                  <span
+                    aria-hidden
+                    key={`pill-${href}`}
+                    className="pill-in absolute inset-0 rounded-full bg-brand-500/14"
+                  />
+                ) : null}
+                <Icon
+                  size={21}
+                  strokeWidth={active ? 2.3 : 1.8}
+                  className="relative transition-transform duration-200"
+                />
+              </span>
+              <span className={active ? "font-semibold" : undefined}>{label}</span>
             </Link>
           );
         })}
         {account}
       </div>
       {/* Breathing room for iOS home-indicator gestures. */}
-      <div className="h-[env(safe-area-inset-bottom)]" />
+      <div className="h-[var(--sab)]" />
     </nav>
   );
 }

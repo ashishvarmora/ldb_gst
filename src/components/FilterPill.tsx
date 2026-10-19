@@ -152,7 +152,7 @@ export function FilterPill({
             }}
             className={cx(
               "animate-in fixed z-50 border border-line bg-panel [box-shadow:var(--shadow-pop)]",
-              "inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-b-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+              "inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-b-0 p-3 pb-[max(0.75rem,var(--sab))]",
               "sm:inset-x-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-80 sm:max-w-[calc(100vw-2rem)]",
               "sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border-b sm:pb-3",
             )}

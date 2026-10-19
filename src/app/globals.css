@@ -369,6 +369,193 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   animation: fade-in-up 0.18s ease-out;
 }
 
+/* ===========================================================================
+   Safe areas, phones and the Android app
+   ===========================================================================
+
+   THE APP DRAWS UNDER THE STATUS BAR. Android 15 makes every app edge to edge,
+   and Capacitor 8 passes the system-bar insets to the page instead of padding
+   the WebView. Newer WebViews report them as env(safe-area-inset-*); older
+   ones only get the --safe-area-inset-* variables Capacitor injects. --sat and
+   --sab take whichever is larger, so the header clears the status bar and the
+   tab bar clears the gesture bar on every phone, in the app or a browser. */
+:root {
+  --sat: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --sal: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --sar: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  /* One curve for everything that moves, so the app moves as one thing. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The sticky headers carry the status-bar strip, so the colour behind the
+   clock is the header's own rather than whatever has scrolled under it. */
+.safe-top {
+  padding-top: var(--sat);
+}
+
+/* Taps on a phone: no grey flash from the browser, no 300ms double-tap wait.
+   Pinch zoom stays (a number plate somebody cannot read is worth zooming). */
+@media (pointer: coarse) {
+  a,
+  button,
+  [role="button"],
+  label,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+/* Press feedback, the thing a website lacks and an app always has. Scale
+   rather than colour so it shows on every variant of button. Opt out with
+   .no-press on anything where movement would be wrong (a draggable row). */
+@media (pointer: coarse) {
+  button:not(:disabled):not(.no-press),
+  a.pressable,
+  .pressable {
+    transition:
+      transform 0.12s var(--ease-out),
+      background-color 0.15s,
+      color 0.15s,
+      opacity 0.15s;
+  }
+  button:not(:disabled):not(.no-press):active,
+  a.pressable:active,
+  .pressable:active {
+    transform: scale(0.97);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Inside the Android app (html.native-app, set before first paint in
+   app/layout.tsx). What makes a site in a WebView read as a website, removed.
+   --------------------------------------------------------------------------- */
+.native-app,
+.native-app body {
+  /* No rubber band or glow past the top and bottom: the page is the app. */
+  overscroll-behavior-y: none;
+}
+
+.native-app body {
+  /* A fixed background repaints on every scroll frame in a WebView. */
+  background-attachment: scroll;
+}
+
+/* Pages with no sticky header of their own (sign in, sign up, the public
+   pages) still have to start below the status bar. The portal and admin
+   headers pad themselves (.safe-top / .safe-top-own) and are excluded, or the
+   gap would be doubled. */
+.native-app body:not(:has(.safe-top, .safe-top-own)) {
+  padding-top: var(--sat);
+}
+
+/* Chrome is not text. Long-pressing a tab or a button selects its label in a
+   browser and nothing in an app. Content stays selectable - a truck number or
+   a payment reference is something people copy. */
+.native-app header,
+.native-app nav,
+.native-app button,
+.native-app [role="button"],
+.native-app .app-chrome {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* The website's footer (support links, terms, the address) belongs on a
+   website. The app reaches the same things from the account sheet. */
+.native-app .app-hide {
+  display: none !important;
+}
+.native-app .web-only {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+   --------------------------------------------------------------------------- */
+
+/* Every page arriving: a short rise and fade, the way a native screen comes
+   in. Short on purpose - anything over ~250ms reads as the app being slow. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page-enter {
+  /* backwards, NOT both: an animation that holds its end state keeps the
+     element a stacking context and a containing block for fixed children, so
+     every modal and sheet inside the page would be trapped in it - drawn under
+     the header and positioned against the page instead of the screen. */
+  animation: page-enter 0.22s var(--ease-out) backwards;
+}
+
+/* Sheets come up from the bottom edge on a phone. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.backdrop-in {
+  animation: backdrop-in 0.2s ease-out both;
+}
+@media (max-width: 639px) {
+  .sheet-up {
+    animation: sheet-up 0.28s var(--ease-out) both;
+  }
+}
+@media (min-width: 640px) {
+  .sheet-up {
+    animation: fade-in-up 0.18s ease-out both;
+  }
+}
+
+/* The tab bar's active pill grows in from the middle, Material-style. */
+@keyframes pill-in {
+  from {
+    transform: scaleX(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.pill-in {
+  animation: pill-in 0.25s var(--ease-out) both;
+}
+
+/* Lists filling in: each child a beat after the one before it. Applied to a
+   container; capped at eight so a long list does not keep arriving. */
+.stagger > * {
+  animation: page-enter 0.26s var(--ease-out) backwards;
+}
+.stagger > *:nth-child(2) { animation-delay: 30ms; }
+.stagger > *:nth-child(3) { animation-delay: 60ms; }
+.stagger > *:nth-child(4) { animation-delay: 90ms; }
+.stagger > *:nth-child(5) { animation-delay: 120ms; }
+.stagger > *:nth-child(6) { animation-delay: 150ms; }
+.stagger > *:nth-child(7) { animation-delay: 180ms; }
+.stagger > *:nth-child(n + 8) { animation-delay: 210ms; }
+
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

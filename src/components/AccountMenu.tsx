@@ -258,7 +258,7 @@ export function AccountMenu(props: AccountMenuProps) {
         <div
           aria-hidden
           onClick={close}
-          className="animate-in fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="backdrop-in fixed inset-0 z-40 bg-black/40 lg:hidden"
         />
       ) : null}
 
@@ -269,7 +269,7 @@ export function AccountMenu(props: AccountMenuProps) {
         className={cx(
           "z-50 overflow-hidden border border-line bg-panel [box-shadow:var(--shadow-pop)]",
           sheet
-            ? "animate-in fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-2xl border-b-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
+            ? "sheet-up fixed inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-3xl border-b-0 pb-[var(--sab)] lg:hidden"
             : /* The 320px dropdown is capped against the viewport as well as
                  anchored to the button. It is the avatar variant, so it is
                  normally on a desktop header - but a narrow window puts the
@@ -288,6 +288,13 @@ export function AccountMenu(props: AccountMenuProps) {
               "animate-in absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-5rem)] overflow-y-auto overscroll-contain rounded-xl",
         )}
       >
+        {/* A grab handle: the mark every phone uses to say "this is a sheet". */}
+        {sheet ? (
+          <div aria-hidden className="flex justify-center pt-2.5">
+            <span className="h-1 w-10 rounded-full bg-line-strong" />
+          </div>
+        ) : null}
+
         {/* ---------------- who you are ---------------- */}
         <div className="flex items-center gap-3 border-b border-divider px-4 py-3.5">
           <Avatar text={initials} />
@@ -472,28 +479,27 @@ export function AccountMenu(props: AccountMenuProps) {
           aria-haspopup="menu"
           aria-label="Account"
           className={cx(
-            "relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium transition",
-            open ? "text-brand-500" : "text-muted active:text-ink",
+            "relative flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
+            open ? "font-semibold text-brand-600" : "text-muted active:text-ink",
           )}
         >
-          <span
-            aria-hidden
-            className={cx(
-              "absolute inset-x-3 top-0 h-0.5 rounded-full transition",
-              open ? "bg-brand-500" : "bg-transparent",
-            )}
-          />
-          {/* The initials are the profile icon: it is the reader's own account,
-              and a monogram says that faster than a generic silhouette. */}
-          <span
-            className={cx(
-              "inline-flex size-5 items-center justify-center rounded-full border text-[9px] font-semibold transition",
-              open
-                ? "border-brand-500 bg-brand-500 text-on-brand"
-                : "border-brand-500/40 bg-brand-500/12 text-brand-400",
-            )}
-          >
-            {initials}
+          {/* Same pill as the other tabs in PortalNav, so the bar is one set. */}
+          <span className="relative inline-flex h-8 w-14 items-center justify-center">
+            {open ? (
+              <span aria-hidden className="pill-in absolute inset-0 rounded-full bg-brand-500/14" />
+            ) : null}
+            {/* The initials are the profile icon: it is the reader's own account,
+                and a monogram says that faster than a generic silhouette. */}
+            <span
+              className={cx(
+                "relative inline-flex size-6 items-center justify-center rounded-full border text-[10px] font-semibold transition",
+                open
+                  ? "border-brand-500 bg-brand-500 text-on-brand"
+                  : "border-brand-500/40 bg-brand-500/12 text-brand-400",
+              )}
+            >
+              {initials}
+            </span>
           </span>
           Account
           {/* An empty balance stops every search, so it is flagged on the tab

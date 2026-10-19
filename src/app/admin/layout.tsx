@@ -48,7 +48,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
          * overflows, and every page below keeps its wide content in its own
          * scroller.
          */}
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 py-3 backdrop-blur">
+        <header className="safe-top-own sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 pt-[calc(var(--sat)+0.75rem)] pb-3 backdrop-blur">
           {/*
            * min-w-0 plus truncate on the strapline. It is prose, so it breaks
            * at spaces and never overflows - but without a cap it wraps to four

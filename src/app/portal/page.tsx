@@ -1,6 +1,16 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowRight, BellRing, Coins, History, Search, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  BellRing,
+  Coins,
+  History,
+  MessageSquare,
+  Search,
+  Truck,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 
 import { InviteCard } from "./referrals/InviteCard";
 import { InfoTip } from "@/components/InfoTip";
@@ -90,6 +100,8 @@ export default async function PortalHome() {
           the three panels below it - Credits left, Your plan, Today's alerts -
           listed in a sentence the reader had to get past to reach them. */}
       <PageHeader title={firstName ? `Good to see you, ${firstName}` : "Dashboard"} />
+
+      <QuickActions />
 
       {/* The plan is live, so the only thing that can stop a search here is an
           empty balance - and the fix is one tap away, not a support request. */}
@@ -463,5 +475,39 @@ async function TodaysAlertsPanel({
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * The four things people open the app to do, as big tiles - phones only.
+ *
+ * On a desktop the sidebar is always in view and does this job; on a phone the
+ * tab bar carries three of the destinations, but "top up" and "message us" are
+ * two taps deep in the account sheet, and the first screen of an app is where a
+ * thumb expects to find them.
+ */
+const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/portal/search", label: "Search", icon: Search },
+  { href: "/portal/trucks", label: "My trucks", icon: Truck },
+  { href: TOPUP_HREF, label: "Top up", icon: Wallet },
+  { href: "/portal/support", label: "Messages", icon: MessageSquare },
+];
+
+function QuickActions() {
+  return (
+    <nav aria-label="Quick actions" className="stagger mb-5 grid grid-cols-4 gap-2 lg:hidden">
+      {QUICK_ACTIONS.map(({ href, label, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className="pressable flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-2xl border border-line bg-panel px-1 text-center text-[11px] font-medium text-ink [box-shadow:var(--shadow-card)]"
+        >
+          <span className="inline-flex size-9 items-center justify-center rounded-xl bg-brand-500/10 text-brand-500">
+            <Icon size={18} />
+          </span>
+          {label}
+        </Link>
+      ))}
+    </nav>
   );
 }

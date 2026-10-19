@@ -243,7 +243,7 @@ function Popup({
         role="dialog"
         aria-modal="true"
         aria-labelledby={`ann-${item.id}`}
-        className="animate-in relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-line bg-panel px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] [box-shadow:var(--shadow-pop)] sm:max-w-md sm:rounded-2xl sm:pb-5"
+        className="animate-in relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-line bg-panel px-5 pt-5 pb-[max(1.25rem,var(--sab))] [box-shadow:var(--shadow-pop)] sm:max-w-md sm:rounded-2xl sm:pb-5"
       >
         <div className="flex items-start gap-3">
           <span

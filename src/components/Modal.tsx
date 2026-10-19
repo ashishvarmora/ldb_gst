@@ -65,9 +65,15 @@ export function Modal({
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+        /*
+         * On a phone this is a bottom sheet, the way an app asks for input:
+         * mt-auto rests a short form on the bottom edge, and a long one starts
+         * below the status bar and scrolls this container. From sm up it is
+         * the centred dialog it always was.
+         */
+        <div className="fixed inset-0 z-50 flex flex-col items-stretch overflow-y-auto overscroll-contain pt-[calc(var(--sat)+2.5rem)] sm:items-center sm:p-6">
           <div
-            className="fixed inset-0 bg-strong/25 backdrop-blur-sm"
+            className="backdrop-in fixed inset-0 bg-strong/25 backdrop-blur-sm"
             onClick={close}
             aria-hidden
           />
@@ -76,7 +82,7 @@ export function Modal({
             aria-modal="true"
             aria-label={title}
             className={cx(
-              "animate-in relative z-10 my-auto w-full rounded-2xl border border-line bg-panel [box-shadow:var(--shadow-pop)]",
+              "sheet-up relative z-10 mt-auto w-full rounded-t-3xl border border-b-0 border-line bg-panel pb-[var(--sab)] [box-shadow:var(--shadow-pop)] sm:my-auto sm:rounded-2xl sm:border-b sm:pb-0",
               maxWidth,
             )}
           >
@@ -94,6 +100,10 @@ export function Modal({
              * console keeps to, and this is the control somebody reaches for
              * when they opened the wrong form.
              */}
+            {/* The phone's "this is a sheet" mark. Not on the centred dialog. */}
+            <div aria-hidden className="flex justify-center pt-2.5 sm:hidden">
+              <span className="h-1 w-10 rounded-full bg-line-strong" />
+            </div>
             <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
               <div className="min-w-0 break-words">
                 <h2 className="text-base font-semibold text-strong">{title}</h2>

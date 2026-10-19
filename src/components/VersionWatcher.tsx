@@ -229,7 +229,7 @@ export function VersionWatcher({ current }: { current: string }) {
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] z-50 flex justify-center px-4 lg:bottom-4"
+      className="fixed inset-x-0 bottom-[calc(var(--sab)+4.75rem)] z-50 flex justify-center px-4 lg:bottom-4"
     >
       <div className="animate-in flex w-full max-w-md items-center gap-3 rounded-xl border border-brand-500/40 bg-panel px-3 py-2.5 [box-shadow:var(--shadow-pop)]">
         <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">

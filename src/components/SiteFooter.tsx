@@ -85,7 +85,9 @@ export async function SiteHeader({ action }: { action?: HeaderAction | null }) {
         <nav className="flex shrink-0 items-center gap-1.5">
           <Link
             href="/pricing"
-            className="inline-flex min-h-10 items-center rounded-lg px-2.5 text-sm font-medium text-muted transition hover:bg-sunken hover:text-ink"
+            /* web-only: the app shows plans inside the portal, and a marketing
+               link in its top bar is what makes it read as a website. */
+            className="web-only inline-flex min-h-10 items-center rounded-lg px-2.5 text-sm font-medium text-muted transition hover:bg-sunken hover:text-ink"
           >
             Pricing
           </Link>
@@ -119,7 +121,10 @@ export function PublicShell({
     <div className="theme-light flex min-h-screen flex-col">
       <SiteHeader action={action} />
       <main className={cx("flex-1", mainClassName ?? "px-4 py-10")}>{children}</main>
-      <SiteFooter />
+      {/* The website's footer, not the app's - see .app-hide in globals.css. */}
+      <div className="app-hide">
+        <SiteFooter />
+      </div>
     </div>
   );
 }

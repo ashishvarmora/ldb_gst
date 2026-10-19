@@ -11,6 +11,7 @@ import { LogoBadge } from "@/components/Logo";
 import { MessageBell } from "@/components/MessageBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
 import { loadAnnouncementsFor } from "@/lib/announcements";
@@ -169,7 +170,7 @@ export default async function PortalLayout({ children }: { children: React.React
           their credits are buying nothing. It costs about 36px of a phone's
           screen and it is gone the moment they fix it.
         */}
-        <header className="sticky top-0 z-30 border-b border-divider bg-page/85 backdrop-blur">
+        <header className="safe-top sticky top-0 z-30 border-b border-divider bg-page/85 backdrop-blur">
           <AlertDeliveryBanner delivery={delivery} trucks={overview.total_trucks} />
 
           <div className="flex items-center justify-between gap-2 px-4 py-2.5">
@@ -242,6 +243,8 @@ export default async function PortalLayout({ children }: { children: React.React
           {/* Offered to a signed-in customer only: somebody who has not got an
               account yet has nothing to open the installed app onto. */}
           <InstallPrompt />
+          {/* App only: drag down at the top to reload this page's data. */}
+          <PullToRefresh />
           {children}
         </main>
 
@@ -249,7 +252,11 @@ export default async function PortalLayout({ children }: { children: React.React
             visitor. The bottom tab bar floats over the page on phones, so the
             footer carries the clearance the main column used to. */}
         <div className="pb-24 lg:pb-6">
-          <SiteFooter />
+          {/* Not in the Android app, which is an app and not a website; the
+              account sheet carries the support details there. */}
+          <div className="app-hide">
+            <SiteFooter />
+          </div>
         </div>
       </div>
 
