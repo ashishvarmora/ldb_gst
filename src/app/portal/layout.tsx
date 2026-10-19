@@ -5,6 +5,7 @@ import { ShieldCheck, Truck } from "lucide-react";
 import { AccountMenu, type AccountMenuProps } from "@/components/AccountMenu";
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { AlertDeliveryBanner, loadAlertDelivery } from "@/components/AlertDeliveryBanner";
+import { Announcements } from "@/components/Announcements";
 import { CreditPill } from "@/components/CreditBalance";
 import { LogoBadge } from "@/components/Logo";
 import { MessageBell } from "@/components/MessageBell";
@@ -12,6 +13,7 @@ import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
+import { loadAnnouncementsFor } from "@/lib/announcements";
 import { unreadForCustomer } from "@/lib/chat";
 import { creditStanding, searchesLeft } from "@/lib/credits";
 import { initials } from "@/lib/format";
@@ -70,6 +72,7 @@ export default async function PortalLayout({ children }: { children: React.React
     searchCost,
     { data: alertRows },
     delivery,
+    announcements,
   ] = await Promise.all([
     publicSettings(),
     // What a search costs, so "low" means "nearly out of searches" rather than
@@ -91,6 +94,13 @@ export default async function PortalLayout({ children }: { children: React.React
        AlertDeliveryBanner, which needs a truck before it says anything. A
        round trip to Tokyo is worth avoiding on every page of a fresh account. */
     overview.total_trucks > 0 ? loadAlertDelivery(overview.id) : Promise.resolve("ready" as const),
+    /* What the desk is telling this customer (/admin/announcements). Never
+       throws - a fault there renders no banner, never a broken portal. */
+    loadAnnouncementsFor({
+      id: overview.id,
+      plan_id: overview.plan_id,
+      plan_active: overview.plan_active,
+    }),
   ]);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
@@ -222,6 +232,11 @@ export default async function PortalLayout({ children }: { children: React.React
             </div>
           </div>
         </header>
+
+        {/* Banners scroll away with the page, unlike the delivery strip above:
+            they are news, not a fault the customer has to fix. The popup is
+            fixed, so where it sits in the tree does not matter. */}
+        <Announcements items={announcements} />
 
         <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
           {/* Offered to a signed-in customer only: somebody who has not got an

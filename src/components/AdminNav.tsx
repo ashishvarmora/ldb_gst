@@ -13,6 +13,7 @@ import {
   Gauge,
   IndianRupee,
   LayoutDashboard,
+  Megaphone,
   Menu,
   MessageSquare,
   Search,
@@ -68,6 +69,8 @@ const NAV = [
       // Under OPERATE rather than CONFIGURE: answering a customer is the day's
       // work, not a setting.
       { href: "/admin/chat", label: "Messages", icon: MessageSquare },
+      // Next to Messages: the same job - talking to customers - to many at once.
+      { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
     ],
   },
   {

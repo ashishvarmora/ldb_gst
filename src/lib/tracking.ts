@@ -11,6 +11,7 @@ import { istDaysAgo, istToday } from "@/lib/format";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
 import { purgeOldChat } from "@/lib/chat";
+import { sendDueAnnouncementPushes } from "@/lib/announcements";
 import { PLAN_GRACE_DAYS } from "@/lib/officer";
 import { dueForAutoPause } from "@/lib/pause";
 import { formatPushAlert, sendPushToUser } from "@/lib/push";
@@ -1278,6 +1279,24 @@ export async function runTrackingSweep(
       durationMs: finishedAt.getTime() - startedAt.getTime(),
     };
   };
+
+  /*
+   * Phone notifications for announcements whose start time has arrived - how a
+   * scheduled one buzzes at its hour without anybody pressing anything.
+   *
+   * HERE, NOT WITH THE HOUSEKEEPING AT THE END. The sweep returns early when
+   * tracking is switched off or no truck is due, and the end is never reached
+   * on those ticks - a quiet night would hold a 9am offer back until the first
+   * lorry needed checking. Skipped for a run aimed at chosen trucks, which is
+   * an admin checking something specific. Never throws, and each announcement
+   * is sent at most once (see sendAnnouncementPush).
+   */
+  if (!options.truckIds?.length) {
+    const announcementsPushed = await sendDueAnnouncementPushes();
+    if (announcementsPushed > 0) {
+      console.info(`[announcements] sent ${announcementsPushed} scheduled push(es)`);
+    }
+  }
 
   if (!settings.trackingEnabled) return finish(base);
 
