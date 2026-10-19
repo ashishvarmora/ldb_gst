@@ -1,0 +1,24 @@
+{
+  "name": "rahdari-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android and iOS shell for rahdari.in. The app loads the live site, so a Vercel deploy updates it without a store release.",
+  "scripts": {
+    "sync": "cap sync",
+    "icons": "capacitor-assets generate --iconBackgroundColor '#f4f6fa' --splashBackgroundColor '#f4f6fa'",
+    "android": "cap open android",
+    "ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3"
+  }
+}

@@ -1,0 +1,4 @@
+# Release signing keys - never commit
+*.jks
+*.keystore
+keystore.properties

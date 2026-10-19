@@ -1,0 +1,32 @@
+{
+  "appId": "in.rahdari.app",
+  "appName": "Rahdari",
+  "webDir": "www",
+  "appendUserAgent": "RahdariApp/1.0",
+  "backgroundColor": "#f4f6fa",
+  "server": {
+    "url": "https://rahdari.in/portal",
+    "errorPath": "offline.html",
+    "allowNavigation": ["rahdari.in", "*.rahdari.in", "*.razorpay.com"]
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "launchAutoHide": true,
+      "backgroundColor": "#f4f6fa",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#f4f6fa",
+      "overlaysWebView": false
+    }
+  }
+}

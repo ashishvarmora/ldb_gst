@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download, Share, X } from "lucide-react";
 
 import { buttonClass, cx } from "@/components/ui";
+import { isNativeApp } from "@/lib/native-app";
 
 /**
  * Registers the service worker.
@@ -83,7 +84,8 @@ export function InstallPrompt() {
   const [hidden, setHidden] = useState(true);
 
   useEffect(() => {
-    if (isStandalone() || readDismissed()) return;
+    // The Android/iOS app is already on the home screen.
+    if (isNativeApp() || isStandalone() || readDismissed()) return;
 
     if (isApple()) {
       setShowIosHint(true);

@@ -14,6 +14,7 @@ import {
 import { removePushSubscription, savePushSubscription, testMyPush } from "./actions";
 import { HelpNote } from "@/components/Disclosure";
 import { Badge, Mono, Switch, buttonClass, cx } from "@/components/ui";
+import { isNativeApp } from "@/lib/native-app";
 
 /**
  * Switching on notifications that arrive on the phone itself.
@@ -58,7 +59,10 @@ type DeviceState =
   /** A browser with no Web Push at all. */
   | "unsupported"
   /** No service worker is running, so there is nothing to subscribe with. */
-  | "no-worker";
+  | "no-worker"
+  /** The Android/iOS app. Its WebView has no Web Push, and "add to Home Screen"
+      would be wrong advice there - it already is on the Home Screen. */
+  | "in-app";
 
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
@@ -146,6 +150,10 @@ export function PushSetup({
         "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
       if (!supported) {
+        if (isNativeApp()) {
+          setState("in-app");
+          return;
+        }
         // On iOS the missing piece is almost never the browser - it is that
         // this is a tab. Told apart here because the two have different fixes.
         if (onApple) {
@@ -482,7 +490,7 @@ function StateBadge({ state }: { state: DeviceState }) {
     );
   if (state === "denied") return <Badge tone="bad">blocked</Badge>;
   if (state === "ready") return <Badge tone="warn">off</Badge>;
-  // needs-install, needs-ios-update, unsupported, no-worker: nothing this
+  // needs-install, needs-ios-update, unsupported, no-worker, in-app: nothing this
   // screen can switch on, so none of them wears a warning colour.
   return <Badge tone="neutral">not available</Badge>;
 }
@@ -547,5 +555,12 @@ function StateLine({
       return <>Still starting up. Close the app fully, open it again and come back.</>;
     case "unsupported":
       return <>This browser cannot show notifications. Telegram alerts still work.</>;
+    case "in-app":
+      return (
+        <>
+          Phone notifications aren&apos;t in the app yet. Telegram alerts still work, or switch
+          them on from rahdari.in in Chrome.
+        </>
+      );
   }
 }
