@@ -1,3 +1,4 @@
+import { notifyPaymentSettled, pushAdmins } from "@/lib/admin-alerts";
 import { methodLabel } from "@/lib/analytics";
 import { formatCredits } from "@/lib/credits";
 import { env } from "@/lib/env";
@@ -422,6 +423,16 @@ export async function notifyAdminOfSignup(
     referred?: boolean;
   },
 ): Promise<void> {
+  // The admins' phones, independent of the mail below. Never throws.
+  await pushAdmins(admin, "signup", {
+    title: `New customer: ${customer.name?.trim() || customer.email}`,
+    body: [customer.phone, customer.referred ? "invited by a referral" : null]
+      .filter(Boolean)
+      .join(" · ") || customer.email,
+    tag: `signup-${customer.userId}`,
+    url: `/admin/officers/${customer.userId}`,
+  });
+
   try {
     const target = await notifyTarget(admin, "signup");
     if (!target) return;
@@ -499,6 +510,11 @@ export async function notifyAdminOfSignup(
  * the confirmation screen; with notifications off it costs one memoised query.
  */
 export async function notifyAdminOfPayment(admin: Admin, paymentId: string): Promise<void> {
+  /* The phone notifications ride on the same once-only call: to the admins'
+     devices and to the buyer's. Before the mail, and independent of it -
+     a deployment with no notification address still gets these. Never throws. */
+  await notifyPaymentSettled(admin, paymentId);
+
   try {
     const { data: payment } = await admin
       .from("payments")

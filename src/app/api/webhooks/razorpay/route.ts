@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { notifyPaymentFailed } from "@/lib/admin-alerts";
 import { releaseCoupon } from "@/lib/coupons";
 import { notifyAdminOfPayment } from "@/lib/email";
 import { verifyWebhookSignature } from "@/lib/razorpay";
@@ -168,7 +169,12 @@ export async function POST(request: NextRequest) {
        * Only for the row this event just closed, so a payment that already
        * settled keeps its claim applied.
        */
-      if (closed) await releaseCoupon(admin, closed.id);
+      if (closed) {
+        await releaseCoupon(admin, closed.id);
+        // This event closed it, so it is the one that tells. The buyer may have
+        // left the checkout, so they hear too.
+        await notifyPaymentFailed(admin, closed.id, { tellBuyer: true });
+      }
 
       // Still a 200 - no amount of retrying makes a failed payment succeed.
       return NextResponse.json({ ok: true, marked: "failed" });

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { checkCoupon, releaseCoupon, reserveCoupon } from "@/lib/coupons";
 import { formatCredits, planChargeInr, planTermLabel } from "@/lib/credits";
+import { notifyPaymentFailed, notifyPaymentStarted } from "@/lib/admin-alerts";
 import { notifyAdminOfPayment } from "@/lib/email";
 import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
@@ -597,6 +598,10 @@ async function openOrder({
     return refuse(reportError("payment row could not be stamped with the order", stampError, TROUBLE));
   }
 
+  // Somebody is about to pay: the admins' phones hear about it (if switched on
+  // under Settings). Awaited and never throws - see src/lib/admin-alerts.ts.
+  await notifyPaymentStarted(admin, row.id);
+
   return {
     ok: true,
     orderId: order.data.id,
@@ -954,7 +959,10 @@ export async function confirmCheckout(
 
       // Nothing was paid, so any code held against it goes back rather than
       // waiting out the lazy release.
-      if (rejected) await releaseCoupon(admin, rejected.id);
+      if (rejected) {
+        await releaseCoupon(admin, rejected.id);
+        await notifyPaymentFailed(admin, rejected.id, { tellBuyer: false });
+      }
 
       return fail("We could not verify that payment. Nothing was added to your account.");
     }
@@ -1111,7 +1119,12 @@ export async function reportCheckoutFailure(
     // A code held against a payment that just died goes back now rather than
     // waiting out the database's thirty-minute lazy release - the buyer's very
     // next move is usually to try the same code again with another card.
-    if (closed) await releaseCoupon(admin, closed.id);
+    if (closed) {
+      await releaseCoupon(admin, closed.id);
+      // Only when this call closed it, so a repeat report cannot notify twice.
+      // The buyer is watching the failure already, so only the admins hear.
+      await notifyPaymentFailed(admin, closed.id, { tellBuyer: false });
+    }
 
     // The finance page and the buyer's own receipts both list this row.
     revalidatePath("/portal/payments");

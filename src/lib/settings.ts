@@ -49,6 +49,11 @@ export const SETTINGS_FALLBACK: AppSettings = {
   adminNotifySignup: true,
   adminNotifyPlan: true,
   adminNotifyTopup: true,
+  adminPushSignup: true,
+  adminPushPaymentStarted: true,
+  adminPushPayment: true,
+  adminPushPaymentFailed: true,
+  adminPushChat: true,
 };
 
 /**
@@ -129,5 +134,12 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     adminNotifySignup: map.get("admin_notify_signup") !== false,
     adminNotifyPlan: map.get("admin_notify_plan") !== false,
     adminNotifyTopup: map.get("admin_notify_topup") !== false,
+    // Phone notifications to the admins (src/lib/admin-alerts.ts). Absent means
+    // on, like the mail switches above.
+    adminPushSignup: map.get("admin_push_signup") !== false,
+    adminPushPaymentStarted: map.get("admin_push_payment_started") !== false,
+    adminPushPayment: map.get("admin_push_payment") !== false,
+    adminPushPaymentFailed: map.get("admin_push_payment_failed") !== false,
+    adminPushChat: map.get("admin_push_chat") !== false,
   };
 }

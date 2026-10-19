@@ -594,6 +594,13 @@ export type AppSettings = {
   adminNotifySignup: boolean;
   adminNotifyPlan: boolean;
   adminNotifyTopup: boolean;
+  /** Phone notifications to every admin's own devices, one switch per event.
+      Independent of the mail address above. See src/lib/admin-alerts.ts. */
+  adminPushSignup: boolean;
+  adminPushPaymentStarted: boolean;
+  adminPushPayment: boolean;
+  adminPushPaymentFailed: boolean;
+  adminPushChat: boolean;
 };
 
 /* -------------------------------------------------------------------------- */

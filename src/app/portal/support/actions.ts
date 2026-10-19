@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin } from "@/lib/auth";
+import { pushAdmins } from "@/lib/admin-alerts";
 import {
-  adminRecipients,
   loadThread,
   markThreadRead,
   postMessage,
@@ -87,9 +87,10 @@ export async function sendCustomerMessage(
      * outlives a serverless response is killed, so a fire-and-forget push is
      * one that lands on a warm instance and quietly does not on a cold one.
      */
-    const desk = await adminRecipients(admin);
     const who = session.profile.full_name?.trim() || session.email;
-    await notify(desk, {
+    // Through pushAdmins so the "Customer message" switch on /admin/settings
+    // decides; it reads the desk itself.
+    await pushAdmins(admin, "chat", {
       title: `Message from ${who}`,
       body: preview(body),
       // One notification per conversation, replaced rather than stacked. Six

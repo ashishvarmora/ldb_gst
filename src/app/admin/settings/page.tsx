@@ -12,12 +12,14 @@ import {
 
 import {
   runTrackingNow,
+  saveAdminPushSettings,
   saveBackupSettings,
   saveNotificationSettings,
   savePaymentSettings,
   saveSettings,
   saveSiteSettings,
 } from "./actions";
+import { PushSetup } from "@/app/portal/settings/PushSetup";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { SectionTabs, activeSection, type Section } from "@/components/SectionTabs";
 import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/components/form";
@@ -60,8 +62,15 @@ export default async function SettingsPage({
   searchParams: Promise<{ section?: string }>;
 }) {
   const section = activeSection(SETTINGS_SECTIONS, (await searchParams).section);
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   const admin = getSupabaseAdmin();
+
+  // This admin's own subscribed devices, for the phone-alerts panel. A count:
+  // an endpoint is a credential and has no business reaching the page.
+  const { count: myDevices } = await admin
+    .from("push_subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", session.id);
 
   // Raw rows for the panels that still need to tell "absent" from "off", and the
   // resolved object for the Site panel, whose defaults live in loadSettings().
@@ -391,6 +400,60 @@ export default async function SettingsPage({
                 <SubmitButton>Save notification settings</SubmitButton>
               </FormActions>
             </ActionForm>
+          </Panel>
+
+          {/*
+            The phone half. Separate from the mail panel because it needs no
+            address and goes to every admin's own devices - each admin switches
+            their phone on below, and these switches decide which events it
+            hears about.
+          */}
+          <Panel
+            title="Phone alerts for admins"
+            description="Notifications on every admin's own phone or browser. Switch this device on below, then pick what to hear about."
+          >
+            <ActionForm action={saveAdminPushSettings} closeOnSuccess={false}>
+              <div className="space-y-3">
+                <Checkbox
+                  name="admin_push_signup"
+                  label="A new customer signs up"
+                  defaultChecked={site.adminPushSignup}
+                />
+                <Checkbox
+                  name="admin_push_payment_started"
+                  label="Somebody opens a checkout"
+                  hint="Before any money moves - a lead worth a call if it does not finish."
+                  defaultChecked={site.adminPushPaymentStarted}
+                />
+                <Checkbox
+                  name="admin_push_payment"
+                  label="A payment succeeds"
+                  hint="Plans and top-ups, online or recorded by hand."
+                  defaultChecked={site.adminPushPayment}
+                />
+                <Checkbox
+                  name="admin_push_payment_failed"
+                  label="A payment fails"
+                  hint="With the reason the gateway gave."
+                  defaultChecked={site.adminPushPaymentFailed}
+                />
+                <Checkbox
+                  name="admin_push_chat"
+                  label="A customer sends a message"
+                  defaultChecked={site.adminPushChat}
+                />
+              </div>
+              <FormActions>
+                <SubmitButton>Save phone alerts</SubmitButton>
+              </FormActions>
+            </ActionForm>
+
+            <PushSetup
+              platformReady={health.webPush}
+              appReady={health.fcm}
+              savedDevices={myDevices ?? 0}
+              supportEmail={site.supportEmail}
+            />
           </Panel>
         </div>
       ) : null}

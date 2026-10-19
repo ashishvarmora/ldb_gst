@@ -96,6 +96,16 @@ const NOTIFY_SPECS: SettingSpec[] = [
   { key: "admin_notify_topup", label: "Credits topped up", kind: "bool" },
 ];
 
+/* The admins' phone notifications (src/lib/admin-alerts.ts). Its own form:
+   no address involved, so none of the mail panel's checks apply. */
+const ADMIN_PUSH_SPECS: SettingSpec[] = [
+  { key: "admin_push_signup", label: "New customer", kind: "bool" },
+  { key: "admin_push_payment_started", label: "Checkout opened", kind: "bool" },
+  { key: "admin_push_payment", label: "Payment succeeded", kind: "bool" },
+  { key: "admin_push_payment_failed", label: "Payment failed", kind: "bool" },
+  { key: "admin_push_chat", label: "Customer message", kind: "bool" },
+];
+
 const SITE_SPECS: SettingSpec[] = [
   { key: "brand_name", label: "Product name", kind: "name", max: 60 },
   { key: "signup_enabled", label: "Public sign-up", kind: "bool" },
@@ -347,6 +357,29 @@ export async function saveNotificationSettings(
         ? events[0]
         : `${events.slice(0, -1).join(", ")} or ${events[events.length - 1]}`
     } arrives.`,
+  };
+}
+
+/** Which events reach the admins' phones. */
+export async function saveAdminPushSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, ADMIN_PUSH_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const result = await persist(actor, parsed.values, "settings.update_admin_push");
+  if (!result.ok) return result;
+
+  const on = ADMIN_PUSH_SPECS.filter((spec) => parsed.values[spec.key] === true).length;
+  return {
+    ok: true,
+    message:
+      on === 0
+        ? "Saved. Every phone alert is off."
+        : "Saved. Make sure this phone is switched on below, then send yourself a test.",
   };
 }
 
