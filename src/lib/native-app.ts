@@ -25,6 +25,13 @@ export function isNativeApp(): boolean {
  */
 type PermissionState = "prompt" | "prompt-with-rationale" | "granted" | "denied";
 type ListenerHandle = { remove: () => Promise<void> };
+/**
+ * NOT always a promise. The bridge the app injects (Capacitor's JSExport)
+ * returns the handle itself, synchronously; only @capacitor/core wraps it in a
+ * promise, and this site does not load core. Calling .then() on it threw on
+ * every page of the app, so every call site goes through Promise.resolve().
+ */
+type MaybeHandle = ListenerHandle | Promise<ListenerHandle>;
 
 export type NativePushPlugin = {
   checkPermissions(): Promise<{ receive: PermissionState }>;
@@ -39,12 +46,12 @@ export type NativePushPlugin = {
     visibility?: -1 | 0 | 1;
     vibration?: boolean;
   }): Promise<void>;
-  addListener(event: "registration", fn: (token: { value: string }) => void): Promise<ListenerHandle>;
-  addListener(event: "registrationError", fn: (error: { error: string }) => void): Promise<ListenerHandle>;
+  addListener(event: "registration", fn: (token: { value: string }) => void): MaybeHandle;
+  addListener(event: "registrationError", fn: (error: { error: string }) => void): MaybeHandle;
   addListener(
     event: "pushNotificationActionPerformed",
     fn: (action: { notification: { data?: Record<string, unknown> } }) => void,
-  ): Promise<ListenerHandle>;
+  ): MaybeHandle;
 };
 
 /**
@@ -96,19 +103,24 @@ export async function registerNativePush(
         clearTimeout(timer);
         resolve(result);
       };
-      void Promise.all([
-        plugin.addListener("registration", (token) => finish({ ok: true, token: token.value })),
-        plugin.addListener("registrationError", (error) => {
-          console.error("native push registration failed", error?.error);
+      void Promise.resolve()
+        .then(() =>
+          Promise.all([
+            plugin.addListener("registration", (token) => finish({ ok: true, token: token.value })),
+            plugin.addListener("registrationError", (error) => {
+              console.error("native push registration failed", error?.error);
+              finish({ ok: false, error: "This phone could not register for notifications." });
+            }),
+          ]),
+        )
+        .then((added) => {
+          handles.push(...added);
+          return plugin.register();
+        })
+        .catch((error) => {
+          console.error("native push register threw", error);
           finish({ ok: false, error: "This phone could not register for notifications." });
-        }),
-      ]).then((added) => {
-        handles.push(...added);
-        return plugin.register();
-      }).catch((error) => {
-        console.error("native push register threw", error);
-        finish({ ok: false, error: "This phone could not register for notifications." });
-      });
+        });
     });
   } finally {
     // After the promise settles, so a handle added late is still removed.
@@ -155,13 +167,17 @@ export function listenForNotificationTaps(): () => void {
   let handle: ListenerHandle | null = null;
   let cancelled = false;
 
-  void plugin
-    .addListener("pushNotificationActionPerformed", (action) => {
-      const url = action?.notification?.data?.url;
-      if (typeof url === "string" && url.startsWith("/") && !url.startsWith("//")) {
-        window.location.assign(url);
-      }
-    })
+  // Inside .then() so even a synchronous throw from the bridge lands in the
+  // catch below rather than taking down the page - and this runs on every page.
+  void Promise.resolve()
+    .then(() =>
+      plugin.addListener("pushNotificationActionPerformed", (action) => {
+        const url = action?.notification?.data?.url;
+        if (typeof url === "string" && url.startsWith("/") && !url.startsWith("//")) {
+          window.location.assign(url);
+        }
+      }),
+    )
     .then((added) => {
       if (cancelled) void added.remove();
       else handle = added;
