@@ -120,6 +120,26 @@ export const env = {
     if (!raw) return "";
     return /^(mailto:|https:)/i.test(raw) ? raw : `mailto:${raw}`;
   },
+  /**
+   * Firebase Cloud Messaging, for the Android/iOS app (mobile/). Its WebView
+   * has no Web Push, so the app registers with FCM and src/lib/fcm.ts sends to
+   * it over the HTTP v1 API.
+   *
+   * A service account of the Firebase project, from Firebase console ->
+   * Project settings -> Service accounts -> Generate new private key. Its own
+   * three variables rather than the Sheets account's, because that account
+   * belongs to a different Google Cloud project and FCM only accepts tokens
+   * from the project the app was built against. See mobile/README.md.
+   */
+  get fcmProjectId() {
+    return process.env.FCM_PROJECT_ID ?? "";
+  },
+  get fcmClientEmail() {
+    return process.env.FCM_CLIENT_EMAIL ?? "";
+  },
+  get fcmPrivateKey() {
+    return process.env.FCM_PRIVATE_KEY ?? "";
+  },
   get googleServiceAccountEmail() {
     return process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
   },
@@ -215,6 +235,10 @@ export function integrationHealth() {
         resolves(() => env.vapidPrivateKey) &&
         resolves(() => env.vapidSubject) &&
         process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    ),
+    // The app's notifications. Independent of webPush: either can be on alone.
+    fcm: Boolean(
+      process.env.FCM_PROJECT_ID && process.env.FCM_CLIENT_EMAIL && process.env.FCM_PRIVATE_KEY,
     ),
     googleSheets: Boolean(
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,

@@ -11,10 +11,22 @@ import {
   Share,
 } from "lucide-react";
 
-import { removePushSubscription, savePushSubscription, testMyPush } from "./actions";
+import {
+  removePushSubscription,
+  saveNativePushToken,
+  savePushSubscription,
+  testMyPush,
+} from "./actions";
 import { HelpNote } from "@/components/Disclosure";
 import { Badge, Mono, Switch, buttonClass, cx } from "@/components/ui";
-import { isNativeApp } from "@/lib/native-app";
+import {
+  isNativeApp,
+  nativePush,
+  nativePushWanted,
+  registerNativePush,
+  setNativePushWanted,
+  type NativePushPlugin,
+} from "@/lib/native-app";
 
 /**
  * Switching on notifications that arrive on the phone itself.
@@ -42,6 +54,12 @@ import { isNativeApp } from "@/lib/native-app";
  * Android and desktop Chrome need none of this - they subscribe from a tab -
  * but they share the code, because a state machine with a special case for one
  * platform is a state machine that is wrong on the other one.
+ *
+ * THE ANDROID APP IS THE ONE EXCEPTION, because it has to be. Its WebView has
+ * no Web Push at all, so it registers with Firebase Cloud Messaging through the
+ * Capacitor plugin (see src/lib/native-app.ts) and stores a token instead of a
+ * subscription. It lands in the same states - ready, subscribed, denied - so
+ * everything outside the effect and the two handlers is shared.
  */
 
 /** Every state this device can be in, and there is a message for each. */
@@ -60,8 +78,9 @@ type DeviceState =
   | "unsupported"
   /** No service worker is running, so there is nothing to subscribe with. */
   | "no-worker"
-  /** The Android/iOS app. Its WebView has no Web Push, and "add to Home Screen"
-      would be wrong advice there - it already is on the Home Screen. */
+  /** The app without native push: the iPhone app, or an Android build from
+      before the plugin. "Add to Home Screen" would be wrong advice there - it
+      already is on the Home Screen. */
   | "in-app";
 
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
@@ -101,11 +120,14 @@ export function PushSetup({
   /** Whether the platform's VAPID keys are all present. False means nothing we
       store here could ever be sent, which is ours to fix and not the reader's. */
   platformReady,
+  /** The same for the Android app's channel: whether the FCM keys are present. */
+  appReady,
   /** Installs already set up on this account, this one included. */
   savedDevices,
   supportEmail,
 }: {
   platformReady: boolean;
+  appReady: boolean;
   savedDevices: number;
   supportEmail: string;
 }) {
@@ -114,6 +136,8 @@ export function PushSetup({
      different screen on each platform. Read once, in the effect, because
      navigator does not exist while this renders on the server. */
   const [apple, setApple] = useState(false);
+  /** Inside the Android app with the push plugin present. Set once, on mount. */
+  const [native, setNative] = useState(false);
   const [busy, setBusy] = useState<"on" | "off" | "test" | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const router = useRouter();
@@ -126,7 +150,9 @@ export function PushSetup({
    * exists to stop.
    */
   const registration = useRef<ServiceWorkerRegistration | null>(null);
+  /** The web subscription's endpoint, or in the app the FCM token. */
   const endpoint = useRef<string | null>(null);
+  const plugin = useRef<NativePushPlugin | null>(null);
 
   /** Flattens the browser's object into the four strings the action takes. */
   const store = useCallback(async (subscription: PushSubscription) => {
@@ -145,6 +171,42 @@ export function PushSetup({
     (async () => {
       const onApple = isApple();
       setApple(onApple);
+
+      const app = nativePush();
+      if (app) {
+        plugin.current = app;
+        setNative(true);
+
+        const { receive } = await app
+          .checkPermissions()
+          .catch(() => ({ receive: "prompt" as const }));
+        if (cancelled) return;
+        if (receive === "denied") {
+          setState("denied");
+          return;
+        }
+        if (receive !== "granted" || !nativePushWanted()) {
+          setState("ready");
+          return;
+        }
+
+        /*
+         * Switched on before: register again and store the token, for the same
+         * reason the web branch re-stores its subscription below - FCM rotates
+         * tokens on its own schedule, and the row we hold would quietly stop
+         * reaching this phone.
+         */
+        const registered = await registerNativePush(app);
+        if (cancelled) return;
+        if (!registered.ok) {
+          setState("ready");
+          return;
+        }
+        endpoint.current = registered.token;
+        setState("subscribed");
+        void saveNativePushToken({ token: registered.token, userAgent: navigator.userAgent });
+        return;
+      }
 
       const supported =
         "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -224,10 +286,55 @@ export function PushSetup({
     };
   }, [store]);
 
+  /** The Android app's half of turnOn: a permission, a token, a row. */
+  const turnOnNative = useCallback(
+    async (app: NativePushPlugin) => {
+      const { receive } = await app.requestPermissions();
+      if (receive === "denied") {
+        setState("denied");
+        return;
+      }
+      if (receive !== "granted") {
+        setNote({ ok: false, text: "Nothing was changed. Tap again when you are ready to allow it." });
+        return;
+      }
+
+      const registered = await registerNativePush(app);
+      if (!registered.ok) {
+        setNote({ ok: false, text: registered.error });
+        return;
+      }
+
+      const result = await saveNativePushToken({
+        token: registered.token,
+        userAgent: navigator.userAgent,
+      });
+      if (!result.ok) {
+        // Same rule as the web branch: a token the server does not hold must
+        // not leave the phone looking set up.
+        await app.unregister().catch(() => {});
+        setNote({ ok: false, text: result.error });
+        return;
+      }
+
+      setNativePushWanted(true);
+      endpoint.current = registered.token;
+      setState("subscribed");
+      setNote({ ok: true, text: result.message ?? "Notifications are on for this phone." });
+      router.refresh();
+    },
+    [router],
+  );
+
   const turnOn = useCallback(async () => {
     setNote(null);
     setBusy("on");
     try {
+      if (plugin.current) {
+        await turnOnNative(plugin.current);
+        return;
+      }
+
       // First, and with nothing awaited before it. See the note on the ref above.
       const permission = await Notification.requestPermission();
 
@@ -284,12 +391,25 @@ export function PushSetup({
     } finally {
       setBusy(null);
     }
-  }, [router, store]);
+  }, [router, store, turnOnNative]);
 
   const turnOff = useCallback(async () => {
     setNote(null);
     setBusy("off");
     try {
+      if (plugin.current) {
+        // The row first here, the reverse of the web order: unregister()
+        // deletes the token, and after that there is nothing to match it by.
+        if (endpoint.current) await removePushSubscription(endpoint.current);
+        await plugin.current.unregister().catch(() => {});
+        setNativePushWanted(false);
+        endpoint.current = null;
+        setState("ready");
+        setNote({ ok: true, text: "Notifications are off for this phone." });
+        router.refresh();
+        return;
+      }
+
       const active = registration.current;
       const subscription = await active?.pushManager.getSubscription();
       const address = subscription?.endpoint ?? endpoint.current;
@@ -321,6 +441,8 @@ export function PushSetup({
   }, []);
 
   const spinning = busy !== null;
+  /** Whether the channel this device would use has its keys on the platform. */
+  const channelReady = native ? appReady : platformReady;
 
   return (
     <div className="mt-4 border-t border-divider pt-4">
@@ -348,7 +470,12 @@ export function PushSetup({
           <div className="min-w-0">
             <p className="text-sm font-medium text-ink">Alerts on this device</p>
             <p className="mt-0.5 text-xs leading-relaxed text-muted">
-              <StateLine state={state} savedDevices={savedDevices} apple={apple} />
+              <StateLine
+                state={state}
+                savedDevices={savedDevices}
+                apple={apple}
+                native={native}
+              />
             </p>
           </div>
 
@@ -365,7 +492,7 @@ export function PushSetup({
               checked={state === "subscribed"}
               onChange={state === "subscribed" ? turnOff : turnOn}
               busy={busy === "on" || busy === "off"}
-              disabled={spinning || !platformReady}
+              disabled={spinning || !channelReady}
               label={
                 state === "subscribed"
                   ? "Turn off notifications on this device"
@@ -418,7 +545,7 @@ export function PushSetup({
       {/* Ours to fix, not the reader's - the same call as the Telegram token
           line above. Shown whatever this device's own state is: without the
           keys a subscription is stored and never sent to. */}
-      {!platformReady ? (
+      {!channelReady ? (
         <p className="mt-2 text-xs leading-relaxed text-warn-500">
           Phone notifications are not switched on yet, so nothing will arrive.
           {supportEmail ? (
@@ -437,44 +564,47 @@ export function PushSetup({
       {/* The iPhone checklist. A dropdown and not an (i): it is a task somebody
           has to walk, and the reader who needs it has already decided the app
           is broken - which is exactly who an (i) does not reach. */}
-      <HelpNote title="Getting these on an iPhone" className="mt-2">
-        <p>
-          An iPhone only ever sends notifications to an app that lives on the{" "}
-          <strong className="text-ink">Home Screen</strong>, never to a Safari tab, and it needs
-          iOS 16.4 or newer.
-        </p>
-        <ol className="mt-2 space-y-1.5">
-          {[
-            <>
-              In Safari, tap <Share size={11} className="inline align-[-1px]" />{" "}
-              <strong className="text-ink">Share</strong>, then{" "}
-              <strong className="text-ink">Add to Home Screen</strong>.
-            </>,
-            <>Open the new icon. Not Safari — the icon.</>,
-            <>
-              In there, come back to this screen and tap{" "}
-              <strong className="text-ink">Turn on</strong>. Allow it when iOS asks.
-            </>,
-            <>
-              Tap <strong className="text-ink">Send test</strong>. If it arrives, you are done.
-            </>,
-            <>
-              If it does not: iOS <Mono className="text-[11px]">Settings</Mono> &rsaquo;{" "}
-              <Mono className="text-[11px]">Notifications</Mono>, find this app in the list and
-              switch it on.
-            </>,
-          ].map((step, index) => (
-            <li key={index} className="flex gap-2">
-              <span className="font-mono text-brand-500">{index + 1}.</span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>
-        <p className="mt-2">
-          Turning it on in Safari and turning it on in the installed icon are two separate
-          permissions, so it has to be the icon.
-        </p>
-      </HelpNote>
+      {/* Not in the Android app, where none of it applies. */}
+      {native ? null : (
+        <HelpNote title="Getting these on an iPhone" className="mt-2">
+          <p>
+            An iPhone only ever sends notifications to an app that lives on the{" "}
+            <strong className="text-ink">Home Screen</strong>, never to a Safari tab, and it needs
+            iOS 16.4 or newer.
+          </p>
+          <ol className="mt-2 space-y-1.5">
+            {[
+              <>
+                In Safari, tap <Share size={11} className="inline align-[-1px]" />{" "}
+                <strong className="text-ink">Share</strong>, then{" "}
+                <strong className="text-ink">Add to Home Screen</strong>.
+              </>,
+              <>Open the new icon. Not Safari — the icon.</>,
+              <>
+                In there, come back to this screen and tap{" "}
+                <strong className="text-ink">Turn on</strong>. Allow it when iOS asks.
+              </>,
+              <>
+                Tap <strong className="text-ink">Send test</strong>. If it arrives, you are done.
+              </>,
+              <>
+                If it does not: iOS <Mono className="text-[11px]">Settings</Mono> &rsaquo;{" "}
+                <Mono className="text-[11px]">Notifications</Mono>, find this app in the list and
+                switch it on.
+              </>,
+            ].map((step, index) => (
+              <li key={index} className="flex gap-2">
+                <span className="font-mono text-brand-500">{index + 1}.</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2">
+            Turning it on in Safari and turning it on in the installed icon are two separate
+            permissions, so it has to be the icon.
+          </p>
+        </HelpNote>
+      )}
     </div>
   );
 }
@@ -504,10 +634,12 @@ function StateLine({
   state,
   savedDevices,
   apple,
+  native,
 }: {
   state: DeviceState;
   savedDevices: number;
   apple: boolean;
+  native: boolean;
 }) {
   switch (state) {
     case "checking":
@@ -532,7 +664,12 @@ function StateLine({
       return (
         <span className="text-bad-500">
           Notifications were refused on this device, and a button here cannot undo it.{" "}
-          {apple ? (
+          {native ? (
+            <>
+              Open Android Settings &rsaquo; Apps &rsaquo; Rahdari &rsaquo; Notifications and
+              switch them on, then come back.
+            </>
+          ) : apple ? (
             <>Open iOS Settings &rsaquo; Notifications, find this app and switch it on.</>
           ) : (
             <>
@@ -558,8 +695,10 @@ function StateLine({
     case "in-app":
       return (
         <>
-          Phone notifications aren&apos;t in the app yet. Telegram alerts still work, or switch
-          them on from rahdari.in in Chrome.
+          {apple
+            ? "Notifications aren't in the iPhone app yet."
+            : "This version of the app can't show notifications. Update it to the latest."}{" "}
+          Telegram alerts still work.
         </>
       );
   }

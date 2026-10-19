@@ -239,6 +239,7 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
   const { error } = await getSupabaseAdmin().from("push_subscriptions").upsert(
     {
       user_id: session.id,
+      kind: "web",
       endpoint,
       p256dh,
       auth,
@@ -259,6 +260,51 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
 
   revalidatePath("/portal/settings");
   return done("Notifications are on for this device. Send yourself a test to be sure.");
+}
+
+/**
+ * Stores the Android/iOS app's Firebase registration token.
+ *
+ * The app's WebView has no Web Push, so PushSetup.tsx registers with FCM
+ * through the Capacitor plugin and sends the token here instead of a
+ * subscription. Same table, kind 'fcm', token in `endpoint`, and the same
+ * conflict rule as savePushSubscription() and for the same reason: a phone
+ * handed to somebody else must move its row. See migration 0058.
+ *
+ * Removing one goes through removePushSubscription(), which deletes by
+ * endpoint and so works for a token unchanged.
+ */
+export async function saveNativePushToken(input: {
+  token: string;
+  userAgent?: string | null;
+}): Promise<ActionResult> {
+  const session = await assertPortalUser();
+
+  const token = input?.token?.trim() ?? "";
+  // FCM tokens are ~150-200 characters of url-safe base64 and a colon or two.
+  if (!token || token.length > 4096 || !/^[\w:.\-]+$/.test(token)) {
+    return fail("The app did not return a usable notification token. Try again.");
+  }
+
+  const { error } = await getSupabaseAdmin().from("push_subscriptions").upsert(
+    {
+      user_id: session.id,
+      kind: "fcm",
+      endpoint: token,
+      p256dh: null,
+      auth: null,
+      user_agent: input.userAgent?.slice(0, 400) ?? null,
+      last_seen_at: new Date().toISOString(),
+    },
+    { onConflict: "endpoint" },
+  );
+
+  if (error) {
+    return fail(reportError("saving app push token", error, "Could not switch notifications on."));
+  }
+
+  revalidatePath("/portal/settings");
+  return done("Notifications are on for this phone. Send yourself a test to be sure.");
 }
 
 /**

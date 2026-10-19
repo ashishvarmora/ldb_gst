@@ -494,9 +494,12 @@ export type TelegramConfig = {
 export type PushSubscriptionRow = {
   id: number;
   user_id: string;
+  /** 'fcm' is the Android/iOS app, where `endpoint` holds the Firebase
+      registration token and there are no keys. See migration 0058. */
+  kind: "web" | "fcm";
   endpoint: string;
-  p256dh: string;
-  auth: string;
+  p256dh: string | null;
+  auth: string | null;
   user_agent: string | null;
   created_at: string;
   last_seen_at: string;

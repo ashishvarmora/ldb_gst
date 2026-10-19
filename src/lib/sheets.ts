@@ -1,6 +1,5 @@
-import { createSign } from "node:crypto";
-
 import { env } from "@/lib/env";
+import { getGoogleAccessToken, type TokenResult } from "@/lib/google-auth";
 
 /**
  * Minimal Google Sheets client using one platform service account.
@@ -11,7 +10,6 @@ import { env } from "@/lib/env";
  * googleapis package is ~10 MB for the three calls actually made here.
  */
 
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
 const TIMEOUT_MS = 15_000;
@@ -72,87 +70,18 @@ export const TAB_HEADERS: Record<string, string[]> = {
 /* auth                                                                        */
 /* -------------------------------------------------------------------------- */
 
-let cachedToken: { value: string; expiresAt: number } | null = null;
-
-function base64url(input: string | Buffer): string {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/** Env vars usually carry the PEM with literal backslash-n sequences. */
-function normalisePrivateKey(raw: string): string {
-  return raw.replace(/\\n/g, "\n").trim();
-}
-
-async function getAccessToken(): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
-    return { ok: true, token: cachedToken.value };
-  }
-
+function getAccessToken(): Promise<TokenResult> {
   const email = env.googleServiceAccountEmail;
   const key = env.googleServiceAccountKey;
   if (!email || !key) {
-    return { ok: false, error: "Google service account is not configured." };
+    return Promise.resolve({ ok: false, error: "Google service account is not configured." });
   }
-
-  const now = Math.floor(Date.now() / 1000);
-  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = base64url(
-    JSON.stringify({
-      iss: email,
-      scope: SCOPE,
-      aud: TOKEN_URL,
-      iat: now,
-      exp: now + 3600,
-    }),
-  );
-
-  let assertion: string;
-  try {
-    const signature = createSign("RSA-SHA256")
-      .update(`${header}.${claims}`)
-      .sign(normalisePrivateKey(key));
-    assertion = `${header}.${claims}.${base64url(signature)}`;
-  } catch (error) {
-    return {
-      ok: false,
-      error: `Could not sign the Google token request — check GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY. (${(error as Error).message})`,
-    };
-  }
-
-  try {
-    const response = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion,
-      }),
-      cache: "no-store",
-    });
-
-    const body = (await response.json().catch(() => null)) as
-      | { access_token?: string; expires_in?: number; error_description?: string }
-      | null;
-
-    if (!response.ok || !body?.access_token) {
-      return {
-        ok: false,
-        error: body?.error_description ?? `Google token endpoint returned HTTP ${response.status}.`,
-      };
-    }
-
-    cachedToken = {
-      value: body.access_token,
-      expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
-    };
-    return { ok: true, token: body.access_token };
-  } catch (error) {
-    return { ok: false, error: (error as Error).message };
-  }
+  return getGoogleAccessToken({
+    email,
+    key,
+    scope: SCOPE,
+    keyName: "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY",
+  });
 }
 
 /* -------------------------------------------------------------------------- */

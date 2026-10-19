@@ -360,6 +360,7 @@ export default async function PortalSettingsPage() {
           */}
           <PushSetup
             platformReady={integrationHealth().webPush}
+            appReady={integrationHealth().fcm}
             savedDevices={pushDevices ?? 0}
             supportEmail={supportEmail}
           />

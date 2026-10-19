@@ -158,18 +158,93 @@ distributed through stores. The free equivalents of "Vercel for apps" are:
 | The domain | Update `server.url` and `allowNavigation` in `capacitor.config.json`, `isOurs()` in `MainActivity.java`, and the URLs in `www/offline.html`; release a new build. |
 | The icon | Replace `assets/icon-only.png` (and `icon-foreground.png`), then `npm run icons`, then `npx cap sync`. 1024×1024 PNG is best. |
 
+## 6. Push notifications in the Android app (Firebase, free)
+
+The app's WebView has no Web Push, so inside the app the **Settings → Alerts →
+Notifications on this phone** switch uses Firebase Cloud Messaging instead,
+through `@capacitor/push-notifications`. The site stores the phone's FCM token
+in the same `push_subscriptions` table as browser subscriptions (kind `fcm`,
+migration 0058), and every alert, the test button and support-message pings
+go out through FCM's HTTP v1 API (`src/lib/fcm.ts`). FCM is free.
+
+Two halves to set up, once: the **app** needs `google-services.json` so it can
+register, and the **website** needs a service account so it can send. Both must
+come from the **same** Firebase project.
+
+### a. Create the Firebase project
+
+1. https://console.firebase.google.com → **Add project** → name it `Rahdari`
+   (Google Analytics: not needed, switch it off).
+2. In the project: **Add app → Android**. Package name **`in.rahdari.app`**
+   (must match exactly), nickname `Rahdari`. Skip the SHA-1 and the SDK steps —
+   Capacitor already adds the SDK.
+3. Download **`google-services.json`**.
+
+### b. Give the app its google-services.json (a CI secret, not a commit)
+
+The file isn't really a password, but it ties builds to your Firebase project,
+so it stays out of git (`mobile/.gitignore`) and comes from a secret, like the
+signing key.
+
+GitHub → repo → **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|---|---|
+| `GOOGLE_SERVICES_JSON` | the **whole contents** of `google-services.json`, pasted as-is |
+
+The workflow writes it to `android/app/google-services.json` before building.
+Without the secret the build still succeeds (with a warning) but has no push:
+**don't ship such a build**, because tapping the notification switch in it can
+crash the app (Firebase isn't initialised).
+
+Building on your own PC instead: copy the file to
+`mobile/android/app/google-services.json` and build as in section 1.
+
+### c. Give the website a Firebase service account
+
+1. Firebase console → ⚙ **Project settings → Service accounts** →
+   **Generate new private key**. A JSON file downloads. Treat it like a
+   password: never commit it, never paste it anywhere public.
+2. Copy three fields from it into Vercel → the project → **Settings →
+   Environment Variables** (Production), and into `.env.local` for local runs:
+
+| Variable | From the JSON |
+|---|---|
+| `FCM_PROJECT_ID` | `project_id` |
+| `FCM_CLIENT_EMAIL` | `client_email` |
+| `FCM_PRIVATE_KEY` | `private_key` — the whole `-----BEGIN PRIVATE KEY-----…` string, `\n`s and all |
+
+3. Redeploy. **Admin → Settings → health** shows "Notifications in the Android
+   app" green once all three are set.
+4. Run the migration if it hasn't been: `npm run migrate` (adds the `kind`
+   column to `push_subscriptions`).
+5. Delete the downloaded JSON once the values are saved.
+
+### d. Check it end to end
+
+1. Install the new APK from the Actions run (section 1).
+2. Sign in → **Settings** → **Notifications on this phone** → switch on →
+   allow when Android asks.
+3. **Send a test notification**. It should appear within a few seconds, with
+   the app open or closed. Tapping it opens Settings.
+
+If the test says the keys were refused, the service account and the
+`google-services.json` are from different Firebase projects.
+
 ## How the website knows it's in the app
 
 The app adds `RahdariApp/1.0` to its user agent (`appendUserAgent`).
-`src/lib/native-app.ts` checks for it. Right now that is used to hide the
-"Add to home screen" banner and to give an honest message on the phone
-notification setting.
+`src/lib/native-app.ts` checks for it. It is used to hide the
+"Add to home screen" banner and, on Android, to switch the phone notification
+setting from Web Push to the native push plugin
+(`window.Capacitor.Plugins.PushNotifications`, which the app injects into
+rahdari.in pages).
 
 ## Known gaps
 
-- **Phone push notifications** don't work inside the app yet. The app's WebView
-  has no Web Push; it needs Firebase Cloud Messaging (`@capacitor/push-notifications`)
-  plus a server change to send through FCM. Telegram alerts work as normal.
+- **Push notifications on iPhone** aren't wired up: that needs APNs set up in
+  Xcode and Firebase's iOS SDK. The iPhone app's Settings panel says so; Android
+  works (see section 6).
 - **iOS downloads** (CSV exports) aren't wired up yet; Android saves them to Downloads.
 - **Razorpay:** the app opens rahdari.in, which is already the registered
   website, so nothing changes. Test one real UPI payment and one card payment

@@ -817,6 +817,11 @@ export default async function SettingsPage({
                 label="Phone notifications"
                 detail="VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY + VAPID_SUBJECT, and the public key again as NEXT_PUBLIC_VAPID_PUBLIC_KEY so a browser can subscribe. Generate a pair with npx web-push generate-vapid-keys — no account, no cost"
               />
+              <HealthRow
+                ok={health.fcm}
+                label="Notifications in the Android app"
+                detail="FCM_PROJECT_ID + FCM_CLIENT_EMAIL + FCM_PRIVATE_KEY, from a Firebase project service account. The app's WebView has no Web Push, so it goes through Firebase Cloud Messaging instead — free. See mobile/README.md"
+              />
               {/* Expected to be red, and here anyway: the channel is built and
                   waiting on an account, so this row is the only place that says
                   what is missing before WhatsApp alerts can be switched on. */}

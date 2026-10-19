@@ -1,6 +1,7 @@
 import webpush, { WebPushError } from "web-push";
 
 import { env } from "@/lib/env";
+import { fcmConfigured, sendFcm } from "@/lib/fcm";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { PushSubscriptionRow } from "@/lib/types";
 
@@ -17,6 +18,11 @@ import type { PushSubscriptionRow } from "@/lib/types";
  * account. Our VAPID key pair is the whole of the setup, and web-push does the
  * signing and the payload encryption. There is no vendor SDK here on purpose.
  *
+ * THE ANDROID/iOS APP IS THE EXCEPTION. Its WebView has no Web Push, so it
+ * registers with Firebase Cloud Messaging instead and its rows are kind 'fcm'
+ * (migration 0058). sendPushToUser() sends each row the way its kind needs -
+ * web-push here, FCM HTTP v1 in fcm.ts - so callers never see the difference.
+ *
  * Same shape and the same error discipline as telegram.ts and whatsapp.ts: a
  * result, never an exception, and `skipped` for "this channel is not switched
  * on" so a caller can stay quiet about that and complain about a real failure.
@@ -27,7 +33,7 @@ export type PushResult =
   | {
       ok: false;
       error: string;
-      /** No VAPID keys, or this officer has no install subscribed. */
+      /** No keys for any install this officer has, or nothing subscribed. */
       skipped?: boolean;
       /** Installs that took the notification even though others did not. */
       sent?: number;
@@ -90,17 +96,20 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<PushResult> {
-  if (!pushConfigured()) {
+  const webReady = pushConfigured();
+  const appReady = fcmConfigured();
+
+  if (!webReady && !appReady) {
     // Logged rather than silent: this is how you tell "nobody subscribed" from
     // "the keys are missing", and they need opposite fixes.
-    console.info("[push] no VAPID keys — notification not sent");
+    console.info("[push] no VAPID or FCM keys — notification not sent");
     return { ok: false, skipped: true, error: "Phone notifications are not switched on yet." };
   }
 
   const admin = getSupabaseAdmin();
   const { data, error } = await admin
     .from("push_subscriptions")
-    .select("id, endpoint, p256dh, auth")
+    .select("id, kind, endpoint, p256dh, auth")
     .eq("user_id", userId);
 
   if (error) {
@@ -108,12 +117,9 @@ export async function sendPushToUser(
     return { ok: false, error: "Could not look up this account's devices." };
   }
 
-  const subscriptions = (data ?? []) as Pick<
-    PushSubscriptionRow,
-    "id" | "endpoint" | "p256dh" | "auth"
-  >[];
+  const rows = (data ?? []) as DeliveryRow[];
 
-  if (subscriptions.length === 0) {
+  if (rows.length === 0) {
     return {
       ok: false,
       skipped: true,
@@ -121,11 +127,20 @@ export async function sendPushToUser(
     };
   }
 
-  ensureVapid();
+  /* Only the installs whose channel has keys. The other kind's rows are kept,
+     not pruned: they become reachable the moment their keys are set. */
+  const subscriptions = rows.filter((row) => (row.kind === "fcm" ? appReady : webReady));
+
+  if (subscriptions.length === 0) {
+    console.info("[push] this account's installs are all on a channel with no keys");
+    return { ok: false, skipped: true, error: "Phone notifications are not switched on yet." };
+  }
+
+  if (webReady && subscriptions.some((row) => row.kind !== "fcm")) ensureVapid();
 
   const body = JSON.stringify(payload);
   const outcomes = await Promise.allSettled(
-    subscriptions.map((row) => deliver(row, body)),
+    subscriptions.map((row) => (row.kind === "fcm" ? sendFcm(row.endpoint, payload) : deliver(row, body))),
   );
 
   const dead: number[] = [];
@@ -169,6 +184,8 @@ export async function sendPushToUser(
 
 type Delivery = { ok: true } | { ok: false; error: string; gone?: boolean };
 
+type DeliveryRow = Pick<PushSubscriptionRow, "id" | "kind" | "endpoint" | "p256dh" | "auth">;
+
 /**
  * One POST to one push service.
  *
@@ -177,13 +194,11 @@ type Delivery = { ok: true } | { ok: false; error: string; gone?: boolean };
  * like ours - so it never reaches a log, an error message or a Sentry payload,
  * and the row id stands in for it wherever something has to be identified.
  */
-async function deliver(
-  row: Pick<PushSubscriptionRow, "id" | "endpoint" | "p256dh" | "auth">,
-  body: string,
-): Promise<Delivery> {
+async function deliver(row: DeliveryRow, body: string): Promise<Delivery> {
   try {
     await webpush.sendNotification(
-      { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+      // Never null for a web row: migration 0058's check constraint.
+      { endpoint: row.endpoint, keys: { p256dh: row.p256dh ?? "", auth: row.auth ?? "" } },
       body,
       {
         /*

@@ -2,3 +2,7 @@
 *.jks
 *.keystore
 keystore.properties
+
+# Firebase config for push notifications - comes from a CI secret, see README.md
+google-services.json
+GoogleService-Info.plist

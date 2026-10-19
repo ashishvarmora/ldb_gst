@@ -5,7 +5,7 @@
   "description": "Android and iOS shell for rahdari.in. The app loads the live site, so a Vercel deploy updates it without a store release.",
   "scripts": {
     "sync": "cap sync",
-    "icons": "capacitor-assets generate --iconBackgroundColor '#f4f6fa' --splashBackgroundColor '#f4f6fa'",
+    "icons": "capacitor-assets generate --iconBackgroundColor '#2563eb' --splashBackgroundColor '#f4f6fa'",
     "android": "cap open android",
     "ios": "cap open ios"
   },
@@ -14,6 +14,7 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
     "@capacitor/ios": "^8.5.3",
+    "@capacitor/push-notifications": "^8.1.3",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.4"
   },

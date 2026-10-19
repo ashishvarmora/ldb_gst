@@ -20,6 +20,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Push notifications (Firebase Cloud Messaging). The channel id matches the
+             one src/lib/fcm.ts sends to and the page creates on first sign-up;
+             without these meta-data entries the push plugin also cannot show a
+             notification that arrives while the app is open. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="alerts" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -32,6 +43,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+ asks before showing notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Saving exports to Downloads needs this only on Android 9 and older. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 

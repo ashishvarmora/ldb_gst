@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download, Share, X } from "lucide-react";
 
 import { buttonClass, cx } from "@/components/ui";
-import { isNativeApp } from "@/lib/native-app";
+import { isNativeApp, listenForNotificationTaps } from "@/lib/native-app";
 
 /**
  * Registers the service worker.
@@ -14,6 +14,10 @@ import { isNativeApp } from "@/lib/native-app";
  * previous build - which looks exactly like a bug in the code being written.
  */
 export function ServiceWorkerRegistrar() {
+  // In the Android app, a tapped notification opens the page it was about.
+  // Here because this is mounted on every page, signed in or not.
+  useEffect(() => listenForNotificationTaps(), []);
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
     if (!("serviceWorker" in navigator)) return;
