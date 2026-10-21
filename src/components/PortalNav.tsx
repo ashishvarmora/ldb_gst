@@ -196,7 +196,7 @@ export function PortalBottomNav({ account }: { account: React.ReactNode }) {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-panel/95 backdrop-blur lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-line app-bar bg-panel/95 backdrop-blur lg:hidden"
     >
       <div className="mx-auto flex max-w-lg">
         {TABS.map(({ href, label, icon: Icon }) => {

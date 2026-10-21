@@ -146,6 +146,23 @@ const nextConfig: NextConfig = {
   experimental: {
     // Server Actions receive plan/limit payloads; keep the default 1MB cap.
     serverActions: { bodySizeLimit: "1mb" },
+
+    /*
+     * A TAB YOU JUST LEFT OPENS INSTANTLY WHEN YOU GO BACK TO IT.
+     *
+     * Next 15 keeps nothing for a dynamic page (every portal page is one): Home
+     * -> Trucks -> Home rendered Home on the server a second time, skeleton and
+     * all, for an answer seconds old. In the Android app, where the tab bar is
+     * how people move, that read as the app being slow rather than the network.
+     *
+     * 30 seconds of reuse in this browser tab only. It cannot show a stale
+     * screen after the customer changed something: every portal action calls
+     * revalidatePath, which empties this cache, and pull-to-refresh calls
+     * router.refresh(), which bypasses it. What it can show is someone else's
+     * change - a payment the webhook settled, a reply from the desk - up to 30
+     * seconds late, on a screen the customer was looking at a moment ago.
+     */
+    staleTimes: { dynamic: 30 },
   },
 
   /**

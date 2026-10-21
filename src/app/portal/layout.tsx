@@ -74,6 +74,7 @@ export default async function PortalLayout({ children }: { children: React.React
     { data: alertRows },
     delivery,
     announcements,
+    unreadMessages,
   ] = await Promise.all([
     publicSettings(),
     // What a search costs, so "low" means "nearly out of searches" rather than
@@ -102,6 +103,10 @@ export default async function PortalLayout({ children }: { children: React.React
       plan_id: overview.plan_id,
       plan_active: overview.plan_active,
     }),
+    // Replies from the desk this customer has not opened. Drives the badge on
+    // Messages in the sidebar. In the batch rather than after it: it depends on
+    // nothing above, and on its own it was one more wait on every page.
+    unreadForCustomer(getSupabaseAdmin(), session.id),
   ]);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
@@ -117,10 +122,6 @@ export default async function PortalLayout({ children }: { children: React.React
    * opens rather than after a round trip.
    */
   const standing = creditStanding(overview.credits, searchCost);
-
-  // Replies from the desk this customer has not opened. Drives the badge on
-  // Messages in the sidebar.
-  const unreadMessages = await unreadForCustomer(getSupabaseAdmin(), session.id);
 
   const account: Omit<AccountMenuProps, "variant"> = {
     name: displayName,
@@ -170,7 +171,7 @@ export default async function PortalLayout({ children }: { children: React.React
           their credits are buying nothing. It costs about 36px of a phone's
           screen and it is gone the moment they fix it.
         */}
-        <header className="safe-top sticky top-0 z-30 border-b border-divider bg-page/85 backdrop-blur">
+        <header className="safe-top sticky top-0 z-30 border-b border-divider app-bar bg-page/85 backdrop-blur">
           <AlertDeliveryBanner delivery={delivery} trucks={overview.total_trucks} />
 
           <div className="flex items-center justify-between gap-2 px-4 py-2.5">

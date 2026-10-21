@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import { getSessionUser, type SessionUser } from "@/lib/auth";
+import { getSessionUser, getSignedInUser, type SessionUser } from "@/lib/auth";
 import { CREDIT_ACTIONS, costOf, loadRate } from "@/lib/credits";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview } from "@/lib/types";
@@ -44,11 +44,16 @@ export const loadAutoCheckCost = cache(async (): Promise<number> => {
  * hand it to a real officer.
  */
 export const requirePortalSession = cache(async (): Promise<PortalSession> => {
-  const session = await getSessionUser();
+  // The token is checked locally, so the id is known at once - and the
+  // overview needs nothing else. Reading it beside the profile rather than
+  // after it takes one database round trip off every portal page.
+  const user = await getSignedInUser();
+  if (!user) redirect("/login");
+
+  const [session, overview] = await Promise.all([getSessionUser(), loadOverview(user.id)]);
   if (!session) redirect("/login");
   if (session.profile.status !== "active") redirect("/no-access?reason=suspended");
 
-  const overview = await loadOverview(session.id);
   if (!overview) redirect("/no-access");
   return { ...session, overview };
 });

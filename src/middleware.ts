@@ -64,7 +64,14 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  /*
+   * getClaims, not getUser: this line exists to refresh an expiring cookie,
+   * which getClaims does too (it reads the session first and refreshes it when
+   * due), and it verifies the token against the project's public key locally
+   * instead of asking Supabase Auth over the network. That network call ran in
+   * front of every page and every prefetch. The real gates are in auth.ts.
+   */
+  await supabase.auth.getClaims();
   return response;
 }
 

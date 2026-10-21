@@ -29,13 +29,13 @@ export type SessionUser = { id: string; email: string; profile: Profile };
  * React's cache() dedupes within a single request and nothing further: two
  * different visitors never share an entry, and the next request re-verifies. So
  * this is a saving in round trips, not a weakening of the check - the cookie is
- * still verified against Supabase on every request, exactly once.
+ * still verified on every request, exactly once.
+ *
+ * The verification itself is now getSignedInUser() below, which checks the
+ * token's signature here instead of asking Supabase Auth.
  */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
-  const supabase = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSignedInUser();
   if (!user) return null;
 
   // Read the profile with the service role: the profiles policy calls
@@ -50,6 +50,36 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   if (!profile) return null;
   return { id: user.id, email: user.email ?? profile.email, profile };
 });
+
+/**
+ * Who the session cookie belongs to, verified, with no network round trip.
+ *
+ * getUser() asked Supabase Auth about the cookie on every request - one more
+ * wait in front of every page, before any data could be read. The project signs
+ * its tokens with an asymmetric key (ES256, published at
+ * /auth/v1/.well-known/jwks.json), so getClaims() can check the signature and
+ * expiry here: the public key is fetched once per server instance and kept for
+ * ten minutes. A forged or expired cookie is refused exactly as before. If a
+ * token is ever signed with the old shared secret, getClaims() falls back to
+ * getUser() by itself, so the worst case is today's speed.
+ *
+ * What it does not see is a session revoked before its token expires (an hour
+ * at most). That is the trade Supabase recommends, and the account switch that
+ * matters - suspension - is profiles.status, which every gate still reads from
+ * the database on every request.
+ *
+ * Split from getSessionUser so a caller that needs only the id can start its
+ * own query while the profile is still being read.
+ */
+export const getSignedInUser = cache(
+  async (): Promise<{ id: string; email: string | null } | null> => {
+    const supabase = await getSupabaseServer();
+    const { data, error } = await supabase.auth.getClaims();
+    const sub = data?.claims?.sub;
+    if (error || !sub) return null;
+    return { id: sub, email: typeof data.claims.email === "string" ? data.claims.email : null };
+  },
+);
 
 /**
  * Gate for everything under /admin. Redirects rather than throwing so a

@@ -472,6 +472,23 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   display: none !important;
 }
 
+/* The sticky header and the tab bar blur the page behind them on the web.
+   In an Android WebView that blur is recomputed on every scroll frame, and on
+   a budget phone it is the single biggest cause of a scroll that stutters. The
+   app draws them solid instead - the same colour, minus the see-through. The
+   dimmed overlays behind sheets keep theirs: they are on screen only while
+   nothing scrolls. */
+.native-app .app-bar {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.native-app header.app-bar {
+  background-color: var(--color-page);
+}
+.native-app nav.app-bar {
+  background-color: var(--color-panel);
+}
+
 /* ---------------------------------------------------------------------------
    Motion
    --------------------------------------------------------------------------- */
