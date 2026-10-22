@@ -11,12 +11,14 @@ import { LogoBadge } from "@/components/Logo";
 import { MessageBell } from "@/components/MessageBell";
 import { PortalBottomNav, PortalSidebar } from "@/components/PortalNav";
 import { InstallPrompt } from "@/components/Pwa";
+import { PushAutoOn } from "@/components/PushAutoOn";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { cx } from "@/components/ui";
 import { loadAnnouncementsFor } from "@/lib/announcements";
 import { unreadForCustomer } from "@/lib/chat";
 import { creditStanding, searchesLeft } from "@/lib/credits";
+import { integrationHealth } from "@/lib/env";
 import { initials } from "@/lib/format";
 import { formatLimit } from "@/lib/limits";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
@@ -146,6 +148,8 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <div className="theme-light flex min-h-screen">
       <NavProgress />
+      {/* Phone notifications start on - see PushAutoOn. */}
+      <PushAutoOn platformReady={integrationHealth().webPush} appReady={integrationHealth().fcm} />
 
       <PortalSidebar
         brandName={brandName}

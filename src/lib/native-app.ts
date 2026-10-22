@@ -129,31 +129,9 @@ export async function registerNativePush(
   }
 }
 
-/**
- * Whether the officer switched notifications on in this copy of the app.
- *
- * The app cannot ask FCM "am I subscribed" - a granted permission says nothing
- * about whether our server holds the token - so the switch's own state is kept
- * on the device. localStorage throws in some modes, hence the guards.
- */
-const NATIVE_FLAG = "rahdari-native-push";
-
-export function nativePushWanted(): boolean {
-  try {
-    return localStorage.getItem(NATIVE_FLAG) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setNativePushWanted(on: boolean): void {
-  try {
-    if (on) localStorage.setItem(NATIVE_FLAG, "1");
-    else localStorage.removeItem(NATIVE_FLAG);
-  } catch {
-    /* Only costs a re-tap of the switch next time. */
-  }
-}
+/* Whether the officer switched notifications off on this device lives in
+   src/lib/push-client.ts (pushSwitchedOff), shared with the browser: on is the
+   default everywhere, so only a refusal is remembered. */
 
 /**
  * Tapping a notification opens the app; this sends it to the page the alert

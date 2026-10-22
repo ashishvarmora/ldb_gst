@@ -4,9 +4,11 @@ import { LayoutDashboard } from "lucide-react";
 import { MessageBell } from "@/components/MessageBell";
 import { AdminMobileNav, AdminSidebar } from "@/components/AdminNav";
 import { NavProgress } from "@/components/NavProgress";
+import { PushAutoOn } from "@/components/PushAutoOn";
 import { SignOutButton } from "@/components/SignOutButton";
 import { Avatar } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
+import { integrationHealth } from "@/lib/env";
 import { unreadForAdmin } from "@/lib/chat";
 import { initials } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
@@ -36,6 +38,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        * route change never makes it blink.
        */}
       <NavProgress />
+      {/* Admins' phones start on too - sign-ups, payments and messages. */}
+      <PushAutoOn platformReady={integrationHealth().webPush} appReady={integrationHealth().fcm} />
 
       <AdminSidebar brandName={brandName} unreadMessages={unreadMessages} />
 

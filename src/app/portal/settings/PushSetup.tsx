@@ -11,22 +11,23 @@ import {
   Share,
 } from "lucide-react";
 
-import {
-  removePushSubscription,
-  saveNativePushToken,
-  savePushSubscription,
-  testMyPush,
-} from "./actions";
+import { removePushSubscription, saveNativePushToken, testMyPush } from "./actions";
 import { HelpNote } from "@/components/Disclosure";
 import { Badge, Mono, Switch, buttonClass, cx } from "@/components/ui";
 import {
   isNativeApp,
   nativePush,
-  nativePushWanted,
   registerNativePush,
-  setNativePushWanted,
   type NativePushPlugin,
 } from "@/lib/native-app";
+import {
+  PUBLIC_KEY,
+  keyToBytes,
+  pushSwitchedOff,
+  setPushSwitchedOff,
+  storeSubscription,
+  webPushSupported,
+} from "@/lib/push-client";
 
 /**
  * Switching on notifications that arrive on the phone itself.
@@ -83,25 +84,6 @@ type DeviceState =
       already is on the Home Screen. */
   | "in-app";
 
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
-
-/**
- * The subscribe call wants the key as bytes, and VAPID keys travel as url-safe
- * base64 - which atob() does not accept: it needs `+` and `/` and the padding.
- *
- * Typed BufferSource and built over an ArrayBuffer this function owns, because
- * applicationServerKey will not take the plain `Uint8Array` a shorter spelling
- * infers - that one may be backed by a SharedArrayBuffer, which cannot be
- * handed to the platform.
- */
-function keyToBytes(base64Url: string): BufferSource {
-  const padded = base64Url.padEnd(base64Url.length + ((4 - (base64Url.length % 4)) % 4), "=");
-  const raw = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
-  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
-  return bytes;
-}
-
 function isApple(): boolean {
   const ua = navigator.userAgent;
   if (/iphone|ipad|ipod/i.test(ua)) return true;
@@ -154,16 +136,7 @@ export function PushSetup({
   const endpoint = useRef<string | null>(null);
   const plugin = useRef<NativePushPlugin | null>(null);
 
-  /** Flattens the browser's object into the four strings the action takes. */
-  const store = useCallback(async (subscription: PushSubscription) => {
-    const json = subscription.toJSON();
-    return savePushSubscription({
-      endpoint: subscription.endpoint,
-      p256dh: json.keys?.p256dh ?? "",
-      auth: json.keys?.auth ?? "",
-      userAgent: navigator.userAgent,
-    });
-  }, []);
+  const store = storeSubscription;
 
   useEffect(() => {
     let cancelled = false;
@@ -185,7 +158,9 @@ export function PushSetup({
           setState("denied");
           return;
         }
-        if (receive !== "granted" || !nativePushWanted()) {
+        /* On by default: a phone that has the permission and was never
+           switched off here is registered without a tap. */
+        if (receive !== "granted" || pushSwitchedOff()) {
           setState("ready");
           return;
         }
@@ -208,10 +183,7 @@ export function PushSetup({
         return;
       }
 
-      const supported =
-        "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-
-      if (!supported) {
+      if (!webPushSupported()) {
         if (isNativeApp()) {
           setState("in-app");
           return;
@@ -256,7 +228,36 @@ export function PushSetup({
       if (cancelled) return;
 
       if (!existing) {
-        setState("ready");
+        /*
+         * On by default. With the permission already given and no refusal
+         * remembered on this device, subscribe now rather than show a switch
+         * that is off for no reason the reader chose. Without the permission
+         * the browser has to ask, and only a tap may ask - so that case stays
+         * "ready" and the switch is the tap.
+         */
+        if (Notification.permission !== "granted" || pushSwitchedOff() || !PUBLIC_KEY) {
+          setState("ready");
+          return;
+        }
+        try {
+          const subscription = await active.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: keyToBytes(PUBLIC_KEY),
+          });
+          if (cancelled) return;
+          const result = await store(subscription);
+          if (cancelled) return;
+          if (!result.ok) {
+            await subscription.unsubscribe().catch(() => {});
+            setState("ready");
+            return;
+          }
+          endpoint.current = subscription.endpoint;
+          setState("subscribed");
+        } catch (error) {
+          console.error("push auto-subscribe failed", error);
+          if (!cancelled) setState("ready");
+        }
         return;
       }
 
@@ -317,7 +318,7 @@ export function PushSetup({
         return;
       }
 
-      setNativePushWanted(true);
+      setPushSwitchedOff(false);
       endpoint.current = registered.token;
       setState("subscribed");
       setNote({ ok: true, text: result.message ?? "Notifications are on for this phone." });
@@ -370,6 +371,7 @@ export function PushSetup({
         return;
       }
 
+      setPushSwitchedOff(false);
       endpoint.current = subscription.endpoint;
       setState("subscribed");
       setNote({ ok: true, text: result.message ?? "Notifications are on for this device." });
@@ -402,7 +404,7 @@ export function PushSetup({
         // deletes the token, and after that there is nothing to match it by.
         if (endpoint.current) await removePushSubscription(endpoint.current);
         await plugin.current.unregister().catch(() => {});
-        setNativePushWanted(false);
+        setPushSwitchedOff(true);
         endpoint.current = null;
         setState("ready");
         setNote({ ok: true, text: "Notifications are off for this phone." });
@@ -420,6 +422,8 @@ export function PushSetup({
       if (subscription) await subscription.unsubscribe().catch(() => {});
       if (address) await removePushSubscription(address);
 
+      // Remembered so the default-on path does not switch it straight back.
+      setPushSwitchedOff(true);
       endpoint.current = null;
       setState("ready");
       setNote({ ok: true, text: "Notifications are off for this device." });
