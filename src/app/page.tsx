@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, BellRing, MapPin, Search, Truck, Wallet } from "lucide-react";
 
+import { AppDownload } from "@/components/AppDownload";
 import { LogoBadge } from "@/components/Logo";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton } from "@/components/ui";
@@ -227,6 +228,13 @@ export default async function Home() {
               <ArrowRight size={14} />
             </LinkButton>
           </div>
+        </div>
+      </section>
+
+      {/* ---------------------------- android app -------------------------- */}
+      <section id="app" className="px-4 py-10">
+        <div className="mx-auto max-w-3xl">
+          <AppDownload />
         </div>
       </section>
 

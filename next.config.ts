@@ -269,6 +269,19 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      {
+        /*
+         * The Android app (src/components/AppDownload.tsx). Without the right
+         * type Android's browser saves it as a .bin or refuses to open it, and
+         * without a short cache a new build sits behind the old one for a day.
+         */
+        source: "/rahdari.apk",
+        headers: [
+          { key: "Content-Type", value: "application/vnd.android.package-archive" },
+          { key: "Content-Disposition", value: 'attachment; filename="Rahdari.apk"' },
+          { key: "Cache-Control", value: "public, max-age=300, must-revalidate" },
+        ],
+      },
     ];
   },
 };

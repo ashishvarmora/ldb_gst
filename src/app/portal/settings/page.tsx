@@ -11,6 +11,7 @@ import { CopyAddress } from "./CopyAddress";
 import { PushSetup } from "./PushSetup";
 import { saveMySheet, saveMyTelegram, testMyTelegram, updateMyProfile } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
+import { AppDownload } from "@/components/AppDownload";
 import { Disclosure, HelpNote } from "@/components/Disclosure";
 import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form";
 import { InfoTip } from "@/components/InfoTip";
@@ -167,6 +168,9 @@ export default async function PortalSettingsPage() {
           profile panel uses for Sign-in, so three sections can live under one
           heading without any of them reading as the panel's own subject.
         */}
+        {/* Website only - AppDownload hides itself inside the app. */}
+        <AppDownload signedIn className="lg:col-span-2" />
+
         <Panel id="alerts" title="Alerts" className="scroll-mt-20">
           <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
             <Send size={12} />

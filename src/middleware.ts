@@ -100,6 +100,6 @@ export const config = {
    * app makes.
    */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|apk)$).*)",
   ],
 };
