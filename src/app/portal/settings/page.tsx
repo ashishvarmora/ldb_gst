@@ -259,11 +259,6 @@ export default async function PortalSettingsPage() {
                 </Field>
                 <TelegramChatIdHelp className="mt-1.5" />
               </div>
-              <Checkbox
-                name="is_enabled"
-                label="Send me alerts on Telegram"
-                defaultChecked={telegram?.is_enabled ?? true}
-              />
             </div>
             <FormActions>
               <SubmitButton>Save</SubmitButton>
@@ -309,7 +304,7 @@ export default async function PortalSettingsPage() {
                   Telegram&apos;s own notifications are on in the phone&apos;s Settings — on an
                   iPhone, Settings &rsaquo; Notifications &rsaquo; Telegram.
                 </>,
-                <>The chat id above is saved and the switch under it is on.</>,
+                <>The chat id above is saved.</>,
                 /* Named and linked, not "the alerts bot". A reader working
                    down this list has to be able to check the item, and they
                    cannot check one that does not say which bot or where it

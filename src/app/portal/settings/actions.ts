@@ -127,7 +127,9 @@ export async function saveMyTelegram(
     {
       user_id: session.id,
       chat_id: chatId,
-      is_enabled: bool(fd, "is_enabled"),
+      // Always on: customers get no switch for alerts (owner, 30 Oct 2026).
+      // Leaving the chat id empty is what sends nothing.
+      is_enabled: true,
       last_error: null,
       updated_at: new Date().toISOString(),
     },

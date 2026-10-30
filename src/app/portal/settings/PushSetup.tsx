@@ -11,9 +11,9 @@ import {
   Share,
 } from "lucide-react";
 
-import { removePushSubscription, saveNativePushToken, testMyPush } from "./actions";
+import { saveNativePushToken, testMyPush } from "./actions";
 import { HelpNote } from "@/components/Disclosure";
-import { Badge, Mono, Switch, buttonClass, cx } from "@/components/ui";
+import { Badge, Mono, buttonClass, cx } from "@/components/ui";
 import {
   isNativeApp,
   nativePush,
@@ -22,9 +22,8 @@ import {
 } from "@/lib/native-app";
 import {
   PUBLIC_KEY,
+  forgetLegacyOffSwitch,
   keyToBytes,
-  pushSwitchedOff,
-  setPushSwitchedOff,
   storeSubscription,
   webPushSupported,
 } from "@/lib/push-client";
@@ -120,7 +119,7 @@ export function PushSetup({
   const [apple, setApple] = useState(false);
   /** Inside the Android app with the push plugin present. Set once, on mount. */
   const [native, setNative] = useState(false);
-  const [busy, setBusy] = useState<"on" | "off" | "test" | null>(null);
+  const [busy, setBusy] = useState<"on" | "test" | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const router = useRouter();
 
@@ -141,6 +140,8 @@ export function PushSetup({
   useEffect(() => {
     let cancelled = false;
 
+    forgetLegacyOffSwitch();
+
     (async () => {
       const onApple = isApple();
       setApple(onApple);
@@ -160,7 +161,7 @@ export function PushSetup({
         }
         /* On by default: a phone that has the permission and was never
            switched off here is registered without a tap. */
-        if (receive !== "granted" || pushSwitchedOff()) {
+        if (receive !== "granted") {
           setState("ready");
           return;
         }
@@ -235,7 +236,7 @@ export function PushSetup({
          * the browser has to ask, and only a tap may ask - so that case stays
          * "ready" and the switch is the tap.
          */
-        if (Notification.permission !== "granted" || pushSwitchedOff() || !PUBLIC_KEY) {
+        if (Notification.permission !== "granted" || !PUBLIC_KEY) {
           setState("ready");
           return;
         }
@@ -318,7 +319,6 @@ export function PushSetup({
         return;
       }
 
-      setPushSwitchedOff(false);
       endpoint.current = registered.token;
       setState("subscribed");
       setNote({ ok: true, text: result.message ?? "Notifications are on for this phone." });
@@ -371,7 +371,6 @@ export function PushSetup({
         return;
       }
 
-      setPushSwitchedOff(false);
       endpoint.current = subscription.endpoint;
       setState("subscribed");
       setNote({ ok: true, text: result.message ?? "Notifications are on for this device." });
@@ -394,44 +393,6 @@ export function PushSetup({
       setBusy(null);
     }
   }, [router, store, turnOnNative]);
-
-  const turnOff = useCallback(async () => {
-    setNote(null);
-    setBusy("off");
-    try {
-      if (plugin.current) {
-        // The row first here, the reverse of the web order: unregister()
-        // deletes the token, and after that there is nothing to match it by.
-        if (endpoint.current) await removePushSubscription(endpoint.current);
-        await plugin.current.unregister().catch(() => {});
-        setPushSwitchedOff(true);
-        endpoint.current = null;
-        setState("ready");
-        setNote({ ok: true, text: "Notifications are off for this phone." });
-        router.refresh();
-        return;
-      }
-
-      const active = registration.current;
-      const subscription = await active?.pushManager.getSubscription();
-      const address = subscription?.endpoint ?? endpoint.current;
-
-      // The browser first: it owns the subscription, and a row deleted while
-      // the browser still holds one leaves a phone that cannot be re-subscribed
-      // because subscribe() would hand back the same endpoint.
-      if (subscription) await subscription.unsubscribe().catch(() => {});
-      if (address) await removePushSubscription(address);
-
-      // Remembered so the default-on path does not switch it straight back.
-      setPushSwitchedOff(true);
-      endpoint.current = null;
-      setState("ready");
-      setNote({ ok: true, text: "Notifications are off for this device." });
-      router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  }, [router]);
 
   const test = useCallback(async () => {
     setNote(null);
@@ -456,18 +417,11 @@ export function PushSetup({
       </p>
 
       {/*
-        A SWITCH, NOT A PAIR OF BUTTONS.
-
-        This was "Turn on" and, once on, a bare bell-with-a-slash icon beside
-        Send test - so the control that turned the feature OFF was an unlabelled
-        icon sitting next to the one that sent a notification, and the two were
-        a tap apart. A switch is what a phone uses for a setting that takes
-        effect immediately, it states on/off without being read, and there is
-        only one of it.
-
-        The label line and the switch are one row; everything conditional -
-        the test button, the obstacle sentence - sits under it, so nothing
-        reflows sideways on a narrow screen.
+        NO OFF SWITCH. The owner's rule (30 Oct 2026): notifications are always
+        on and the site offers no way to turn them off - that is the browser's
+        or the phone's own setting. What is left is the one control that still
+        means something: the tap a browser needs before it will show its
+        permission prompt, and once on, a test.
       */}
       <div className="mt-2 rounded-xl border border-line bg-raised/60 px-3 py-3">
         <div className="flex items-center justify-between gap-3">
@@ -483,30 +437,22 @@ export function PushSetup({
             </p>
           </div>
 
-          {/*
-            Shown only where it can actually do something. On an iPhone that
-            has not been added to the home screen, or a browser with no push
-            at all, there is nothing to switch and a dead switch invites
-            somebody to keep tapping it - the sentence beside it is the honest
-            answer. Same for a platform with no VAPID keys: subscribe() would
-            throw, so the tap could never have worked.
-          */}
-          {state === "ready" || state === "subscribed" ? (
-            <Switch
-              checked={state === "subscribed"}
-              onChange={state === "subscribed" ? turnOff : turnOn}
-              busy={busy === "on" || busy === "off"}
-              disabled={spinning || !channelReady}
-              label={
-                state === "subscribed"
-                  ? "Turn off notifications on this device"
-                  : "Turn on notifications on this device"
-              }
-            />
-          ) : (
-            <StateBadge state={state} />
-          )}
+          <StateBadge state={state} />
         </div>
+
+        {/* The tap the browser needs to show its permission prompt. Only where
+            it can work: a browser with push and a platform with keys. */}
+        {state === "ready" ? (
+          <button
+            type="button"
+            onClick={turnOn}
+            disabled={spinning || !channelReady}
+            className={cx(buttonClass("primary", "sm"), "mt-3 w-full sm:w-auto")}
+          >
+            {busy === "on" ? <Loader2 size={13} className="animate-spin" /> : <BellRing size={13} />}
+            Allow notifications
+          </button>
+        ) : null}
 
         {/*
           Its own row under the switch rather than beside it. Full width on a
@@ -586,7 +532,7 @@ export function PushSetup({
               <>Open the new icon. Not Safari — the icon.</>,
               <>
                 In there, come back to this screen and tap{" "}
-                <strong className="text-ink">Turn on</strong>. Allow it when iOS asks.
+                <strong className="text-ink">Allow notifications</strong>. Allow it when iOS asks.
               </>,
               <>
                 Tap <strong className="text-ink">Send test</strong>. If it arrives, you are done.
@@ -623,7 +569,7 @@ function StateBadge({ state }: { state: DeviceState }) {
       </Badge>
     );
   if (state === "denied") return <Badge tone="bad">blocked</Badge>;
-  if (state === "ready") return <Badge tone="warn">off</Badge>;
+  if (state === "ready") return <Badge tone="warn">needs permission</Badge>;
   // needs-install, needs-ios-update, unsupported, no-worker, in-app: nothing this
   // screen can switch on, so none of them wears a warning colour.
   return <Badge tone="neutral">not available</Badge>;
@@ -655,13 +601,7 @@ function StateLine({
         <>Alerts will arrive on this device.</>
       );
     case "ready":
-      return savedDevices > 0 ? (
-        <>
-          Not on for this device. {savedDevices} other{savedDevices === 1 ? "" : "s"} set up.
-        </>
-      ) : (
-        <>Alerts can arrive on this device.</>
-      );
+      return <>Allow notifications below so truck alerts reach this device.</>;
     case "denied":
       /* Where to go differs by platform and the wording has to as well: an
          officer on Android sent to "iOS Settings" is being sent nowhere. */

@@ -12,6 +12,7 @@ import { env } from "@/lib/env";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
 import { assertPortalUser, loadOverview, topUpBlockedReason } from "@/lib/officer";
+import { reconcileOrder } from "@/lib/payment-reconcile";
 import { normaliseIndianMobile } from "@/lib/phone";
 import { rateLimit, rateLimitMessage } from "@/lib/ratelimit";
 import { createOrder, razorpayConfigured, verifyCheckoutSignature } from "@/lib/razorpay";
@@ -1103,6 +1104,32 @@ export async function reportCheckoutFailure(
     const session = await assertPortalUser();
     const admin = getSupabaseAdmin();
 
+    /*
+     * A failed ATTEMPT is not a failed order. Razorpay fires payment.failed
+     * per attempt and keeps the window open for another, and a UPI "delay in
+     * response" can still be captured a moment later - 29 Oct 2026, a
+     * customer's Rs 149 was taken while this marked the row failed. So the
+     * order is checked with Razorpay first, and settled if it was paid.
+     *
+     * Only this account's own order: the row lookup below is what scopes it,
+     * so a stranger's order id posted here is never reconciled.
+     */
+    const { data: mine } = await admin
+      .from("payments")
+      .select("id")
+      .eq("razorpay_order_id", orderId)
+      .eq("user_id", session.id)
+      .maybeSingle<{ id: string }>();
+
+    if (mine && (await reconcileOrder(admin, orderId)) === "settled") {
+      revalidatePath("/portal", "layout");
+      revalidatePath("/portal/payments");
+      return done("Payment received after all. Your account has been updated.");
+    }
+
+    // Closing the row no longer means the money is lost: if a later attempt
+    // on this order is captured, settle_payment() settles a failed row too
+    // (0060), and the reconcile sweep finds it if the webhook does not.
     const { data: closed, error } = await admin
       .from("payments")
       .update({ status: "failed", failure_reason: reason })

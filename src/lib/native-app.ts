@@ -129,9 +129,8 @@ export async function registerNativePush(
   }
 }
 
-/* Whether the officer switched notifications off on this device lives in
-   src/lib/push-client.ts (pushSwitchedOff), shared with the browser: on is the
-   default everywhere, so only a refusal is remembered. */
+/* Notifications have no off switch in the app either - see
+   src/lib/push-client.ts. The phone's own settings are the only way off. */
 
 /**
  * Tapping a notification opens the app; this sends it to the page the alert

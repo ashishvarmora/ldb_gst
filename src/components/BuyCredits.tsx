@@ -912,6 +912,9 @@ function useCheckout(brandName: string, onPaid?: () => void) {
 
     try {
       const result = await confirmCheckout(null, fd);
+      // A retry in the same window can succeed after an attempt failed, so the
+      // earlier attempt's failure must not stay on screen beside the success.
+      setError(null);
       if (result.ok) {
         setNotice(result.message ?? "Payment received.");
         // The claim is spent now, so leaving the code applied would price the
@@ -1010,17 +1013,32 @@ function useCheckout(brandName: string, onPaid?: () => void) {
       checkout.on("payment.failed", (payload) => {
         setBusy(null);
 
+        /*
+         * No longer "Nothing was charged". That was said to a customer on 29
+         * Oct 2026 whose UPI app answered late and whose Rs 149 was captured
+         * a moment after this fired - Razorpay reports a failed ATTEMPT here,
+         * not a failed order. If money did leave, it is settled automatically
+         * (the webhook, the reconcile sweep), so that is what is promised.
+         */
         const reason = failureReason(payload);
         setError(
-          reason
-            ? `${asSentence(reason)} Nothing was charged - you can try again.`
-            : "That payment did not go through. Nothing was charged - you can try again.",
+          `${reason ? asSentence(reason) : "That payment did not go through."} You can try again. If money was taken from your account, it will be added here automatically within a few minutes.`,
         );
 
         const fd = new FormData();
         fd.set("razorpay_order_id", started.orderId);
         if (reason) fd.set("reason", reason);
         void reportCheckoutFailure(null, fd)
+          .then((result) => {
+            // The server asked Razorpay before closing the row and found the
+            // order paid after all - it has settled it, so say so and show
+            // the receipt instead of the failure.
+            if (result.ok && result.message?.startsWith("Payment received")) {
+              setError(null);
+              setNotice(result.message);
+              router.push(receipt(started.orderId));
+            }
+          })
           // The row stays 'created' and the webhook remains its only chance of
           // being closed. Nothing more to tell the buyer - they have the reason.
           .catch(() => {})

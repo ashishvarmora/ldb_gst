@@ -16,9 +16,13 @@ import type { PaymentKind } from "@/lib/types";
  * ever comes back from the browser. Razorpay retries this endpoint until it is
  * acknowledged, so the money is always accounted for eventually.
  *
- * The two paths meet at settle_payment(), which only matches a payment still in
- * 'created'. Whichever arrives first hands over what was bought; the other finds
+ * The two paths meet at settle_payment(), which only matches a payment not yet
+ * 'paid'. Whichever arrives first hands over what was bought; the other finds
  * nothing to do. That is what makes running both safe.
+ *
+ * 'failed' rows ARE settled (0060). payment.failed below is per attempt, and
+ * Razorpay lets the buyer retry on the same order, so a captured event after a
+ * failed one is the money arriving on the second try - not something to drop.
  *
  * settle_payment covers both kinds of purchase: a credit pack tops the balance
  * up, a plan assigns the plan, extends the expiry and grants its included

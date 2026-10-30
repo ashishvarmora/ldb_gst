@@ -94,6 +94,56 @@ export async function createOrder({
   }
 }
 
+/**
+ * The captured payment on an order, asked of Razorpay directly.
+ *
+ * For the cases where nobody told us: the browser reported a failed attempt,
+ * the buyer then paid on the same order (or the UPI app answered late), and
+ * the webhook for the capture never arrived or arrived before 0060. Razorpay's
+ * own answer over an authenticated call is as good as a signed webhook, so the
+ * id this returns may be passed straight to settle_payment().
+ *
+ * ok with null data means "asked, and nothing was captured".
+ */
+export async function capturedPaymentFor(orderId: string): Promise<RazorpayResult<string | null>> {
+  if (!razorpayConfigured()) {
+    return { ok: false, error: "Online payment is not configured yet." };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API}/orders/${encodeURIComponent(orderId)}/payments`, {
+      headers: { Authorization: authHeader() },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    const body = (await response.json().catch(() => null)) as
+      | { items?: { id: string; status: string }[]; error?: { description?: string } }
+      | null;
+
+    if (!response.ok || !body?.items) {
+      return {
+        ok: false,
+        error: body?.error?.description ?? `Razorpay would not list the order (HTTP ${response.status}).`,
+      };
+    }
+
+    const captured = body.items.find((payment) => payment.status === "captured");
+    return { ok: true, data: captured?.id ?? null };
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === "AbortError";
+    return {
+      ok: false,
+      error: aborted ? "Razorpay did not respond in time." : (error as Error).message,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Constant-time compare, so a wrong signature cannot be found byte by byte. */
 function sameSignature(expected: string, given: string): boolean {
   const a = Buffer.from(expected, "utf8");

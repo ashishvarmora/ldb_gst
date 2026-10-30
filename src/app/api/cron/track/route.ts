@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { env } from "@/lib/env";
+import { reconcileRecentPayments } from "@/lib/payment-reconcile";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { runTrackingSweep } from "@/lib/tracking";
 
 /**
@@ -74,6 +76,15 @@ async function handle(request: NextRequest) {
   const batchParam = Number(request.nextUrl.searchParams.get("batch"));
   const batch = Number.isInteger(batchParam) && batchParam > 0 ? Math.min(batchParam, 300) : undefined;
 
+  /*
+   * Payments the webhook and the handshake both missed, settled from
+   * Razorpay's own record - see src/lib/payment-reconcile.ts. Riding on this
+   * tick because it is the one scheduler the deployment already has. Run
+   * first and on its own: it never throws, and a tracking sweep that crashes
+   * must not leave somebody's money unaccounted for.
+   */
+  const payments = await reconcileRecentPayments(getSupabaseAdmin());
+
   try {
     const summary = await runTrackingSweep({ batch });
 
@@ -115,6 +126,7 @@ async function handle(request: NextRequest) {
         truck: outcome.truckNumber,
         reason: outcome.reason,
       })),
+      payments,
     });
   } catch (error) {
     // The caller here is a scheduler, not a person, so this one keeps the real

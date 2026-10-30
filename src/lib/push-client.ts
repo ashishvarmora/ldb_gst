@@ -41,29 +41,19 @@ export function webPushSupported(): boolean {
 }
 
 /**
- * Notifications are ON unless the reader switched them off on this device.
+ * Notifications are ALWAYS on. There is no switch any more - the owner's rule
+ * (30 Oct 2026): the site never offers a way to turn them off; a reader who
+ * wants them off blocks them in the browser or the phone's own settings.
  *
- * What is remembered is the refusal, not the consent, so an install that has
- * never been touched reads as on - the owner's rule is that every notification
- * starts on. Kept on the device because the switch is per device: turning the
- * phone off must not silence the laptop. localStorage throws in some modes,
- * hence the guards; failing to read it means "on", the default.
+ * Devices that used the old switch still carry its "off" flag, which would
+ * otherwise keep them silent for ever, so it is wiped wherever push starts.
  */
-const OFF_FLAG = "rahdari-push-off";
+const LEGACY_OFF_FLAG = "rahdari-push-off";
 
-export function pushSwitchedOff(): boolean {
+export function forgetLegacyOffSwitch(): void {
   try {
-    return localStorage.getItem(OFF_FLAG) === "1";
+    localStorage.removeItem(LEGACY_OFF_FLAG);
   } catch {
-    return false;
-  }
-}
-
-export function setPushSwitchedOff(off: boolean): void {
-  try {
-    if (off) localStorage.setItem(OFF_FLAG, "1");
-    else localStorage.removeItem(OFF_FLAG);
-  } catch {
-    /* Only costs the switch coming back on next time. */
+    /* Nothing reads the flag any more, so failing to remove it costs nothing. */
   }
 }

@@ -9,6 +9,7 @@ import { notifyAdminOfPayment } from "@/lib/email";
 import { fail, done, str } from "@/lib/forms";
 import { fmtDate, fmtRupees } from "@/lib/format";
 import { OFFLINE_METHODS, methodLabel } from "@/lib/analytics";
+import { reconcileOrder } from "@/lib/payment-reconcile";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ActionResult } from "@/lib/types";
 
@@ -68,6 +69,63 @@ const REFUSALS: Record<string, string> = {
   no_such_user: "That customer no longer exists.",
   not_pending: "That receipt was already recorded.",
 };
+
+/**
+ * "The customer says they paid, the row says failed" - answered by Razorpay.
+ *
+ * THIS IS THE BUTTON TO PRESS INSTEAD OF ASSIGNING THE PLAN BY HAND. On 29 Oct
+ * 2026 a captured payment sat on a failed row, an admin assigned the plan and
+ * credits manually, and when the payment later settled properly the customer
+ * held two terms and two grants for one Rs 149. Settling the ORDER keeps one
+ * record: the real payment id, the plan from the plan row, the credits once,
+ * and the referral and receipt that a hand-grant never produces.
+ *
+ * Asks Razorpay for a captured payment on the order and, if there is one, runs
+ * it through settle_payment() - see src/lib/payment-reconcile.ts. Nothing is
+ * granted without Razorpay saying the money was captured.
+ */
+export async function recheckPayment(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const orderId = str(fd, "order_id");
+  if (!orderId?.startsWith("order_")) return fail("Only online orders can be checked with Razorpay.");
+
+  const { data: row } = await admin
+    .from("payments")
+    .select("user_id, status")
+    .eq("razorpay_order_id", orderId)
+    .maybeSingle<{ user_id: string; status: string }>();
+  if (!row) return fail("No payment with that order id.");
+  if (row.status === "paid") return done("Already paid and settled.");
+
+  const outcome = await reconcileOrder(admin, orderId);
+
+  if (outcome === "error") return fail("Razorpay could not be reached. Try again in a minute.");
+  if (outcome === "not_captured") {
+    return done("Razorpay has no captured payment on this order — nothing was charged.");
+  }
+
+  await writeAudit(actor, {
+    action: "payment.recheck",
+    entity: "payment",
+    entityId: row.user_id,
+    entityLabel: orderId,
+    meta: { order_id: orderId, outcome },
+  });
+
+  revalidatePath("/admin/finance");
+  revalidatePath(`/admin/officers/${row.user_id}`);
+
+  return done(
+    outcome === "settled"
+      ? "Razorpay captured this payment. Settled now — plan and credits handed over."
+      : "Already settled.",
+  );
+}
 
 export async function recordOfflinePayment(
   _prev: ActionResult | null,

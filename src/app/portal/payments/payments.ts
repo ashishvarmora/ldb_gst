@@ -1,6 +1,7 @@
 import { methodLabel } from "@/lib/analytics";
 import { formatCredits } from "@/lib/credits";
 import { fmtDateTime } from "@/lib/format";
+import { reconcileOrder } from "@/lib/payment-reconcile";
 import { toCsv } from "@/components/report";
 import type { BadgeTone } from "@/components/ui";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -111,8 +112,36 @@ export async function loadPaymentByOrder(
     console.error("portal payments: receipt lookup failed", error.message);
     return null;
   }
-  return (data ?? null) as unknown as PaymentRow | null;
+
+  const row = (data ?? null) as unknown as PaymentRow | null;
+
+  /*
+   * A receipt that says "pending" or "failed" is the one a customer is staring
+   * at while their bank says the money went. Ask Razorpay before agreeing -
+   * a failed attempt can be followed by a captured one on the same order (see
+   * 0060) - and re-read if that settled it. Only for recent rows, so an old
+   * abandoned checkout does not cost a Razorpay call on every visit.
+   */
+  if (
+    row &&
+    row.status !== "paid" &&
+    Date.now() - new Date(row.created_at).getTime() < RECONCILE_ON_VIEW_MS &&
+    (await reconcileOrder(admin, reference)) === "settled"
+  ) {
+    const { data: fresh } = await admin
+      .from("payments")
+      .select(SELECT)
+      .eq("user_id", userId)
+      .eq("razorpay_order_id", reference)
+      .maybeSingle();
+    return ((fresh ?? row) as unknown) as PaymentRow;
+  }
+
+  return row;
 }
+
+/** How long after it opened a receipt is still worth checking with Razorpay. */
+const RECONCILE_ON_VIEW_MS = 7 * 24 * 3_600_000;
 
 /** Whether this account has ever paid for anything, however long ago. */
 export async function countAllPayments(admin: Admin, userId: string): Promise<number> {

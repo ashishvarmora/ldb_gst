@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, Filter } from "lucide-react";
 
 import type { FinanceParams } from "./page";
+import { RecheckPayment } from "./RecheckPayment";
 import { pageWindow, type AdminQuery } from "../pager";
 import { PAYMENT_LABEL, PAYMENT_TONE, isPaymentStatus, type NameLookup } from "../tables";
 import { Select } from "@/components/form";
@@ -233,6 +234,10 @@ export async function PaymentsSection({
                         <span className="mt-0.5 block max-w-48 truncate text-xs text-faint">
                           {row.failure_reason}
                         </span>
+                      ) : null}
+                      {/* Never assign the plan by hand for these - see recheckPayment. */}
+                      {row.method === "razorpay" && row.status !== "paid" ? (
+                        <RecheckPayment orderId={row.razorpay_order_id} />
                       ) : null}
                     </td>
                     <td className="td">
