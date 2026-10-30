@@ -584,16 +584,28 @@ export type AppSettings = {
    * and is what a customer is told to write to; this one is never rendered to
    * anybody and carries the takings. One row cannot be both.
    */
-  adminNotifyEmail: string;
+  adminNotifyEmails: string[];
   /**
-   * Per event, because the three arrive at wildly different rates. Blank
-   * adminNotifyEmail is the kill switch for all three; these are so that
+   * Per event, because they arrive at wildly different rates. An empty
+   * adminNotifyEmails is the kill switch for all of them; these are so that
    * silencing registration mail does not also silence the payment mail, which
-   * is the one that was actually asked for.
+   * is the one that was actually asked for. 0061 says what each defaults to.
    */
   adminNotifySignup: boolean;
   adminNotifyPlan: boolean;
   adminNotifyTopup: boolean;
+  adminNotifyPaymentFailed: boolean;
+  /** A payment the reconcile sweep had to settle because nothing else did. */
+  adminNotifyPaymentRescued: boolean;
+  adminNotifyCheckoutStarted: boolean;
+  /** A customer message left unread by every admin for chatEmailDelayMinutes. */
+  adminNotifyChat: boolean;
+  adminNotifyDailySummary: boolean;
+  /** IST hour (0-23) the daily summary is sent at. */
+  dailySummaryHour: number;
+  /** Email a customer when an admin reply has sat unread this long. */
+  chatEmailEnabled: boolean;
+  chatEmailDelayMinutes: number;
   /** Phone notifications to every admin's own devices, one switch per event.
       Independent of the mail address above. See src/lib/admin-alerts.ts. */
   adminPushSignup: boolean;

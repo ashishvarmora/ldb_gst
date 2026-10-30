@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { NextResponse, type NextRequest } from "next/server";
 
+import { sendUnseenChatEmails } from "@/lib/chat-email";
+import { maybeSendDailySummary } from "@/lib/daily-summary";
 import { env } from "@/lib/env";
 import { reconcileRecentPayments } from "@/lib/payment-reconcile";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -84,6 +86,13 @@ async function handle(request: NextRequest) {
    * must not leave somebody's money unaccounted for.
    */
   const payments = await reconcileRecentPayments(getSupabaseAdmin());
+  /* The mail work of /api/cron/notify, repeated here as its fallback: with no
+     minute-schedule configured these still go out, just up to five minutes
+     late. Both never throw and both are once-only, so running twice is safe. */
+  const [chatMail, dailySummary] = await Promise.all([
+    sendUnseenChatEmails(getSupabaseAdmin()),
+    maybeSendDailySummary(getSupabaseAdmin()),
+  ]);
 
   try {
     const summary = await runTrackingSweep({ batch });
@@ -127,6 +136,8 @@ async function handle(request: NextRequest) {
         reason: outcome.reason,
       })),
       payments,
+      chatMail,
+      dailySummary,
     });
   } catch (error) {
     // The caller here is a scheduler, not a person, so this one keeps the real

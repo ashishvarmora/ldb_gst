@@ -1,4 +1,4 @@
-import { notifyAdminOfPayment } from "@/lib/email";
+import { notifyAdminOfPayment, notifyAdminsOfPaymentEvent } from "@/lib/email";
 import { capturedPaymentFor, razorpayConfigured } from "@/lib/razorpay";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -63,7 +63,10 @@ export async function reconcileOrder(admin: Admin, orderId: string): Promise<Rec
 
   // Loud on purpose: every line like this is a payment the normal paths missed.
   console.warn(`reconcile: settled ${orderId} (${captured.data}) that the webhook and handshake missed`);
-  if (result.payment_id) await notifyAdminOfPayment(admin, result.payment_id);
+  if (result.payment_id) {
+    await notifyAdminOfPayment(admin, result.payment_id);
+    await notifyAdminsOfPaymentEvent(admin, result.payment_id, "payment_rescued");
+  }
   return "settled";
 }
 

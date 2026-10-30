@@ -45,10 +45,18 @@ export const SETTINGS_FALLBACK: AppSettings = {
   /* Empty, and it has to be: a fallback address here would mail a stranger the
      platform's takings the first time the settings row went missing. Nothing
      is sent until an operator types an address in. */
-  adminNotifyEmail: "",
+  adminNotifyEmails: [],
   adminNotifySignup: true,
   adminNotifyPlan: true,
   adminNotifyTopup: true,
+  adminNotifyPaymentFailed: true,
+  adminNotifyPaymentRescued: true,
+  adminNotifyCheckoutStarted: false,
+  adminNotifyChat: true,
+  adminNotifyDailySummary: true,
+  dailySummaryHour: 21,
+  chatEmailEnabled: true,
+  chatEmailDelayMinutes: 2,
   adminPushSignup: true,
   adminPushPaymentStarted: true,
   adminPushPayment: true,
@@ -90,6 +98,20 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     const value = map.get(key);
     return typeof value === "string" && value.trim() !== "" ? value : fallback;
   };
+  /* A list of addresses. The pre-0061 single address is read as a one-item
+     list when the list itself is missing, so nothing goes quiet mid-deploy. */
+  const emails = (key: string, legacyKey: string): string[] => {
+    const value = map.get(key);
+    const raw = Array.isArray(value) ? value : [map.get(legacyKey)];
+    return [
+      ...new Set(
+        raw
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
+  };
 
   return {
     ldbApiUrl: text("ldb_api_url", env.ldbApiUrl || SETTINGS_FALLBACK.ldbApiUrl),
@@ -125,7 +147,7 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     supportAddress: text("support_address", ""),
     privacyUrl: text("privacy_url", ""),
     termsUrl: text("terms_url", ""),
-    adminNotifyEmail: text("admin_notify_email", ""),
+    adminNotifyEmails: emails("admin_notify_emails", "admin_notify_email"),
     /* Absent means on, matching signupEnabled above: 0046 seeds all three
        true, so the only way to read false here is an operator having turned
        one off. A half-seeded table therefore behaves like a fresh install with
@@ -134,6 +156,15 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     adminNotifySignup: map.get("admin_notify_signup") !== false,
     adminNotifyPlan: map.get("admin_notify_plan") !== false,
     adminNotifyTopup: map.get("admin_notify_topup") !== false,
+    adminNotifyPaymentFailed: map.get("admin_notify_payment_failed") !== false,
+    adminNotifyPaymentRescued: map.get("admin_notify_payment_rescued") !== false,
+    // The one noisy event: off unless switched on.
+    adminNotifyCheckoutStarted: map.get("admin_notify_checkout_started") === true,
+    adminNotifyChat: map.get("admin_notify_chat") !== false,
+    adminNotifyDailySummary: map.get("admin_notify_daily_summary") !== false,
+    dailySummaryHour: number("daily_summary_hour", SETTINGS_FALLBACK.dailySummaryHour),
+    chatEmailEnabled: map.get("chat_email_enabled") !== false,
+    chatEmailDelayMinutes: number("chat_email_delay_minutes", SETTINGS_FALLBACK.chatEmailDelayMinutes),
     // Phone notifications to the admins (src/lib/admin-alerts.ts). Absent means
     // on, like the mail switches above.
     adminPushSignup: map.get("admin_push_signup") !== false,

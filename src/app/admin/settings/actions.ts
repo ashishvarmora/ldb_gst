@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin, type SessionUser } from "@/lib/auth";
+import { maybeSendDailySummary } from "@/lib/daily-summary";
+import { emailSenderProblem, esc, sendEmail, shell } from "@/lib/email";
+import { loadSettings } from "@/lib/settings";
 import { diffFields, writeAudit } from "@/lib/audit";
 import { spreadsheetIdFromUrl } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -25,6 +28,9 @@ type SettingSpec = { key: string; label: string } & (
   | { kind: "name"; max: number }
   | { kind: "optional_text"; max: number }
   | { kind: "optional_email" }
+  /* Several addresses in one box - comma, space or one per line. Stored as a
+     JSON array, de-duplicated and lower-cased. Blank is an empty list. */
+  | { kind: "email_list"; max: number }
   | { kind: "optional_phone" }
   | { kind: "optional_link" }
 );
@@ -90,10 +96,22 @@ const PAYMENT_SPECS: SettingSpec[] = [
  * reads a missing field as blank - so they cannot share a list anyway.
  */
 const NOTIFY_SPECS: SettingSpec[] = [
-  { key: "admin_notify_email", label: "Notification email", kind: "optional_email" },
+  { key: "admin_notify_emails", label: "Notification emails", kind: "email_list", max: 10 },
   { key: "admin_notify_signup", label: "New customer", kind: "bool" },
   { key: "admin_notify_plan", label: "Plan bought", kind: "bool" },
   { key: "admin_notify_topup", label: "Credits topped up", kind: "bool" },
+  { key: "admin_notify_payment_failed", label: "Payment failed", kind: "bool" },
+  { key: "admin_notify_payment_rescued", label: "Payment recovered", kind: "bool" },
+  { key: "admin_notify_checkout_started", label: "Checkout opened", kind: "bool" },
+  { key: "admin_notify_chat", label: "Customer message unanswered", kind: "bool" },
+  { key: "admin_notify_daily_summary", label: "Daily summary", kind: "bool" },
+  { key: "daily_summary_hour", label: "Daily summary time", kind: "int", min: 0, max: 23 },
+];
+
+/* What the customer is emailed about, as opposed to the admins. */
+const CUSTOMER_MAIL_SPECS: SettingSpec[] = [
+  { key: "chat_email_enabled", label: "Email unread replies", kind: "bool" },
+  { key: "chat_email_delay_minutes", label: "Unread for", kind: "int", min: 1, max: 1440 },
 ];
 
 /* The admins' phone notifications (src/lib/admin-alerts.ts). Its own form:
@@ -194,6 +212,24 @@ function readSpecs(
         }
         values[spec.key] = text.toLowerCase();
         break;
+
+      case "email_list": {
+        const list = [
+          ...new Set(
+            text
+              .split(/[\s,;]+/)
+              .map((item) => item.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        ];
+        const bad = list.find((item) => !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(item));
+        if (bad) return { error: `${spec.label}: "${bad}" does not look like an email address.` };
+        if (list.length > spec.max) {
+          return { error: `${spec.label}: at most ${spec.max} addresses.` };
+        }
+        values[spec.key] = list;
+        break;
+      }
 
       case "optional_phone":
         if (text !== "" && !/^[0-9+\-\s()]{6,20}$/.test(text)) {
@@ -323,41 +359,95 @@ export async function saveNotificationSettings(
   const parsed = readSpecs(fd, NOTIFY_SPECS);
   if ("error" in parsed) return { ok: false, error: parsed.error };
 
-  const address = String(parsed.values.admin_notify_email ?? "");
-  const events = [
-    parsed.values.admin_notify_signup === true ? "a new customer" : null,
-    parsed.values.admin_notify_plan === true ? "a plan bought" : null,
-    parsed.values.admin_notify_topup === true ? "credits topped up" : null,
-  ].filter(Boolean) as string[];
+  const addresses = parsed.values.admin_notify_emails as string[];
+  const on = NOTIFY_SPECS.filter(
+    (spec) => spec.kind === "bool" && parsed.values[spec.key] === true,
+  ).length;
 
-  if (!address && events.length > 0) {
+  if (addresses.length === 0 && on > 0) {
     return {
       ok: false,
       error:
-        "Add the address these should go to, or switch all three events off. With the box empty nothing is sent.",
+        "Add at least one address these should go to, or switch every email off. With the box empty nothing is sent.",
     };
   }
 
   const result = await persist(actor, parsed.values, "settings.update_notifications");
   if (!result.ok) return result;
 
-  if (!address) {
+  if (addresses.length === 0) {
     return { ok: true, message: "Saved. No address is set, so no notifications are sent." };
   }
-  if (events.length === 0) {
-    return {
-      ok: true,
-      message: `Saved. ${address} is on file but every event is switched off, so nothing is sent.`,
-    };
-  }
+  const who = addresses.length === 1 ? addresses[0] : `${addresses.length} addresses`;
   return {
     ok: true,
-    message: `Saved. ${address} will be emailed when ${
-      events.length === 1
-        ? events[0]
-        : `${events.slice(0, -1).join(", ")} or ${events[events.length - 1]}`
-    } arrives.`,
+    message:
+      on === 0
+        ? `Saved. ${who} on file, but every email is switched off.`
+        : `Saved. ${on} kinds of email will go to ${who}.`,
   };
+}
+
+/** The customer-facing mail: an admin reply the customer has not read. */
+export async function saveCustomerMailSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, CUSTOMER_MAIL_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const result = await persist(actor, parsed.values, "settings.update_customer_mail");
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    message:
+      parsed.values.chat_email_enabled === true
+        ? `Saved. A customer is emailed when your reply sits unread for ${parsed.values.chat_email_delay_minutes} minutes.`
+        : "Saved. Customers are not emailed about unread replies.",
+  };
+}
+
+/** "Did that work?" without waiting for the evening: today's summary, now. */
+export async function sendTestDailySummary(
+  _prev: ActionResult | null,
+  _fd: FormData,
+): Promise<ActionResult> {
+  await assertSuperAdmin();
+  const result = await maybeSendDailySummary(getSupabaseAdmin(), { force: true });
+  return result.sent
+    ? { ok: true, message: "Sent today's summary to the Notify admin list." }
+    : { ok: false, error: `Not sent: ${result.reason}` };
+}
+
+/** One plain mail to every address on the list, to prove they all receive. */
+export async function sendTestAdminEmail(
+  _prev: ActionResult | null,
+  _fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+  const settings = await loadSettings(admin);
+  const to = settings.adminNotifyEmails;
+  if (to.length === 0) return { ok: false, error: "Add an address and save first." };
+
+  const problem = emailSenderProblem();
+  if (problem) return { ok: false, error: problem };
+
+  const sent = await sendEmail({
+    to,
+    subject: `Test notification from ${settings.brandName}`,
+    html: shell(settings.brandName, "This address is on the Notify admin list", [
+      `${esc(actor.profile.full_name ?? actor.email)} sent this from Admin → Settings → Notify admin.`,
+      "Payment, sign-up and summary emails will arrive here. Nothing else to do.",
+    ]),
+    text: `This address is on the ${settings.brandName} Notify admin list. Payment, sign-up and summary emails will arrive here.`,
+  });
+  return sent.ok
+    ? { ok: true, message: `Sent to ${to.join(", ")}. Check each inbox, and the spam folder.` }
+    : { ok: false, error: sent.error };
 }
 
 /** Which events reach the admins' phones. */

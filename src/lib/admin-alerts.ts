@@ -1,5 +1,6 @@
 import { adminRecipients } from "@/lib/chat";
 import { formatCredits } from "@/lib/credits";
+import { notifyAdminsOfPaymentEvent } from "@/lib/email";
 import { sendPushToUser, type PushPayload } from "@/lib/push";
 import { loadSettings } from "@/lib/settings";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -118,12 +119,15 @@ export async function notifyPaymentStarted(admin: Admin, paymentId: string): Pro
   try {
     const facts = await paymentFacts(admin, { id: paymentId });
     if (!facts) return;
-    await pushAdmins(admin, "payment_started", {
-      title: `${facts.who} is paying`,
-      body: `${facts.bought} · ${rupees(facts.amount_inr)}. Checkout opened.`,
-      tag: `pay-${paymentId}`,
-      url: `/admin/officers/${facts.user_id}`,
-    });
+    await Promise.allSettled([
+      pushAdmins(admin, "payment_started", {
+        title: `${facts.who} is paying`,
+        body: `${facts.bought} · ${rupees(facts.amount_inr)}. Checkout opened.`,
+        tag: `pay-${paymentId}`,
+        url: `/admin/officers/${facts.user_id}`,
+      }),
+      notifyAdminsOfPaymentEvent(admin, paymentId, "checkout_started"),
+    ]);
   } catch (error) {
     console.error("[admin-push] payment started crashed:", (error as Error).message);
   }
@@ -196,6 +200,7 @@ export async function notifyPaymentFailed(
             url: "/portal/plan",
           })
         : Promise.resolve(),
+      notifyAdminsOfPaymentEvent(admin, paymentId, "payment_failed"),
     ]);
   } catch (error) {
     console.error("[admin-push] payment failed crashed:", (error as Error).message);

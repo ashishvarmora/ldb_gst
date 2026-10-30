@@ -14,15 +14,18 @@ import {
   runTrackingNow,
   saveAdminPushSettings,
   saveBackupSettings,
+  saveCustomerMailSettings,
   saveNotificationSettings,
   savePaymentSettings,
   saveSettings,
   saveSiteSettings,
+  sendTestAdminEmail,
+  sendTestDailySummary,
 } from "./actions";
 import { PushSetup } from "@/app/portal/settings/PushSetup";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { SectionTabs, activeSection, type Section } from "@/components/SectionTabs";
-import { Checkbox, Field, FormActions, FormGrid, Input, Textarea } from "@/components/form";
+import { Checkbox, Field, FormActions, FormGrid, Input, Select, Textarea } from "@/components/form";
 import { Badge, DescRow, LinkButton, Mono, PageHeader, Panel } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { loadRetentionRules } from "@/lib/backup";
@@ -50,6 +53,7 @@ function text(settings: SettingsMap, key: string, fallback: string): string {
 
 const SETTINGS_SECTIONS: Section[] = [
   { key: "site", label: "Brand & site", hint: "Name, registration, support and legal links" },
+  { key: "notify", label: "Notify admin", hint: "Who is emailed, about what, and the daily summary" },
   { key: "tracking", label: "Tracking", hint: "The engine, its schedule, and running it by hand" },
   { key: "payments", label: "Payments", hint: "Taking money, and what a customer must provide" },
   { key: "data", label: "Data & exports", hint: "Sheets, exporting and how long rows are kept" },
@@ -120,6 +124,9 @@ export default async function SettingsPage({
   const host = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
   const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const cronUrl = host ? `${proto}://${host}/api/cron/track` : "https://your-app/api/cron/track";
+  const notifyCronUrl = host
+    ? `${proto}://${host}/api/cron/notify`
+    : "https://your-app/api/cron/notify";
 
   /*
    * THE PUBLIC ADDRESS, AND WHETHER IT IS STILL TRUE.
@@ -317,144 +324,251 @@ export default async function SettingsPage({
             </ActionForm>
           </Panel>
 
-          {/*
-            Deliberately in the same two-column grid as the Site panel, next to
-            the support address rather than over on the Payments tab. The one
-            mistake this setting invites is being read as another way to write
-            "support email", and the surest guard against that is the two boxes
-            being visible at the same time with a sentence between them saying
-            which is which. Sign-up is not a payment event either, so Payments
-            would only have held two of the three.
-          */}
+        </div>
+      ) : null}
+
+      {/*
+        NOTIFY ADMIN - every mail and phone alert in one place.
+
+        These used to sit under "Brand & site", beside the support address, and
+        held one address and three switches. The owner asked for a proper
+        section: several addresses, every kind of mail with its own switch, the
+        daily summary, and the mail a customer gets about an unread reply.
+      */}
+      {section === "notify" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
-            title="Notify an admin"
-            description="One internal address, told when a customer or a payment arrives. Never shown to anybody."
+            title="Emails to admins"
+            description="Internal mail about customers and money. Never shown to anybody else."
           >
             <ActionForm action={saveNotificationSettings} closeOnSuccess={false}>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <Field
-                  label="Notification email"
-                  name="admin_notify_email"
+                  label="Send to"
+                  name="admin_notify_emails"
                   hint={
                     <>
-                      Not the support address above — that one is published in the footer for
-                      customers to write to, this one is where the takings are announced. Leave it
-                      blank to send nothing at all.
+                      One or more addresses — one per line, or separated by commas. Every address
+                      gets every email switched on below. Not the support address on the Brand
+                      &amp; site tab, which customers write to.
                     </>
                   }
                 >
-                  <Input
-                    name="admin_notify_email"
-                    type="email"
-                    defaultValue={site.adminNotifyEmail}
-                    placeholder="owner@example.com"
-                    autoComplete="off"
+                  <Textarea
+                    name="admin_notify_emails"
+                    rows={3}
+                    defaultValue={site.adminNotifyEmails.join("\n")}
+                    placeholder={"owner@example.com\naccounts@example.com"}
+                    className="font-mono text-xs"
                   />
                 </Field>
 
-                <div className="space-y-3">
-                  <Checkbox
-                    name="admin_notify_signup"
-                    label="A new customer signs up"
-                    hint="Name, mobile and whether they were invited. They have no plan at this point, so it is a lead rather than a sale."
-                    defaultChecked={site.adminNotifySignup}
-                  />
-                  <Checkbox
-                    name="admin_notify_plan"
-                    label="A plan is bought"
-                    hint="The plan, what was paid, the term it runs to, and any credits bought in the same payment."
-                    defaultChecked={site.adminNotifyPlan}
-                  />
-                  <Checkbox
-                    name="admin_notify_topup"
-                    label="Credits are topped up"
-                    hint="What was paid, how many credits, and their balance afterwards."
-                    defaultChecked={site.adminNotifyTopup}
-                  />
+                <div>
+                  <p className="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">
+                    Money
+                  </p>
+                  <div className="space-y-3">
+                    <Checkbox
+                      name="admin_notify_plan"
+                      label="A plan is bought"
+                      hint="The plan, what was paid, the term it runs to, and any credits bought with it."
+                      defaultChecked={site.adminNotifyPlan}
+                    />
+                    <Checkbox
+                      name="admin_notify_topup"
+                      label="Credits are topped up"
+                      hint="What was paid, how many credits, and their balance afterwards."
+                      defaultChecked={site.adminNotifyTopup}
+                    />
+                    <Checkbox
+                      name="admin_notify_payment_failed"
+                      label="A payment fails"
+                      hint="With the gateway's reason. Recommended on — a failed payment is a customer who wanted to pay."
+                      defaultChecked={site.adminNotifyPaymentFailed}
+                    />
+                    <Checkbox
+                      name="admin_notify_payment_rescued"
+                      label="A payment is recovered by the safety check"
+                      hint="Razorpay took the money but nothing settled it, so the reconcile check did. Recommended on — it means the webhook missed one."
+                      defaultChecked={site.adminNotifyPaymentRescued}
+                    />
+                    <Checkbox
+                      name="admin_notify_checkout_started"
+                      label="Somebody opens a checkout"
+                      hint="Before any money moves. Recommended off by email — it is noisy; the phone alert covers it."
+                      defaultChecked={site.adminNotifyCheckoutStarted}
+                    />
+                  </div>
                 </div>
 
-                {/*
-                  The address being set is not the same as mail being able to
-                  leave, and the gap between those two is what makes a broken
-                  notification look like a missing feature. Only shown when
-                  there is an address, so an operator who has not set one up
-                  yet is not told off for a second thing.
-                */}
-                {site.adminNotifyEmail && emailProblem ? (
+                <div>
+                  <p className="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">
+                    Customers
+                  </p>
+                  <div className="space-y-3">
+                    <Checkbox
+                      name="admin_notify_signup"
+                      label="A new customer signs up"
+                      hint="Name, mobile and whether they were invited."
+                      defaultChecked={site.adminNotifySignup}
+                    />
+                    <Checkbox
+                      name="admin_notify_chat"
+                      label="A customer message goes unanswered"
+                      hint={`When nobody has read it for ${site.chatEmailDelayMinutes} minutes (set under Emails to customers).`}
+                      defaultChecked={site.adminNotifyChat}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">
+                    Daily summary
+                  </p>
+                  <div className="space-y-3">
+                    <Checkbox
+                      name="admin_notify_daily_summary"
+                      label="Send a summary of the day"
+                      hint="Revenue, payments, sign-ups, expiring plans, usage, unread chats — and what needs attention first."
+                      defaultChecked={site.adminNotifyDailySummary}
+                    />
+                    <Field label="Send at (IST)" name="daily_summary_hour">
+                      <Select
+                        name="daily_summary_hour"
+                        defaultValue={String(site.dailySummaryHour)}
+                        className="max-w-40"
+                      >
+                        {Array.from({ length: 24 }, (_, hour) => (
+                          <option key={hour} value={hour}>
+                            {`${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "am" : "pm"}`}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                </div>
+
+                {site.adminNotifyEmails.length > 0 && emailProblem ? (
                   <p className="rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2.5 text-xs leading-relaxed text-muted">
-                    <span className="text-warn-500">Nothing can be sent yet.</span> {emailProblem}{" "}
-                    Notifications are held back rather than failing one at a time — the Health tab
-                    has the same line.
+                    <span className="text-warn-500">Nothing can be sent yet.</span> {emailProblem}
                   </p>
                 ) : null}
-
-                <p className="rounded-lg border border-line/70 bg-panel/50 p-4 text-xs leading-relaxed text-muted">
-                  <span className="text-ink">Each mail carries a link to the account.</span> A
-                  payment recorded by hand on the Finance page counts too, and says who recorded it
-                  and how the money arrived. A notification that cannot be sent is never allowed to
-                  fail the sign-up or the payment it was about.
-                </p>
               </div>
 
               <FormActions>
-                <SubmitButton>Save notification settings</SubmitButton>
-              </FormActions>
-            </ActionForm>
-          </Panel>
-
-          {/*
-            The phone half. Separate from the mail panel because it needs no
-            address and goes to every admin's own devices - each admin switches
-            their phone on below, and these switches decide which events it
-            hears about.
-          */}
-          <Panel
-            title="Phone alerts for admins"
-            description="Notifications on every admin's own phone or browser. Switch this device on below, then pick what to hear about."
-          >
-            <ActionForm action={saveAdminPushSettings} closeOnSuccess={false}>
-              <div className="space-y-3">
-                <Checkbox
-                  name="admin_push_signup"
-                  label="A new customer signs up"
-                  defaultChecked={site.adminPushSignup}
-                />
-                <Checkbox
-                  name="admin_push_payment_started"
-                  label="Somebody opens a checkout"
-                  hint="Before any money moves - a lead worth a call if it does not finish."
-                  defaultChecked={site.adminPushPaymentStarted}
-                />
-                <Checkbox
-                  name="admin_push_payment"
-                  label="A payment succeeds"
-                  hint="Plans and top-ups, online or recorded by hand."
-                  defaultChecked={site.adminPushPayment}
-                />
-                <Checkbox
-                  name="admin_push_payment_failed"
-                  label="A payment fails"
-                  hint="With the reason the gateway gave."
-                  defaultChecked={site.adminPushPaymentFailed}
-                />
-                <Checkbox
-                  name="admin_push_chat"
-                  label="A customer sends a message"
-                  defaultChecked={site.adminPushChat}
-                />
-              </div>
-              <FormActions>
-                <SubmitButton>Save phone alerts</SubmitButton>
+                <SubmitButton>Save admin emails</SubmitButton>
               </FormActions>
             </ActionForm>
 
-            <PushSetup
-              platformReady={health.webPush}
-              appReady={health.fcm}
-              savedDevices={myDevices ?? 0}
-              supportEmail={site.supportEmail}
-            />
+            {/* Proof, without waiting for a real sale or for the evening. */}
+            <div className="mt-4 grid gap-3 border-t border-divider pt-4 sm:grid-cols-2">
+              <ActionForm action={sendTestAdminEmail} closeOnSuccess={false}>
+                <SubmitButton variant="secondary">Send a test email</SubmitButton>
+              </ActionForm>
+              <ActionForm action={sendTestDailySummary} closeOnSuccess={false}>
+                <SubmitButton variant="secondary">Send today&apos;s summary now</SubmitButton>
+              </ActionForm>
+            </div>
           </Panel>
+
+          <div className="space-y-5">
+            <Panel
+              title="Emails to customers"
+              description="What a customer is emailed about, beyond receipts and sign-in codes."
+            >
+              <ActionForm action={saveCustomerMailSettings} closeOnSuccess={false}>
+                <div className="space-y-4">
+                  <Checkbox
+                    name="chat_email_enabled"
+                    label="Email a customer when your reply goes unread"
+                    hint="One email per conversation, with the messages in it and a button back to the chat. Never twice for the same message."
+                    defaultChecked={site.chatEmailEnabled}
+                  />
+                  <Field
+                    label="Unread for (minutes)"
+                    name="chat_email_delay_minutes"
+                    hint="Also how long a customer's message waits before the admins are emailed."
+                  >
+                    <Input
+                      name="chat_email_delay_minutes"
+                      type="number"
+                      min={1}
+                      max={1440}
+                      defaultValue={site.chatEmailDelayMinutes}
+                      className="max-w-32"
+                    />
+                  </Field>
+                </div>
+                <FormActions>
+                  <SubmitButton>Save customer emails</SubmitButton>
+                </FormActions>
+              </ActionForm>
+            </Panel>
+
+            {/*
+              The phone half. Needs no address and goes to every admin's own
+              devices - each admin's phone or browser is set up below, and these
+              switches decide which events it hears about.
+            */}
+            <Panel
+              title="Phone alerts for admins"
+              description="Notifications on every admin's own phone or browser."
+            >
+              <ActionForm action={saveAdminPushSettings} closeOnSuccess={false}>
+                <div className="space-y-3">
+                  <Checkbox
+                    name="admin_push_signup"
+                    label="A new customer signs up"
+                    defaultChecked={site.adminPushSignup}
+                  />
+                  <Checkbox
+                    name="admin_push_payment_started"
+                    label="Somebody opens a checkout"
+                    hint="Before any money moves - a lead worth a call if it does not finish."
+                    defaultChecked={site.adminPushPaymentStarted}
+                  />
+                  <Checkbox
+                    name="admin_push_payment"
+                    label="A payment succeeds"
+                    hint="Plans and top-ups, online or recorded by hand."
+                    defaultChecked={site.adminPushPayment}
+                  />
+                  <Checkbox
+                    name="admin_push_payment_failed"
+                    label="A payment fails"
+                    hint="With the reason the gateway gave."
+                    defaultChecked={site.adminPushPaymentFailed}
+                  />
+                  <Checkbox
+                    name="admin_push_chat"
+                    label="A customer sends a message"
+                    defaultChecked={site.adminPushChat}
+                  />
+                </div>
+                <FormActions>
+                  <SubmitButton>Save phone alerts</SubmitButton>
+                </FormActions>
+              </ActionForm>
+
+              <PushSetup
+                platformReady={health.webPush}
+                appReady={health.fcm}
+                savedDevices={myDevices ?? 0}
+                supportEmail={site.supportEmail}
+              />
+            </Panel>
+
+            <Panel title="Minute schedule" description="For the 2-minute chat email.">
+              <p className="text-xs leading-relaxed text-muted">
+                The chat email and the daily summary are sent by{" "}
+                <Mono className="text-[11px]">{notifyCronUrl}</Mono>. Add it on cron-job.org to
+                run <strong className="text-ink">every minute</strong>, with the same{" "}
+                <Mono className="text-[11px]">Authorization: Bearer CRON_SECRET</Mono> header as
+                the tracking job. Without it they still go out with the 5-minute tracking job,
+                just up to five minutes later.
+              </p>
+            </Panel>
+          </div>
         </div>
       ) : null}
 
@@ -986,12 +1100,19 @@ export default async function SettingsPage({
                   events are listed rather than counted, because "2 of 3" does
                   not say which one has been switched off. */}
               <DescRow label="Admin notifications">
-                {site.adminNotifyEmail
-                  ? `${site.adminNotifyEmail} · ${
+                {site.adminNotifyEmails.length > 0
+                  ? `${site.adminNotifyEmails.join(", ")} · ${
                       [
                         site.adminNotifySignup ? "sign-ups" : null,
                         site.adminNotifyPlan ? "plans" : null,
                         site.adminNotifyTopup ? "top-ups" : null,
+                        site.adminNotifyPaymentFailed ? "failed payments" : null,
+                        site.adminNotifyPaymentRescued ? "recovered payments" : null,
+                        site.adminNotifyCheckoutStarted ? "checkouts" : null,
+                        site.adminNotifyChat ? "unanswered chats" : null,
+                        site.adminNotifyDailySummary
+                          ? `daily summary at ${site.dailySummaryHour}:00 IST`
+                          : null,
                       ]
                         .filter(Boolean)
                         .join(", ") || "every event switched off"

@@ -98,7 +98,8 @@ export async function sendEmail({
   text,
   replyTo,
 }: {
-  to: string;
+  /** One address, or several - every admin on the notify list gets one mail. */
+  to: string | string[];
   subject: string;
   html: string;
   text: string;
@@ -139,7 +140,7 @@ export async function sendEmail({
       // signal than none.
       body: JSON.stringify({
         from: env.emailFrom,
-        to: [to],
+        to: Array.isArray(to) ? to : [to],
         subject,
         html,
         text,
@@ -183,7 +184,7 @@ export async function sendEmail({
  * Lives above the templates rather than beside the notifications it started
  * with, because shell() escapes its heading and brand too.
  */
-function esc(value: string | null | undefined): string {
+export function esc(value: string | null | undefined): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -206,7 +207,12 @@ function esc(value: string | null | undefined): string {
  * do not produce. Neither is the reason this deployment lands in spam - that is
  * DNS and the sending domain, see emailSenderProblem - but both are free.
  */
-function shell(brand: string, heading: string, lines: string[], button?: { label: string; url: string }) {
+export function shell(
+  brand: string,
+  heading: string,
+  lines: string[],
+  button?: { label: string; url: string },
+) {
   const paragraphs = lines
     .map(
       (line) =>
@@ -325,7 +331,15 @@ export function verifyEmailCode(brand: string, code: string, minutes: number) {
  * mentions the credits that rode along. Splitting it would send two mails for
  * one purchase, and let half of it be silenced by the other switch.
  */
-export type AdminEvent = "signup" | "plan" | "topup";
+export type AdminEvent =
+  | "signup"
+  | "plan"
+  | "topup"
+  | "payment_failed"
+  | "payment_rescued"
+  | "checkout_started"
+  | "chat"
+  | "daily_summary";
 
 /**
  * Where to announce `event`, or null when nothing should be sent.
@@ -342,21 +356,25 @@ export type AdminEvent = "signup" | "plan" | "topup";
  * whole feature costs one small query that another part of the same request has
  * usually already paid for.
  */
-async function notifyTarget(
+export async function notifyTarget(
   admin: Admin,
   event: AdminEvent,
-): Promise<{ to: string; brand: string } | null> {
+): Promise<{ to: string[]; brand: string } | null> {
   const settings = await loadSettings(admin);
 
-  const to = settings.adminNotifyEmail.trim();
-  if (!to) return null;
+  const to = settings.adminNotifyEmails;
+  if (to.length === 0) return null;
 
-  const wanted =
-    event === "signup"
-      ? settings.adminNotifySignup
-      : event === "plan"
-        ? settings.adminNotifyPlan
-        : settings.adminNotifyTopup;
+  const wanted = {
+    signup: settings.adminNotifySignup,
+    plan: settings.adminNotifyPlan,
+    topup: settings.adminNotifyTopup,
+    payment_failed: settings.adminNotifyPaymentFailed,
+    payment_rescued: settings.adminNotifyPaymentRescued,
+    checkout_started: settings.adminNotifyCheckoutStarted,
+    chat: settings.adminNotifyChat,
+    daily_summary: settings.adminNotifyDailySummary,
+  }[event];
   if (!wanted) return null;
 
   /*
@@ -373,7 +391,7 @@ async function notifyTarget(
 }
 
 /** The account, in the admin console. One tap from the mail to the customer. */
-function accountUrl(userId: string): string {
+export function accountUrl(userId: string): string {
   return `${env.siteUrl}/admin/officers/${userId}`;
 }
 
@@ -385,7 +403,7 @@ function accountUrl(userId: string): string {
  * value in bold, nothing to skim. A blank value drops its whole line rather
  * than printing "Note: --", which is how the optional facts disappear.
  */
-function facts(rows: [string, string][]): string[] {
+export function facts(rows: [string, string][]): string[] {
   return rows
     .filter(([, value]) => value !== "")
     .map(
@@ -395,7 +413,7 @@ function facts(rows: [string, string][]): string[] {
 }
 
 /** A phone an admin can ring straight from the mail. Blank when we hold none. */
-function telLink(phone: string | null | undefined): string {
+export function telLink(phone: string | null | undefined): string {
   if (!phone) return "";
   return `<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}" style="color:#1d4ed8">${esc(phone)}</a>`;
 }
@@ -656,5 +674,111 @@ export async function notifyAdminOfPayment(admin: Admin, paymentId: string): Pro
      * already happened.
      */
     console.error("admin notify (payment) crashed:", error);
+  }
+}
+
+/**
+ * The payment events that are not a sale: a checkout opened, a payment that
+ * failed, and one the reconcile sweep had to rescue. One mail each, to the
+ * Notify admin list, behind its own switch (0061).
+ *
+ * Called from the same once-only places as the phone alerts beside them in
+ * admin-alerts.ts and payment-reconcile.ts, so a replayed webhook cannot mail
+ * twice. Never throws.
+ */
+export async function notifyAdminsOfPaymentEvent(
+  admin: Admin,
+  paymentId: string,
+  event: "checkout_started" | "payment_failed" | "payment_rescued",
+): Promise<void> {
+  try {
+    const target = await notifyTarget(admin, event);
+    if (!target) return;
+
+    const { data: payment } = await admin
+      .from("payments")
+      .select("user_id, kind, amount_inr, credits, topup_credits, plan_id, razorpay_order_id, razorpay_payment_id, failure_reason")
+      .eq("id", paymentId)
+      .maybeSingle<{
+        user_id: string;
+        kind: string;
+        amount_inr: number;
+        credits: number;
+        topup_credits: number;
+        plan_id: string | null;
+        razorpay_order_id: string;
+        razorpay_payment_id: string | null;
+        failure_reason: string | null;
+      }>();
+    if (!payment) return;
+
+    const [{ data: buyer }, { data: plan }] = await Promise.all([
+      admin
+        .from("profiles")
+        .select("full_name, email, phone")
+        .eq("id", payment.user_id)
+        .maybeSingle<{ full_name: string | null; email: string; phone: string | null }>(),
+      payment.plan_id
+        ? admin.from("plans").select("name").eq("id", payment.plan_id).maybeSingle<{ name: string }>()
+        : Promise.resolve({ data: null as { name: string } | null }),
+    ]);
+
+    const who = buyer?.full_name?.trim() || buyer?.email || "A customer";
+    const amount = fmtRupees(Number(payment.amount_inr));
+    const topup = Number(payment.topup_credits) || 0;
+    const bought =
+      payment.kind === "plan"
+        ? `${plan?.name ?? "a plan"}${topup > 0 ? ` + ${formatCredits(topup)} credits` : ""}`
+        : `${formatCredits(Number(payment.credits) || 0)} credits`;
+
+    const copy = {
+      checkout_started: {
+        subject: `${who} opened a checkout · ${amount}`,
+        heading: "A checkout was opened",
+        note: "No money has moved yet. If this does not turn into a payment in the next few minutes, it is a lead worth a call.",
+      },
+      payment_failed: {
+        subject: `Payment failed · ${amount} · ${who}`,
+        heading: "A payment did not go through",
+        note: "Nothing was handed over. If the customer says money left their account, open Finance and press “Recheck with Razorpay” on this payment — never assign the plan by hand.",
+      },
+      payment_rescued: {
+        subject: `Payment recovered · ${amount} · ${who}`,
+        heading: "A payment was settled by the safety check",
+        note: "Razorpay captured this money but neither the checkout nor the webhook settled it, so the reconcile sweep did. The customer now has what they paid for. If this happens often, check the webhook in the Razorpay dashboard.",
+      },
+    }[event];
+
+    const url = accountUrl(payment.user_id);
+    const rows: [string, string][] = [
+      ["Customer", esc(buyer?.full_name?.trim() || "not given")],
+      ["Email", esc(buyer?.email)],
+      ["Mobile", telLink(buyer?.phone) || "not given"],
+      ["Amount", esc(amount)],
+      [payment.kind === "plan" ? "Plan" : "Bought", esc(bought)],
+      ["Reason", event === "payment_failed" ? esc(payment.failure_reason ?? "") : ""],
+      ["Order", esc(payment.razorpay_order_id)],
+      ["Payment", esc(payment.razorpay_payment_id ?? "")],
+    ];
+
+    const sent = await sendEmail({
+      to: target.to,
+      subject: copy.subject,
+      html: shell(target.brand, copy.heading, [...facts(rows), esc(copy.note)], {
+        label: "Open the account",
+        url,
+      }),
+      text:
+        `${copy.heading}.\n\n` +
+        rows
+          .filter(([, value]) => value !== "")
+          .map(([label, value]) => `${label}: ${value.replace(/<[^>]+>/g, "")}`)
+          .join("\n") +
+        `\n\n${copy.note}\n\n${url}`,
+    });
+
+    if (!sent.ok) console.error(`admin notify (${event}) not sent:`, sent.error);
+  } catch (error) {
+    console.error(`admin notify (${event}) crashed:`, error);
   }
 }
