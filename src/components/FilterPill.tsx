@@ -158,7 +158,7 @@ export function FilterPill({
             )}
           >
             <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+              <span className="text-xs font-semibold text-faint">
                 {label}
               </span>
               <button

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Check, CheckCheck, Clock, Loader2, Send } from "lucide-react";
 
 import { cx } from "@/components/ui";
@@ -123,6 +124,7 @@ export function ChatWindow({
   emptyTitle,
   emptyBody,
   keepDays,
+  emptyState,
 }: {
   initial: ChatMessage[];
   /**
@@ -147,6 +149,7 @@ export function ChatWindow({
   emptyTitle: string;
   emptyBody: string;
   keepDays: number;
+  emptyState?: ReactNode;
 }) {
   const [messages, setMessages] = useState(initial);
   const [draft, setDraft] = useState("");
@@ -281,15 +284,15 @@ export function ChatWindow({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="chat-window flex min-h-0 flex-1 flex-col">
       <div
         ref={listRef}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-1 py-3"
+        className="chat-message-list min-h-0 flex-1 space-y-2 overflow-y-auto px-1 py-3"
         aria-live="polite"
         aria-label="Messages"
       >
         {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
+          emptyState ?? <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
             <p className="text-sm font-medium text-ink">{emptyTitle}</p>
             <p className="mt-1 max-w-sm text-sm text-muted">{emptyBody}</p>
           </div>
@@ -351,7 +354,7 @@ export function ChatWindow({
         </p>
       ) : null}
 
-      <div className="border-t border-divider pt-3">
+      <div className="chat-composer border-t border-divider pt-3">
         <div className="flex items-end gap-2">
           <textarea
             ref={boxRef}
@@ -372,6 +375,7 @@ export function ChatWindow({
             rows={1}
             maxLength={2000}
             placeholder={placeholder}
+            aria-label="Your message"
             className="field max-h-32 min-h-10 flex-1 resize-y py-2"
           />
           <button
@@ -379,7 +383,7 @@ export function ChatWindow({
             onClick={() => void submit()}
             disabled={sending || draft.trim() === ""}
             aria-label="Send"
-            className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-on-brand transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="brand-fill inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-on-brand transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending ? (
               <Loader2 size={16} className="animate-spin" />

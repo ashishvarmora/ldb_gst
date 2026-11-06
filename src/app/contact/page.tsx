@@ -76,7 +76,7 @@ export default async function ContactPage() {
                     <Icon size={16} />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[11px] font-semibold tracking-wider text-muted uppercase">
+                    <span className="block text-xs font-semibold text-muted">
                       {label}
                     </span>
                     <span className="mt-0.5 block text-sm font-medium break-words text-ink transition group-hover:text-brand-500">

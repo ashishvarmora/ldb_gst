@@ -244,7 +244,7 @@ export function VersionWatcher({ current }: { current: string }) {
         <button
           type="button"
           onClick={reload}
-          className="inline-flex min-h-9 shrink-0 items-center rounded-lg bg-brand-500 px-3 text-xs font-medium text-on-brand transition hover:bg-brand-600"
+          className="brand-fill inline-flex min-h-9 shrink-0 items-center rounded-lg bg-brand-500 px-3 text-xs font-medium text-on-brand transition hover:bg-brand-600"
         >
           Refresh
         </button>

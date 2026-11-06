@@ -64,7 +64,7 @@ export function Timeline({
       {groups.map((group) => (
         <div key={group.date}>
           <div className="mb-2 flex items-center gap-3">
-            <h3 className="text-xs font-semibold tracking-wider text-muted uppercase">
+            <h3 className="text-xs font-semibold text-muted">
               {group.date === "unknown" ? "Undated" : fmtDate(group.events[0].event_time)}
             </h3>
             <span className="h-px flex-1 bg-sunken" />
@@ -215,7 +215,7 @@ export function RouteSummary({
 function SummaryCell({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0 bg-panel px-4 py-3">
-      <dt className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</dt>
+      <dt className="text-xs font-semibold text-muted">{label}</dt>
       <dd className="mt-1 min-w-0">{children}</dd>
     </div>
   );
@@ -291,7 +291,7 @@ export function LatestPosition({ event }: { event: TruckEvent | null }) {
   if (!event) {
     return (
       <div className="rounded-xl border border-line bg-raised p-4">
-        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last seen at</p>
+        <p className="text-xs font-semibold text-muted">Last seen at</p>
         <p className="mt-1 text-sm text-muted">
           No toll crossing on record yet. One appears here after the truck passes a plaza.
         </p>
@@ -303,7 +303,7 @@ export function LatestPosition({ event }: { event: TruckEvent | null }) {
 
   return (
     <div className="rounded-xl border border-brand-500/25 bg-brand-500/[0.07] p-4">
-      <p className="text-[11px] font-semibold tracking-wider text-brand-400 uppercase">
+      <p className="text-xs font-semibold text-brand-400">
         Last seen at
       </p>
       <p className="mt-1 text-lg font-semibold text-strong">{event.loc_name ?? "Unnamed plaza"}</p>

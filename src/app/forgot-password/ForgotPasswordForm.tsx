@@ -20,9 +20,10 @@ export function ForgotPasswordForm() {
         <Input
           name="email"
           type="email"
+          autoCapitalize="none"
+          spellCheck={false}
           autoComplete="email"
           required
-          autoFocus
           placeholder="you@company.com"
         />
       </Field>

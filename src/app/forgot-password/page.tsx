@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 export default function ForgotPasswordPage() {
   return (
-    <PublicShell
+    <PublicShell auth
       action={{ href: "/login", label: "Sign in" }}
       mainClassName="flex flex-1 items-center px-4 py-10"
     >

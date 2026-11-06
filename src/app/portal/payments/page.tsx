@@ -1,3 +1,4 @@
+import { CreditCard as PageIcon } from "lucide-react";
 import Link from "next/link";
 import { Download, Wallet } from "lucide-react";
 
@@ -169,7 +170,9 @@ export default async function PaymentsPage({
        quote" - which is three of the table's own column headings, in longer
        words, directly above the table. */
     <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
       title="Payment history"
+      subtitle="Every payment, its reference, and what it bought."
       actions={
         rows.length > 0 ? (
           <LinkButton
@@ -231,7 +234,9 @@ export default async function PaymentsPage({
           daily/weekly/monthly toggle would change a number nobody can see. */}
       <DateRangeBar range={range} showBucket={false} />
 
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* Two across on a phone, the money on its own row above, so the list
+          starts on the first screen instead of after three stacked cards. */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
         {/*
           Settled money only, on both figures.
 

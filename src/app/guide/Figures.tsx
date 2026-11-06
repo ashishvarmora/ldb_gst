@@ -213,7 +213,7 @@ export function Figure({ name, caption }: { name: FigureName; caption: string })
     <figure className="my-5">
       <div className="rounded-xl border border-line-strong bg-raised/50 p-3 sm:p-4">
         <p className="mb-2.5 flex items-center gap-2">
-          <span className="rounded border border-line-strong bg-sunken px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-faint uppercase">
+          <span className="rounded border border-line-strong bg-sunken px-1.5 py-0.5 text-xs font-semibold text-faint">
             Example
           </span>
           <span className="min-w-0 truncate text-[11px] text-faint">{spec.alt}</span>

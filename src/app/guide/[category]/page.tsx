@@ -102,7 +102,7 @@ export default async function GuideCategoryPage({
           </div>
         ) : (
           <section>
-            <h2 className="text-xs font-semibold tracking-wider text-faint uppercase">
+            <h2 className="text-xs font-semibold text-faint">
               {articles.length} {articles.length === 1 ? "guide" : "guides"}
             </h2>
             <ul className="mt-2 divide-y divide-divider overflow-hidden rounded-xl border border-line bg-panel">
@@ -146,7 +146,7 @@ export default async function GuideCategoryPage({
 
         {/* ------------------------------------------------------------------ */}
         <nav className="mt-8 border-t border-line/70 pt-5">
-          <p className="text-xs font-semibold tracking-wider text-faint uppercase">
+          <p className="text-xs font-semibold text-faint">
             Other subjects
           </p>
           <ul className="mt-2 flex flex-wrap gap-1.5">

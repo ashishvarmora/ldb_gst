@@ -23,6 +23,7 @@ export function Modal({
   description,
   width = "lg",
   children,
+  openHash,
 }: {
   triggerLabel: string;
   triggerIcon?: ReactNode;
@@ -33,9 +34,24 @@ export function Modal({
   description?: string;
   width?: "sm" | "md" | "lg" | "xl";
   children: ReactNode;
+  /** A same-page hash can launch this dialog from a Home shortcut. */
+  openHash?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => {
+    setOpen(false);
+    if (openHash && window.location.hash === `#${openHash}`) {
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    }
+  }, [openHash]);
+
+  useEffect(() => {
+    if (!openHash) return;
+    const sync = () => setOpen(window.location.hash === `#${openHash}`);
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [openHash]);
 
   useEffect(() => {
     if (!open) return;

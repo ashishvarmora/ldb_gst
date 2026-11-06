@@ -89,6 +89,7 @@ export function PhoneField({
           required={required}
           maxLength={10}
           pattern="[6-9][0-9]{9}"
+          title="Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9."
           defaultValue={digits ?? ""}
           placeholder="9876543210"
           aria-describedby={countryId}

@@ -57,7 +57,7 @@ export default async function ResetPasswordPage({
     looksLikeUserId(store.get(RECOVERY_VERIFIED_COOKIE)?.value);
 
   return (
-    <PublicShell action={null} mainClassName="flex flex-1 items-center px-4 py-10">
+    <PublicShell auth action={null} mainClassName="flex flex-1 items-center px-4 py-10">
       {/*
         NO intro HERE, deliberately. It used to be chosen from hasToken, and
         after a successful save that produced a card headed "This page needs the

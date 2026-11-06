@@ -59,7 +59,7 @@ export function SupportPanel({
 
   return (
     <div className={className}>
-      <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-muted">
         {report ? <MessageSquareWarning size={11} /> : <LifeBuoy size={11} />}
         {report ? "Something wrong?" : "Need help?"}
       </p>

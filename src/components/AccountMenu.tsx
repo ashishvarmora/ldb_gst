@@ -127,10 +127,10 @@ function itemGroups({
   /*
    * ONE ROW, BECAUSE IT IS ONE ROUTE.
    *
-   * This listed "My profile" -> /portal/settings#profile and "Settings" ->
+   * This listed "My profile" -> /portal/profile/edit and "Settings" ->
    * /portal/settings: two icons, two labels, two descriptions and two hrefs
    * into the same page, one of them an anchor into the other. That is where the
-   * owner's "merge /portal/settings and /portal/settings#profile, i guess both
+   * owner's "merge /portal/settings and /portal/profile/edit, i guess both
    * are same so" came from - they had been handed two names for one screen by
    * this menu and reasonably assumed there were two screens.
    *
@@ -318,7 +318,7 @@ export function AccountMenu(props: AccountMenuProps) {
         <div className="border-b border-divider bg-raised/50 px-4 py-3.5">
           <div className="flex items-start justify-between gap-3">
             <span>
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
                 <Coins size={11} />
                 Credits left
               </span>
@@ -440,6 +440,30 @@ export function AccountMenu(props: AccountMenuProps) {
           className="border-t border-divider px-4 py-3"
         />
 
+        {/* The website footer is hidden inside the portal on a phone, so the
+            pages it linked to are reached from here instead. Plain links, one
+            line, below everything a customer actually came to this sheet for. */}
+        <nav
+          aria-label="About this service"
+          className="flex flex-wrap gap-x-4 gap-y-1 border-t border-divider px-4 py-3 text-xs lg:hidden"
+        >
+          {[
+            { href: "/guide", label: "User guide" },
+            { href: "/data-sources", label: "Where the data comes from" },
+            { href: "/privacy", label: "Privacy" },
+            { href: "/terms", label: "Terms" },
+          ].map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              onClick={close}
+              className="inline-flex min-h-9 items-center text-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+
         {/*
           STICKY, IN BOTH VARIANTS.
 
@@ -479,23 +503,20 @@ export function AccountMenu(props: AccountMenuProps) {
           aria-haspopup="menu"
           aria-label="Account"
           className={cx(
-            "relative flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
-            open ? "font-semibold text-brand-600" : "text-muted active:text-ink",
+            "pressable relative flex min-h-16 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium transition-colors",
+            open ? "font-semibold text-strong" : "text-muted active:text-ink",
           )}
         >
-          {/* Same pill as the other tabs in PortalNav, so the bar is one set. */}
-          <span className="relative inline-flex h-8 w-14 items-center justify-center">
-            {open ? (
-              <span aria-hidden className="pill-in absolute inset-0 rounded-full bg-brand-500/14" />
-            ) : null}
+          {/* Sized like the other tabs' icons in PortalNav, so the bar is one set. */}
+          <span className="relative inline-flex h-[26px] w-14 items-center justify-center">
             {/* The initials are the profile icon: it is the reader's own account,
                 and a monogram says that faster than a generic silhouette. */}
             <span
               className={cx(
-                "relative inline-flex size-6 items-center justify-center rounded-full border text-[10px] font-semibold transition",
+                "relative inline-flex size-[26px] items-center justify-center rounded-full border text-[10px] font-bold transition",
                 open
-                  ? "border-brand-500 bg-brand-500 text-on-brand"
-                  : "border-brand-500/40 bg-brand-500/12 text-brand-400",
+                  ? "border-navy bg-navy text-white"
+                  : "border-navy/20 bg-tile-blue text-navy",
               )}
             >
               {initials}

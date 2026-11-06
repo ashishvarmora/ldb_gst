@@ -185,7 +185,7 @@ export default async function GuideArticlePage({
                 >
                   <ArrowLeft size={15} className="shrink-0 text-faint" />
                   <span className="min-w-0">
-                    <span className="block text-[11px] tracking-wider text-faint uppercase">
+                    <span className="block text-xs text-faint">
                       Previous
                     </span>
                     <span className="block text-sm leading-snug font-medium text-ink">
@@ -203,7 +203,7 @@ export default async function GuideArticlePage({
                   className="flex min-h-14 items-center gap-2.5 rounded-xl border border-line bg-panel px-3.5 py-2.5 text-right transition hover:border-brand-500/50 hover:bg-sunken sm:justify-end"
                 >
                   <span className="min-w-0 flex-1 sm:flex-none">
-                    <span className="block text-[11px] tracking-wider text-faint uppercase">
+                    <span className="block text-xs text-faint">
                       Next
                     </span>
                     <span className="block text-sm leading-snug font-medium text-ink">
@@ -234,7 +234,7 @@ export default async function GuideArticlePage({
         {headings.length > 1 ? (
           <aside className="hidden lg:block">
             <div className="sticky top-8">
-              <p className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+              <p className="text-xs font-semibold text-faint">
                 On this page
               </p>
               <nav className="mt-2 border-l border-divider">

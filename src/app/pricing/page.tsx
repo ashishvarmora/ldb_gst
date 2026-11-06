@@ -120,7 +120,7 @@ export default async function PricingPage() {
         <section className="mt-8 sm:mt-10">
           <SectionHeading
             title="Plans"
-            body="Every plan comes with credits and can be topped up. Only the truck limit changes."
+            body="Compare the truck limit, included credits and duration for each plan."
           />
 
           {plans.length === 0 ? (
@@ -136,7 +136,7 @@ export default async function PricingPage() {
                 <li key={plan.id} className="panel flex flex-col p-5">
                   <p className="text-sm font-semibold text-strong">{plan.name}</p>
                   {plan.description ? (
-                    <p className="mt-1 text-xs leading-relaxed text-muted">{plan.description}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted">{plan.is_trial ? "A one-time trial for your account. No payment required." : plan.description}</p>
                   ) : null}
 
                   {/* The whole price and the term it buys. "a month" used to

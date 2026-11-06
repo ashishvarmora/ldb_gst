@@ -111,20 +111,22 @@ export function PublicShell({
   action,
   children,
   mainClassName,
+  auth = false,
 }: {
   action?: HeaderAction | null;
   children: ReactNode;
   /** Layout for the main column. Forms centre themselves; content pages do not. */
   mainClassName?: string;
+  auth?: boolean;
 }) {
   return (
-    <div className="theme-light flex min-h-screen flex-col">
+    <div className={cx("public-shell theme-light flex min-h-screen flex-col", auth && "auth-shell")}>
       <SiteHeader action={action} />
-      <main className={cx("flex-1", mainClassName ?? "px-4 py-10")}>{children}</main>
+      <main className={cx("public-main flex-1", mainClassName ?? "px-4 py-10")}>{children}</main>
       {/* The website's footer, not the app's - see .app-hide in globals.css. */}
-      <div className="app-hide">
+      {auth ? <footer className="auth-legal"><Link href="/contact">Need help?</Link><nav aria-label="Legal"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></nav></footer> : <div className="app-hide public-footer">
         <SiteFooter />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -149,18 +151,18 @@ export function AuthCard({
   footer?: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-col justify-center">
-      <div className="mb-7 flex flex-col items-center text-center">
-        <span className="mb-4 inline-flex size-12 items-center justify-center rounded-2xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
+    <div className="auth-card page-enter mx-auto flex w-full max-w-sm flex-col justify-center">
+      <div className="auth-card-intro">
+        <span className="auth-card-icon">
           {icon}
         </span>
-        <h1 className="text-xl font-semibold text-strong">{title}</h1>
-        {intro ? <p className="mt-1.5 text-sm leading-relaxed text-muted">{intro}</p> : null}
+        <h1 className="text-2xl font-bold text-strong">{title}</h1>
+        {intro ? <p className="mt-2 text-[15px] leading-relaxed text-muted">{intro}</p> : null}
       </div>
 
-      <div className="panel p-6">{children}</div>
+      <div className="auth-card-form panel">{children}</div>
 
-      {footer ? <div className="mt-6 text-center text-sm text-muted">{footer}</div> : null}
+      {footer ? <div className="auth-card-footer">{footer}</div> : null}
     </div>
   );
 }
@@ -280,7 +282,7 @@ export async function SiteFooter({ className }: { className?: string }) {
           <div className="grid grid-cols-2 gap-x-6 gap-y-7 sm:flex sm:gap-12">
             {groups.map(({ heading, links }) => (
               <div key={heading} className="min-w-0">
-                <p className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+                <p className="text-xs font-semibold text-faint">
                   {heading}
                 </p>
                 <ul className="mt-2 space-y-1.5 text-xs text-muted">

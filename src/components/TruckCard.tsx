@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BellOff, ChevronRight, Timer } from "lucide-react";
+import { BellOff, ChevronRight, Timer, Truck } from "lucide-react";
 
 import { InfoTip } from "@/components/InfoTip";
 import { TrackingToggle } from "@/components/TrackingToggle";
@@ -183,7 +183,7 @@ export function TruckCard({
   return (
     <div
       className={cx(
-        "panel group relative overflow-hidden transition",
+        "truck-card panel group relative overflow-hidden transition",
         "hover:border-brand-500/45 hover:shadow-[var(--shadow-raised)]",
         "focus-within:border-brand-500",
         !truck.is_active && "opacity-80",
@@ -225,6 +225,7 @@ export function TruckCard({
           floating in the middle of the card whenever the pause (i) was open or
           the text ran to three lines. */}
       <div className="pointer-events-none relative z-10 flex items-start gap-3 py-2.5 pr-3 pl-4">
+        <span className="truck-card-symbol" aria-hidden><Truck size={24} strokeWidth={1.6}/></span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <Mono className="text-sm font-semibold tracking-wide text-strong">

@@ -547,6 +547,8 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   }
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
 
   // Land on the truck itself: seeing the alert listed is the confirmation that
@@ -670,6 +672,8 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
   if (error) return fail(reportError("saving a truck", error, "Could not save those changes."));
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
@@ -752,6 +756,8 @@ export async function addTruckAlert(
   if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
@@ -801,6 +807,8 @@ export async function updateTruckAlert(
   if (error) return fail(reportError("changing an alert", error, "Could not change that alert."));
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
 
@@ -864,6 +872,8 @@ export async function setTruckAlertEnabled(
   if (!alert) return fail("That alert is not on your list.");
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
 
@@ -892,6 +902,8 @@ export async function deleteTruckAlert(
   if (!alert) return fail("That alert is not on your list.");
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
 
@@ -981,6 +993,8 @@ export async function setTruckPaused(
   }
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
   /* The saving is the point, so the confirmation says it. An automatic check
@@ -1018,6 +1032,8 @@ export async function checkTruckNow(
   if (!result.ok) return fail(result.error);
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
@@ -1048,6 +1064,8 @@ export async function removeTruck(_prev: ActionResult | null, fd: FormData): Pro
   if (error) return fail(reportError("removing a truck", error, "Could not remove that truck."));
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/trucks");
   redirect("/portal/trucks");
 }

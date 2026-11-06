@@ -66,7 +66,7 @@ export function GroupByBar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+        <span className="text-xs font-semibold text-faint">
           Group by
         </span>
 

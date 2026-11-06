@@ -158,7 +158,7 @@ export default async function CaseDetailPage({
                   autoComplete="off"
                   spellCheck={false}
                   placeholder="e.g. MH12AB1234"
-                  className="font-mono tracking-wider uppercase placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
+                  className="font-mono placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
                 />
               </Field>
               <FormActions>

@@ -1,3 +1,4 @@
+import { History as PageIcon } from "lucide-react";
 import { HelpNote } from "@/components/Disclosure";
 import { CreditLedger, CreditSummary, type LedgerQuery } from "@/components/CreditLedger";
 import { publicSettings } from "@/components/SiteFooter";
@@ -51,7 +52,11 @@ export default async function ActivityPage({
       {/* No subtitle. "By day, by truck, and charge by charge" was the three
           Group by toggles read out in a sentence, a few inches above the
           toggles themselves. */}
-      <PageHeader title="Activity" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
+        title="Activity"
+        subtitle="Every charge your credits paid for, by day and by truck."
+      />
 
       <div className="space-y-3">
         {/* Where the grants and the money went, both of which used to be

@@ -207,7 +207,7 @@ export async function LogExplorer({
 
           {query.officer || query.truck || query.date || query.status ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-divider pt-3">
-              <span className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+              <span className="text-xs font-semibold text-faint">
                 Filtered
               </span>
               {query.officer ? (
@@ -645,7 +645,7 @@ function NoRows() {
 function ChipRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+      <span className="mr-0.5 shrink-0 text-xs font-semibold text-faint">
         {label}
       </span>
       {children}

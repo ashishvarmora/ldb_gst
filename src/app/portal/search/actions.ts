@@ -46,6 +46,8 @@ export async function manualSearch(
   if (!result.ok) return fail(result.error);
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath("/portal/search");
   redirect(`/portal/search/${truckNumber}`);
 }
@@ -71,6 +73,8 @@ export async function searchAgain(
   if (!result.ok) return fail(result.error);
 
   revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
   revalidatePath(`/portal/search/${truckNumber}`);
 
   return {

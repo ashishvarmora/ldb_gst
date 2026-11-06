@@ -27,7 +27,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   ]);
 
   return (
-    <div className="theme-light flex min-h-screen">
+    <div className="theme-console flex min-h-screen">
       {/*
        * Mounted once, here, because it covers the navigations nobody
        * instrumented individually - a customer's name in a table row, "View

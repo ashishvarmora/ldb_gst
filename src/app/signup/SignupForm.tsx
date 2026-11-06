@@ -1,4 +1,5 @@
 "use client";
+import { PasswordInput } from "@/components/PasswordInput";
 
 import { Gift } from "lucide-react";
 
@@ -38,7 +39,6 @@ export function SignupForm({
           type="text"
           autoComplete="name"
           required
-          autoFocus
           placeholder="Your full name"
         />
       </Field>
@@ -47,6 +47,8 @@ export function SignupForm({
         <Input
           name="email"
           type="email"
+          autoCapitalize="none"
+          spellCheck={false}
           autoComplete="email"
           required
           placeholder="you@company.com"
@@ -56,9 +58,8 @@ export function SignupForm({
       <PhoneField hint="We use this if something goes wrong with your account. 10 digits." />
 
       <Field label="Password" name="password">
-        <Input
+        <PasswordInput
           name="password"
-          type="password"
           autoComplete="new-password"
           required
           minLength={8}
@@ -67,9 +68,8 @@ export function SignupForm({
       </Field>
 
       <Field label="Confirm password" name="confirm_password">
-        <Input
+        <PasswordInput
           name="confirm_password"
-          type="password"
           autoComplete="new-password"
           required
           minLength={8}
