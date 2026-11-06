@@ -25,3 +25,33 @@ export const RECOVERY_COOKIE = "rahdari-recovery";
 export function looksLikeRecoveryToken(value: string | undefined | null): value is string {
   return typeof value === "string" && /^[0-9a-f]{16,128}$/i.test(value);
 }
+
+/**
+ * Set once the recovery token has been spent and the reader is signed in on
+ * the strength of it, holding that user's id; cleared when the password is
+ * saved.
+ *
+ * It exists because spending the token and saving the password are two calls,
+ * and Supabase can refuse the second after the first has succeeded - a password
+ * it thinks too weak, for instance. Before this cookie, that refusal burned the
+ * link: the token was gone, the form was still on screen, and whatever the
+ * reader typed next was answered with "this link has expired". A live customer
+ * went round that loop twice on 6 Nov 2026 and gave up.
+ *
+ * It grants nothing by itself. The action only honours it when the Supabase
+ * session in the same browser belongs to the same user id - and a signed-in
+ * user may set their own password through Supabase anyway. All it does is keep
+ * the form on screen for the person the link was sent to.
+ */
+export const RECOVERY_VERIFIED_COOKIE = "rahdari-recovery-ok";
+
+/** Long enough to read an error and type another password, no longer. */
+export const RECOVERY_VERIFIED_TTL_SECONDS = 15 * 60;
+
+/** A Supabase user id. Anything else in that cookie is ignored. */
+export function looksLikeUserId(value: string | undefined | null): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  );
+}

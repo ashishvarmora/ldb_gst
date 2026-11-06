@@ -4,7 +4,12 @@ import { KeyRound } from "lucide-react";
 
 import { ResetPasswordForm } from "./ResetPasswordForm";
 import { AuthCard, PublicShell, publicSettings } from "@/components/SiteFooter";
-import { RECOVERY_COOKIE, looksLikeRecoveryToken } from "@/lib/recovery";
+import {
+  RECOVERY_COOKIE,
+  RECOVERY_VERIFIED_COOKIE,
+  looksLikeRecoveryToken,
+  looksLikeUserId,
+} from "@/lib/recovery";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
@@ -44,7 +49,12 @@ export default async function ResetPasswordPage({
   searchParams: Promise<{ link?: string }>;
 }) {
   const [store, params] = await Promise.all([cookies(), searchParams]);
-  const hasToken = looksLikeRecoveryToken(store.get(RECOVERY_COOKIE)?.value);
+  /* Either an unspent link, or one already spent by an attempt whose password
+     Supabase refused - see RECOVERY_VERIFIED_COOKIE. A reload in between must
+     not tell that reader their link has expired. */
+  const hasToken =
+    looksLikeRecoveryToken(store.get(RECOVERY_COOKIE)?.value) ||
+    looksLikeUserId(store.get(RECOVERY_VERIFIED_COOKIE)?.value);
 
   return (
     <PublicShell action={null} mainClassName="flex flex-1 items-center px-4 py-10">

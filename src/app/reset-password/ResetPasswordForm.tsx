@@ -80,7 +80,11 @@ export function ResetPasswordForm({
       <div className="space-y-4">
         <p className="flex items-start gap-2 rounded-lg border border-good-500/40 bg-good-500/10 px-3 py-2 text-sm text-good-500">
           <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
-          <span>Your password has been changed, and you are signed in.</span>
+          <span>
+            {state.message === "unchanged"
+              ? "That is already your password, so nothing needed changing. You are signed in and can use it from now on."
+              : "Your password has been changed, and you are signed in."}
+          </span>
         </p>
         <LinkButton href="/" variant="primary" className="w-full">
           Go to your dashboard
