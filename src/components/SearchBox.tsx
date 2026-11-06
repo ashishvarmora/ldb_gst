@@ -21,12 +21,17 @@ export function SearchBox({
   return (
     <ActionForm action={manualSearch} closeOnSuccess={false} className={cx("truck-search-form", className)}>
       <label htmlFor="truck-search-number" className="search-input-label">Truck registration number</label>
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search
-            size={16}
-            className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-faint"
-          />
+      {/*
+        The field is drawn as an Indian number plate - the blue IND strip, the
+        black rim, bold plate lettering - so it says what to type before the
+        placeholder does. The orange button sits on the same row, plate-high.
+      */}
+      <div className="plate-row">
+        <div className="plate-field">
+          <span className="plate-ind" aria-hidden>
+            <span className="plate-ind-flag" />
+            IND
+          </span>
           <Input
             id="truck-search-number"
             name="truck_number"
@@ -36,15 +41,13 @@ export function SearchBox({
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
-            placeholder="e.g. GJ02AT8546"
-            className={cx(
-              "py-3 pl-10 font-mono text-base",
-              "placeholder:font-sans placeholder:tracking-normal placeholder:normal-case",
-            )}
+            placeholder="GJ 02 AT 8546"
+            className="plate-input"
           />
         </div>
-        <SubmitButton className="justify-center py-3 sm:w-40" pendingLabel="Searching...">
-          <Search size={18}/>Search truck
+        <SubmitButton className="plate-go" pendingLabel="">
+          <Search size={18} strokeWidth={2.4} />
+          <span>Search</span>
         </SubmitButton>
       </div>
       {hint ? <p className="mt-2 text-xs text-faint">{hint}</p> : null}

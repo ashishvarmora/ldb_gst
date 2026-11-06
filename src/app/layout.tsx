@@ -12,6 +12,7 @@ import "./portal-home.css";
 import "./mobile-app.css";
 import "./app-refinements.css";
 import "./auth-public.css";
+import "./screens-polish.css";
 
 /*
  * The customer app's three faces: Plus Jakarta Sans
@@ -123,7 +124,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{if(navigator.userAgent.indexOf('RahdariApp/')>-1)document.documentElement.classList.add('native-app')}catch(e){}",
+              /*
+               * Also: when Android keeps the status and button bars out of the
+               * WebView itself, the page is shorter than the screen by their
+               * height - and padding for them again would leave a gap above
+               * the top bar and lift the tab bar. .system-insets zeroes the
+               * page's own padding in that case only (screens-polish.css).
+               * Measured at first paint and on load, never while a keyboard
+               * could be open.
+               */
+              "try{var d=document.documentElement;if(navigator.userAgent.indexOf('RahdariApp/')>-1){d.classList.add('native-app');var f=function(){var g=screen.height-window.innerHeight;if(window.innerHeight>0)d.classList.toggle('system-insets',g>16)};f();addEventListener('load',f,{once:true})}}catch(e){}",
           }}
         />
       </head>
