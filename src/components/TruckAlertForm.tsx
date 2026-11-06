@@ -560,7 +560,7 @@ function PlazaPicker({
 
       {offered.length > 0 && heading ? (
         <>
-          <p className="mt-2 mb-1 flex items-center gap-1 text-[11px] font-semibold tracking-wider text-faint uppercase">
+          <p className="mt-2 mb-1 flex items-center gap-1 text-xs font-semibold text-faint">
             {/* The heading carries the basis of the list, because a list of
                 plazas under no explanation is what let the old one pass for
                 relevant. The arrow only appears when the rows really are

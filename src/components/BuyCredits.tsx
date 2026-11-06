@@ -179,16 +179,16 @@ function loadCheckoutScript(): Promise<void> {
 }
 
 /**
- * The brand blue, as a literal Razorpay can use.
+ * The brand colour, as a literal Razorpay can use.
  *
  * Their window is its own document and cannot read our custom properties, so
  * the colour has to be handed over rather than inherited. Read off the live
  * stylesheet instead of typed in here: the portal renders in the light theme
- * where --c-brand-500 is #2563eb, the dark one carries a different blue, and a
+ * where --c-brand-500 is #c2410c (green), the console a blue, and a
  * second copy of either in this file is a copy that goes stale the first time
  * the palette moves.
  */
-const BRAND_FALLBACK = "#2563eb";
+const BRAND_FALLBACK = "#c2410c";
 
 function brandColour(): string {
   const value = getComputedStyle(document.documentElement)
@@ -798,7 +798,7 @@ function PayPanel({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+          <p className="text-xs font-semibold text-muted">
             You are buying
           </p>
           <p className="mt-1 truncate text-sm font-semibold text-strong">{chosen.name}</p>

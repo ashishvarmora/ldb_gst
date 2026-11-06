@@ -29,7 +29,7 @@ export function CopyReference({ items }: { items: Reference[] }) {
         {items.map((item) => (
           <div key={item.label} className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <dt className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+              <dt className="text-xs font-semibold text-muted">
                 {item.label}
               </dt>
               {/* select-all so one tap highlights the whole id on a phone, and

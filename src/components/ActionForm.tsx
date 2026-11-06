@@ -49,14 +49,14 @@ export function ActionForm({
       {children}
 
       {state && !state.ok ? (
-        <p className="mt-4 flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
+        <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
           <AlertCircle size={15} className="mt-0.5 shrink-0" />
           <span>{state.error}</span>
         </p>
       ) : null}
 
       {state?.ok && state.message ? (
-        <p className="mt-4 flex items-start gap-2 rounded-lg border border-good-500/40 bg-good-500/10 px-3 py-2 text-sm text-good-500">
+        <p role="status" className="mt-4 flex items-start gap-2 rounded-lg border border-good-500/40 bg-good-500/10 px-3 py-2 text-sm text-good-500">
           <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
           <span>{state.message}</span>
         </p>

@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400" role="img" aria-label="An orange container truck on a highway at sunset">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7f8fc4"/>
+      <stop offset="0.45" stop-color="#f6c9a4"/>
+      <stop offset="0.8" stop-color="#ffd9a8"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b6276"/>
+      <stop offset="1" stop-color="#2b3044"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7883a"/>
+      <stop offset="1" stop-color="#d9590c"/>
+    </linearGradient>
+    <linearGradient id="boxSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d5600f"/>
+      <stop offset="1" stop-color="#a8450a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="400" fill="url(#sky)"/>
+  <circle cx="470" cy="150" r="34" fill="#ffe3b8" opacity="0.9"/>
+
+  <!-- far hills -->
+  <path d="M0 205 C70 170 130 175 190 195 C250 165 330 160 400 190 C460 170 540 168 600 185 L600 260 L0 260 Z" fill="#9aa6c9" opacity="0.75"/>
+  <path d="M0 230 C90 205 170 212 250 228 C330 210 420 206 600 222 L600 280 L0 280 Z" fill="#6f8a5d"/>
+  <!-- fields -->
+  <path d="M0 250 L600 238 L600 400 L0 400 Z" fill="#7e9c55"/>
+  <path d="M0 290 L600 262 L600 400 L0 400 Z" fill="#6a8a45"/>
+
+  <!-- trees -->
+  <g fill="#3f5f34">
+    <ellipse cx="40" cy="238" rx="22" ry="18"/>
+    <ellipse cx="78" cy="242" rx="16" ry="13"/>
+    <ellipse cx="560" cy="228" rx="24" ry="18"/>
+    <ellipse cx="520" cy="234" rx="15" ry="12"/>
+  </g>
+
+  <!-- highway, sweeping in from the right -->
+  <path d="M600 300 C470 268 330 250 190 246 L210 240 C350 243 490 255 600 270 Z" fill="#8a90a3"/>
+  <path d="M0 400 L600 400 L600 292 C470 262 320 244 190 244 C120 262 50 320 0 360 Z" fill="url(#road)"/>
+  <path d="M600 345 C480 300 330 268 205 252" fill="none" stroke="#f3f4f8" stroke-width="5" stroke-dasharray="26 22" stroke-linecap="round" opacity="0.85"/>
+  <path d="M600 396 C470 340 300 285 196 250" fill="none" stroke="#f3f4f8" stroke-width="3" opacity="0.6"/>
+
+  <!-- truck shadow -->
+  <ellipse cx="335" cy="318" rx="175" ry="16" fill="#1d2233" opacity="0.45"/>
+
+  <!-- container -->
+  <path d="M250 158 L500 140 L505 290 L255 300 Z" fill="url(#box)"/>
+  <path d="M250 158 L226 170 L230 306 L255 300 Z" fill="url(#boxSide)"/>
+  <g stroke="#b9500c" stroke-width="3" opacity="0.6">
+    <line x1="290" y1="157" x2="293" y2="298"/>
+    <line x1="330" y1="154" x2="333" y2="297"/>
+    <line x1="370" y1="151" x2="373" y2="295"/>
+    <line x1="410" y1="148" x2="413" y2="294"/>
+    <line x1="450" y1="145" x2="453" y2="292"/>
+  </g>
+  <path d="M250 158 L500 140" stroke="#ffb37a" stroke-width="3"/>
+
+  <!-- chassis -->
+  <rect x="150" y="296" width="350" height="12" rx="4" fill="#2b2f3d"/>
+
+  <!-- cab -->
+  <path d="M138 196 C140 182 150 176 166 175 L222 172 L226 300 L132 304 C128 270 130 230 138 196 Z" fill="#f4f6fb"/>
+  <path d="M146 204 C148 192 156 188 168 187 L214 185 L215 238 L142 242 Z" fill="#30405f"/>
+  <path d="M150 208 L186 206 L162 238 L146 239 Z" fill="#7f95c4" opacity="0.5"/>
+  <rect x="132" y="262" width="94" height="12" rx="3" fill="#cfd5e3"/>
+  <rect x="140" y="250" width="18" height="9" rx="2" fill="#ffe9b8"/>
+  <rect x="196" y="248" width="18" height="9" rx="2" fill="#ffe9b8"/>
+  <rect x="160" y="277" width="40" height="16" rx="3" fill="#3a4258"/>
+  <path d="M222 172 L240 168 L244 300 L226 300 Z" fill="#dfe4ef"/>
+
+  <!-- wheels -->
+  <g fill="#1b1f2b">
+    <circle cx="178" cy="308" r="20"/>
+    <circle cx="300" cy="306" r="19"/>
+    <circle cx="345" cy="305" r="19"/>
+    <circle cx="430" cy="302" r="18"/>
+    <circle cx="472" cy="300" r="18"/>
+  </g>
+  <g fill="#9aa2b6">
+    <circle cx="178" cy="308" r="8"/>
+    <circle cx="300" cy="306" r="7"/>
+    <circle cx="345" cy="305" r="7"/>
+    <circle cx="430" cy="302" r="7"/>
+    <circle cx="472" cy="300" r="7"/>
+  </g>
+</svg>

@@ -113,7 +113,7 @@ export function GuideSearch({
                       </span>
                       <span
                         className={cx(
-                          "shrink-0 text-[10px] font-semibold tracking-wider uppercase",
+                          "shrink-0 text-xs font-semibold",
                           entry.kind === "faq" ? "text-good-500" : "text-faint",
                         )}
                       >

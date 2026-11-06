@@ -37,7 +37,7 @@ export function RedeemBonusCode({ className }: { className?: string }) {
             spellCheck={false}
             placeholder="WELCOME500"
             aria-label="Credit code"
-            className="font-mono tracking-wider uppercase placeholder:font-sans placeholder:tracking-normal placeholder:normal-case sm:flex-1"
+            className="font-mono placeholder:font-sans placeholder:tracking-normal placeholder:normal-case sm:flex-1"
           />
           <SubmitButton variant="secondary" pendingLabel="Checking...">
             <Gift size={14} />

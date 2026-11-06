@@ -1,4 +1,5 @@
 "use client";
+import { PasswordInput } from "@/components/PasswordInput";
 
 import { useActionState } from "react";
 import Link from "next/link";
@@ -87,7 +88,7 @@ export function ResetPasswordForm({
           </span>
         </p>
         <LinkButton href="/" variant="primary" className="w-full">
-          Go to your dashboard
+          Open your account
         </LinkButton>
       </div>
     );
@@ -119,21 +120,18 @@ export function ResetPasswordForm({
       </p>
 
       <Field label="New password" name="password">
-        <Input
+        <PasswordInput
           name="password"
-          type="password"
           autoComplete="new-password"
           required
-          autoFocus
           minLength={8}
           placeholder="At least 8 characters"
         />
       </Field>
 
       <Field label="Confirm new password" name="confirm">
-        <Input
+        <PasswordInput
           name="confirm"
-          type="password"
           autoComplete="new-password"
           required
           minLength={8}

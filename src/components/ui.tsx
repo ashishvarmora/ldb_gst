@@ -1,7 +1,7 @@
 import { LinkPending } from "@/components/NavPending";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, Inbox, Loader2 } from "lucide-react";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -15,10 +15,13 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  icon,
 }: {
   title: string;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  /** A lucide icon element, shown in a mint tile beside the title. */
+  icon?: ReactNode;
 }) {
   /*
    * min-w-0 and break-words together, because the account page passes
@@ -44,12 +47,24 @@ export function PageHeader({
    * passes an email address as its title when a name was never filled in.
    */
   return (
-    <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
-      <div className="min-w-48 flex-1">
-        <h1 className="text-xl font-semibold tracking-tight break-words text-strong sm:text-2xl">
-          {title}
-        </h1>
-        {subtitle ? <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
+    <div className="app-page-heading mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
+      <div className="flex min-w-48 flex-1 items-start gap-3">
+        {icon ? (
+          <span
+            aria-hidden
+            className="pop-in mt-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-[14px] bg-mint text-brand-600"
+          >
+            {icon}
+          </span>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[1.6rem] leading-tight font-bold break-words text-strong sm:text-3xl">
+            {title}
+          </h1>
+          {subtitle ? (
+            <p className="mt-1 max-w-2xl text-[15px] leading-relaxed text-muted">{subtitle}</p>
+          ) : null}
+        </div>
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -83,13 +98,13 @@ export function Panel({
   return (
     <section id={id} className={cx("panel overflow-hidden", className)}>
       {title ? (
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line/70 px-4 py-3.5 sm:px-5">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-divider px-4 py-3.5 sm:px-5">
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-ink">{title}</h2>
+            <h2 className="text-base font-bold text-strong">{title}</h2>
             {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
           </div>
           {actions ? (
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>
+            <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>
           ) : null}
         </header>
       ) : null}
@@ -102,14 +117,23 @@ export function EmptyState({
   title,
   description,
   action,
+  icon,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
+  /** Overrides the default tray icon. */
+  icon?: ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <p className="text-sm font-medium text-ink">{title}</p>
+      <span
+        aria-hidden
+        className="pop-in mb-1 inline-flex size-14 items-center justify-center rounded-full bg-mint text-brand-600 ring-8 ring-mint/40"
+      >
+        {icon ?? <Inbox size={24} strokeWidth={1.9} />}
+      </span>
+      <p className="text-[15px] font-semibold text-strong">{title}</p>
       {description ? <p className="max-w-md text-sm text-muted">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -168,10 +192,12 @@ export function StatusDot({ tone }: { tone: BadgeTone }) {
 /* -------------------------------------------------------------------------- */
 
 const BUTTON_VARIANTS = {
+  /* Moulded, after Hallmark's Dose controls: a glint along the top edge and a
+     deeper rim below, so the one action on a screen reads as a thing to press. */
   primary:
-    "bg-brand-500 text-on-brand hover:bg-brand-600 focus-visible:ring-brand-500/40 border-transparent",
+    "brand-fill bg-brand-500 text-on-brand hover:bg-brand-600 focus-visible:ring-brand-500/40 border-brand-600",
   secondary:
-    "bg-panel text-ink hover:bg-sunken focus-visible:ring-brand-500/30 border-line",
+    "bg-panel text-ink hover:bg-sunken focus-visible:ring-brand-500/30 border-line shadow-[inset_0_1px_0_rgb(255_255_255/0.7),0_2px_0_var(--color-line)]",
   ghost: "bg-transparent text-muted hover:bg-sunken hover:text-ink border-transparent",
   danger: "bg-bad-500/10 text-bad-500 hover:bg-bad-500/18 border-bad-500/35",
 } as const;
@@ -179,8 +205,8 @@ const BUTTON_VARIANTS = {
 /* Comfortable tap targets: 36px at sm, 40px at md, both above the 32px floor
    that makes a control fiddly on a phone. */
 const BUTTON_SIZES = {
-  sm: "min-h-9 px-3 py-1.5 text-xs gap-1.5",
-  md: "min-h-10 px-4 py-2 text-sm gap-2",
+  sm: "min-h-9 px-3 py-1.5 text-[13px] gap-1.5",
+  md: "min-h-11 px-4 py-2 text-[15px] gap-2",
 } as const;
 
 export type ButtonVariant = keyof typeof BUTTON_VARIANTS;
@@ -191,7 +217,7 @@ export function buttonClass(
   className?: string,
 ): string {
   return cx(
-    "inline-flex items-center justify-center rounded-lg border font-medium transition",
+    "inline-flex items-center justify-center rounded-full border font-bold transition",
     "focus-visible:ring-2 focus-visible:outline-none",
     "disabled:cursor-not-allowed disabled:opacity-50",
     BUTTON_VARIANTS[variant],
@@ -385,7 +411,7 @@ export function StatCard({
   return (
     <div className="panel px-3 py-2.5 sm:px-4 sm:py-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">{label}</p>
+        <p className="text-xs font-semibold text-muted">{label}</p>
         {icon ? <span className="text-faint">{icon}</span> : null}
       </div>
       {/* break-words on the value: "Rs 12,34,56,789" in a two-column grid on a
@@ -501,10 +527,10 @@ export function LinkCard({
     <Link
       href={href}
       className={cx(
-        "relative flex items-center gap-3 rounded-xl border px-4 py-3.5 transition",
+        "pressable relative flex min-h-16 items-center gap-3 rounded-[14px] border px-4 py-3.5 transition",
         tone === "warn"
           ? "border-warn-500/40 bg-warn-500/8 hover:border-warn-500/70"
-          : "border-line bg-panel hover:border-brand-500/50 hover:bg-sunken",
+          : "border-line bg-panel shadow-[var(--shadow-card)] hover:border-brand-500/50 hover:bg-raised",
       )}
     >
       <LinkPending />
@@ -522,7 +548,7 @@ export function LinkCard({
       ) : null}
 
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-ink">{title}</span>
+        <span className="block text-[15px] font-semibold text-strong">{title}</span>
         {description ? (
           <span className="mt-0.5 block text-xs leading-relaxed text-muted">{description}</span>
         ) : null}
@@ -558,7 +584,7 @@ export function Mono({ children, className }: { children: ReactNode; className?:
 export function DescRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-divider py-2 last:border-0">
-      <dt className="shrink-0 text-xs tracking-wide text-muted uppercase">{label}</dt>
+      <dt className="shrink-0 text-xs text-muted">{label}</dt>
       <dd className="min-w-0 text-right text-sm break-words text-ink">{children}</dd>
     </div>
   );

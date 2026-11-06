@@ -7,6 +7,7 @@
  * page and the header, tab bar and sidebar around it stay perfectly still.
  * Pure CSS: no client JavaScript, and prefers-reduced-motion switches it off.
  */
+import { PortalRouteFrame } from "@/components/PortalRouteFrame";
 export default function Template({ children }: { children: React.ReactNode }) {
-  return <div className="page-enter">{children}</div>;
+  return <PortalRouteFrame>{children}</PortalRouteFrame>;
 }

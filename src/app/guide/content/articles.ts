@@ -898,7 +898,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "telegram-alerts",
     title: "Where alerts are delivered, and setting up Telegram",
     summary:
-      "Alerts reach you on Telegram, and only on Telegram. Save your chat id before you switch any tracking on — this is the most expensive step to skip.",
+      "Choose phone notifications or Telegram for your alerts. Connect your preferred channel in Settings and send a test before relying on it.",
     category: "alerts",
     minutes: 3,
     keywords: [
@@ -916,7 +916,7 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Alerts reach you as a Telegram message. They also always appear on the bell inside the app. WhatsApp is shown as coming soon and sends nothing today.",
+        text: "Alerts can arrive as phone notifications or Telegram messages once connected in Settings. They also appear in the app’s notification bell. WhatsApp is coming soon.",
       },
       {
         kind: "note",
@@ -988,7 +988,7 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         q: "Can I get alerts by SMS or WhatsApp?",
-        a: "Not today. WhatsApp is shown in Settings as coming soon and sends nothing. Telegram is the only delivery there is.",
+        a: "SMS and WhatsApp are not available. You can use phone notifications or Telegram, configured separately in Settings.",
       },
       {
         q: "Will my old alerts be sent once I connect Telegram?",
@@ -1677,7 +1677,7 @@ export const ARTICLES: GuideArticle[] = [
       { kind: "h", text: "Where alerts go, and where the app does not notify you" },
       {
         kind: "p",
-        text: "Alerts arrive as Telegram messages, so it is Telegram that has to be allowed to notify you — not this app. The bell at the top of the screen is this app's own list of the same alerts; it is there to look at, not to interrupt you. Set Telegram up in [Settings](/portal/settings) and read [Telegram alerts](/guide/alerts/telegram-alerts) if the phone is silent.",
+        text: "Choose phone notifications or Telegram in [Settings](/portal/settings#alerts). For phone notifications, allow notifications for Rahdari on your device. For Telegram alerts, allow Telegram notifications and verify your chat connection. Use Send test for the channel you want to check.",
       },
       { kind: "h", text: "Putting Rahdari on your home screen" },
       {

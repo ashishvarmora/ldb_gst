@@ -102,6 +102,7 @@ const ENFORCED_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   /*
    * WHERE THIS PROJECT ACTUALLY STARTS.
    *

@@ -35,7 +35,7 @@ export function MessageBell({
   return (
     <Link
       href={href}
-      aria-label={unread > 0 ? `Messages, ${unread} unread` : "Messages"}
+      aria-label={unread > 0 ? `Support chat, ${unread} unread` : "Support chat"}
       className={cx(
         /*
          * size-10 to match the alert bell it sits beside, rather than the
@@ -50,7 +50,7 @@ export function MessageBell({
         className,
       )}
     >
-      <MessageSquare size={15} />
+      <MessageSquare size={20} /><span className="support-chat-label">Help</span>
       {unread > 0 ? (
         <span className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-bad-500 px-1 text-[10px] font-semibold text-on-brand tabular-nums">
           {unread > 99 ? "99+" : unread}

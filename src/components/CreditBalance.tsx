@@ -98,6 +98,7 @@ export function CreditPill({
     <Link
       href={nudge ? TOPUP_HREF : "/portal/plan"}
       title={nudge ? "Credits left — tap to top up" : "Credits left"}
+      data-standing={standing}
       className={cx(
         // Taller only when it carries a link, so the tap target clears the
         // phone minimum without the header row growing for everybody else.
@@ -108,15 +109,15 @@ export function CreditPill({
         // 26px plan pill, growing the whole row. A mouse does not need the
         // bigger target, so above lg it stays the height it is when there is
         // nothing to say and the row never moves.
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap transition hover:brightness-105",
-        nudge ? "min-h-10 lg:min-h-8" : "min-h-8",
+        "credit-pill inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] whitespace-nowrap transition hover:brightness-105",
+        nudge ? "min-h-10 lg:min-h-8" : "min-h-10 lg:min-h-8",
         tone,
       )}
     >
       {standing === "empty" ? (
         <AlertTriangle size={12} aria-hidden className="shrink-0" />
       ) : (
-        <Coins size={12} aria-hidden className="shrink-0" />
+        <Coins size={17} aria-hidden className="shrink-0 text-[#f5b400]" strokeWidth={2.2} />
       )}
 
       {/*
@@ -133,8 +134,8 @@ export function CreditPill({
         <span className="font-medium">Too low</span>
       ) : (
         <>
-          <span className="font-medium tabular-nums">{formatCredits(credits)}</span>
-          <span className="opacity-70">left</span>
+          <span className="font-semibold tabular-nums">{formatCredits(credits)}</span>
+          <span className="font-medium">Credits</span>
         </>
       )}
 

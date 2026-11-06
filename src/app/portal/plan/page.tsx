@@ -1,3 +1,4 @@
+import { Wallet as PageIcon } from "lucide-react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -221,6 +222,7 @@ export default async function PlanPage() {
             branch keeps its line: it is the one thing that screen has to say
             and there is no grid to say it. */}
         <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
           title={lapsedPaidPlan ? "Your plan has ended" : trialOffered ? "Start with a free trial" : "Choose a plan"}
           subtitle={lapsedPaidPlan ? "Get in touch and we will put it back on." : undefined}
         />
@@ -371,7 +373,11 @@ export default async function PlanPage() {
       {/* No subtitle. "What you have left, and how to add more" is the strip
           of three figures and the Top up credits panel, in that order,
           immediately below it. */}
-      <PageHeader title="Plan and credits" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
+        title="Plan and credits"
+        subtitle="Your balance, your plan, and top-ups."
+      />
 
       {/*
         The trial's own banner, and it says the two things a trial is short of:
@@ -409,7 +415,7 @@ export default async function PlanPage() {
       <Panel className="mb-4" bodyClassName="p-0">
         <div className="grid grid-cols-1 divide-y divide-divider sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <div className="px-4 py-3.5">
-            <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               <Wallet size={12} />
               Credits left
             </p>
@@ -432,7 +438,7 @@ export default async function PlanPage() {
           </div>
 
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+            <p className="text-xs font-semibold text-muted">
               Your plan
             </p>
             <p className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -458,7 +464,7 @@ export default async function PlanPage() {
           </div>
 
           <div className="px-4 py-3.5">
-            <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+            <p className="text-xs font-semibold text-muted">
               Trucks watched
             </p>
             <div className="mt-2.5">
@@ -708,7 +714,7 @@ function TrialCard({
       </p>
 
       {plan.description ? (
-        <p className="mt-1.5 text-xs leading-relaxed text-muted">{plan.description}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted">{plan.is_trial ? "A one-time trial for your account. No payment required." : plan.description}</p>
       ) : null}
 
       <ul className="mt-3 space-y-1.5 border-t border-brand-500/20 pt-3">

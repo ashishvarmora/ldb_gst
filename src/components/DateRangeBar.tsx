@@ -154,7 +154,7 @@ export function DateRangeBar({
             <button
               type="button"
               onClick={applyCustom}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-transparent bg-brand-500 px-3 text-sm font-medium text-on-brand transition hover:bg-brand-600"
+              className="brand-fill inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-transparent bg-brand-500 px-3 text-sm font-medium text-on-brand transition hover:bg-brand-600"
             >
               <Check size={14} />
               Apply

@@ -21,14 +21,14 @@ export default async function LoginPage() {
   const { brandName, signupEnabled } = await publicSettings();
 
   return (
-    <PublicShell
+    <PublicShell auth
       action={signupEnabled ? { href: "/signup", label: "Create account" } : null}
       mainClassName="flex flex-1 items-center px-4 py-10"
     >
       <AuthCard
         icon={<Truck size={22} />}
         title={`Sign in to ${brandName}`}
-        intro="Your trucks, your alerts and your credits are where you left them."
+        intro="Welcome back. Pick up where you left off."
         footer={
           signupEnabled ? (
             <>

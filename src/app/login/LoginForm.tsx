@@ -1,4 +1,5 @@
 "use client";
+import { PasswordInput } from "@/components/PasswordInput";
 
 import Link from "next/link";
 
@@ -25,18 +26,18 @@ export function LoginForm() {
         <Input
           name="email"
           type="email"
+          autoCapitalize="none"
+          spellCheck={false}
           autoComplete="email"
           required
-          autoFocus
           placeholder="you@company.com"
         />
       </Field>
 
       <div>
         <Field label="Password" name="password">
-          <Input
+          <PasswordInput
             name="password"
-            type="password"
             autoComplete="current-password"
             required
             placeholder="Your password"

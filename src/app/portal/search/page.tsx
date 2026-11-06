@@ -1,11 +1,10 @@
+import { SearchWorkspace } from "@/components/SearchWorkspace";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
-import { HelpNote } from "@/components/Disclosure";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { SearchBox } from "@/components/SearchBox";
 import { publicSettings } from "@/components/SiteFooter";
-import { Badge, EmptyState, LinkButton, Mono, PageHeader, Panel, cx } from "@/components/ui";
 import {
   TOPUP_HREF,
   creditStanding,
@@ -13,7 +12,7 @@ import {
   searchesLeft,
   searchesLeftLabel,
 } from "@/lib/credits";
-import { fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog } from "@/lib/types";
@@ -95,115 +94,11 @@ export default async function SearchPage({
           }
         : null;
 
-  return (
-    <>
-      <PageHeader
-        title="Search a truck"
-        subtitle="Any registration number, tracked or not."
-      />
-
-      {notice ? (
-        <div
-          className={cx(
-            "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3",
-            notice.blocking ? "border-bad-500/40 bg-bad-500/10" : "border-warn-500/40 bg-warn-500/10",
-          )}
-        >
-          <p
-            className={cx(
-              "flex items-start gap-2.5 text-sm",
-              notice.blocking ? "text-bad-500" : "text-warn-500",
-            )}
-          >
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {notice.text}
-          </p>
-          <LinkButton href={notice.href} size="sm" variant="secondary">
-            {notice.cta}
-          </LinkButton>
-        </div>
-      ) : null}
-
-      <Panel className="mb-3">
-        {/* The hint under the input is the one number that decides whether the
-            next tap works. The two rules that used to be crammed in beside it
-            are below, where they are read once instead of on every visit.
-
-            Left as a bare figure on purpose. When the balance is low the notice
-            immediately above it already says so and offers the way out, and
-            repeating that a centimetre lower is how a warning stops being
-            read. */}
-        <SearchBox autoFocus hint={`${formatCredits(overview.credits)} credits left.`} />
-      </Panel>
-
-      <HelpNote title="What a search does, and what it costs" className="mb-4">
-        <p>Spaces and dashes are ignored, so type the number however you have it.</p>
-        <p className="mt-2">
-          Searching does not start tracking — the truck is only watched once you add it in{" "}
-          <Link href="/portal/trucks" className="font-medium text-brand-500 hover:underline">
-            My trucks
-          </Link>
-          . Every result is kept, so reopening one from the list below costs nothing.
-        </p>
-      </HelpNote>
-
-      <Panel
-        title="Your searches"
-        description={
-          total === 0
-            ? "Every lookup you make is kept here."
-            : `${fmtNumber(total)} lookup${total === 1 ? "" : "s"} kept, newest first. Tap one to reopen its result.`
-        }
-        bodyClassName="p-0"
-      >
-        {history.length === 0 ? (
-          <EmptyState
-            title={page > 1 ? "Nothing on this page" : "No searches yet"}
-            description={
-              page > 1
-                ? "There are no searches this far back."
-                : "Type a registration number above to make your first lookup."
-            }
-            action={page > 1 ? <LinkButton href="/portal/search">Back to the first page</LinkButton> : null}
-          />
-        ) : (
-          <ul className="divide-y divide-divider">
-            {history.map((log) => (
-              <li key={log.id}>
-                <Link
-                  href={`/portal/search/${log.truck_number}`}
-                  className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition hover:bg-raised/60"
-                >
-                  <span className="min-w-0">
-                    <Mono className="block font-semibold text-ink">{log.truck_number}</Mono>
-                    <span className="block text-xs text-faint">{fmtDateTime(log.created_at)}</span>
-                  </span>
-
-                  <span className="shrink-0">
-                    {log.ok ? (
-                      <span className="text-xs text-muted">
-                        {log.events_found} crossing{log.events_found === 1 ? "" : "s"}
-                      </span>
-                    ) : (
-                      /* The stored error is a toll-network or database message.
-                         All anyone needs here is that it did not land. */
-                      <Badge tone="bad">did not go through</Badge>
-                    )}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
-      <Pager
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        noun="searches"
-        href={{ path: "/portal/search" }}
-      />
-    </>
-  );
+  return <SearchWorkspace
+    form={<SearchBox hint={`${formatCredits(searchCost)} credits per search. Spaces and dashes are ignored.`} />}
+    history={history.map(log => ({ id: log.id, truck: log.truck_number, date: fmtDateTime(log.created_at), crossings: log.events_found, ok: log.ok }))}
+    total={total}
+    notice={notice ? <div className={`workspace-notice ${notice.blocking ? "is-blocking" : ""}`}><AlertTriangle size={18}/><p>{notice.text}</p><Link href={notice.href}>{notice.cta}</Link></div> : null}
+    pager={<Pager page={page} total={total} pageSize={PAGE_SIZE} noun="searches" href={{path:"/portal/search"}}/>}
+  />;
 }

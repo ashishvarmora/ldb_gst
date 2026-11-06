@@ -1,17 +1,6 @@
 @import "tailwindcss";
 
-/* ===========================================================================
-   Two themes, one component set.
-
-   Components never name a raw colour. They use semantic utilities - bg-panel,
-   text-muted, border-line - and each section of the app decides what those
-   mean by setting the variables below.
-
-     .theme-dark   admin console  (dense control room)
-     .theme-light  officer portal (bright, phone-first)
-
-   To retheme a section, change the variables. Nothing else moves.
-   =========================================================================== */
+/* Shared semantic tokens keep every customer screen in the reference palette. */
 
 @theme inline {
   /* surfaces, back to front */
@@ -36,6 +25,19 @@
   --color-brand-500: var(--c-brand-500);
   --color-brand-600: var(--c-brand-600);
   --color-on-brand: var(--c-on-brand);
+  --color-mint: var(--c-mint, color-mix(in srgb, var(--c-brand-500) 14%, transparent));
+  --color-navy: var(--c-navy, #0f1b3d);
+  --color-navy-2: var(--c-navy-2, #1b2b5c);
+  --color-saffron: var(--c-saffron, #e8650f);
+  --color-saffron-glow: var(--c-saffron-glow, #ff8a3d);
+  --color-tile-orange: var(--c-tile-orange, #ffece0);
+  --color-tile-orange-ink: var(--c-tile-orange-ink, #a63c08);
+  --color-tile-blue: var(--c-tile-blue, #e3ebff);
+  --color-tile-blue-ink: var(--c-tile-blue-ink, #2747b8);
+  --color-tile-violet: var(--c-tile-violet, #ece7ff);
+  --color-tile-violet-ink: var(--c-tile-violet-ink, #5b3cc4);
+  --color-tile-green: var(--c-tile-green, #e0f4ea);
+  --color-tile-green-ink: var(--c-tile-green-ink, #0b7a44);
   --color-good-500: var(--c-good);
   --color-warn-500: var(--c-warn);
   --color-bad-500: var(--c-bad);
@@ -52,8 +54,12 @@
   --color-series-4: var(--c-series-4);
   --color-series-rest: var(--c-series-rest);
 
-  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  /* The faces are loaded by next/font in app/layout.tsx, which sets the three
+     --font-*-face variables on <html>. Each falls back to the system stack, so
+     a font that fails to load costs the look, never the page. */
+  --font-sans: var(--font-body-face, ui-sans-serif), ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: var(--font-display-face, ui-sans-serif), ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-mono-face, ui-monospace), ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
 }
 
 /* ---------------------------------------------------------------------------
@@ -103,14 +109,74 @@
   --shadow-pop: 0 24px 48px -12px rgb(0 0 0 / 0.6);
 }
 
-/* ---------------------------------------------------------------------------
-   Light - the officer portal, and the default for the document, so nothing
-   dark ever shows through at the edges on overscroll. Cool neutral greys keep
-   the status colours (moving / idle / no activity) the loudest thing on screen.
-   --------------------------------------------------------------------------- */
+/* Professional white theme with navy headings, blue controls and orange CTAs. */
 :root,
-.theme-light {
-  --c-page: #f4f6fa;
+.theme-light,
+.on-navy .animate-in {
+  --primary: #1558B8;
+  --accent: #FF8515;
+  --heading: #101B3C;
+  --background: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-blue: #F0F5FC;
+  --text-secondary: #53617C;
+  --gradient-primary: linear-gradient(110deg, #FF9B1A, #FF7412, #FF9517);
+  --gradient-banner: linear-gradient(110deg, #102B68, #276AC6, #13419A);
+
+  --c-page: var(--background);
+  --c-panel: var(--surface);
+  --c-raised: #f8fafc;
+  --c-sunken: var(--surface-blue);
+  --c-line: #e3e8ef;
+  --c-divider: #edf0f4;
+  --c-line-strong: #c8d2df;
+  --c-strong: var(--heading);
+  --c-ink: #263655;
+  --c-muted: var(--text-secondary);
+  --c-faint: #5e6f8a;
+  --c-brand-400: var(--primary);
+  --c-brand-500: var(--primary);
+  --c-brand-600: #10499b;
+  --c-brand-text: var(--primary);
+  --c-brand-glow: rgb(21 88 184 / 0.25);
+  --c-on-brand: #ffffff;
+  --c-good: #087f5b;
+  --c-warn: #8a5a00;
+  --c-bad: #c22217;
+  --c-mint: var(--surface-blue);
+  --c-navy: #102B68;
+  --c-navy-2: #276AC6;
+  --c-saffron: var(--accent);
+  --c-saffron-glow: #FF9517;
+  --c-hero: #102B68;
+  --c-tile-orange: #fff0e5;
+  --c-tile-orange-ink: #d95700;
+  --c-tile-blue: #e1eeff;
+  --c-tile-blue-ink: #075de3;
+  --c-tile-violet: #eee7ff;
+  --c-tile-violet-ink: #8241e6;
+  --c-tile-green: #e0f6ee;
+  --c-tile-green-ink: #059d71;
+  --c-series-1: #1558b8;
+  --c-series-2: #c2410c;
+  --c-series-3: #0d9488;
+  --c-series-4: #a21caf;
+  --c-series-rest: #64748b;
+  --app-bg-image: none;
+  --shadow-card: 0 2px 8px rgb(16 27 60 / 0.035);
+  --shadow-raised: 0 6px 20px -10px rgb(16 27 60 / 0.12);
+  --shadow-pop: 0 22px 60px -16px rgb(16 43 104 / 0.28);
+}
+
+/* ---------------------------------------------------------------------------
+   Console - the admin section, exactly the cool blue it had before the
+   customer app was restyled. Also matched on the document while an admin page
+   is open (:has), so the sheets AdminNav portals into <body> keep these
+   colours instead of picking up the customer palette from :root.
+   --------------------------------------------------------------------------- */
+.theme-console,
+:root:has(.theme-console) {
+  --c-page: #ffffff;
   --c-panel: #ffffff;
   --c-raised: #f7f9fc;
   --c-sunken: #eef1f7;
@@ -148,6 +214,10 @@
   --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
   --shadow-raised: 0 4px 10px -2px rgb(16 24 40 / 0.08), 0 2px 4px -2px rgb(16 24 40 / 0.05);
   --shadow-pop: 0 20px 40px -8px rgb(16 24 40 / 0.18), 0 4px 12px -4px rgb(16 24 40 / 0.1);
+}
+/* The console keeps the system face it was designed in. */
+.theme-console {
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -214,6 +284,18 @@ body {
   }
 }
 
+/* The customer app's heads are Plus Jakarta Sans, set tight. Layered, so a
+   font-* utility at a call site still wins. */
+@layer base {
+  .theme-light :is(h1, h2, h3) {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  .theme-light h1 {
+    letter-spacing: -0.025em;
+  }
+}
+
 /* Visible focus for keyboard users, invisible for mouse users. */
 :focus-visible {
   outline: 2px solid var(--c-brand-500);
@@ -225,7 +307,7 @@ body {
    --------------------------------------------------------------------------- */
 @layer components {
   .field {
-    @apply w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink
+    @apply w-full rounded-[10px] border border-line-strong bg-panel px-3.5 py-2.5 text-sm text-ink
       placeholder:text-faint outline-none transition
       focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20
       disabled:cursor-not-allowed disabled:opacity-60;
@@ -235,11 +317,13 @@ body {
   @media (max-width: 640px) {
     .field {
       font-size: 16px;
+      min-height: 46px;
     }
   }
 
+  /* Sentence case, untracked: a label is read, not shouted. */
   .field-label {
-    @apply mb-1.5 block text-xs font-medium tracking-wide text-muted uppercase;
+    @apply mb-1.5 block text-[13px] font-medium text-muted;
   }
 
   .field-hint {
@@ -247,12 +331,12 @@ body {
   }
 
   .panel {
-    @apply rounded-xl border border-line bg-panel;
+    @apply rounded-[14px] border border-line bg-panel;
     box-shadow: var(--shadow-card);
   }
 
   .th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold tracking-wider text-muted uppercase;
+    @apply px-4 py-2.5 text-left text-xs font-semibold whitespace-nowrap text-muted;
   }
 
   .td {
@@ -483,7 +567,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   backdrop-filter: none !important;
 }
 .native-app header.app-bar {
-  background-color: var(--color-page);
+  background-color: var(--color-panel);
 }
 .native-app nav.app-bar {
   background-color: var(--color-panel);
@@ -573,6 +657,131 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .stagger > *:nth-child(n + 8) { animation-delay: 210ms; }
 
 
+/* ---------------------------------------------------------------------------
+   Brand links and selected controls use the reference primary blue.
+   --------------------------------------------------------------------------- */
+.theme-light .text-brand-400,
+.theme-light .text-brand-500 {
+  color: var(--c-brand-text, #c2410c);
+}
+
+/* ---------------------------------------------------------------------------
+   Navy chrome. The portal's top bar is navy; inside it the same components
+   (credit pill, message and alert buttons) read these tokens, so they turn
+   into glass-on-navy without a line of their own changing. Their dropdowns
+   (.animate-in) get the light tokens back from the :root block above.
+   --------------------------------------------------------------------------- */
+.on-navy {
+  --c-panel: rgb(255 255 255 / 0.08);
+  --c-raised: rgb(255 255 255 / 0.1);
+  --c-sunken: rgb(255 255 255 / 0.14);
+  --c-line: rgb(255 255 255 / 0.2);
+  --c-divider: rgb(255 255 255 / 0.12);
+  --c-line-strong: rgb(255 255 255 / 0.3);
+  --c-strong: #ffffff;
+  --c-ink: #ffffff;
+  --c-muted: rgb(255 255 255 / 0.82);
+  --c-faint: rgb(255 255 255 / 0.7);
+  --c-brand-text: #ffb37a;
+  color: #ffffff;
+}
+.on-navy .animate-in {
+  color: var(--c-ink);
+}
+
+/* ---------------------------------------------------------------------------
+   The Home balance card
+   --------------------------------------------------------------------------- */
+.hero-card {
+  /* Night highway: solid navy, a saffron sun rising in the corner and the
+     curve of a road sweeping under it. Both are flat shapes behind the
+     content, which sits on `relative` children above them. */
+  background: var(--c-hero, #0f1b3d);
+  box-shadow: 0 22px 40px -22px rgb(15 27 61 / 0.7);
+  animation: page-enter 0.32s var(--ease-out) backwards;
+  isolation: isolate;
+}
+.hero-card::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -70px;
+  right: -60px;
+  width: 190px;
+  height: 190px;
+  border-radius: 9999px;
+  background: var(--c-saffron, #e8650f);
+  opacity: 0.22;
+}
+.hero-card::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -120px;
+  bottom: -150px;
+  width: 300px;
+  height: 260px;
+  border-radius: 9999px;
+  border: 14px solid rgb(255 255 255 / 0.05);
+  border-top-color: rgb(255 138 61 / 0.35);
+}
+/* The (i) on the green: white, so it can be seen. Its panel keeps its own
+   paper and ink, set on the panel itself. */
+.hero-tip > div > button {
+  color: rgb(255 255 255 / 0.85);
+}
+.hero-tip > div + div {
+  background: var(--c-panel);
+  border-color: transparent;
+}
+.hero-card :focus-visible {
+  outline-color: #ffffff;
+}
+
+/* ---------------------------------------------------------------------------
+   Shared primary controls. Customer CTAs receive the reference gradient below.
+   The admin console resets it to its own blue, so its buttons are untouched.
+   --------------------------------------------------------------------------- */
+.brand-fill {
+  background-color: var(--c-brand-500);
+  box-shadow: 0 8px 18px -10px rgb(232 101 15 / 0.75);
+}
+@media (hover: hover) {
+  .brand-fill:not(:disabled):hover {
+    background-color: var(--c-brand-600);
+  }
+}
+.theme-console .brand-fill,
+:root:has(.theme-console) .brand-fill {
+  background-color: var(--c-brand-500);
+  box-shadow: none;
+}
+
+/* A progress bar filling once, from the left. Transform only. */
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+.grow-x {
+  animation: grow-x 0.6s var(--ease-out) 0.15s backwards;
+}
+
+/* Icons that answer a tap: a short pop. */
+@keyframes pop-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.pop-in {
+  animation: pop-in 0.28s var(--ease-out) backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -580,4 +789,101 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Reference dashboard and shared customer chrome. */
+.portal-shell { background: #fff; }
+.portal-header {
+  background: rgb(255 255 255 / 0.97);
+  border-bottom: 1px solid var(--c-line);
+  backdrop-filter: blur(18px);
+}
+.portal-header > div { min-height: 76px; }
+.portal-content { width: 100%; max-width: 1240px; margin-inline: auto; }
+.portal-sidebar { background: #fff; }
+.portal-sidebar nav a { border-radius: 14px; min-height: 44px; }
+.portal-sidebar nav a[aria-current="page"] { background: #edf4ff; color: var(--primary); box-shadow: none; }
+.credit-pill { box-shadow: 0 4px 16px -10px #d96a09; }
+.credit-pill[data-standing="ok"] { background: #fff1e3; border-color: #ffeddb; color: var(--heading); }
+.portal-header button[aria-expanded] { border-radius: 16px; box-shadow: var(--shadow-card); }
+.home-hero {
+  position: relative; isolation: isolate; overflow: hidden;
+  min-height: 260px; margin: -20px -16px 0;
+  background: #f7f9fc;
+  border-radius: 0 0 20px 20px;
+  padding-bottom: 62px;
+}
+.home-hero-copy { position: relative; z-index: 2; width: 56%; padding: 30px 24px 0; }
+.home-hero h1 { color: var(--heading); font-size: clamp(1.6rem, 3.2vw, 2.8rem); font-weight: 800; line-height: 1.15; letter-spacing: -0.045em; }
+.home-hero-highlight { color: #ff7912; position: relative; display: inline-block; }
+
+.home-hero-body { color: var(--text-secondary); font-size: 14px; line-height: 1.5; max-width: 30ch; margin-top: 20px; }
+.home-hero-greeting { color: var(--primary); font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+.home-hero-art { position: absolute; inset: 0 0 0 auto; width: 61%; overflow: hidden; clip-path: ellipse(85% 105% at 105% 82%); background: #bcd8ff; }
+.home-hero-art img { height: 100%; width: 100%; object-fit: cover; object-position: 58% center; }
+.home-hero-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, #eaf2ff 0%, transparent 25%); }
+
+.home-card { position: relative; overflow: hidden; border-radius: 18px; background: #fff; border: 1px solid var(--c-line); box-shadow: var(--shadow-raised); }
+
+.steps-card > * { position: relative; }
+.steps-card li:nth-child(2) > :is(a,div) > span:first-child > span:first-child { background: var(--c-tile-blue); color: #075de3; }
+.steps-card li:nth-child(3) > :is(a,div) > span:first-child > span:first-child { background: var(--c-tile-violet); color: #8241e6; }
+.steps-dash { border-left: 2px dotted #96a9d0; min-height: 14px; }
+.theme-light .pill-cta, .theme-light .brand-fill, .portal-bottom-nav .add-truck-icon { background: #ef7415; border-color: transparent; box-shadow: none; }
+@media (hover: hover) {
+  .theme-light :is(.pill-cta, .brand-fill):not(:disabled):hover { filter: brightness(0.96); }
+  .partner-tiles a:hover { transform: translateY(-3px); box-shadow: var(--shadow-raised); }
+}
+.invite-card { background: #1558b8; min-height: 94px; border: 1px solid #1558b8; box-shadow: none; border-radius: 16px; }
+
+.invite-gift { color: #ffb134; filter: drop-shadow(0 5px 5px #061f5b55); }
+.partner-heading::after { content: ""; display: block; width: 38px; height: 3px; border-radius: 99px; background: var(--accent); margin-top: 10px; }
+.partner-tiles a { transition: transform 180ms, box-shadow 180ms; border-radius: 16px; border-color: var(--c-line); }
+.partner-tiles a > span { border-radius: 12px; min-height: 90px; }
+.partner-tiles a:nth-child(1) > span { background: #fff8f2; }
+.partner-tiles a:nth-child(2) > span { background: #f0f6ff; }
+.partner-tiles a:nth-child(3) > span { background: #f7f4fe; }
+.partner-tiles a:nth-child(4) > span { background: #f1faf6; }
+.help-strip { background: #fff; border-radius: 16px; }
+.portal-bottom-nav { box-shadow: 0 -4px 16px rgb(16 27 60 / 0.04); background: #fff; border-top: 1px solid var(--c-line); border-radius: 20px 20px 0 0; }
+.portal-bottom-nav .bg-navy { background: #1558b8; border-radius: 12px; min-width: 64px; }
+.theme-light .panel { border-radius: 16px; }
+main:has(.home-hero) { background-image: none; }
+@media (min-width: 640px) {
+  .home-hero { margin-inline: -24px; min-height: 300px; }
+  .home-hero-copy { padding: 34px 32px 0; width: 52%; }
+  .home-hero-art { clip-path: ellipse(83% 105% at 89% 82%); }
+  .home-hero-body { font-size: 16px; }
+  .home-card { padding: 26px; }
+  .partner-tiles a > span { min-height: 110px; }
+}
+@media (min-width: 1024px) {
+  .portal-shell { padding: 0; gap: 0; }
+  .portal-sidebar { border-right: 1px solid var(--c-line); border-radius: 0; box-shadow: none; }
+  .portal-sidebar > div { height: 100dvh; top: 0; }
+  .portal-workspace { overflow: clip; background: #fff; }
+  .portal-header { border-radius: 0; }
+  .home-hero { margin-inline: 0; margin-top: 0; min-height: 340px; border-radius: 20px; }
+  .home-hero-copy { padding: 42px 38px 0; }
+  .home-hero-art { width: 64%; }
+  .home-card { margin-inline: 24px; }
+  .invite-card { padding: 22px 28px; }
+  .partner-tiles { gap: 16px; }
+}
+@media (max-width: 359px) {
+  .home-hero-copy { padding-left: 16px; width: 59%; }
+  .home-hero h1 { font-size: 1.4rem; }
+  .home-hero-body { font-size: 13px; }
+  .help-strip { gap: 8px; padding-inline: 12px; flex-wrap: wrap; }
+  .help-strip > span:last-of-type { margin-left: 40px; }
+}
+
+.public-home-hero .home-hero { margin: 0; border-radius: 28px; }
+
+@media (max-width: 359px) {
+  .portal-header > div { gap: 6px; padding-inline: 12px; }
+  .portal-header > div > a { font-size: 18px; gap: 6px; }
+  .portal-header > div > a svg { width: 30px; }
+  .portal-header > div > div { gap: 6px; }
+  .portal-header .credit-pill { padding-inline: 8px; font-size: 11px; gap: 4px; }
 }

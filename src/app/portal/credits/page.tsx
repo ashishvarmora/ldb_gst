@@ -1,3 +1,4 @@
+import { ReceiptText as PageIcon } from "lucide-react";
 import { Coins } from "lucide-react";
 
 import { CreditLedger, type LedgerQuery } from "@/components/CreditLedger";
@@ -75,7 +76,11 @@ export default async function CreditHistoryPage({
       {/* No subtitle. It said "every credit this account has been given, and
           what each day has cost" - which is the two tab labels two inches
           below, in longer words. */}
-      <PageHeader title="Credit history" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
+        title="Credit history"
+        subtitle="Credits added and credits used, day by day."
+      />
 
       {/*
         space-y-2, not 3. Four bands stacked - the sibling links, the balance,
@@ -143,7 +148,7 @@ export default async function CreditHistoryPage({
               </>
             }
           >
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
               <Coins size={12} className="shrink-0" />
               Balance now
             </span>

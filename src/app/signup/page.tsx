@@ -59,16 +59,16 @@ export default async function SignupPage({
       : `You were invited by someone already using ${brandName}.`;
 
   return (
-    <PublicShell
+    <PublicShell auth
       action={{ href: "/login", label: "Sign in" }}
       mainClassName="flex flex-1 items-center px-4 py-10"
     >
       <AuthCard
         icon={<UserPlus size={22} />}
-        title={signupEnabled ? `Create your ${brandName} account` : "Registration is closed"}
+        title={signupEnabled ? "Create your account" : "Registration is closed"}
         intro={
           signupEnabled
-            ? "It takes a minute. You choose a plan once you are in, and nothing is charged before that."
+            ? "Start with your details. Choose a plan after signing up."
             : "New accounts are not being opened at the moment."
         }
         footer={

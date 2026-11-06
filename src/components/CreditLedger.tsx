@@ -758,7 +758,7 @@ export async function CreditLedger({
       <div className="border-b border-divider px-4 py-2">
         {locked ? null : (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="mr-0.5 shrink-0 text-[11px] font-semibold tracking-wider text-faint uppercase">
+            <span className="mr-0.5 shrink-0 text-xs font-semibold text-faint">
               Group by
             </span>
             {DIMENSIONS.filter((dim) => platformWide || !dim.adminOnly).map((dim) => (
@@ -1277,7 +1277,7 @@ function Totals({
             {/* 11px, the same as the column headings directly below: the two
                 bands are read as one header now that neither is a card, and
                 two uppercase labels a pixel apart in size read as a mistake. */}
-            <dt className="text-[11px] font-semibold tracking-wider text-faint uppercase">
+            <dt className="text-xs font-semibold text-faint">
               {label}
             </dt>
             <dd className={cx("text-sm font-semibold tabular-nums", tone)}>
@@ -1343,7 +1343,7 @@ function SortHead({
      exactly one 40px tap target tall and any padding would be air stacked on
      top of a thumb-sized target. */
   return (
-    <div className="flex items-center gap-3 border-b border-divider px-4 text-[11px] font-semibold tracking-wider uppercase">
+    <div className="flex items-center gap-3 border-b border-divider px-4 text-xs font-semibold">
       <span className="min-w-0 flex-1">
         <SortHeader
           label="When"
@@ -2159,7 +2159,7 @@ export async function CreditSummary({
 
         return (
           <div key={key} className="rounded-xl border border-line bg-panel px-3 py-2.5">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted uppercase sm:text-[11px]">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-muted sm:text-xs">
               <Icon size={11} className="shrink-0" />
               <span className="truncate">{label}</span>
             </span>

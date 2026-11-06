@@ -75,7 +75,7 @@ export function AddTruckForm({
             autoCapitalize="characters"
             spellCheck={false}
             placeholder="GJ02AT8546"
-            className="mt-1.5 font-mono text-base tracking-wider uppercase placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
+            className="mt-1.5 font-mono text-base placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
           />
         </div>
 

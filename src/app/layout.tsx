@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { DM_Mono, Instrument_Sans, Plus_Jakarta_Sans } from "next/font/google";
 
 import { ServiceWorkerRegistrar } from "@/components/Pwa";
 import { publicSettings } from "@/components/SiteFooter";
@@ -6,6 +7,38 @@ import { VersionWatcher } from "@/components/VersionWatcher";
 import { BUILD_ID } from "@/lib/build-id";
 import { env } from "@/lib/env";
 import "./globals.css";
+import "./home-design.css";
+import "./portal-home.css";
+import "./mobile-app.css";
+import "./app-refinements.css";
+import "./auth-public.css";
+
+/*
+ * The customer app's three faces: Plus Jakarta Sans
+ * for headings, Instrument Sans for everything read, DM Mono for registration
+ * numbers, times and references. Self-hosted by next/font at build time, so
+ * the app never waits on Google at runtime; `swap` shows the system face until
+ * each arrives. globals.css reads the variables and falls back to the system
+ * stack if one is missing.
+ */
+const displayFace = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-display-face",
+  display: "swap",
+});
+const bodyFace = Instrument_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-body-face",
+  display: "swap",
+});
+const monoFace = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono-face",
+  display: "swap",
+});
 
 /** What the product is, in one line, wherever a link to it is unfurled. */
 const DESCRIPTION =
@@ -54,7 +87,7 @@ function shortAppName(brandName: string): string {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#f4f6fa",
+  themeColor: "#FFFFFF",
   width: "device-width",
   initialScale: 1,
   /*
@@ -75,7 +108,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
      * suppressHydrationWarning because the script below adds a class to this
      * element before React hydrates it, on purpose.
      */
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${displayFace.variable} ${bodyFace.variable} ${monoFace.variable}`}
+    >
       <head>
         {/*
          * Marks the Android app (RahdariApp/ in its user agent - see

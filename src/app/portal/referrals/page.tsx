@@ -1,3 +1,4 @@
+import { Gift as PageIcon } from "lucide-react";
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 import { CheckCircle2, ChevronRight, Clock, Coins, Gift, Users } from "lucide-react";
@@ -127,7 +128,11 @@ export default async function ReferralsPage({
       {/* No subtitle. It said "share your link with someone who runs trucks",
           which is the page title as an instruction - and the offer card below
           makes the case for sharing far better than a line of encouragement. */}
-      <PageHeader title="Invite and earn credits" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
+        title="Invite and earn credits"
+        subtitle="Share your link. When they pay, you both get credits."
+      />
 
       {/* --------------------------- the offer and the link ---------------- */}
       {/*
@@ -526,7 +531,7 @@ function HowItWorks({ paysInvitee }: { paysInvitee: boolean }) {
  */
 function ColHead({ children }: { children: ReactNode }) {
   return (
-    <span className="text-right text-[10px] font-semibold tracking-wider text-faint uppercase">
+    <span className="text-right text-xs font-semibold text-faint">
       {children}
     </span>
   );
@@ -695,7 +700,8 @@ function Milestone({
 function SwitchedOff() {
   return (
     <>
-      <PageHeader title="Invite and earn credits" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />} title="Invite and earn credits" />
       <Panel>
         <p className="text-sm leading-relaxed text-muted">
           Inviting people is switched off at the moment, so there is nothing to show here yet. Your

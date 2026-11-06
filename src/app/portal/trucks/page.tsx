@@ -1,5 +1,6 @@
+import { Truck as PageIcon } from "lucide-react";
 import Link from "next/link";
-import { BellOff, Download, Plus } from "lucide-react";
+import { BellOff, Download, Plus, Layers, ShieldCheck } from "lucide-react";
 
 import { AddTruckForm } from "./AddTruckForm";
 import { loadAlertDelivery } from "@/components/AlertDeliveryBanner";
@@ -163,9 +164,11 @@ export default async function TrucksPage({
   const canAdd = slots > 0 && Boolean(overview.plan_id);
 
   return (
-    <>
+    <div className="fleet-workspace">
       <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
         title="My trucks"
+        subtitle="Your fleet, organised and easy to follow."
         /* No subtitle. It said "what you are watching, and what each one will
            tell you", which the two tabs and the rows below now say better -
            and on a phone it pushed the first truck below the fold. */
@@ -209,6 +212,7 @@ export default async function TrucksPage({
             ) : null}
             <Modal
               triggerLabel="Add truck"
+              openHash="add-truck"
               triggerIcon={<Plus size={15} />}
               title="Add a truck and its first alert"
               description={
@@ -231,23 +235,27 @@ export default async function TrucksPage({
         }
       />
 
+      <section className="fleet-overview" aria-label="Fleet summary"><div><span>Total trucks</span><strong>{all.length}</strong></div><div><span>Tracking enabled</span><strong>{counts.live}</strong></div><div><span>Paused</span><strong>{counts.watchlist}</strong></div></section>
+      <div className="fleet-tools"><p><ShieldCheck size={16}/>{overview.plan_name ?? "Choose a plan to begin"}</p><Link href="/portal/cases"><Layers size={16}/>Truck groups</Link></div>
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            title="No trucks yet"
-            description="Add a truck and pick what you want to hear about it."
+            icon={<PageIcon size={28}/>}
+            title="A home for your trucks"
+            description="Tap Add truck above, enter its registration and choose an alert. Its recorded crossings will stay together here."
           />
         </Panel>
       ) : (
         <div className="space-y-4">
           {/* One tap to the only question this page really answers: which of
               my trucks will actually tell me something? */}
-          <div className="flex flex-wrap gap-2">
+          <div className="fleet-filter-tabs flex flex-wrap gap-2">
             {(Object.keys(FILTER_LABEL) as Filter[]).map((value) => (
               <Link
                 key={value}
                 href={hrefFor(value, 1)}
                 title={FILTER_NOTE[value]}
+                aria-current={value === filter ? "page" : undefined}
                 className={cx(
                   "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition",
                   value === filter
@@ -366,7 +374,7 @@ export default async function TrucksPage({
             /* One column, always. These are rows now rather than cards, and
                two columns of rows on a wide screen means the eye has to
                scan two places for the number it is looking for. */
-            <div className="space-y-2">
+            <div className="fleet-card-grid stagger">
               {shown.map((truck) => (
                 <TruckCard
                   key={truck.id}
@@ -401,6 +409,6 @@ export default async function TrucksPage({
           ) : null}
         </div>
       )}
-    </>
+    </div>
   );
 }

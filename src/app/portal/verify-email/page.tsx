@@ -1,3 +1,4 @@
+import { Mail as PageIcon } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BadgeCheck, Mail } from "lucide-react";
@@ -52,7 +53,8 @@ export default async function VerifyEmailPage() {
 
   return (
     <>
-      <PageHeader title="Verify your email" />
+      <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />} title="Verify your email" />
 
       <Panel className="max-w-xl">
         {isVerified ? (
@@ -88,7 +90,7 @@ export default async function VerifyEmailPage() {
                 one they own. Changing it is a profile edit, deliberately. */}
             <p className="text-xs text-faint">
               Wrong address?{" "}
-              <Link href="/portal/settings#profile" className="text-brand-500 hover:underline">
+              <Link href="/portal/profile/edit" className="text-brand-500 hover:underline">
                 Change it on your profile
               </Link>{" "}
               first — the code goes wherever that says.

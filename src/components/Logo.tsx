@@ -1,63 +1,13 @@
 import { cx } from "@/components/ui";
 
-/**
- * The mark.
- *
- * It was a stock lorry glyph, which said "trucks" and nothing else - every
- * fleet product on the market wears one, and at 16px in a tab strip it is a
- * grey smudge. What this platform actually does is watch a vehicle pass fixed
- * points on a road, so the mark is the road: a carriageway in perspective,
- * its lane dashes shortening towards the distance, and one ring where the
- * vehicle was last seen.
- *
- * Drawn geometrically rather than as a picture so it survives being small.
- * Three tapering dashes and a ring still read at 16px; a windscreen and wing
- * mirrors do not.
- *
- * Colour comes from `currentColor` throughout, so the same file serves the
- * light header, the dark footer and a monochrome favicon without a second
- * copy existing to fall out of step.
- */
+/** Compact blue-and-orange R monogram from the dashboard reference. */
 export function LogoMark({ size = 20, className }: { size?: number; className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      aria-hidden="true"
-      focusable="false"
-      className={cx("shrink-0", className)}
-    >
-      {/* The carriageway, wide at the reader and narrowing into the distance.
-          Deliberately broad at the base: the first draft tapered from 5.2 and
-          at 17px in a badge it read as a thin obelisk rather than a road. The
-          wider it opens towards the reader, the faster perspective registers. */}
-      <path
-        d="M3.4 21.6 L9.7 7.4 h4.6 L20.6 21.6 Z"
-        fill="currentColor"
-        fillOpacity="0.18"
-      />
-      {/* Its edges, so the shape holds when the fill is nearly invisible. */}
-      <path
-        d="M3.4 21.6 L9.7 7.4 M20.6 21.6 L14.3 7.4"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeOpacity="0.6"
-      />
-      {/* Lane dashes. Each is shorter and thinner than the one before it, which
-          is what makes a flat shape read as distance rather than a triangle. */}
-      <path
-        d="M12 20.6 v-3 M12 15.6 v-2.2 M12 11.5 v-1.5"
-        stroke="currentColor"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeOpacity="0.9"
-      />
-      {/* Where it was last seen. */}
-      <circle cx="12" cy="4.8" r="3" stroke="currentColor" strokeWidth="1.9" />
-      <circle cx="12" cy="4.8" r="1.05" fill="currentColor" />
+    <svg viewBox="0 0 64 48" width={size} height={size} fill="none" aria-hidden="true" focusable="false" className={cx("shrink-0", className)}>
+      <path d="M26 5h19c10 0 16 6 16 14 0 7-4 12-10 14l11 10H45L31 29h13c4 0 6-4 5-7-1-3-3-4-7-4H34L26 5Z" fill="#1558B8" />
+      <path d="M7 24c2-3 4-5 8-5h22l-8 10H18L7 43H0L14 24H7Z" fill="#FF8515" />
+      <path d="m28 5 8 13h8L36 5h-8Z" fill="#3896ED" />
+      <path d="m20 33 8-10h10l-9 12c-3 4-7 6-12 6h-4l6-8h1Z" fill="#1558B8" />
     </svg>
   );
 }

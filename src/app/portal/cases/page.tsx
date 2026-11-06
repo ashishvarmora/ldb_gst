@@ -1,3 +1,4 @@
+import { FolderOpen as PageIcon } from "lucide-react";
 import Link from "next/link";
 import { FolderOpen, Plus, Truck } from "lucide-react";
 
@@ -66,6 +67,7 @@ export default async function CasesPage({
   return (
     <>
       <PageHeader
+        icon={<PageIcon size={22} strokeWidth={2} />}
         title="Groups"
         subtitle={
           total > 0

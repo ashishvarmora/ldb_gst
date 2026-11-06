@@ -411,7 +411,7 @@ export function PushSetup({
 
   return (
     <div className="mt-4 border-t border-divider pt-4">
-      <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-muted uppercase">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-muted">
         <BellRing size={12} />
         Notifications on this phone
       </p>

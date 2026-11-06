@@ -21,7 +21,7 @@ export default function NotFound() {
             Go to the home page
           </Link>
           <Link href="/portal" className={buttonClass("ghost")}>
-            My dashboard
+            My account
           </Link>
         </div>
       </div>
