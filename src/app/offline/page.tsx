@@ -1,7 +1,6 @@
-import Link from "next/link";
-import { CloudOff, RefreshCw } from "lucide-react";
+import { CloudOff } from "lucide-react";
 
-import { buttonClass } from "@/components/ui";
+import { RetryButton } from "./RetryButton";
 
 export const metadata = { title: "Offline" };
 
@@ -27,16 +26,13 @@ export default function OfflinePage() {
           <CloudOff size={24} />
         </span>
 
-        <h1 className="mt-5 text-xl font-semibold tracking-tight text-strong">You are offline</h1>
+        <h1 className="mt-5 text-xl font-semibold tracking-tight text-strong">Connection problem</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          This app reads live records, so it needs a connection. Your saved trucks and history are
-          on the server and untouched.
+          This phone could not reach Rahdari just now - usually the mobile network. Your trucks and
+          history are safe on the server. Check your connection and try again.
         </p>
 
-        <Link href="/portal" className={buttonClass("primary", "md", "mt-6 w-full justify-center")}>
-          <RefreshCw size={15} />
-          Try again
-        </Link>
+        <RetryButton />
       </div>
     </main>
   );

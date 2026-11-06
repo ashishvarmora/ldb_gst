@@ -174,5 +174,8 @@ export async function fetchTruckEvents(
           ? error.message
           : "Unknown network error.",
     };
+  } finally {
+    // Without this the timer outlives every successful call by up to 15s.
+    clearTimeout(timer);
   }
 }

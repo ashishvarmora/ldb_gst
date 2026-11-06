@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "@/lib/env";
+import { fetchWithTimeout } from "@/lib/supabase/timeout";
 
 /**
  * Service-role client. Bypasses Row Level Security, so it must never be
@@ -36,6 +37,9 @@ export function getSupabaseAdmin(): SupabaseClient {
   if (client) return client;
   client = createClient(env.supabaseUrl, env.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    /* Generous, because the cron jobs use this client for long sweeps and
+       exports; tight enough that nothing hangs until the function is killed. */
+    global: { fetch: fetchWithTimeout(45_000) },
   });
   return client;
 }

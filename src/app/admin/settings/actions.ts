@@ -636,3 +636,126 @@ export async function runTrackingNow(
  * is now one outcome per table, and a button that reports "1,200 rows deleted"
  * without saying which tables kept theirs is worse than no button.
  */
+
+/* -------------------------------------------------------------------------- */
+/* the Android app download                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where uploaded APKs live: a public Supabase Storage bucket, created on first
+ * use. Public because the download button is for people who are not signed in.
+ *
+ * The file goes from the admin's browser straight to Storage on a signed upload
+ * URL - it never passes through this server, because a Vercel function refuses
+ * request bodies over 4.5 MB and an APK is bigger than that.
+ */
+const APK_BUCKET = "app-downloads";
+
+const APK_PATH = /^android\/rahdari-\d{10,16}\.apk$/;
+
+function cleanVersion(raw: unknown): string | null {
+  const text = typeof raw === "string" ? raw.trim().replace(/^v/i, "") : "";
+  if (text.length > 30 || !/^[\w.\- ()]*$/.test(text)) return null;
+  return text;
+}
+
+export async function startApkUpload(): Promise<
+  { ok: true; signedUrl: string; path: string } | { ok: false; error: string }
+> {
+  await assertSuperAdmin();
+  const admin = getSupabaseAdmin();
+
+  const { data: bucket } = await admin.storage.getBucket(APK_BUCKET);
+  if (!bucket) {
+    const { error } = await admin.storage.createBucket(APK_BUCKET, { public: true });
+    if (error && !/already exists/i.test(error.message)) {
+      return { ok: false, error: `Could not prepare storage for the APK: ${error.message}` };
+    }
+  }
+
+  const path = `android/rahdari-${Date.now()}.apk`;
+  const { data, error } = await admin.storage.from(APK_BUCKET).createSignedUploadUrl(path);
+  if (error || !data) {
+    return { ok: false, error: `Could not start the upload: ${error?.message ?? "no URL returned"}` };
+  }
+  return { ok: true, signedUrl: data.signedUrl, path: data.path };
+}
+
+/**
+ * Makes an uploaded APK the one every download button hands out. Checked
+ * against Storage rather than trusting the browser's word that it uploaded.
+ */
+export async function publishApk(input: {
+  path: string;
+  version: string;
+}): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  if (!APK_PATH.test(input.path)) return { ok: false, error: "That upload is not one of ours." };
+  const version = cleanVersion(input.version);
+  if (version === null) {
+    return { ok: false, error: "Version may use letters, numbers, dots and dashes, up to 30 characters." };
+  }
+
+  const admin = getSupabaseAdmin();
+  const name = input.path.slice("android/".length);
+  const { data: listed, error: listError } = await admin.storage
+    .from(APK_BUCKET)
+    .list("android", { search: name, limit: 5 });
+  const file = listed?.find((item) => item.name === name);
+  if (listError || !file) {
+    return { ok: false, error: "The upload did not arrive in storage. Please try again." };
+  }
+  const bytes = Number((file.metadata as { size?: number } | null)?.size ?? 0);
+  if (bytes < 100 * 1024) {
+    return { ok: false, error: "That file is too small to be an Android app. Check you picked the .apk." };
+  }
+
+  const { data: link } = admin.storage
+    .from(APK_BUCKET)
+    .getPublicUrl(input.path, { download: "Rahdari.apk" });
+
+  const result = await persist(
+    actor,
+    { android_apk_url: link.publicUrl, android_apk_version: version, android_apk_bytes: bytes },
+    "settings.android_apk_upload",
+  );
+  if (!result.ok) return result;
+  revalidatePath("/", "layout");
+  return {
+    ok: true,
+    message: `Published${version ? ` v${version}` : ""}. Every "Download for Android" button now gives out this APK.`,
+  };
+}
+
+/**
+ * The other way to publish: a link to an APK hosted somewhere else (a GitHub
+ * release, say). Blank goes back to the APK bundled with the site.
+ */
+export async function saveApkLink(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+  const url = String(fd.get("android_apk_url") ?? "").trim();
+  if (url !== "" && !/^https:\/\/\S+$/.test(url)) {
+    return { ok: false, error: "The APK link must start with https://, or be left blank." };
+  }
+  const version = cleanVersion(fd.get("android_apk_version"));
+  if (version === null) {
+    return { ok: false, error: "Version may use letters, numbers, dots and dashes, up to 30 characters." };
+  }
+
+  const result = await persist(
+    actor,
+    { android_apk_url: url, android_apk_version: version, android_apk_bytes: 0 },
+    "settings.android_apk_link",
+  );
+  if (!result.ok) return result;
+  revalidatePath("/", "layout");
+  return {
+    ok: true,
+    message: url
+      ? "Saved. Download buttons now send people to that link."
+      : "Saved. Download buttons are back to the APK bundled with the site.",
+  };
+}
