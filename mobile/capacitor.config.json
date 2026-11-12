@@ -3,7 +3,7 @@
   "appName": "Rahdari",
   "webDir": "www",
   "appendUserAgent": "RahdariApp/1.0",
-  "backgroundColor": "#f4f6fa",
+  "backgroundColor": "#ffffff",
   "server": {
     "url": "https://rahdari.in/portal",
     "errorPath": "offline.html",
@@ -23,12 +23,12 @@
     "SplashScreen": {
       "launchShowDuration": 800,
       "launchAutoHide": true,
-      "backgroundColor": "#f4f6fa",
+      "backgroundColor": "#ffffff",
       "showSpinner": false
     },
     "StatusBar": {
       "style": "LIGHT",
-      "backgroundColor": "#f4f6fa",
+      "backgroundColor": "#ffffff",
       "overlaysWebView": false
     }
   }

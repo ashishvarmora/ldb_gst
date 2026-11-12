@@ -102,6 +102,8 @@ const ENFORCED_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // Keep an optional local preview build separate from other running builds.
+  distDir: process.env.RAHDARI_BUILD_DIR || ".next",
   devIndicators: false,
   /*
    * WHERE THIS PROJECT ACTUALLY STARTS.

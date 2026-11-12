@@ -7,7 +7,7 @@
 @media (max-width: 1023px) {
   .portal-shell:has(.support-page) > .portal-bottom-nav { display: block; }
   /* Room under the composer for the floating dock. */
-  .portal-content:has(.support-page) { padding-bottom: calc(var(--sab, 0px) + 74px); }
+  .portal-content:has(.support-page) { padding-bottom: calc(var(--sab, 0px) + 80px); }
 }
 
 .support-head {

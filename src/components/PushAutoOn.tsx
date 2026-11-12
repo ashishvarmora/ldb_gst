@@ -129,7 +129,7 @@ export function PushAutoOn({
       await registration
         .showNotification("Notifications are on", {
           body: "Truck alerts will arrive here, even when the site is closed.",
-          icon: "/icon-192.png",
+          icon: "/brand/icon-192-v2.png",
           tag: "rahdari-push-welcome",
         })
         .catch(() => {});

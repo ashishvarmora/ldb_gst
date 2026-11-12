@@ -289,9 +289,9 @@
 .portal-bottom-nav .app-tab-active .app-tab-icon { width: 40px; height: 40px; top: -14px; border-width: 3px; outline-width: 3px; }
 .portal-route[data-screen="support"] { animation: none; }
 .portal-workspace:has(.support-page) { height: 100dvh; min-height: 0; overflow: hidden; }
-.portal-workspace:has(.support-page) > .portal-header { flex-shrink: 0; }
+.portal-workspace:has(.support-page) > .portal-header { display: none; }
 .portal-workspace:has(.support-page) > .portal-footer { display: none; }
-.portal-content:has(.support-page) { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-top: 12px; padding-bottom: calc(var(--sab,0px) + 84px); }
+.portal-content:has(.support-page) { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: calc(var(--sat,0px) + 8px) 10px calc(var(--sab,0px) + 8px); }
 .portal-content:has(.support-page) > .portal-route { display: flex; flex-direction: column; flex: 1; width: 100%; min-width: 0; min-height: 0; }
 .support-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .support-page-title { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 0 0 8px; }
@@ -320,7 +320,7 @@
 .support-conversation .chat-composer button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 13px; background: var(--app-navy); color: var(--app-white); box-shadow: none; }
 .support-conversation .chat-composer button:disabled { opacity: .4; cursor: default; }
 .support-conversation .chat-composer > p { color: var(--app-muted); font-size: 9px; line-height: 1.5; margin-top: 8px; }
-@media (min-width:1024px) { .portal-content:has(.support-page) { padding-top: 18px; padding-bottom: 20px; } }
+@media (min-width:1024px) { .portal-content:has(.support-page) { padding: calc(var(--sat,0px) + 12px) 24px calc(var(--sab,0px) + 12px); } }
 @media (max-width:359px) {
   .portal-bottom-nav .app-tab-active .app-tab-icon { width: 40px; height: 40px; top: -14px; }
   .support-team { padding: 13px; }
@@ -330,3 +330,7 @@
   .support-empty nav a { padding-inline: 6px; font-size: 9px; }
 }
 @media (max-height:700px) { .support-empty-icon { width: 49px; height: 49px; border-radius: 18px; margin-bottom: 12px; } }
+
+/* The standalone emblem sits on white; the square variant identifies app chrome. */
+.welcome-photo.welcome-brand-art { display: grid; place-items: center; background: var(--app-white); }
+.welcome-photo.welcome-brand-art > img { object-fit: contain; object-position: center; }

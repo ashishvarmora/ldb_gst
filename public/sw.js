@@ -23,14 +23,14 @@
  */
 
 /* Bump to throw away everything the previous worker kept. */
-const VERSION = "v2";
+const VERSION = "v4-standalone";
 const ASSETS = `assets-${VERSION}`;
 const SHELL = `shell-${VERSION}`;
 
 const OFFLINE_URL = "/offline";
 
 /** The only HTML this worker is allowed to keep: it has no user data on it. */
-const SHELL_URLS = [OFFLINE_URL, "/icon-192.png", "/icon-512.png"];
+const SHELL_URLS = [OFFLINE_URL, "/brand/icon-192-v2.png", "/brand/icon-512-v2.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -61,7 +61,7 @@ function isImmutableAsset(url) {
 
 /** Our own icons and manifest. Small, public, and wanted while offline. */
 function isPublicIcon(url) {
-  return /^\/(icon-|apple-icon|favicon)/.test(url.pathname);
+  return /^\/(icon-|apple-icon|favicon|brand\/icon-|brand\/apple-icon)/.test(url.pathname);
 }
 
 self.addEventListener("fetch", (event) => {
@@ -177,10 +177,10 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: "/icon-192.png",
+      icon: "/brand/icon-192-v2.png",
       // The small monochrome mark Android puts in the status bar. It falls back
       // to the icon above where it is not supported, which is everywhere else.
-      badge: "/icon-192.png",
+      badge: "/brand/icon-192-v2.png",
       /*
        * One notification per truck, replaced rather than stacked. A lorry
        * crossing four plazas on a night run would otherwise leave four rows to
