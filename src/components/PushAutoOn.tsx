@@ -390,9 +390,12 @@ export function PushAutoOn({
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm sm:px-0 sm:pb-0"
+      className="push-prompt fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm sm:px-0 sm:pb-0"
     >
-      <div className="flex items-start gap-3 rounded-xl border border-line bg-raised p-4 shadow-lg">
+      {/* Scrolls inside itself rather than growing over the page: the
+          blocked-notifications steps are long, and on a small phone they
+          used to cover most of the screen. */}
+      <div className="flex max-h-[45dvh] items-start gap-3 overflow-y-auto overscroll-contain rounded-xl border border-line bg-raised p-4 shadow-lg">
         {prompt === "on" ? (
           <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-good-500" />
         ) : (
