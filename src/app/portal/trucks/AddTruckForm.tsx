@@ -175,7 +175,7 @@ export function AddTruckForm({
                   htmlFor="max_consecutive_failures"
                   info={
                     <>
-                      A check fails when the portal cannot answer for this number - usually a typo,
+                      A check fails when the toll network cannot answer for this number - usually a typo,
                       or a lorry it has stopped reporting. After five failures in a row we message
                       you. At this many the truck is paused, because a failed check still costs a
                       credit and retrying a number the portal will not answer just buys errors.
@@ -217,8 +217,8 @@ export function AddTruckForm({
                     <>
                       Counted from the last toll crossing that came through. If the lorry is parked
                       and no new crossing arrives for this long, checking is paused and you are
-                      told — so a vehicle standing in a yard stops quietly spending a credit every
-                      fifteen minutes to be given yesterday&rsquo;s answer.
+                      told — so a vehicle standing in a yard stops quietly spending credits to be
+                      given yesterday&rsquo;s answer.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to use the platform default, currently{" "}
                         {defaultInactiveHours} hours. Set it longer for a truck you expect to be

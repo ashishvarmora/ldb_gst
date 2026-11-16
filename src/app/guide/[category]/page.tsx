@@ -17,6 +17,10 @@ import {
 } from "../lib";
 import type { GuideCategoryId } from "../content/types";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 /**
  * One shelf of the help centre.
  *

@@ -3,9 +3,10 @@ import { after } from "next/server";
 import { recordActivity } from "@/lib/audit";
 import { CREDIT_ACTIONS, creditRefusalMessage, spendCredits } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
-import { fetchTruckEvents } from "@/lib/ldb";
+import { fetchTruckEvents, type LdbResult } from "@/lib/ldb";
 import { fmtDateTime } from "@/lib/format";
 import { blockedReason, loadOverview } from "@/lib/officer";
+import type { CreditVerdict } from "@/lib/types";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -57,7 +58,7 @@ export async function runManualLookup({
 
   // The portal call is the slow one; the tracked-truck lookup rides alongside it.
   const [result, { data: tracked }] = await Promise.all([
-    fetchTruckEvents(truckNumber, settings.ldbApiUrl),
+    fetchWithOneRetry(truckNumber, settings.ldbApiUrl),
     admin
       .from("tracked_trucks")
       .select("id")
@@ -67,23 +68,31 @@ export async function runManualLookup({
   ]);
 
   if (!result.ok) {
-    await admin.from("search_logs").insert({
-      user_id: userId,
-      truck_number: truckNumber,
-      source: "manual",
-      ok: false,
-      http_status: result.httpStatus,
-      response_ms: result.ms,
-      events_found: 0,
-      new_events: 0,
-      error: result.error,
-    });
+    console.error(`manual lookup failed for ${truckNumber}:`, result.error);
+    /*
+     * A FAILED SEARCH COSTS NOTHING (owner, 16 Nov 2026). It used to keep the
+     * credit "because the request did reach the portal" - true, and no comfort
+     * to a customer who paid for an answer and got none. About one search in
+     * seven failed this way, almost all of them the toll portal's own HTTP 500.
+     */
+    const [refunded] = await Promise.all([
+      refundSearch(admin, userId, truckNumber, verdict, result.error),
+      admin.from("search_logs").insert({
+        user_id: userId,
+        truck_number: truckNumber,
+        source: "manual",
+        ok: false,
+        http_status: result.httpStatus,
+        response_ms: result.ms,
+        events_found: 0,
+        new_events: 0,
+        error: result.error,
+      }),
+    ]);
     return {
       ok: false,
-      creditSpent: true,
-      // The credit is spent either way, so say so: the officer is about to
-      // wonder why the balance moved for a search that showed nothing.
-      error: `${reportError("manual lookup", result.error)} The credit was still used, because the request did reach the portal.`,
+      creditSpent: !refunded,
+      error: failureMessage(truckNumber, result, refunded),
     };
   }
 
@@ -110,7 +119,17 @@ export async function runManualLookup({
       .select("seq_no");
 
     if (insertError) {
-      return { ok: false, creditSpent: true, error: reportError("storing search results", insertError) };
+      // Our fault, not the portal's: the answer came back and we could not
+      // keep it. Refunded the same way.
+      reportError("storing search results", insertError);
+      const refunded = await refundSearch(admin, userId, truckNumber, verdict, "could not store results");
+      return {
+        ok: false,
+        creditSpent: !refunded,
+        error: `Sorry — we found the crossings for ${truckNumber} but could not save them on our side. ${
+          refunded ? "Your credit has been returned. " : ""
+        }Please try again in a moment.`,
+      };
     }
     newCount = inserted?.length ?? 0;
   }
@@ -179,4 +198,73 @@ export async function runManualLookup({
   });
 
   return { ok: true, found: result.events.length, newCount, responseMs: result.ms };
+}
+
+/**
+ * The toll portal fails often and briefly: most failures are a bare HTTP 500
+ * that a second request a moment later answers. One quiet retry, for 5xx only -
+ * never after a timeout (the customer has already waited 15 seconds) and never
+ * on a 4xx, which a retry would only repeat.
+ */
+async function fetchWithOneRetry(truckNumber: string, apiUrl: string): Promise<LdbResult> {
+  const first = await fetchTruckEvents(truckNumber, apiUrl);
+  if (first.ok || first.httpStatus === null || first.httpStatus < 500) return first;
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const second = await fetchTruckEvents(truckNumber, apiUrl);
+  return second.ok ? second : { ...second, ms: first.ms + second.ms };
+}
+
+/**
+ * Gives back exactly what spend_credits took for this search. Recorded as its
+ * own ledger row (reason 'search_refund', counted as negative spend by 0062)
+ * rather than by deleting the charge, so the ledger still adds up to the
+ * balance and the attempt stays visible. Returns whether it went through.
+ */
+async function refundSearch(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+  truckNumber: string,
+  verdict: CreditVerdict,
+  why: string,
+): Promise<boolean> {
+  const cost = Number(verdict.cost ?? 0);
+  if (verdict.free || !(cost > 0)) return true; // nothing was taken
+  const { data, error } = await admin.rpc("grant_credits", {
+    p_user: userId,
+    p_amount: cost,
+    p_reason: "search_refund",
+    p_actor: null,
+    p_note: `Refund: search for ${truckNumber} failed (${why.slice(0, 120)})`,
+    p_payment: null,
+  });
+  if (error || (data as { ok?: boolean } | null)?.ok === false) {
+    reportError("refunding a failed search", error ?? data);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * What the customer reads when the toll portal let them down: what happened in
+ * plain words, an apology, that they were not charged, and what to do next.
+ * Never the raw "Portal returned HTTP 500".
+ */
+function failureMessage(
+  truckNumber: string,
+  result: Extract<LdbResult, { ok: false }>,
+  refunded: boolean,
+): string {
+  const status = result.httpStatus;
+  const what =
+    status === null && /respond within/i.test(result.error)
+      ? "the toll records service is responding very slowly right now"
+      : status === 403 || status === 429
+        ? "the toll records service is limiting requests at the moment"
+        : status !== null && status >= 400 && status < 500
+          ? `the toll records service could not look up ${truckNumber} — please check the number is correct`
+          : "the toll records service is having a temporary problem";
+  const charge = refunded
+    ? "You have not been charged for this search."
+    : "If a credit was taken for this search, contact support and we will return it.";
+  return `Sorry — we couldn't fetch crossings for ${truckNumber} because ${what}. ${charge} Please try again in a few minutes.`;
 }

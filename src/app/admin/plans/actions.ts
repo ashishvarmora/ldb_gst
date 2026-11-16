@@ -46,6 +46,18 @@ function readIncludedCredits(fd: FormData): number | null {
 }
 
 /**
+ * Automatic checks one credit buys on this plan (0064). Blank means "use the
+ * global rate"; otherwise between 0.1 and 1000.
+ */
+function readAutoChecksPerCredit(fd: FormData): number | null | undefined {
+  const raw = str(fd, "auto_checks_per_credit");
+  if (raw === null || raw === "") return null;
+  const value = Math.round(Number(raw) * 100) / 100;
+  if (!Number.isFinite(value) || value < 0.1 || value > 1000) return undefined;
+  return value;
+}
+
+/**
  * The longest term a plan may be sold for. plans_duration_days_range in the
  * database says the same thing, and this is here so the admin gets a sentence
  * rather than a constraint name.
@@ -101,6 +113,11 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
   const includedCredits = readIncludedCredits(fd);
   if (includedCredits === null) return fail("Credits included must be zero or more.");
 
+  const autoChecksPerCredit = readAutoChecksPerCredit(fd);
+  if (autoChecksPerCredit === undefined) {
+    return fail("Automatic checks per credit must be between 0.1 and 1000, or blank for the global rate.");
+  }
+
   const days = readDurationDays(fd);
   if (days === undefined) return fail(TERM_REFUSAL);
 
@@ -120,6 +137,7 @@ export async function createPlan(_prev: ActionResult | null, fd: FormData): Prom
       description: str(fd, "description"),
       ...limits.values,
       included_credits: includedCredits,
+      auto_checks_per_credit: autoChecksPerCredit,
       price_inr: price,
       duration_days: days,
       is_active: true,
@@ -166,6 +184,11 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
   const includedCredits = readIncludedCredits(fd);
   if (includedCredits === null) return fail("Credits included must be zero or more.");
 
+  const autoChecksPerCredit = readAutoChecksPerCredit(fd);
+  if (autoChecksPerCredit === undefined) {
+    return fail("Automatic checks per credit must be between 0.1 and 1000, or blank for the global rate.");
+  }
+
   const { data: before } = await admin.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!before) return fail("That plan no longer exists.");
 
@@ -194,6 +217,7 @@ export async function updatePlan(_prev: ActionResult | null, fd: FormData): Prom
     description: str(fd, "description"),
     ...limits.values,
     included_credits: includedCredits,
+    auto_checks_per_credit: autoChecksPerCredit,
     // Free by constraint, and free is the reason the portal can hand it over
     // without a payment. The form does not offer a price for it.
     price_inr: isTrial ? 0 : price,

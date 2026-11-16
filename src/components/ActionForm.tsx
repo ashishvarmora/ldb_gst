@@ -1,6 +1,15 @@
 "use client";
 
-import { useActionState, useEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  startTransition,
+  useActionState,
+  useContext,
+  useEffect,
+  useRef,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
@@ -13,6 +22,9 @@ export type FormAction = (
   prev: ActionResult | null,
   formData: FormData,
 ) => Promise<ActionResult>;
+
+/** Whether the surrounding ActionForm is submitting - see the onSubmit below. */
+const ActionPendingContext = createContext(false);
 
 /**
  * Wraps a Server Action with inline error/success feedback. On success it
@@ -32,7 +44,10 @@ export function ActionForm({
   closeOnSuccess?: boolean;
   resetOnSuccess?: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionResult | null, FormData>(action, null);
+  const [state, formAction, isPending] = useActionState<ActionResult | null, FormData>(
+    action,
+    null,
+  );
   const closeModal = useModalClose();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -44,9 +59,28 @@ export function ActionForm({
     router.refresh();
   }, [state, closeOnSuccess, resetOnSuccess, closeModal, router]);
 
+  /*
+   * KEEP WHAT WAS TYPED (16 Nov 2026). React 19 resets every uncontrolled
+   * field once a form action finishes - including when it finishes with an
+   * error - so "That truck number looks too short" arrived with the number
+   * gone, and a sign-up refused for a mismatched password cleared the name,
+   * email and phone. Submitting through onSubmit instead of letting React run
+   * the action keeps the fields; a form that should clear on success still
+   * says so with resetOnSuccess.
+   *
+   * `action` stays on the element for the moment before the page hydrates, so
+   * an early tap still posts to the Server Action instead of becoming a GET
+   * with the fields in the URL.
+   */
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget, (event.nativeEvent as SubmitEvent).submitter);
+    startTransition(() => formAction(data));
+  }
+
   return (
-    <form ref={formRef} action={formAction} className={className}>
-      {children}
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className={className}>
+      <ActionPendingContext.Provider value={isPending}>{children}</ActionPendingContext.Provider>
 
       {state && !state.ok ? (
         <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
@@ -71,16 +105,27 @@ export function SubmitButton({
   size = "md",
   className,
   pendingLabel,
+  ariaLabel,
 }: {
   children: ReactNode;
   variant?: ButtonVariant;
   size?: "sm" | "md";
   className?: string;
   pendingLabel?: string;
+  /** For a button whose visible text is hidden on small screens. */
+  ariaLabel?: string;
 }) {
-  const { pending } = useFormStatus();
+  const { pending: formPending } = useFormStatus();
+  // useFormStatus only sees React-run actions; ActionForm submits itself.
+  const actionPending = useContext(ActionPendingContext);
+  const pending = formPending || actionPending;
   return (
-    <button type="submit" disabled={pending} className={buttonClass(variant, size, className)}>
+    <button
+      type="submit"
+      disabled={pending}
+      aria-label={ariaLabel}
+      className={buttonClass(variant, size, className)}
+    >
       {pending ? <Loader2 size={14} className="animate-spin" /> : null}
       {pending ? (pendingLabel ?? "Saving...") : children}
     </button>
@@ -101,7 +146,10 @@ export function ConfirmSubmitButton({
   size?: "sm" | "md";
   className?: string;
 }) {
-  const { pending } = useFormStatus();
+  const { pending: formPending } = useFormStatus();
+  // useFormStatus only sees React-run actions; ActionForm submits itself.
+  const actionPending = useContext(ActionPendingContext);
+  const pending = formPending || actionPending;
   return (
     <button
       type="submit"

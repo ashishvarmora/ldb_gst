@@ -245,19 +245,6 @@ html.system-insets {
 .portal-bottom-nav { bottom: calc(var(--sab, 0px) + 4px); }
 
 /* ===========================================================================
-   The notifications banner sat on top of the bottom tab dock, so Home, Search,
-   My truck and Profile could not be tapped until it was closed. Wherever the
-   dock is on screen (below lg) the banner now rests just above it, clear of
-   the raised active tab.
-   =========================================================================== */
-@media (max-width: 1023px) {
-  body:has(.portal-bottom-nav) .push-banner {
-    bottom: calc(var(--sab, 0px) + 92px);
-    padding-bottom: 0;
-  }
-}
-
-/* ===========================================================================
    One type scale on a phone.
    The four tabs titled their screens at 22px while every screen behind them
    (Credit history, Plan and credits, Payments, Settings, Activity) used 28px

@@ -9,7 +9,7 @@ import { getSessionUser } from "@/lib/auth";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
-  return { title: `Sign in — ${brandName}` };
+  return { title: `Sign in — ${brandName}` , robots: { index: false } };
 }
 
 export default async function LoginPage() {

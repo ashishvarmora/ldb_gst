@@ -7,7 +7,7 @@ import { getSessionUser } from "@/lib/auth";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
-  return { title: `No access — ${brandName}` };
+  return { title: `No access — ${brandName}` , robots: { index: false } };
 }
 
 export default async function NoAccessPage({

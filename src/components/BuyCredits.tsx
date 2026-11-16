@@ -15,6 +15,7 @@ import {
   Truck,
   Wallet,
   X,
+  Gauge,
 } from "lucide-react";
 
 import { Field, Input } from "@/components/form";
@@ -35,6 +36,7 @@ import {
 // and has nothing to do with the credit_percent an open tier carries. Two
 // different ideas that would otherwise share a name on the same card.
 import {
+  autoCheckRateLabel,
   bonusPercent as valueAgainstEntryPack,
   creditsForAmount,
   formatCredits,
@@ -1502,6 +1504,9 @@ export function BuyPlans({
                     ? "Unlimited trucks watched at once"
                     : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} watched at once`}
                 </Feature>
+                {autoCheckRateLabel(plan) ? (
+                  <Feature icon={<Gauge size={13} />}>{autoCheckRateLabel(plan)}</Feature>
+                ) : null}
                 <Feature icon={<Wallet size={13} />}>
                   {formatCredits(plan.included_credits)} credits included
                 </Feature>

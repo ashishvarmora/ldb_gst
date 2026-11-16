@@ -5,10 +5,16 @@ import { Clock, Mail, MapPin, Phone } from "lucide-react";
 import { Callout, ContentPage, Section } from "@/components/ContentPage";
 import { PublicShell, publicHeaderAction, publicSettings } from "@/components/SiteFooter";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Contact — ${brandName}`,
+    alternates: { canonical: "/contact" },
+    openGraph: { title: `Contact — ${brandName}`, url: "/contact", images: "/opengraph-image" },
     description: "How to reach us: email, phone and registered address.",
   };
 }

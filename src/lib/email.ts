@@ -250,6 +250,7 @@ export function passwordResetEmail(brand: string, url: string) {
       [
         "Someone asked to reset the password on this account. If that was you, use the button below.",
         "The link works once and expires in an hour.",
+        "If it was not you, ignore this email — nothing has changed.",
       ],
       { label: "Choose a new password", url },
     ),
@@ -264,12 +265,12 @@ export function welcomeEmail(brand: string, url: string) {
       brand,
       "Your account is ready",
       [
-        "You can sign in now. To start watching a truck you will need a plan, which you can choose from your account.",
-        "Add a truck, give it an alert, and you will be messaged when it moves.",
+        "You can sign in now. Verify your email to start your free trial, then search any truck number to see its recorded toll crossings.",
+        "To watch a truck automatically, add it, give it an alert, and you will be told when it moves.",
       ],
       { label: "Sign in", url },
     ),
-    text: `Welcome to ${brand}\n\nYour account is ready - sign in at ${url}\n\nTo start watching a truck you will need a plan, which you can choose from your account. Add a truck, give it an alert, and you will be messaged when it moves.`,
+    text: `Welcome to ${brand}\n\nYour account is ready - sign in at ${url}\n\nVerify your email to start your free trial, then search any truck number to see its recorded toll crossings. To watch a truck automatically, add it, give it an alert, and you will be told when it moves.`,
   };
 }
 

@@ -41,8 +41,8 @@ const PAGE_SIZE = 12;
 type Filter = "live" | "watchlist";
 
 const FILTER_LABEL: Record<Filter, string> = {
-  live: "Live tracking",
-  watchlist: "Watchlist",
+  live: "Tracking",
+  watchlist: "Paused",
 };
 
 /** What each tab means, for the empty state and the tab's own title. */
@@ -236,7 +236,7 @@ export default async function TrucksPage({
       />
 
       <section className="fleet-overview" aria-label="Fleet summary"><div><span>Total trucks</span><strong>{all.length}</strong></div><div><span>Tracking enabled</span><strong>{counts.live}</strong></div><div><span>Paused</span><strong>{counts.watchlist}</strong></div></section>
-      <div className="fleet-tools"><p><ShieldCheck size={16}/>{overview.plan_name ?? "Choose a plan to begin"}</p><Link href="/portal/cases"><Layers size={16}/>Truck groups</Link></div>
+      <div className="fleet-tools">{overview.plan_name ? <p><ShieldCheck size={16}/>{overview.plan_name}</p> : <Link href="/portal/plan"><ShieldCheck size={16}/>Choose a plan to add trucks →</Link>}<Link href="/portal/cases"><Layers size={16}/>Truck groups</Link></div>
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
@@ -294,8 +294,8 @@ export default async function TrucksPage({
               <>
                 <p className="font-medium text-ink">Auto-pause rules</p>
                 <p>
-                  A tracked truck is checked every fifteen minutes and each check costs one credit
-                  — about 96 credits a day for one lorry. Pausing one is the largest thing you can
+                  A tracked truck is checked as often as its alert asks, and each check costs a credit
+                  — a truck on a 15-minute alert uses about 96 a day. Pausing one is the largest thing you can
                   do about that, and checking also stops by itself in these situations, each of
                   them there to keep credits from going on an answer you already have:
                 </p>

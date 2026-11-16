@@ -4,10 +4,16 @@ import Link from "next/link";
 import { Bullets, Callout, ContentPage, Section } from "@/components/ContentPage";
 import { PublicShell, publicHeaderAction, publicSettings } from "@/components/SiteFooter";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Privacy policy — ${brandName}`,
+    alternates: { canonical: "/privacy" },
+    openGraph: { title: `Privacy policy — ${brandName}`, url: "/privacy", images: "/opengraph-image" },
     description:
       "What we collect, why, who it is shared with, how long it is kept, and the rights you have over it.",
   };

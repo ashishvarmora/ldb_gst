@@ -335,3 +335,13 @@
 /* The standalone emblem sits on white; the square variant identifies app chrome. */
 .welcome-photo.welcome-brand-art { display: grid; place-items: center; background: var(--app-white); }
 .welcome-photo.welcome-brand-art > img { object-fit: contain; object-position: center; }
+
+/*
+ * The notification prompt (PushAutoOn) sat at the very bottom of the screen,
+ * on top of the tab bar - so a customer who had blocked notifications found
+ * Home, Search and Trucks hidden under it on every visit until they closed it.
+ * Wherever the tab bar is showing, the prompt now sits just above it.
+ */
+@media (max-width: 1023px) {
+  body:has(.portal-bottom-nav) .push-prompt { bottom: calc(var(--sab, 0px) + 92px); padding-bottom: 0; }
+}

@@ -7,10 +7,16 @@ import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicHeaderAction, publicSettings } from "@/components/SiteFooter";
 import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE } from "@/lib/pause";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Help and support — ${brandName}`,
+    alternates: { canonical: "/support" },
+    openGraph: { title: `Help and support — ${brandName}`, url: "/support", images: "/opengraph-image" },
     description:
       "Answers to the questions people actually ask: why a vehicle shows nothing, what credits are spent on, and how alerts reach you.",
   };

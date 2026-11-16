@@ -4,10 +4,16 @@ import Link from "next/link";
 import { Bullets, Callout, ContentPage, Section } from "@/components/ContentPage";
 import { PublicShell, publicHeaderAction, publicSettings } from "@/components/SiteFooter";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Where the data comes from — ${brandName}`,
+    alternates: { canonical: "/data-sources" },
+    openGraph: { title: `Where the data comes from — ${brandName}`, url: "/data-sources", images: "/opengraph-image" },
     description:
       "A plain declaration of our data sources, what the records can show, what they cannot, and the limits every reader should assume.",
   };

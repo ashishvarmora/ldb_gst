@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { ArrowRight, CalendarClock, Gift, Info, Truck, Wallet } from "lucide-react";
+import { ArrowRight, CalendarClock, Gauge, Gift, Info, Truck, Wallet } from "lucide-react";
 
 import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton, Panel, cx } from "@/components/ui";
 import {
   CREDIT_ACTIONS,
+  autoCheckRateLabel,
   costOf,
   describeOpenTier,
   describeRate,
@@ -24,14 +25,19 @@ import {
   describeWelcomeBonus,
   loadReferralTerms,
 } from "@/lib/referrals";
-import { getSessionUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertRuleTemplate, CreditPack, CreditRate, Plan } from "@/lib/types";
+
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Plans and pricing — ${brandName}`,
+    alternates: { canonical: "/pricing" },
+    openGraph: { title: `Plans and pricing — ${brandName}`, url: "/pricing", images: "/opengraph-image" },
     description: "What a plan costs, what credits buy, and what each action spends.",
   };
 }
@@ -52,9 +58,8 @@ const FALLBACK_EXAMPLE_CREDITS = 100;
  * how many trucks may be watched, credits are what the watching spends.
  */
 export default async function PricingPage() {
-  const [session, settings, referralTerms, { plans, packs, rates, alertRule }] =
+  const [settings, referralTerms, { plans, packs, rates, alertRule }] =
     await Promise.all([
-      getSessionUser(),
       publicSettings(),
       // Read straight from app_settings rather than through publicSettings, so
       // the referral scheme's own four amounts stay with the referral code.
@@ -62,14 +67,16 @@ export default async function PricingPage() {
       loadCatalogue(),
     ]);
 
-  // Where a signed-in reader goes from here, and where a signed-out one does.
-  // The page itself is the same for both - only the way out of it differs.
-  const signedIn = session !== null && session.profile.status === "active";
+  /*
+   * Rendered as for a signed-out reader, always, so the page can be cached at
+   * the edge (see publicHeaderAction). The sign-up and sign-in links forward a
+   * signed-in reader to their account, so they still land in the right place.
+   */
+  const signedIn = false as boolean;
   /* Null when both welcome amounts are 0, and the line simply disappears. */
   const welcomeLine = describeWelcomeBonus(referralTerms);
-  const home = signedIn && session.profile.role === "super_admin" ? "/admin" : "/portal";
   const headerAction = signedIn
-    ? { href: home, label: "Your account" }
+    ? { href: "/portal", label: "Your account" }
     : { href: "/login", label: "Sign in" };
 
   /* The buy button lives in the portal, so this page's job when payment is off
@@ -155,6 +162,9 @@ export default async function PricingPage() {
                         ? "Unlimited trucks watched at once"
                         : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} watched at once`}
                     </Feature>
+                    {autoCheckRateLabel(plan) ? (
+                      <Feature icon={<Gauge size={13} />}>{autoCheckRateLabel(plan)}</Feature>
+                    ) : null}
                     <Feature icon={<Wallet size={13} />}>
                       {formatCredits(plan.included_credits)} credits included
                     </Feature>
@@ -460,7 +470,8 @@ function WorkedExample({
   // Anchored on what a plan gives, because that is the first batch of credits
   // anyone here will own. A fixed pack is the next best thing, and a round
   // number the last resort.
-  const fromPlan = plans.find((plan) => plan.included_credits > 0)?.included_credits;
+  const anchorPlan = plans.find((plan) => plan.included_credits > 0);
+  const fromPlan = anchorPlan?.included_credits;
   const fromPack = packs.find((pack) => !pack.is_open_ended && pack.credits > 0)?.credits;
   const anchor = fromPlan ?? fromPack ?? FALLBACK_EXAMPLE_CREDITS;
   const anchorIsReal = fromPlan !== undefined || fromPack !== undefined;
@@ -473,8 +484,10 @@ function WorkedExample({
   const checksPerDay = intervalMinutes && intervalMinutes > 0
     ? Math.floor((24 * 60) / intervalMinutes)
     : null;
+  // The anchor plan's own automatic-check rate when it has one (0064).
+  const checksPerCredit = Number(anchorPlan?.auto_checks_per_credit) || checkRate?.units_per_credit;
   const creditsPerDay =
-    checkRate && checksPerDay ? costOf(checkRate.units_per_credit, checksPerDay) : null;
+    checksPerCredit && checksPerDay ? costOf(checksPerCredit, checksPerDay) : null;
   const daysWatched = creditsPerDay && creditsPerDay > 0 ? Math.floor(anchor / creditsPerDay) : null;
 
   return (

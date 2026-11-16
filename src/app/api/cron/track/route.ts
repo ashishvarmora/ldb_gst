@@ -7,7 +7,7 @@ import { maybeSendDailySummary } from "@/lib/daily-summary";
 import { env } from "@/lib/env";
 import { reconcileRecentPayments } from "@/lib/payment-reconcile";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { runTrackingSweep } from "@/lib/tracking";
+import { runTrackingSweep, sendPlanExpiryReminders } from "@/lib/tracking";
 
 /**
  * The tracking worker. One tick polls every truck whose interval has elapsed.
@@ -89,9 +89,11 @@ async function handle(request: NextRequest) {
   /* The mail work of /api/cron/notify, repeated here as its fallback: with no
      minute-schedule configured these still go out, just up to five minutes
      late. Both never throw and both are once-only, so running twice is safe. */
-  const [chatMail, dailySummary] = await Promise.all([
+  const [chatMail, dailySummary, planReminders] = await Promise.all([
     sendUnseenChatEmails(getSupabaseAdmin()),
     maybeSendDailySummary(getSupabaseAdmin()),
+    // 3 days / 1 day / last day / day after - each once per expiry date.
+    sendPlanExpiryReminders(),
   ]);
 
   try {
@@ -138,6 +140,7 @@ async function handle(request: NextRequest) {
       payments,
       chatMail,
       dailySummary,
+      planReminders,
     });
   } catch (error) {
     // The caller here is a scheduler, not a person, so this one keeps the real

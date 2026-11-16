@@ -34,8 +34,20 @@ export const loadSearchCost = cache(async (): Promise<number> => {
  * Wanted wherever a screen has to answer "would taking a truck live actually
  * work", which is a question about this rate and not about the search rate.
  */
-export const loadAutoCheckCost = cache(async (): Promise<number> => {
-  return costOf(await loadRate(getSupabaseAdmin(), CREDIT_ACTIONS.autoCheck));
+export const loadAutoCheckCost = cache(async (planId?: string | null): Promise<number> => {
+  const admin = getSupabaseAdmin();
+  // The plan sets how many automatic checks a credit buys (0064); the global
+  // rate is only the fallback, exactly as spend_credits() decides it.
+  if (planId) {
+    const { data } = await admin
+      .from("plans")
+      .select("auto_checks_per_credit")
+      .eq("id", planId)
+      .maybeSingle<{ auto_checks_per_credit: number | null }>();
+    const rate = Number(data?.auto_checks_per_credit);
+    if (rate > 0) return costOf(rate);
+  }
+  return costOf(await loadRate(admin, CREDIT_ACTIONS.autoCheck));
 });
 
 /**
@@ -198,15 +210,17 @@ export function topUpBlockedReason(
    * is null or not yet past, and the account is active - so a trial that is
    * still running does satisfy it, and the trial exclusion has to be explicit.
    */
+  /*
+   * OPEN TO EVERYONE (owner, 16 Nov 2026): "Topup bina plan ke bhi ho sakta
+   * hai, koi na rakho use." A plan is for automatic tracking only; credits pay
+   * for searches and never expire, so a customer who only searches now and
+   * then buys credits without a plan. The parameter stays so callers and the
+   * gate check keep their shape.
+   */
   // gate:begin
-  const holdsPlan = overview.plan_active && !overview.plan_is_trial;
+  void overview;
   // gate:end
-  if (holdsPlan) return null;
-
-  return (
-    "Credits top up an account that has a plan. Pick a plan above — you can add credits to " +
-    "the same payment, and credits you buy never expire."
-  );
+  return null;
 }
 
 /**

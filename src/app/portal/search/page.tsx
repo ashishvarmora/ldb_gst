@@ -95,7 +95,7 @@ export default async function SearchPage({
         : null;
 
   return <SearchWorkspace
-    form={<SearchBox hint={`${formatCredits(searchCost)} credits per search. Spaces and dashes are ignored.`} />}
+    form={<SearchBox hint={`${formatCredits(searchCost)} ${searchCost === 1 ? "credit" : "credits"} per search — refunded if the search fails. Spaces and dashes are ignored.`} />}
     history={history.map(log => ({ id: log.id, truck: log.truck_number, date: fmtDateTime(log.created_at), crossings: log.events_found, ok: log.ok }))}
     total={total}
     notice={notice ? <div className={`workspace-notice ${notice.blocking ? "is-blocking" : ""}`}><AlertTriangle size={18}/><p>{notice.text}</p><Link href={notice.href}>{notice.cta}</Link></div> : null}

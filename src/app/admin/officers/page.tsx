@@ -25,7 +25,7 @@ import {
 } from "@/components/ui";
 import { requireSuperAdmin } from "@/lib/auth";
 import { formatCredits } from "@/lib/credits";
-import { fmtDate, fmtRelative, initials } from "@/lib/format";
+import { fmtDate, fmtRelative, initials, istDaysAgo, istToday } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { OfficerOverview, Plan } from "@/lib/types";
@@ -59,6 +59,8 @@ type AccountSearchParams = {
   q?: string;
   status?: string;
   plan?: string;
+  /** "soon" = paid plan ends in the next 7 days; "expired" = it has ended. */
+  expiry?: string;
   sort?: string;
   page?: string;
 };
@@ -70,7 +72,7 @@ export default async function AccountsPage({
 }) {
   await requireSuperAdmin();
   const params = await searchParams;
-  const { q, status, plan } = params;
+  const { q, status, plan, expiry } = params;
   const sort: SortKey = isSort(params.sort) ? params.sort : "recent";
 
   const admin = getSupabaseAdmin();
@@ -94,6 +96,12 @@ export default async function AccountsPage({
     if (status === "active" || status === "suspended") narrowed = narrowed.eq("status", status);
     if (plan === "none") narrowed = narrowed.is("plan_id", null);
     else if (plan) narrowed = narrowed.eq("plan_id", plan);
+    // Renewals: who to call this week, and who has already lapsed.
+    if (expiry === "soon") {
+      narrowed = narrowed.gte("plan_expires_on", istToday()).lte("plan_expires_on", istDaysAgo(-7));
+    } else if (expiry === "expired") {
+      narrowed = narrowed.lt("plan_expires_on", istToday());
+    }
     if (term) {
       const like = `%${term}%`;
       narrowed = narrowed.or(
@@ -121,7 +129,7 @@ export default async function AccountsPage({
   const error = countError ?? rowsError;
   const rows = (accounts ?? []) as OfficerOverview[];
   const planList = (plans ?? []) as Plan[];
-  const filtered = Boolean(term || status || plan);
+  const filtered = Boolean(term || status || plan || expiry);
   const total = count ?? rows.length;
 
   return (
@@ -178,6 +186,12 @@ export default async function AccountsPage({
           <option value="">Any status</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
+        </Select>
+
+        <Select name="expiry" defaultValue={expiry ?? ""} className="w-full sm:w-48">
+          <option value="">Any expiry</option>
+          <option value="soon">Ends in 7 days</option>
+          <option value="expired">Plan ended</option>
         </Select>
 
         <Select name="plan" defaultValue={plan ?? ""} className="w-full sm:w-48">
@@ -338,7 +352,7 @@ export default async function AccountsPage({
         total={total}
         pageSize={PER_PAGE}
         noun="customers"
-        href={{ path: "/admin/officers", params: { q, status, plan, sort } }}
+        href={{ path: "/admin/officers", params: { q, status, plan, expiry, sort } }}
       />
 
       {rows.length > 0 ? (

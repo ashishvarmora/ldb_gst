@@ -1189,7 +1189,9 @@ function LoadFailed({ message }: { message: string }) {
   return (
     <EmptyState
       title="Could not read the ledger"
-      description={`${message}. Nothing has been lost — this is the screen failing to read the ledger, not the ledger being empty.`}
+      // `message` goes to the log, never the screen: a customer has no use for a
+      // database error and some read it as their credits having gone.
+      description={message ? "We couldn't load your credit history just now. Your balance is safe — please refresh in a moment." : "We couldn't load your credit history just now. Please refresh in a moment."}
     />
   );
 }

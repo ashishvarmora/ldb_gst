@@ -45,7 +45,7 @@ export function SearchBox({
             className="plate-input"
           />
         </div>
-        <SubmitButton className="plate-go" pendingLabel="">
+        <SubmitButton className="plate-go" pendingLabel="Searching…">
           <Search size={18} strokeWidth={2.4} />
           <span>Search</span>
         </SubmitButton>

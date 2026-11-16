@@ -56,15 +56,19 @@ export async function generateMetadata(): Promise<Metadata> {
     // Without a base, a shared link resolves its preview against the page it
     // was shared from rather than against us.
     metadataBase: new URL(env.siteUrl),
-    title: brandName,
+    // What search results and shared links show for the home page; every
+    // other page sets its own title.
+    title: `${brandName} — truck location by vehicle number, FASTag toll crossings`,
     description: DESCRIPTION,
     applicationName: brandName,
     openGraph: {
-      title: brandName,
+      title: `${brandName} — where is your truck? Check by vehicle number`,
       description: DESCRIPTION,
       siteName: brandName,
       type: "website",
+      locale: "en_IN",
     },
+    twitter: { card: "summary_large_image" },
     icons: {
       icon: [
         { url: "/brand/icon-32-v2.png", sizes: "32x32", type: "image/png" },

@@ -7,7 +7,7 @@ import { AuthCard, PublicShell, publicSettings } from "@/components/SiteFooter";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
-  return { title: `Forgot password — ${brandName}` };
+  return { title: `Forgot password — ${brandName}` , robots: { index: false } };
 }
 
 /*

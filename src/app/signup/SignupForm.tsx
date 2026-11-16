@@ -77,9 +77,14 @@ export function SignupForm({
         />
       </Field>
 
-      <SubmitButton className="w-full" pendingLabel="Creating your account...">
+      <SubmitButton className="w-full" pendingLabel="Creating your account…">
         Create account
       </SubmitButton>
+      <p className="text-center text-xs leading-relaxed text-muted">
+        By creating an account you agree to the{" "}
+        <a href="/terms" className="link">Terms of use</a> and the{" "}
+        <a href="/privacy" className="link">Privacy policy</a>.
+      </p>
     </ActionForm>
   );
 }
