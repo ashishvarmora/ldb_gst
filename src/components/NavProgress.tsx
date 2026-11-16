@@ -179,7 +179,7 @@ function NavProgressBar({ className }: { className?: string }) {
     <span
       aria-hidden
       className={cx(
-        "pointer-events-none fixed inset-x-0 top-[var(--sat)] z-50 h-0.5 animate-pulse bg-brand-500",
+        "nav-progress pointer-events-none fixed inset-x-0 top-[var(--sat)] z-50 h-0.5 animate-pulse bg-brand-500",
         className,
       )}
     />

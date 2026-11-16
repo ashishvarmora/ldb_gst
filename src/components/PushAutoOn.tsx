@@ -390,7 +390,7 @@ export function PushAutoOn({
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm sm:px-0 sm:pb-0"
+      className="push-banner fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm sm:px-0 sm:pb-0"
     >
       <div className="flex items-start gap-3 rounded-xl border border-line bg-raised p-4 shadow-lg">
         {prompt === "on" ? (

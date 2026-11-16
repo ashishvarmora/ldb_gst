@@ -149,7 +149,7 @@ export default async function AlertRulesPage({
     <>
       <PageHeader
         title="Alert rules"
-        subtitle="The catalogue people choose from. They attach a rule to a truck and set its interval — they never write a rule themselves."
+        subtitle="The alert types customers can choose. They pick one for a truck and set how often it checks."
         actions={
           <>
             <LinkButton href="/admin/alerts/log" variant="secondary">
@@ -256,7 +256,7 @@ export default async function AlertRulesPage({
       <Panel
         className="mt-5"
         title="How the catalogue works"
-        description="Worth knowing before you add a fast rule."
+        description="Read this before adding a fast rule."
       >
         <ul className="space-y-2.5 text-xs leading-relaxed text-muted">
           <li>

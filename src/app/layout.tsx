@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Mono, Instrument_Sans, Plus_Jakarta_Sans } from "next/font/google";
 
+import { OpeningSplash } from "@/components/OpeningSplash";
 import { ServiceWorkerRegistrar } from "@/components/Pwa";
 import { publicSettings } from "@/components/SiteFooter";
 import { VersionWatcher } from "@/components/VersionWatcher";
@@ -13,6 +14,9 @@ import "./mobile-app.css";
 import "./app-refinements.css";
 import "./auth-public.css";
 import "./screens-polish.css";
+import "./admin-theme.css";
+import "./opening-splash.css";
+import "./loading-truck.css";
 
 /*
  * The customer app's three faces: Plus Jakarta Sans
@@ -138,6 +142,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-screen antialiased">
+        <OpeningSplash />
         {children}
         <ServiceWorkerRegistrar />
         {/*

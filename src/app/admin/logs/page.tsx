@@ -27,7 +27,7 @@ export default async function AdminLogsPage({
     <>
       <PageHeader
         title="Logs"
-        subtitle="Every search, every alert and every change made in this console. Filter by account, truck or day."
+        subtitle="Searches, alerts and admin changes. Filter by account, truck or day."
       />
       <LogExplorer query={query} />
     </>

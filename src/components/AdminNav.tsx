@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 
+import { LogoMark } from "@/components/Logo";
 import { NavSpinner } from "@/components/NavPending";
 import { cx } from "@/components/ui";
 
@@ -103,7 +104,7 @@ function NavLinks({
   const pathname = usePathname();
 
   return (
-    <nav className="flex flex-col gap-3">
+    <nav className="admin-nav flex flex-col gap-3">
       {NAV.map((section) => (
         <div key={section.group ?? "top"}>
           {section.group ? (
@@ -165,7 +166,7 @@ export function AdminSidebar({
     /* Its own scroller, pinned: fourteen entries plus three headings is taller
        than a laptop viewport, and a sidebar that scrolls the page away from the
        report you are reading is worse than one that scrolls itself. */
-    <div className="sticky top-0 hidden h-screen w-60 shrink-0 overflow-y-auto border-r border-divider px-3 py-4 lg:block">
+    <div className="admin-sidebar sticky top-0 hidden h-screen w-60 shrink-0 overflow-y-auto border-r border-divider px-3 py-4 lg:block">
       <Brand brandName={brandName} />
       <div className="mt-5">
         <NavLinks unreadMessages={unreadMessages} />
@@ -241,7 +242,7 @@ export function AdminMobileNav({
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
-        className="animate-in relative z-10 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-panel px-3 py-4"
+        className="admin-drawer animate-in relative z-10 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-panel px-3 py-4"
       >
         <div className="flex shrink-0 items-center justify-between">
           <Brand brandName={brandName} />
@@ -313,12 +314,10 @@ export function AdminMobileNav({
 
 function Brand({ brandName }: { brandName?: string }) {
   return (
-    <Link href="/admin" className="flex items-center gap-2.5 px-1">
-      <span className="inline-flex size-8 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/12 text-brand-400">
-        <Truck size={16} />
-      </span>
+    <Link href="/admin" className="admin-brand flex items-center gap-2.5 px-1">
+      <LogoMark size={30} />
       <span className="min-w-0 leading-tight">
-        <span className="block truncate text-sm font-semibold text-strong">
+        <span className="admin-brand-name block truncate text-sm font-semibold text-strong">
           {brandName || DEFAULT_BRAND}
         </span>
         <span className="block text-[11px] text-faint">Admin console</span>

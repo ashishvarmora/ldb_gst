@@ -55,7 +55,7 @@ export function SignupForm({
         />
       </Field>
 
-      <PhoneField hint="We use this if something goes wrong with your account. 10 digits." />
+      <PhoneField hint="10 digits. We call this number only if there is a problem with your account." />
 
       <Field label="Password" name="password">
         <PasswordInput

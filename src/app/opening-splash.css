@@ -1,0 +1,228 @@
+/* ===========================================================================
+   The opening animation (src/components/OpeningSplash.tsx).
+
+   Plays on every full load, at an unhurried pace: about three seconds of
+   story. It stays until BOTH the story has finished and the page has finished
+   loading (the small script in OpeningSplash.tsx adds .splash-done), so on a
+   slow connection it covers the wait instead of flashing past it.
+
+   The failsafe is CSS alone: seven seconds after it appears the layer hides
+   itself whether or not that script ever ran. It never receives a tap.
+   =========================================================================== */
+.app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: #172f50;
+  background:
+    radial-gradient(60% 40% at 50% 44%, #e4edfb 0%, transparent 72%),
+    radial-gradient(46% 30% at 86% 98%, rgb(231 99 33 / 0.13) 0%, transparent 72%),
+    radial-gradient(40% 28% at 6% 2%, rgb(49 94 171 / 0.12) 0%, transparent 72%),
+    linear-gradient(180deg, #ffffff 0%, #f6f9fd 100%);
+  animation: splash-leave 500ms cubic-bezier(0.4, 0, 0.2, 1) 7000ms forwards;
+}
+/* A different keyframe name on purpose: re-timing the SAME running animation
+   keeps its clock, which is already past 500ms, so it would snap shut with no
+   fade at all. A new name starts a new animation from zero. */
+.splash-done .app-splash { animation: splash-leave-now 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+/* A faint field of dots, so the white has texture rather than being flat. */
+.app-splash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgb(23 47 80 / 0.09) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(70% 55% at 50% 46%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(70% 55% at 50% 46%, #000 0%, transparent 100%);
+}
+
+/* Inside the native app, in print, or with motion turned down: not shown. */
+.native-app .app-splash { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .app-splash { display: none; }
+}
+@media print {
+  .app-splash { display: none; }
+}
+
+.splash-stage {
+  position: relative;
+  width: min(340px, 84vw);
+  text-align: center;
+  animation: splash-rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.splash-done .splash-stage { animation: splash-stage-leave 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+/* The mark on a white tile, as in the admin sidebar. */
+.splash-logo {
+  display: inline-grid;
+  place-items: center;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid #e4e9f0;
+  box-shadow:
+    0 18px 36px -20px rgb(23 47 80 / 0.4),
+    0 0 0 6px rgb(49 94 171 / 0.06);
+  animation: splash-pop 760ms cubic-bezier(0.3, 1.4, 0.5, 1) backwards;
+}
+.splash-logo img { display: block; width: 94px; height: 48px; object-fit: contain; }
+
+.splash-scene { display: block; width: 100%; height: auto; overflow: visible; }
+
+.splash-caption {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #172f50;
+  animation: splash-rise 640ms cubic-bezier(0.2, 0.7, 0.2, 1) 300ms backwards;
+}
+.splash-dots { display: inline-flex; gap: 3px; }
+.splash-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e76321;
+  animation: splash-dot 1000ms ease-in-out 8;
+}
+.splash-dots i:nth-child(2) { animation-delay: 150ms; }
+.splash-dots i:nth-child(3) { animation-delay: 300ms; }
+
+/* Road, lane marks and route. */
+.splash-road { stroke: #e3eaf3; stroke-width: 7; stroke-linecap: round; }
+.splash-lane {
+  stroke: #b7c4d6;
+  stroke-width: 1.2;
+  stroke-dasharray: 7 9;
+  animation: splash-lane 700ms linear 4;
+}
+.splash-route,
+.splash-route-glow {
+  stroke: url(#splash-route-fill);
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: splash-draw 2300ms ease-in-out 400ms forwards;
+}
+.splash-route { stroke-width: 3.2; }
+.splash-route-glow { stroke-width: 11; opacity: 0.18; }
+
+/* Toll points: dim until passed, then green with a tick and a ring. */
+.splash-toll line { stroke: #cfd9e6; stroke-width: 2; stroke-linecap: round; }
+.splash-toll-dot {
+  fill: #ffffff;
+  stroke: #c3cfdf;
+  stroke-width: 1.6;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.splash-toll-ring {
+  fill: none;
+  stroke: #237861;
+  stroke-width: 1.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.splash-toll path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+.splash-toll-1 .splash-toll-dot { animation: splash-pass 460ms ease 1270ms forwards; }
+.splash-toll-1 .splash-toll-ring { animation: splash-ring 760ms ease-out 1320ms forwards; }
+.splash-toll-1 path { animation: splash-tick 240ms ease 1390ms forwards; }
+.splash-toll-2 .splash-toll-dot { animation: splash-pass 460ms ease 1620ms forwards; }
+.splash-toll-2 .splash-toll-ring { animation: splash-ring 760ms ease-out 1670ms forwards; }
+.splash-toll-2 path { animation: splash-tick 240ms ease 1740ms forwards; }
+.splash-toll-3 .splash-toll-dot { animation: splash-pass 460ms ease 2010ms forwards; }
+.splash-toll-3 .splash-toll-ring { animation: splash-ring 760ms ease-out 2060ms forwards; }
+.splash-toll-3 path { animation: splash-tick 240ms ease 2130ms forwards; }
+
+/* The pin drops when the truck arrives, and the ground ripples under it. */
+.splash-pin {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: splash-drop 520ms cubic-bezier(0.3, 1.5, 0.5, 1) 2560ms forwards;
+}
+.splash-pin path { fill: url(#splash-route-fill); }
+.splash-pin circle { fill: #ffffff; }
+.splash-ripple {
+  fill: none;
+  stroke: #e76321;
+  stroke-width: 1.4;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ripple 760ms ease-out 2860ms forwards;
+}
+
+/* The truck. */
+.splash-truck {
+  transform: translateX(-70px);
+  animation: splash-drive 2300ms ease-in-out 400ms forwards;
+}
+.splash-truck-body { animation: splash-bob 330ms ease-in-out 400ms 7 alternate; }
+.splash-truck-box { fill: #172f50; }
+.splash-truck-stripe { fill: #f0681f; }
+.splash-truck-cab { fill: #f0681f; }
+.splash-truck-glass { fill: #ffe6d6; }
+.splash-truck-light { fill: #ffd27a; }
+.splash-beam { fill: url(#splash-beam-fill); }
+.splash-wheel { fill: #0f2038; stroke: #ffffff; stroke-width: 1; }
+.splash-hub { fill: #c9d3e0; }
+.splash-ping {
+  fill: none;
+  stroke: #315eab;
+  stroke-width: 1.4;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ping 900ms ease-out 500ms 2;
+}
+.splash-ping-2 { animation-delay: 950ms; }
+
+@keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
+@keyframes splash-leave-now { to { opacity: 0; visibility: hidden; } }
+@keyframes splash-stage-leave { to { transform: scale(1.06); } }
+@keyframes splash-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes splash-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
+@keyframes splash-dot { 0%, 100% { opacity: 0.3; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+@keyframes splash-lane { to { stroke-dashoffset: -16; } }
+@keyframes splash-draw { to { stroke-dashoffset: 0.05; } }
+@keyframes splash-drive { to { transform: translateX(226px); } }
+@keyframes splash-bob { to { transform: translateY(-1.2px); } }
+@keyframes splash-pass {
+  40% { transform: scale(1.28); }
+  100% { transform: none; fill: #237861; stroke: #237861; }
+}
+@keyframes splash-ring {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(2.3); }
+}
+@keyframes splash-tick { to { opacity: 1; } }
+@keyframes splash-drop {
+  from { opacity: 0; transform: translateY(-18px) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes splash-ripple {
+  from { opacity: 0.9; transform: scale(0.6); }
+  to { opacity: 0; transform: scale(2.6); }
+}
+@keyframes splash-ping {
+  from { opacity: 0.9; transform: scale(0.5); }
+  to { opacity: 0; transform: scale(2.4); }
+}

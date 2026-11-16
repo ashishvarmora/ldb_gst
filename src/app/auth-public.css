@@ -61,3 +61,9 @@
   .public-shell > header nav > a { font-size: 12px; padding-inline: 9px; }
   .auth-legal { padding-inline: 17px; }
 }
+/* On a narrow phone the brand name, "Pricing" and the account button do not
+   all fit, and the brand name was the one cut short ("Rahd…"). Pricing gives
+   way instead: it is still one tap away on the home page and in the footer. */
+@media (max-width:419px) {
+  .public-shell > header nav > a.web-only:not(:only-child) { display: none; }
+}

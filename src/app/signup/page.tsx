@@ -68,7 +68,7 @@ export default async function SignupPage({
         title={signupEnabled ? "Create your account" : "Registration is closed"}
         intro={
           signupEnabled
-            ? "Start with your details. Choose a plan after signing up."
+            ? "Fill in your details. You can choose a plan after you sign up."
             : "New accounts are not being opened at the moment."
         }
         footer={

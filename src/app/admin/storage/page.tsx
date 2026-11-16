@@ -176,7 +176,7 @@ export default async function StoragePage() {
     <>
       <PageHeader
         title="Storage"
-        subtitle="The database is on a free tier and several tables grow without limit. Each one has its own window and its own answer to “was this copied first”."
+        subtitle="The database is on a free plan and some tables keep growing. Set how long each table is kept."
         actions={
           <LinkButton href="/admin/settings" variant="secondary">
             Sheet and schedule settings
@@ -254,7 +254,7 @@ export default async function StoragePage() {
         <div className="space-y-5 xl:col-span-2">
           <Panel
             title="Retention, one rule per table"
-            description="Each rule saves on its own. There is no save-everything button, so a money table cannot be trimmed as a side effect of shortening a log."
+            description="Each rule saves separately, so changing a log's rule cannot delete payment records."
             bodyClassName="p-0"
           >
             {rules.length === 0 ? (
@@ -427,7 +427,7 @@ export default async function StoragePage() {
 
           <Panel
             title="How deletion is decided"
-            description="Two properties worth knowing before shortening a window."
+            description="Read this before shortening how long data is kept."
           >
             <ul className="space-y-3 text-xs leading-relaxed text-muted">
               <li className="flex items-start gap-2">

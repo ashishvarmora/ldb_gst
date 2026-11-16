@@ -28,7 +28,7 @@ export default async function LoginPage() {
       <AuthCard
         icon={<Truck size={22} />}
         title={`Sign in to ${brandName}`}
-        intro="Welcome back. Pick up where you left off."
+        intro="Enter your email and password to continue."
         footer={
           signupEnabled ? (
             <>

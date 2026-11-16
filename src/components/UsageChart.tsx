@@ -66,7 +66,7 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
           return (
             <div
               key={day.date}
-              className="group relative flex flex-1 flex-col justify-end"
+              className="group relative flex h-full flex-1 flex-col justify-end"
               title={`${day.date}\n${day.manual} manual, ${day.tracking} tracking`}
             >
               <div
