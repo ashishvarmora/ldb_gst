@@ -92,6 +92,15 @@ self.addEventListener("fetch", (event) => {
         try {
           return await fetch(request);
         } catch {
+          /* One more try before giving up. On Indian mobile data a single
+             dropped request is common, and showing "You are offline" for it
+             is what made the site look down when it was not. */
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            return await fetch(request);
+          } catch {
+            /* Really unreachable - fall through to the notice. */
+          }
           const cache = await caches.open(SHELL);
           const offline = await cache.match(OFFLINE_URL);
           return (

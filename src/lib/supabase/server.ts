@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 import { env } from "@/lib/env";
+import { fetchWithTimeout } from "@/lib/supabase/timeout";
 
 /**
  * Session-bound client. Reads the signed-in user from cookies and is subject to
@@ -11,6 +12,8 @@ export async function getSupabaseServer() {
   const cookieStore = await cookies();
 
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
+    // A signed-in customer is waiting on every call made through this client.
+    global: { fetch: fetchWithTimeout(15_000) },
     cookies: {
       getAll() {
         return cookieStore.getAll();

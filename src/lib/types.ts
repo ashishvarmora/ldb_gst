@@ -613,6 +613,16 @@ export type AppSettings = {
   adminPushPayment: boolean;
   adminPushPaymentFailed: boolean;
   adminPushChat: boolean;
+  /**
+   * The Android app offered for download. Blank means the APK bundled with the
+   * site (public/rahdari.apk). Set from Admin → Settings → Mobile app, either by
+   * uploading a new APK there or by pasting a link to one.
+   */
+  androidApkUrl: string;
+  /** Shown beside the download button, e.g. "1.0.14". Blank hides it. */
+  androidApkVersion: string;
+  /** Size of the current APK in bytes, for the "5.4 MB" label. 0 if unknown. */
+  androidApkBytes: number;
 };
 
 /* -------------------------------------------------------------------------- */

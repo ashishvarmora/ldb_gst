@@ -13,6 +13,7 @@ import {
 import {
   runTrackingNow,
   saveAdminPushSettings,
+  saveApkLink,
   saveBackupSettings,
   saveCustomerMailSettings,
   saveNotificationSettings,
@@ -23,6 +24,7 @@ import {
   sendTestDailySummary,
 } from "./actions";
 import { PushSetup } from "@/app/portal/settings/PushSetup";
+import { ApkUpload } from "./ApkUpload";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { SectionTabs, activeSection, type Section } from "@/components/SectionTabs";
 import { Checkbox, Field, FormActions, FormGrid, Input, Select, Textarea } from "@/components/form";
@@ -56,6 +58,7 @@ const SETTINGS_SECTIONS: Section[] = [
   { key: "notify", label: "Notify admin", hint: "Who is emailed, about what, and the daily summary" },
   { key: "tracking", label: "Tracking", hint: "The engine, its schedule, and running it by hand" },
   { key: "payments", label: "Payments", hint: "Taking money, and what a customer must provide" },
+  { key: "app", label: "Mobile app", hint: "The Android APK customers download, and the iPhone shortcut" },
   { key: "data", label: "Data & exports", hint: "Sheets, exporting and how long rows are kept" },
   { key: "health", label: "Health", hint: "Whether it is wired up, and the values in force" },
 ];
@@ -966,6 +969,112 @@ export default async function SettingsPage({
               {typeof settings.last_sheet_export_at === "string"
                 ? fmtRelative(settings.last_sheet_export_at)
                 : "never"}
+            </p>
+          </Panel>
+        </div>
+      ) : null}
+
+      {section === "app" ? (
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+          <Panel
+            title="Android app (APK)"
+            description="Every Download for Android button on the site goes to /download/android, which hands out whatever is published here. Publishing a new APK takes effect on the next tap - no deploy."
+          >
+            <div className="mb-5 space-y-1.5 rounded-lg border border-line/70 bg-panel/50 p-4 text-sm">
+              <DescRow label="Giving out">
+                {site.androidApkUrl ? (
+                  <a href={site.androidApkUrl} className="break-all text-brand-500 hover:underline">
+                    {site.androidApkUrl.replace(/[?].*$/, "")}
+                  </a>
+                ) : (
+                  <span>The APK bundled with the site (public/rahdari.apk)</span>
+                )}
+              </DescRow>
+              <DescRow label="Version">{site.androidApkVersion ? `v${site.androidApkVersion}` : "—"}</DescRow>
+              <DescRow label="Size">
+                {site.androidApkBytes > 0 ? `${(site.androidApkBytes / 1048576).toFixed(1)} MB` : "—"}
+              </DescRow>
+            </div>
+
+            <ApkUpload currentVersion={site.androidApkVersion} />
+
+            <details className="mt-6 rounded-lg border border-line/70 p-4">
+              <summary className="cursor-pointer text-sm font-medium text-ink">
+                Or use a link to an APK hosted elsewhere
+              </summary>
+              <ActionForm action={saveApkLink} closeOnSuccess={false} className="mt-4 space-y-4">
+                <Field
+                  label="APK link"
+                  name="android_apk_url"
+                  hint="Must start with https:// and download the .apk directly. Blank goes back to the APK bundled with the site."
+                >
+                  <Input
+                    name="android_apk_url"
+                    type="url"
+                    defaultValue={site.androidApkUrl}
+                    placeholder="https://github.com/…/releases/download/v1.0.15/rahdari.apk"
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label="Version" name="android_apk_version">
+                  <Input
+                    name="android_apk_version"
+                    defaultValue={site.androidApkVersion}
+                    placeholder="1.0.15"
+                    maxLength={30}
+                    autoComplete="off"
+                    className="max-w-48"
+                  />
+                </Field>
+                <FormActions>
+                  <SubmitButton>Save link</SubmitButton>
+                </FormActions>
+              </ActionForm>
+            </details>
+          </Panel>
+
+          <Panel title="How to ship a new Android version" description="From a code change to customers installing it.">
+            <ol className="list-decimal space-y-2.5 pl-5 text-sm leading-relaxed text-muted">
+              <li>
+                Get the new APK. Changes to the <Mono className="text-xs">mobile/</Mono> folder are built
+                by GitHub: open the repository → <strong className="text-ink">Actions</strong> →{" "}
+                <strong className="text-ink">Android app</strong> → the latest green run →{" "}
+                <strong className="text-ink">Artifacts</strong>, download it and unzip to get the .apk.
+              </li>
+              <li>
+                Come back to this tab, choose the file under <strong className="text-ink">New APK file</strong>,
+                type its version (the run number, e.g. 1.0.15) and press{" "}
+                <strong className="text-ink">Upload and publish</strong>.
+              </li>
+              <li>
+                Check it: open <Mono className="text-xs">rahdari.in/download/android</Mono> on a phone. The
+                new file should download and install over the old app.
+              </li>
+              <li>
+                Customers who already have the app keep the old version until they download it again. Most
+                changes do not need a new APK at all - the app shows the live website, so website changes
+                reach it straight away. A new APK is only needed for changes inside{" "}
+                <Mono className="text-xs">mobile/</Mono> (icon, permissions, native features).
+              </li>
+              <li>
+                Keep using the same kind of build. A signed release APK will not install over a debug one (or
+                the other way round) - the customer would have to uninstall first.
+              </li>
+            </ol>
+          </Panel>
+
+          <Panel
+            title="iPhone"
+            description="There is no APK for iPhone. The site added to the Home Screen is the iPhone app, and it is the only way iOS lets a website send notifications."
+          >
+            <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted">
+              <li>Open rahdari.in in Safari.</li>
+              <li>Tap Share (the square with an arrow) → Add to Home Screen → Add.</li>
+              <li>Open Rahdari from the new icon, sign in and tap Allow for notifications.</li>
+            </ol>
+            <p className="mt-3 text-xs text-faint">
+              These steps are already shown to customers next to the Android download, and in the alert banner
+              on iPhones. Nothing to change here when the app changes. Needs iOS 16.4 or newer.
             </p>
           </Panel>
         </div>

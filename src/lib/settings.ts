@@ -62,6 +62,9 @@ export const SETTINGS_FALLBACK: AppSettings = {
   adminPushPayment: true,
   adminPushPaymentFailed: true,
   adminPushChat: true,
+  androidApkUrl: "",
+  androidApkVersion: "",
+  androidApkBytes: 0,
 };
 
 /**
@@ -172,5 +175,8 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     adminPushPayment: map.get("admin_push_payment") !== false,
     adminPushPaymentFailed: map.get("admin_push_payment_failed") !== false,
     adminPushChat: map.get("admin_push_chat") !== false,
+    androidApkUrl: text("android_apk_url", ""),
+    androidApkVersion: text("android_apk_version", ""),
+    androidApkBytes: number("android_apk_bytes", 0),
   };
 }

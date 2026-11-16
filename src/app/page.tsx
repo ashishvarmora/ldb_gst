@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AppDownload } from "@/components/AppDownload";
 import { HomeLanding } from "@/components/HomeLanding";
 import { SiteFooter, publicSettings } from "@/components/SiteFooter";
 import { formatCredits, planChargeInr, planTermSuffix } from "@/lib/credits";
@@ -48,6 +49,7 @@ export default async function Home() {
           credits: formatCredits(plan.included_credits),
         }))}
         alertRules={alertRules}
+        appSection={<AppDownload className="mt-5" />}
       />
       <footer className="welcome-footer"><span>{brandName}</span><nav aria-label="Footer"><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>
     </div>
