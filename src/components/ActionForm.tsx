@@ -71,16 +71,24 @@ export function SubmitButton({
   size = "md",
   className,
   pendingLabel,
+  ariaLabel,
 }: {
   children: ReactNode;
   variant?: ButtonVariant;
   size?: "sm" | "md";
   className?: string;
   pendingLabel?: string;
+  /** For a button whose visible text is hidden on small screens. */
+  ariaLabel?: string;
 }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} className={buttonClass(variant, size, className)}>
+    <button
+      type="submit"
+      disabled={pending}
+      aria-label={ariaLabel}
+      className={buttonClass(variant, size, className)}
+    >
       {pending ? <Loader2 size={14} className="animate-spin" /> : null}
       {pending ? (pendingLabel ?? "Saving...") : children}
     </button>

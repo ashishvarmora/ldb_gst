@@ -98,7 +98,9 @@ export default async function SearchResultPage({
   const total = count ?? eventList.length;
   const oldest = ((oldestRows ?? []) as TruckEvent[])[0] ?? null;
   const slots = truckSlotsLeft(overview);
-  const status = tracked ? (tracked.is_active ? tracked.status : "unknown") : null;
+  // A paused truck said "Not checked yet" here - right beside a search that had
+  // just checked it. Paused is its own badge; the status is only for an active one.
+  const status = tracked?.is_active ? tracked.status : null;
 
   return (
     <>
@@ -117,6 +119,8 @@ export default async function SearchResultPage({
           </h1>
           {status ? (
             <Badge tone={TRUCK_STATUS_TONE[status]}>{TRUCK_STATUS_LABEL[status]}</Badge>
+          ) : tracked ? (
+            <Badge tone="warn">Tracking paused</Badge>
           ) : (
             <Badge>not tracked</Badge>
           )}

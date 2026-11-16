@@ -244,6 +244,37 @@ export function PushAutoOn({
       .catch((error) => console.error("push permission request failed", error));
   }, [show, subscribe]);
 
+  /*
+   * The "blocked" banner's button (owner, 16 Nov 2026: "allow notification ka
+   * button rakh sakte hai jisse browser me popup aaye?").
+   *
+   * Asking again from a tap is worth trying: when Chrome blocked the site by
+   * itself - after prompts were ignored, or with its "quieter" mode - a tap can
+   * bring the box back. When the reader pressed Block, though, every browser
+   * answers "denied" at once and shows nothing, and no page can change that.
+   * So the box is tried first, and only if it cannot appear does the banner say
+   * so and point at the steps above it.
+   */
+  const askAgain = useCallback(() => {
+    setNote(null);
+    void Notification.requestPermission()
+      .then(async (permission) => {
+        if (cancelled.current) return;
+        if (permission !== "granted") {
+          setNote({
+            ok: false,
+            text: "Your browser did not show the box because this site is blocked there. Follow the 3 steps above — it takes 10 seconds.",
+          });
+          return;
+        }
+        const ok = await subscribe().catch(() => false);
+        if (cancelled.current) return;
+        connected.current = ok;
+        setPrompt(ok ? "on" : "broken");
+      })
+      .catch((error) => console.error("push permission request failed", error));
+  }, [subscribe]);
+
   useEffect(() => {
     cancelled.current = false;
     forgetLegacyOffSwitch();
@@ -379,7 +410,9 @@ export function PushAutoOn({
   const action =
     prompt === "ask"
       ? { label: "Allow notifications", run: askWeb }
-      : prompt === "app-off"
+      : prompt === "blocked" && at !== "app"
+        ? { label: "Allow notifications", run: askAgain }
+        : prompt === "app-off"
         ? { label: "Turn on notifications", run: () => recheck.current?.(true) }
         : prompt === "broken"
           ? { label: "Try again", run: () => recheck.current?.(true) }

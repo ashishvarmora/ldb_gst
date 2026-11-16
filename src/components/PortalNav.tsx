@@ -36,6 +36,6 @@ export function PortalBottomNav() {
   const pathname = usePathname();
   return <nav aria-label="Primary" style={{ "--active-tab": Math.max(0, NAV.findIndex(item => isActive(pathname, item.href))) } as CSSProperties} className="portal-bottom-nav app-chrome fixed z-40 app-bar lg:hidden"><div className="app-tab-bar mx-auto flex max-w-lg items-stretch">{NAV.map(({ href, label, icon: Icon }) => {
     const active = isActive(pathname, href);
-    return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cx("app-tab", active && "app-tab-active")}><NavTabPending /><span className="app-tab-icon"><Icon size={23} strokeWidth={active ? 2.3 : 1.7} /></span><span>{label}</span></Link>;
+    return <Link key={href} href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cx("app-tab", active && "app-tab-active")}><NavTabPending /><span className="app-tab-icon"><Icon size={23} strokeWidth={active ? 2.3 : 1.7} /></span><span>{label}</span></Link>;
   })}</div></nav>;
 }

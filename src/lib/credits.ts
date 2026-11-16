@@ -315,6 +315,9 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   // referral. Its own reason so the giveaway report can split the scheme's
   // cost between the person who shared and the person who joined.
   referral_welcome: "Welcome bonus",
+  // Written by runManualLookup() when the toll portal fails: the hold taken
+  // for the search is released, so the pair nets to nothing (0062).
+  search_refund: "Search failed — credit returned",
 };
 
 /* -------------------------------------------------------------------------- */
