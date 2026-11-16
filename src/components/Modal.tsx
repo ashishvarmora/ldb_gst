@@ -87,7 +87,7 @@ export function Modal({
          * below the status bar and scrolls this container. From sm up it is
          * the centred dialog it always was.
          */
-        <div className="fixed inset-0 z-50 flex flex-col items-stretch overflow-y-auto overscroll-contain pt-[calc(var(--sat)+2.5rem)] sm:items-center sm:p-6">
+        <div className="sheet-overlay fixed inset-0 z-50 flex flex-col items-stretch justify-end pt-[calc(var(--sat)+1rem)] sm:items-center sm:justify-start sm:overflow-y-auto sm:overscroll-contain sm:p-6">
           <div
             className="backdrop-in fixed inset-0 bg-strong/25 backdrop-blur-sm"
             onClick={close}
@@ -98,7 +98,7 @@ export function Modal({
             aria-modal="true"
             aria-label={title}
             className={cx(
-              "sheet-up relative z-10 mt-auto w-full rounded-t-3xl border border-b-0 border-line bg-panel pb-[var(--sab)] [box-shadow:var(--shadow-pop)] sm:my-auto sm:rounded-2xl sm:border-b sm:pb-0",
+              "sheet-panel sheet-up relative z-10 flex w-full flex-col rounded-t-3xl border border-b-0 border-line bg-panel pb-[var(--sab)] [box-shadow:var(--shadow-pop)] sm:my-auto sm:block sm:rounded-2xl sm:border-b sm:pb-0",
               maxWidth,
             )}
           >
@@ -117,10 +117,10 @@ export function Modal({
              * when they opened the wrong form.
              */}
             {/* The phone's "this is a sheet" mark. Not on the centred dialog. */}
-            <div aria-hidden className="flex justify-center pt-2.5 sm:hidden">
+            <div aria-hidden className="flex shrink-0 justify-center pt-2.5 sm:hidden">
               <span className="h-1 w-10 rounded-full bg-line-strong" />
             </div>
-            <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
               <div className="min-w-0 break-words">
                 <h2 className="text-base font-semibold text-strong">{title}</h2>
                 {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
@@ -134,7 +134,10 @@ export function Modal({
                 <X size={16} />
               </button>
             </header>
-            <div className="px-5 py-4">
+            {/* On a phone only this part scrolls, inside a sheet that is held
+                to the screen's height - so a field taking focus, or the
+                keyboard opening, moves the form and never the sheet. */}
+            <div className="sheet-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:overflow-visible">
               <ModalCloseContext.Provider value={close}>{children}</ModalCloseContext.Provider>
             </div>
           </div>

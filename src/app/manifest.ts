@@ -50,12 +50,12 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     theme_color: "#FFFFFF",
     categories: ["business", "productivity", "utilities"],
     icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/brand/icon-192-v2.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/brand/icon-512-v2.png", sizes: "512x512", type: "image/png", purpose: "any" },
       // Android crops to its own shape; these keep the ground full-bleed and
       // the truck inside the safe zone so nothing important is cut off.
-      { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-      { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/brand/icon-maskable-192-v2.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/brand/icon-maskable-512-v2.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     /*
      * Long-press the icon and these are the three jobs. They track the bottom
