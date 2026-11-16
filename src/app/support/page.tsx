@@ -7,6 +7,10 @@ import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicHeaderAction, publicSettings } from "@/components/SiteFooter";
 import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE } from "@/lib/pause";
 
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {

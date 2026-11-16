@@ -5,7 +5,6 @@ import { Mail, MapPin, Phone } from "lucide-react";
 
 import { LogoBadge } from "@/components/Logo";
 import { LinkButton, cx } from "@/components/ui";
-import { getSessionUser } from "@/lib/auth";
 import { loadSettings, SETTINGS_FALLBACK } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { reportError } from "@/lib/errors";
@@ -51,13 +50,15 @@ export type HeaderAction = { href: string; label: string };
  * ways is how a header ends up offering the page you are already on.
  */
 export async function publicHeaderAction(): Promise<HeaderAction> {
-  const session = await getSessionUser();
-  const signedIn = session !== null && session.profile.status === "active";
-  if (!signedIn) return { href: "/login", label: "Sign in" };
-  return {
-    href: session.profile.role === "super_admin" ? "/admin" : "/portal",
-    label: "Your account",
-  };
+  /*
+   * Always "Sign in" now (16 Nov 2026). Reading the session here made every
+   * public page dynamic - rendered afresh on each visit - and under a load
+   * test the pricing page fell to ~8 requests a second with timeouts. Without
+   * it these pages are cached at the edge and refreshed every few minutes.
+   * A reader who is already signed in loses nothing: /login sends them
+   * straight on to their account.
+   */
+  return { href: "/login", label: "Sign in" };
 }
 
 /**

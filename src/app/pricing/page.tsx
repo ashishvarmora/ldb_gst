@@ -24,9 +24,12 @@ import {
   describeWelcomeBonus,
   loadReferralTerms,
 } from "@/lib/referrals";
-import { getSessionUser } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AlertRuleTemplate, CreditPack, CreditRate, Plan } from "@/lib/types";
+
+/* Cached at the edge and rebuilt at most every five minutes - see
+   publicHeaderAction in src/components/SiteFooter.tsx. */
+export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
@@ -52,9 +55,8 @@ const FALLBACK_EXAMPLE_CREDITS = 100;
  * how many trucks may be watched, credits are what the watching spends.
  */
 export default async function PricingPage() {
-  const [session, settings, referralTerms, { plans, packs, rates, alertRule }] =
+  const [settings, referralTerms, { plans, packs, rates, alertRule }] =
     await Promise.all([
-      getSessionUser(),
       publicSettings(),
       // Read straight from app_settings rather than through publicSettings, so
       // the referral scheme's own four amounts stay with the referral code.
@@ -62,14 +64,16 @@ export default async function PricingPage() {
       loadCatalogue(),
     ]);
 
-  // Where a signed-in reader goes from here, and where a signed-out one does.
-  // The page itself is the same for both - only the way out of it differs.
-  const signedIn = session !== null && session.profile.status === "active";
+  /*
+   * Rendered as for a signed-out reader, always, so the page can be cached at
+   * the edge (see publicHeaderAction). The sign-up and sign-in links forward a
+   * signed-in reader to their account, so they still land in the right place.
+   */
+  const signedIn = false as boolean;
   /* Null when both welcome amounts are 0, and the line simply disappears. */
   const welcomeLine = describeWelcomeBonus(referralTerms);
-  const home = signedIn && session.profile.role === "super_admin" ? "/admin" : "/portal";
   const headerAction = signedIn
-    ? { href: home, label: "Your account" }
+    ? { href: "/portal", label: "Your account" }
     : { href: "/login", label: "Sign in" };
 
   /* The buy button lives in the portal, so this page's job when payment is off
