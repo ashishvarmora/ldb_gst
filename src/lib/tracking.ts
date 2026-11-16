@@ -19,6 +19,8 @@ import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
 import { fmtDateTime } from "@/lib/format";
+import { canEmailCustomers, esc, sendEmail, shell } from "@/lib/email";
+import { env } from "@/lib/env";
 import type {
   AppSettings,
   EffectiveLimits,
@@ -1550,3 +1552,113 @@ export async function runTrackingSweep(
   });
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* plan expiry reminders                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Tells a customer their plan is about to end, and that it has ended.
+ *
+ * Expiry itself was already enforced - spend_credits() refuses automatic
+ * checks the day after plan_expires_on, and applyPlanExpiryTeardown() pauses
+ * the trucks after the grace days - but nobody was warned beforehand, so a
+ * plan simply went quiet. Four messages per expiry date, each sent once:
+ *
+ *   3 days before · the day before · on the last day · the day after it ended
+ *
+ * Push, Telegram (through sendSystemAlert, which also logs it in the alert
+ * bell) and an email. Each one is keyed on the expiry date as well as the
+ * stage, so renewing and lapsing again later warns again. Never throws.
+ */
+export async function sendPlanExpiryReminders(): Promise<{ sent: number }> {
+  const admin = getSupabaseAdmin();
+  let sent = 0;
+
+  try {
+    const stages = new Map<string, -1 | 0 | 1 | 3>([
+      [istDaysAgo(-3), 3],
+      [istDaysAgo(-1), 1],
+      [istToday(), 0],
+      [istDaysAgo(1), -1],
+    ]);
+
+    const { data, error } = await admin
+      .from("profiles")
+      .select("id, email, full_name, credits, plan_expires_on, plan:plans(name, is_trial)")
+      .eq("role", "officer")
+      .eq("status", "active")
+      .not("plan_id", "is", null)
+      .in("plan_expires_on", [...stages.keys()])
+      .limit(200);
+
+    if (error) {
+      console.error("plan reminders: could not list accounts", error.message);
+      return { sent };
+    }
+
+    const settings = await loadSettings(admin);
+
+    for (const row of (data ?? []) as unknown as {
+      id: string;
+      email: string;
+      full_name: string | null;
+      credits: number;
+      plan_expires_on: string;
+      plan: { name: string; is_trial: boolean } | null;
+    }[]) {
+      const stage = stages.get(row.plan_expires_on);
+      if (stage === undefined) continue;
+      const kind = `plan_reminder:${row.plan_expires_on}:${stage}`;
+
+      const { data: already } = await admin
+        .from("alert_logs")
+        .select("id")
+        .eq("user_id", row.id)
+        .eq("kind", kind)
+        .limit(1);
+      if ((already ?? []).length > 0) continue;
+
+      const what = row.plan?.is_trial ? "Your free trial" : `Your ${row.plan?.name ?? ""} plan`.replace("  ", " ");
+      const date = new Date(`${row.plan_expires_on}T00:00:00+05:30`).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        timeZone: "Asia/Kolkata",
+      });
+      const credits = Math.floor(Number(row.credits) || 0);
+      const keep = `Your trucks, history and ${credits} credit${credits === 1 ? "" : "s"} stay safe, and searching keeps working.`;
+
+      const title =
+        stage === 3 ? `${what} ends in 3 days`
+        : stage === 1 ? `${what} ends tomorrow`
+        : stage === 0 ? `${what} ends today`
+        : `${what} has ended`;
+      const message =
+        stage === -1
+          ? `Automatic tracking has stopped. ${keep} ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to start tracking again.`
+          : `Automatic tracking stops after ${date}. ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to keep your trucks watched — credits never expire.`;
+
+      const context = await loadOfficerContext(admin, row.id);
+      await sendSystemAlert({ admin, context, truckNumber: null, kind, title, message });
+
+      if (row.email && canEmailCustomers()) {
+        const url = `${env.siteUrl}/portal/plan`;
+        const mail = await sendEmail({
+          to: row.email,
+          subject: `${title} — ${settings.brandName}`,
+          html: shell(settings.brandName, title, [esc(message)], {
+            label: stage === -1 || row.plan?.is_trial ? "Choose a plan" : "Renew now",
+            url,
+          }),
+          text: `${title}\n\n${message}\n\n${url}`,
+          replyTo: settings.supportEmail || null,
+        });
+        if (!mail.ok) console.error(`plan reminder mail not sent (${row.id}):`, mail.error);
+      }
+      sent += 1;
+    }
+  } catch (error) {
+    console.error("plan reminders crashed:", error);
+  }
+  return { sent };
+}

@@ -17,6 +17,12 @@ export type Plan = {
   /** How many trucks may be under automatic checking at once. */
   truck_limit: number;
   /**
+   * How many automatic checks one credit buys on this plan (0064) - the plan's
+   * main benefit. Null falls back to the global credit_rates.auto_check rate.
+   * Manual search is never priced by the plan.
+   */
+  auto_checks_per_credit: number | null;
+  /**
    * The same number as truck_limit, under the word the product uses. Generated
    * in the database (0038), so it can never disagree with it - and so nothing
    * writes here: a change is written to truck_limit, which is where every

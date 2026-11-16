@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { ArrowRight, CalendarClock, Gift, Info, Truck, Wallet } from "lucide-react";
+import { ArrowRight, CalendarClock, Gauge, Gift, Info, Truck, Wallet } from "lucide-react";
 
 import { HelpNote } from "@/components/Disclosure";
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { Badge, LinkButton, Panel, cx } from "@/components/ui";
 import {
   CREDIT_ACTIONS,
+  autoCheckRateLabel,
   costOf,
   describeOpenTier,
   describeRate,
@@ -161,6 +162,9 @@ export default async function PricingPage() {
                         ? "Unlimited trucks watched at once"
                         : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} watched at once`}
                     </Feature>
+                    {autoCheckRateLabel(plan) ? (
+                      <Feature icon={<Gauge size={13} />}>{autoCheckRateLabel(plan)}</Feature>
+                    ) : null}
                     <Feature icon={<Wallet size={13} />}>
                       {formatCredits(plan.included_credits)} credits included
                     </Feature>
@@ -466,7 +470,8 @@ function WorkedExample({
   // Anchored on what a plan gives, because that is the first batch of credits
   // anyone here will own. A fixed pack is the next best thing, and a round
   // number the last resort.
-  const fromPlan = plans.find((plan) => plan.included_credits > 0)?.included_credits;
+  const anchorPlan = plans.find((plan) => plan.included_credits > 0);
+  const fromPlan = anchorPlan?.included_credits;
   const fromPack = packs.find((pack) => !pack.is_open_ended && pack.credits > 0)?.credits;
   const anchor = fromPlan ?? fromPack ?? FALLBACK_EXAMPLE_CREDITS;
   const anchorIsReal = fromPlan !== undefined || fromPack !== undefined;
@@ -479,8 +484,10 @@ function WorkedExample({
   const checksPerDay = intervalMinutes && intervalMinutes > 0
     ? Math.floor((24 * 60) / intervalMinutes)
     : null;
+  // The anchor plan's own automatic-check rate when it has one (0064).
+  const checksPerCredit = Number(anchorPlan?.auto_checks_per_credit) || checkRate?.units_per_credit;
   const creditsPerDay =
-    checkRate && checksPerDay ? costOf(checkRate.units_per_credit, checksPerDay) : null;
+    checksPerCredit && checksPerDay ? costOf(checksPerCredit, checksPerDay) : null;
   const daysWatched = creditsPerDay && creditsPerDay > 0 ? Math.floor(anchor / creditsPerDay) : null;
 
   return (

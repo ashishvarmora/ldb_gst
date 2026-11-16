@@ -132,10 +132,10 @@ export default async function CreditHistoryPage({
                     directly below it lists auto_check rows. One credit a check,
                     either kind. */}
                 <p>
-                  Every look at a lorry costs {formatCredits(searchCost)} credit
-                  {searchCost === 1 ? "" : "s"} — a search you run yourself and an automatic check
-                  alike. Credits never expire. Pausing a truck stops its checks, so it stops
-                  spending.
+                  A search you run costs {formatCredits(searchCost)} credit
+                  {searchCost === 1 ? "" : "s"}. An automatic check costs less — your plan decides
+                  how many automatic checks one credit buys. Credits never expire. Pausing a truck
+                  stops its checks, so it stops spending.
                 </p>
                 <p>
                   Credits can arrive without a payment: a plan an administrator assigned by hand, a

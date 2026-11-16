@@ -91,9 +91,10 @@ export default async function ActivityPage({
           wrong when it is not.
         */}
         <HelpNote title="What actually costs credits?">
-          Every look at a lorry, at one credit each — the searches you type, and each automatic
-          check of a truck you are watching. The automatic ones are almost always the bigger
-          number: a truck on a 15-minute alert is checked 96 times a day whether or not it moves.
+          Every look at a truck — the searches you type, and each automatic check of a truck
+          you are watching. A search costs the same for everyone; an automatic check costs what
+          your plan says (a bigger plan gets more checks per credit). The automatic ones are
+          usually the bigger number: a truck on a 15-minute alert is checked 96 times a day.
           So how closely you watch is what it costs, and pausing a truck stops it. Your plan caps
           how many trucks may be watched at once and for how long, not what the looking costs.
         </HelpNote>

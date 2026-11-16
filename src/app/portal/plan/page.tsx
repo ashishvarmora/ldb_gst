@@ -22,6 +22,7 @@ import { Disclosure } from "@/components/Disclosure";
 import { SupportPanel } from "@/components/SupportLine";
 import { Badge, LinkCard, PageHeader, Panel, QuotaBar, buttonClass, cx } from "@/components/ui";
 import {
+  autoCheckRateLabel,
   creditStanding,
   describeRate,
   formatCredits,
@@ -288,10 +289,12 @@ export default async function PlanPage() {
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Step n={1} title="Pick a plan">
-                It decides how many trucks may be watched at once, and how long for.
+                It decides how many trucks are watched automatically, for how long, and how many
+                automatic checks one credit buys.
               </Step>
               <Step n={2} title="Watching spends credits">
-                One credit per check, so a faster alert costs more. Pause a truck to stop it.
+                Each automatic check uses part of a credit, so a faster alert costs more. Pause a
+                truck to stop it.
               </Step>
               {/* "with a plan or without one" was the promise the old rule
                   made, and the top-up panel three inches below this one now
@@ -729,7 +732,8 @@ function TrialCard({
           truck you watch
         </TrialPoint>
         <TrialPoint icon={<Truck size={13} />}>
-          {trucks} watched automatically, at one credit a check
+          {trucks} watched automatically
+          {autoCheckRateLabel(plan) ? ` — ${autoCheckRateLabel(plan)}` : ""}
         </TrialPoint>
         <TrialPoint icon={<CalendarDays size={13} />}>
           Ends by itself after {days} day{days === 1 ? "" : "s"} — and the credits end with it

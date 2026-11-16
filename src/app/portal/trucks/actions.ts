@@ -424,7 +424,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
    * exactly the wrong lesson to teach at that moment. A truck added now would
    * be paused as 'no_credits' by the first sweep that reached it.
    */
-  const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+  const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
   if (noCredits) return fail(noCredits);
 
   if (truckSlotsLeft(overview) <= 0) {
@@ -585,7 +585,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
        truck live and the officer cannot tell which one they used - the same
        argument that put the failure-counter clear in both. */
     if (overview) {
-      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
       if (noCredits) return fail(noCredits);
     }
     if (overview && truckSlotsLeft(overview) <= 0) {
@@ -942,7 +942,7 @@ export async function setTruckPaused(
      * one check this returns null and Go live works again.
      */
     if (overview) {
-      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost());
+      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
       if (noCredits) return fail(noCredits);
     }
     if (overview && truckSlotsLeft(overview) <= 0) {

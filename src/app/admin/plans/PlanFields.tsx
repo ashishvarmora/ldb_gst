@@ -243,6 +243,21 @@ export function PlanFields({ plan }: { plan?: Plan }) {
               />
             </Field>
 
+            <Field
+              label="Automatic checks per credit"
+              name="auto_checks_per_credit"
+              hint="The plan's main benefit: how many automatic checks one credit buys (e.g. 5, 8, 10). Blank = the global rate. Manual search is never affected."
+            >
+              <Input
+                name="auto_checks_per_credit"
+                type="number"
+                min={0.1}
+                step="0.1"
+                defaultValue={plan?.auto_checks_per_credit ?? ""}
+                placeholder="Global rate"
+              />
+            </Field>
+
             {NUMERIC_LIMITS.map((field) => (
               <Field
                 key={field.key}

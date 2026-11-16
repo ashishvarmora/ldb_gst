@@ -294,6 +294,14 @@ export async function grantCredits({
 }
 
 /** How a ledger row reads in the officer's history. */
+/** "1 credit = 10 automatic checks", or null when the plan has no rate of its own. */
+export function autoCheckRateLabel(plan: { auto_checks_per_credit: number | null }): string | null {
+  const rate = Number(plan.auto_checks_per_credit);
+  if (!(rate > 0)) return null;
+  const n = Number.isInteger(rate) ? String(rate) : rate.toFixed(1);
+  return `1 credit = ${n} automatic check${rate === 1 ? "" : "s"}`;
+}
+
 export const CREDIT_REASON_LABEL: Record<string, string> = {
   manual_search: "Manual search",
   auto_check: "Automatic check",
