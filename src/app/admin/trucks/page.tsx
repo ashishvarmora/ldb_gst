@@ -150,7 +150,7 @@ export default async function TrucksPage({
     <>
       <PageHeader
         title="Trucks"
-        subtitle="Every truck under background tracking, with the account watching it. A truck is checked only when one of its alerts falls due. Read-only — each account manages its own list."
+        subtitle="All trucks being tracked, and the account tracking each one. View only: customers manage their own trucks."
         actions={
           <Link href="/admin/explore" className={buttonClass("secondary")}>
             <SearchIcon size={14} />

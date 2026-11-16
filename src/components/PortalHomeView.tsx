@@ -40,7 +40,7 @@ export function PortalHomeView({ model: m }: { model: DashboardHomeModel }) {
     <div className="mobile-dashboard">
       <Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17} />Profile</Link>
       <header className="dash-intro">
-        <div><p>Your daily overview</p><h1>Dashboard</h1></div>
+        <div><p>Today</p><h1>Dashboard</h1></div>
         <span className="dash-date">{m.dateLabel}</span>
       </header>
 
@@ -77,9 +77,9 @@ export function PortalHomeView({ model: m }: { model: DashboardHomeModel }) {
 
       {completed < m.setup.length && <details className="dash-setup dash-card"><summary><span className="dash-setup-icon"><Check size={17}/></span><span>Finish setting up<small>{completed} of {m.setup.length} complete</small></span><ChevronDown size={18}/></summary><ol>{m.setup.map(step=><li key={step.href+step.label}><Link href={step.href}><span className={step.done ? "dash-step-done" : "dash-step-pending"}>{step.done ? <Check size={13}/> : null}</span>{step.label}<ChevronRight size={15}/></Link></li>)}</ol></details>}
 
-      {m.referralsEnabled && <Link href="/portal/referrals" className="dash-referral"><span><Gift size={23}/></span><span><strong>Good journeys are better shared.</strong><small>Invite a friend. Earn credits on their first payment.</small></span><ChevronRight size={18}/><LinkPending /></Link>}
+      {m.referralsEnabled && <Link href="/portal/referrals" className="dash-referral"><span><Gift size={23}/></span><span><strong>Invite a friend</strong><small>Invite a friend. Earn credits on their first payment.</small></span><ChevronRight size={18}/><LinkPending /></Link>}
 
-      <Link href="/portal/support" className="dash-support"><Headset size={21}/><span>Need a hand?<strong>Talk to support</strong></span><ArrowRight size={18}/><LinkPending /></Link>
+      <Link href="/portal/support" className="dash-support"><Headset size={21}/><span>Need help?<strong>Talk to support</strong></span><ArrowRight size={18}/><LinkPending /></Link>
     </div>
   );
 }

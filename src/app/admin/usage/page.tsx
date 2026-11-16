@@ -208,7 +208,7 @@ export default async function UsagePage({
     <>
       <PageHeader
         title="Usage"
-        subtitle="Every charged call to the toll network. Group it, filter it, sort it, export it."
+        subtitle="All paid lookups. Group, filter, sort or export them."
         actions={
           /* Carries the page's own query string, so the spreadsheet is the slice
              on screen. A plain anchor rather than a Link: it is a download, and
@@ -366,7 +366,7 @@ export default async function UsagePage({
 
         <div className="space-y-5">
           <Panel
-            title="What the credits went on"
+            title="Credits used, by action"
             description="The same charges, split by action. Both draw on the balance at one credit each as of 0041, so on any account with trucks switched on the automatic checks are the larger figure by a wide margin."
           >
             <ShareBreakdown
@@ -384,8 +384,8 @@ export default async function UsagePage({
           </Panel>
 
           <Panel
-            title="Is the toll network answering?"
-            description="Measured from the call log, which is a different source from the figures above."
+            title="Toll network status"
+            description="Based on the call log."
           >
             <dl className="space-y-0">
               <Row label="Failure rate">
@@ -412,8 +412,8 @@ export default async function UsagePage({
             <LinkCard
               href="/admin/logs?type=searches&status=failed"
               icon={<AlertTriangle size={16} />}
-              title="The toll network is refusing more than usual"
-              description={`${(failureRate * 100).toFixed(1)}% of logged calls failed. Usually a registration the network cannot answer for — a sustained rise is worth checking.`}
+              title="More lookups are failing than usual"
+              description={`${(failureRate * 100).toFixed(1)}% of logged calls failed. Usually the network has no record for that number. Check again if it stays high.`}
               value={fmtNumber(failures)}
               tone="warn"
             />
@@ -422,15 +422,15 @@ export default async function UsagePage({
           <LinkCard
             href="/admin/finance?section=credits"
             icon={<Wallet size={16} />}
-            title="Where the credits came from"
-            description="What was bought, what was given away, and who claimed it — the other half of this ledger."
+            title="Credits added, by source"
+            description="Credits bought, given free and claimed."
           />
 
           <LinkCard
             href="/admin/users"
             icon={<Users size={16} />}
             title="Every customer's standing"
-            description="Lifecycle stage, lifetime value and consumption side by side."
+            description="Stage, total paid and credits used for each customer."
           />
         </div>
       </div>

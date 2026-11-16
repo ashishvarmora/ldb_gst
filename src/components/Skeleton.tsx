@@ -11,7 +11,7 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <span
       aria-hidden
-      className={cx("block animate-pulse rounded-md bg-sunken", className)}
+      className={cx("skeleton block animate-pulse rounded-md bg-sunken", className)}
     />
   );
 }

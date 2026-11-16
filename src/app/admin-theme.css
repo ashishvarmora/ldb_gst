@@ -1,0 +1,396 @@
+/* ===========================================================================
+   Admin console in the Rahdari theme.
+
+   A navy sidebar, a soft grey page and white cards on top of it: the page has
+   depth, the navigation reads as navigation, and the numbers are the loudest
+   thing on each card. Colours and typefaces are the portal's.
+
+   Presentation only. This file re-points the console's own colour tokens and
+   styles a handful of class names (admin-sidebar, admin-drawer, admin-nav,
+   admin-header, admin-main, stat-card); no data, link or action depends on
+   it, so removing the import in layout.tsx restores the old look exactly.
+
+   Scoped twice on purpose: .theme-console for the page, and
+   :root:has(.theme-console) for the sheets AdminNav portals into <body>.
+   =========================================================================== */
+.theme-console,
+:root:has(.theme-console) {
+  --c-page: #f4f6fa;
+  --c-panel: #ffffff;
+  --c-raised: #f8fafc;
+  --c-sunken: #eef2f7;
+
+  --c-line: #e4e9f0;
+  --c-divider: #edf1f5;
+  --c-line-strong: #cbd5e1;
+
+  --c-strong: #172f50;
+  --c-ink: #182b45;
+  --c-muted: #5d6b82;
+  --c-faint: #66758b;
+
+  /* The portal's blue for links, focus and selected controls. */
+  --c-brand-400: #315eab;
+  --c-brand-500: #315eab;
+  --c-brand-600: #264c8d;
+  --c-series-1: #315eab;
+
+  --app-bg-image: none;
+  --shadow-card: 0 1px 2px #182b450a, 0 8px 24px -18px #182b4538;
+  --shadow-raised: 0 12px 28px -18px #182b4550;
+}
+
+.theme-console {
+  font-family: var(--font-sans);
+  background: var(--c-page);
+  color: var(--c-ink);
+}
+.theme-console :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--app-blue);
+  outline-offset: 3px;
+}
+
+/* ---------------------------------------------------------------------------
+   Sidebar and phone drawer: navy, with the portal's orange for "you are here".
+   The tokens are re-pointed inside them so every utility already on the
+   markup (text-muted, hover:bg-sunken, border-line) lands on a dark value.
+   --------------------------------------------------------------------------- */
+.admin-sidebar,
+.admin-drawer {
+  --c-panel: #132746;
+  --c-strong: #ffffff;
+  --c-ink: #ffffff;
+  --c-muted: #c2cee0;
+  --c-faint: #8ea0bb;
+  --c-sunken: rgb(255 255 255 / 0.09);
+  --c-line: rgb(255 255 255 / 0.12);
+  --c-divider: rgb(255 255 255 / 0.1);
+  background: linear-gradient(180deg, #16305a 0%, #10223f 100%);
+  border-color: transparent;
+  color: #c2cee0;
+  scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+}
+.admin-sidebar { width: 15.5rem; padding: 18px 12px; }
+
+.admin-brand { padding: 4px 6px 14px; border-bottom: 1px solid rgb(255 255 255 / 0.1); }
+.admin-drawer .admin-brand { border-bottom: 0; padding-bottom: 4px; }
+.admin-brand img {
+  box-sizing: content-box;
+  padding: 5px 6px;
+  border-radius: 12px;
+  background: #ffffff;
+}
+.admin-brand-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: #ffffff;
+}
+
+.admin-nav { gap: 18px; }
+.admin-nav p { color: #8094b3; letter-spacing: 0.12em; margin-bottom: 6px; }
+.admin-nav a {
+  position: relative;
+  min-height: 40px;
+  border-radius: 11px;
+  font-weight: 550;
+  color: #c2cee0;
+}
+.admin-nav a svg { opacity: 0.85; }
+@media (hover: hover) {
+  .admin-nav a:not([aria-current="page"]):hover {
+    background: rgb(255 255 255 / 0.08);
+    color: #ffffff;
+  }
+}
+.admin-nav a[aria-current="page"] {
+  background: rgb(255 255 255 / 0.13);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+.admin-nav a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 9px;
+  bottom: 9px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--app-orange);
+}
+.admin-nav a[aria-current="page"] svg { color: #ff9a5c; opacity: 1; }
+.admin-nav a > span.bg-brand-500 { background: var(--app-orange); color: #ffffff; }
+
+/* ---------------------------------------------------------------------------
+   Top bar and page.
+   --------------------------------------------------------------------------- */
+.admin-header {
+  background: rgb(255 255 255 / 0.94);
+  border-color: var(--c-line);
+  box-shadow: 0 6px 18px -16px #182b4540;
+}
+.admin-header-brand {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: var(--app-navy);
+}
+/* The header's messages button is a 40px square here; the word "Help" the
+   portal shows beside the icon does not fit in it and overlapped the icon. */
+.theme-console .support-chat-label { display: none; }
+
+.admin-main { background: var(--c-page); }
+.admin-main > * { max-width: 1480px; margin-inline: auto; }
+
+.admin-main h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  line-height: 1.2;
+  color: var(--app-navy);
+}
+.admin-main h2 { color: var(--app-navy); }
+.theme-console .app-page-heading > div > span:first-child {
+  background: var(--app-blue-soft);
+  color: var(--app-blue);
+  border-radius: 14px;
+  box-shadow: 0 3px 0 #dde8f3;
+}
+
+/* ---------------------------------------------------------------------------
+   Cards.
+   --------------------------------------------------------------------------- */
+.theme-console .panel {
+  border: 1px solid var(--c-line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  background: #ffffff;
+}
+.theme-console .panel > header { border-color: var(--c-divider); }
+
+/* A figure card: quiet label, the number in the display face, icon in a tile. */
+.theme-console .stat-card { padding: 14px 16px 15px; }
+.theme-console .stat-card > div:first-child { align-items: center; }
+.theme-console .stat-card > div:first-child > p {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+.theme-console .stat-card > div:first-child > span {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--app-blue-soft);
+  color: var(--app-blue);
+}
+.theme-console .stat-card > p.tabular-nums {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  line-height: 1.15;
+  margin-top: 10px;
+}
+.theme-console .stat-card > p.tabular-nums:is(.text-ink, .text-strong) { color: var(--app-navy); }
+@media (hover: hover) {
+  .theme-console a.stat-card { transition: transform 160ms, box-shadow 160ms, border-color 160ms; }
+  .theme-console a.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-raised); background: #ffffff; }
+}
+
+/* ---------------------------------------------------------------------------
+   Tables, fields and buttons.
+   --------------------------------------------------------------------------- */
+.theme-console thead { background: #f7f9fc; }
+.theme-console thead th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+@media (hover: hover) {
+  .theme-console tbody tr:hover { background: #f8fafd; }
+}
+
+.theme-console .field {
+  border-radius: 12px;
+  border-color: var(--c-line);
+  background: #ffffff;
+}
+.theme-console .field:focus { border-color: var(--app-blue); }
+
+/* Primary buttons: the portal's navy, with its pressed-edge shadow. */
+.theme-console .brand-fill,
+:root:has(.theme-console) .brand-fill {
+  background-color: var(--app-navy);
+  border-color: var(--app-navy);
+  border-radius: 12px;
+  box-shadow: 0 3px 0 #0c203b;
+}
+@media (hover: hover) {
+  .theme-console .brand-fill:not(:disabled):hover,
+  :root:has(.theme-console) .brand-fill:not(:disabled):hover {
+    background-color: #10243f;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Phone.
+   --------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  .admin-main { padding: 16px 12px 28px; }
+  .admin-main h1 { font-size: 21px; letter-spacing: -0.4px; }
+  .admin-main .app-page-heading p { font-size: 13px; line-height: 1.6; }
+  /* Page actions share one row instead of stacking down the left edge. */
+  .admin-main .app-page-heading > :nth-child(2):not(:only-child) { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .admin-main .app-page-heading > :nth-child(2):not(:only-child) > :is(a, button) { flex: 1 1 auto; justify-content: center; font-size: 13px; padding-inline: 12px; white-space: nowrap; }
+  .theme-console .panel { border-radius: 14px; }
+  .theme-console .stat-card { padding: 11px 12px 12px; }
+  .theme-console .stat-card > p.tabular-nums { font-size: 20px; margin-top: 7px; }
+  .theme-console .stat-card > div:first-child > p { font-size: 10px; letter-spacing: 0.04em; }
+  .theme-console .stat-card > div:first-child > span { width: 26px; height: 26px; border-radius: 9px; }
+}
+
+/* ===========================================================================
+   Refinement: the details that make the console a pleasure to sit in.
+   Still presentation only.
+   =========================================================================== */
+
+/* A faint wash of blue behind the top of every page, so it is not flat grey. */
+.admin-main {
+  background:
+    radial-gradient(900px 360px at 100% -90px, #e6eefb 0%, transparent 70%),
+    var(--c-page);
+}
+
+/* Sidebar: two soft glows, blue above and orange below, over the navy. */
+.admin-sidebar,
+.admin-drawer {
+  background:
+    radial-gradient(360px 240px at 110% -4%, rgb(86 135 222 / 0.3), transparent 70%),
+    radial-gradient(420px 260px at -20% 104%, rgb(231 99 33 / 0.2), transparent 70%),
+    linear-gradient(180deg, #16305a 0%, #0f2140 100%);
+}
+.admin-nav a { transition: background 160ms, color 160ms, transform 160ms; }
+@media (hover: hover) {
+  .admin-nav a:not([aria-current="page"]):hover { transform: translateX(2px); }
+}
+
+/* Top bar: frosted, so the page scrolls softly underneath it. */
+.admin-header {
+  background: rgb(255 255 255 / 0.82);
+  -webkit-backdrop-filter: saturate(1.5) blur(14px);
+  backdrop-filter: saturate(1.5) blur(14px);
+}
+
+/* Page title with a short orange mark beside it. */
+.admin-main .app-page-heading h1 { position: relative; padding-left: 15px; }
+.admin-main .app-page-heading h1::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 4px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ff9a5c, var(--app-orange));
+}
+.admin-main .app-page-heading h1 + p { padding-left: 15px; font-size: 14px; color: var(--c-muted); }
+
+/* Secondary buttons: a calm rounded rectangle instead of a heavy pill. */
+.admin-main :is(a, button).inline-flex.rounded-full.border.font-bold:not(.brand-fill) {
+  border-radius: 12px;
+  border-color: var(--c-line);
+  font-weight: 650;
+  font-size: 13px;
+  box-shadow: 0 1px 2px #182b450d;
+}
+.admin-main :is(a, button).inline-flex.rounded-full.border.font-bold.brand-fill { font-weight: 700; font-size: 13px; }
+
+/* Section titles inside cards. */
+.theme-console .panel > header h2 {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 750;
+  letter-spacing: -0.2px;
+}
+
+/* Figure cards: each icon tile takes one of the four brand tints in turn. */
+.theme-console .stat-card { background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%); }
+.theme-console .stat-card:nth-child(4n + 2) > div:first-child > span { background: var(--app-orange-soft); color: var(--app-orange-dark); }
+.theme-console .stat-card:nth-child(4n + 3) > div:first-child > span { background: var(--app-mint-soft); color: var(--app-mint); }
+.theme-console .stat-card:nth-child(4n + 4) > div:first-child > span { background: var(--app-violet-soft); color: var(--app-violet); }
+.theme-console .stat-card > p.tabular-nums { font-size: 27px; }
+
+/* Report link cards. */
+.admin-main a.pressable {
+  border-radius: 16px;
+  border-color: var(--c-line);
+  transition: transform 160ms, box-shadow 160ms, border-color 160ms;
+}
+.admin-main a.pressable > span:first-child {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--app-blue-soft);
+  color: var(--app-blue);
+}
+.admin-main a.pressable:nth-child(4n + 2) > span:first-child { background: var(--app-orange-soft); color: var(--app-orange-dark); }
+.admin-main a.pressable:nth-child(4n + 3) > span:first-child { background: var(--app-mint-soft); color: var(--app-mint); }
+.admin-main a.pressable:nth-child(4n + 4) > span:first-child { background: var(--app-violet-soft); color: var(--app-violet); }
+.admin-main a.pressable > svg:last-child { transition: transform 160ms; }
+@media (hover: hover) {
+  .admin-main a.pressable:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-raised);
+    background: #ffffff;
+    border-color: #cfdbec;
+  }
+  .admin-main a.pressable:hover > svg:last-child { transform: translateX(3px); }
+}
+
+/* Usage chart: rounded bars with a little depth. */
+.admin-main .h-32 .rounded-sm { border-radius: 5px 5px 2px 2px; }
+.admin-main .h-32 .bg-brand-500 { background: linear-gradient(180deg, #5d8ce0, #315eab); }
+.admin-main .h-32 .bg-good-500 { background: linear-gradient(180deg, #45b98f, #237861); }
+
+/* Fields: a soft ring on focus rather than a hard outline. */
+.theme-console .field:focus {
+  outline: none;
+  border-color: var(--app-blue);
+  box-shadow: 0 0 0 4px rgb(49 94 171 / 0.13);
+}
+
+/* Tables breathe a little more, and rows answer the pointer smoothly. */
+.theme-console tbody tr { transition: background 140ms; }
+
+/* Cards settle into place when a page opens. Transform only: nothing is ever
+   hidden, so a browser that skips the animation still shows every card. */
+@keyframes admin-rise { from { transform: translateY(10px); } to { transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .theme-console .stat-card { animation: admin-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  .theme-console .stat-card:nth-child(2) { animation-delay: 40ms; }
+  .theme-console .stat-card:nth-child(3) { animation-delay: 80ms; }
+  .theme-console .stat-card:nth-child(4) { animation-delay: 120ms; }
+  .theme-console .stat-card:nth-child(5) { animation-delay: 160ms; }
+  .theme-console .stat-card:nth-child(6) { animation-delay: 200ms; }
+}
+
+@media (max-width: 639px) {
+  /* Nearly solid on a phone: page text sliding under a see-through bar reads
+     as two things printed on top of each other. */
+  .admin-header { background: rgb(255 255 255 / 0.97); }
+  .admin-main .app-page-heading h1 { padding-left: 12px; }
+  .admin-main .app-page-heading h1 + p { padding-left: 12px; font-size: 13px; }
+  .theme-console .stat-card > p.tabular-nums { font-size: 21px; }
+}

@@ -20,7 +20,7 @@ export function SupportChatShell({ children }: { children: ReactNode }) {
         </span>
         <div className="support-head-copy">
           <h1 id="support-title">Rahdari Support</h1>
-          <p>Our team replies right here</p>
+          <p>We reply in this chat</p>
         </div>
         <Link href="/portal/guide" className="support-guide" aria-label="Open the user guide">
           <BookOpen size={17} strokeWidth={2.1} />
@@ -40,9 +40,7 @@ export function SupportEmptyState() {
       </span>
       <h3>How can we help?</h3>
       <p>
-        Write to us below. Our replies will appear
-        <br />
-        right here.
+        Type your question below. We will reply in this chat.
       </p>
       <nav aria-label="Support guides">
         <Link href="/guide/trucks">

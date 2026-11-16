@@ -5,9 +5,9 @@ import Link from "next/link";
 import { ArrowRight, BellRing, ChevronLeft, ChevronRight, Pause, Play, Route, Search } from "lucide-react";
 
 const slides = [
-  { title: "Every journey.\nA little clearer.", body: "Find your truck’s recorded toll crossings.", action: "Find a truck", href: "/portal/search", icon: Search, image: true, tone: "road" },
-  { title: "Your trucks.\nCloser at hand.", body: "Save a truck and follow its crossing history.", action: "View my trucks", href: "/portal/trucks", icon: Route, image: false, tone: "fleet" },
-  { title: "On the move?\nBe in the know.", body: "Set up alerts for newly recorded crossings.", action: "Set up alerts", href: "/portal/settings#alerts", icon: BellRing, image: false, tone: "alerts" },
+  { title: "Find any truck\nby its number.", body: "See the toll plazas it crossed, and when.", action: "Find a truck", href: "/portal/search", icon: Search, image: true, tone: "road" },
+  { title: "Your trucks\nin one list.", body: "Add a truck and see all its crossings.", action: "View my trucks", href: "/portal/trucks", icon: Route, image: false, tone: "fleet" },
+  { title: "Get an alert\nat every toll.", body: "We message you when your truck crosses a toll.", action: "Set up alerts", href: "/portal/settings#alerts", icon: BellRing, image: false, tone: "alerts" },
 ];
 
 /** Native scroll-snap supports touch, trackpads and keyboard without a motion library. */
@@ -51,7 +51,7 @@ export function JourneyCarousel() {
     }}>
       {slides.map((slide, index) => <article className={`journey-slide journey-${slide.tone}`} key={slide.tone} aria-label={`${index + 1} of ${slides.length}`} aria-roledescription="slide">
         {slide.image ? <img className="journey-road-photo" src="/home-highway-truck.webp" alt="A container truck on a mountain highway" width={1536} height={1024} fetchPriority="high" /> : <div className="journey-sculpture" aria-hidden="true"><div className="journey-orbit" /><div className="journey-icon-block"><slide.icon size={64} strokeWidth={1.4} /></div><span className="journey-mini-block"><slide.icon size={23} /></span></div>}
-        <div className="journey-slide-copy"><span className="journey-tag"><slide.icon size={13} />{index === 0 ? "Made for the road" : index === 1 ? "Your fleet, organised" : "Updates that matter"}</span><h2>{slide.title}</h2><p>{slide.body}</p><Link href={slide.href} className="app-primary">{slide.action}<ArrowRight size={17} /></Link></div>
+        <div className="journey-slide-copy"><span className="journey-tag"><slide.icon size={13} />{index === 0 ? "Search" : index === 1 ? "My trucks" : "Alerts"}</span><h2>{slide.title}</h2><p>{slide.body}</p><Link href={slide.href} className="app-primary">{slide.action}<ArrowRight size={17} /></Link></div>
       </article>)}
     </div>
     <div className="journey-controls"><div className="journey-dots" aria-label="Choose a slide">{slides.map((slide, index) => <button type="button" key={slide.tone} aria-label={`Show slide ${index + 1}: ${slide.action}`} aria-pressed={index === current} onClick={() => go(index)} />)}</div><span className="journey-swipe-hint">Swipe to explore</span><div className="journey-arrows"><button type="button" aria-label={playing ? "Pause slideshow" : "Play slideshow"} onClick={() => setPlaying(value => !value)}>{playing ? <Pause size={14} /> : <Play size={14} />}</button><button type="button" aria-label="Previous slide" onClick={() => go((current + slides.length - 1) % slides.length)}><ChevronLeft size={18} /></button><button type="button" aria-label="Next slide" onClick={() => go((current + 1) % slides.length)}><ChevronRight size={18} /></button></div></div>
