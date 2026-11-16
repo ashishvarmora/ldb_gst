@@ -14,6 +14,10 @@ import { initials } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+/* Signed-in or one-off screens: kept out of search results (robots.ts says
+   the same to crawlers that read it). */
+export const metadata = { robots: { index: false, follow: false } };
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSuperAdmin();
   // The product names itself from a setting, so the console has to read it too

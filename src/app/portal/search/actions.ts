@@ -68,6 +68,11 @@ export async function searchAgain(
   const raw = str(fd, "truck_number");
   if (!raw) return fail("Missing truck number.");
   const truckNumber = normalizeTruck(raw);
+  // The same check as the search box: a posted form must not be able to send
+  // junk to the toll portal (and, since failures are refunded, for free).
+  if (!looksLikeTruckNumber(truckNumber)) {
+    return fail(`"${truckNumber}" does not look like a registration number. Example: MH12AB1234`);
+  }
 
   const result = await runManualLookup({ userId: session.id, truckNumber });
   if (!result.ok) return fail(result.error);

@@ -48,6 +48,18 @@ export async function middleware(request: NextRequest) {
   }
 
   const supabase = createServerClient(url, key, {
+    /*
+     * HttpOnly and Secure (16 Nov 2026). The library default leaves the session
+     * readable by page scripts, which only a browser Supabase client needs -
+     * and this app has none: every read and write goes through the server. So
+     * a script that ever slipped into a page still could not take the session.
+     */
+    cookieOptions: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    },
     cookies: {
       getAll() {
         return request.cookies.getAll();

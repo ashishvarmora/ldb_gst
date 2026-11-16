@@ -14,6 +14,18 @@ export async function getSupabaseServer() {
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
     // A signed-in customer is waiting on every call made through this client.
     global: { fetch: fetchWithTimeout(15_000) },
+    /*
+     * HttpOnly and Secure (16 Nov 2026). The library default leaves the session
+     * readable by page scripts, which only a browser Supabase client needs -
+     * and this app has none: every read and write goes through the server. So
+     * a script that ever slipped into a page still could not take the session.
+     */
+    cookieOptions: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    },
     cookies: {
       getAll() {
         return cookieStore.getAll();

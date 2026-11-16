@@ -301,9 +301,15 @@ export function sortPivotRows(rows: PivotRow[], sort: Sort, measures: Measure[])
 /* The same rows, as a spreadsheet                                             */
 /* -------------------------------------------------------------------------- */
 
-/** Quote only when the cell would otherwise break the row. */
+/**
+ * Quote only when the cell would otherwise break the row - and defuse text
+ * Excel would run as a formula. A customer controls their own name, office and
+ * labels, so "=HYPERLINK(...)" typed there must open as text on the admin's
+ * machine. Numbers are left alone so a negative amount stays a number.
+ */
 function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? "" : String(value);
+  const raw = value === null || value === undefined ? "" : String(value);
+  const text = typeof value === "string" && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

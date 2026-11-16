@@ -250,7 +250,8 @@ export default async function PlanPage() {
             is spendable like any other. */}
         {overview.credits > 0 ? (
           <Notice tone="warn">
-            You still have {formatCredits(overview.credits)} credits — they never expire, and still
+            You still have {formatCredits(overview.credits)}{" "}
+            {Number(overview.credits) === 1 ? "credit" : "credits"} — they never expire, and still
             buy a search today.
           </Notice>
         ) : null}

@@ -12,7 +12,7 @@ import { cx } from "@/components/ui";
 const NAV = [
   { href: "/portal", label: "Home", icon: Home },
   { href: "/portal/search", label: "Search", icon: Search },
-  { href: "/portal/trucks", label: "My Truck", icon: Truck },
+  { href: "/portal/trucks", label: "My trucks", icon: Truck },
   { href: "/portal/profile", label: "Profile", icon: UserRound },
 ];
 

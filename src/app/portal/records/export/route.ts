@@ -5,9 +5,11 @@ import { fmtDateTime, istDaysAgo } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TruckEvent } from "@/lib/types";
 
+/** Quoted where needed, and formula-looking text defused - see csvCell in src/components/report.ts. */
 function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  const raw = value === null || value === undefined ? "" : String(value);
+  const text = typeof value === "string" && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /**
@@ -64,7 +66,13 @@ export async function GET(request: NextRequest) {
   if (q) query = query.ilike("loc_name", `%${q}%`);
 
   const { data, error } = await query;
-  if (error) return new NextResponse(error.message, { status: 500 });
+  if (error) {
+    console.error("records export failed:", error.message);
+    return new NextResponse("Sorry — the export could not be prepared just now. Please try again in a minute.", {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   const header = [
     "Event time (IST)",

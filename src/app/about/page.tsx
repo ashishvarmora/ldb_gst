@@ -14,6 +14,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `About — ${brandName}`,
+    alternates: { canonical: "/about" },
+    openGraph: { title: `About — ${brandName}`, url: "/about", images: "/opengraph-image" },
     description:
       "Who runs this platform, what it does with commercial vehicle movement data, and what it deliberately does not do.",
   };

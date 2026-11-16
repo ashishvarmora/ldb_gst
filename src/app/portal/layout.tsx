@@ -20,6 +20,10 @@ import { formatLimit } from "@/lib/limits";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+/* Signed-in or one-off screens: kept out of search results (robots.ts says
+   the same to crawlers that read it). */
+export const metadata = { robots: { index: false, follow: false } };
+
 /** How many rows the bell can show. Enough history to be the only alerts view. */
 const BELL_LIMIT = 20;
 

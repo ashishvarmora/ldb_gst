@@ -13,7 +13,7 @@ import {
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
-  return { title: `Choose a new password — ${brandName}` };
+  return { title: `Choose a new password — ${brandName}` , robots: { index: false } };
 }
 
 /*

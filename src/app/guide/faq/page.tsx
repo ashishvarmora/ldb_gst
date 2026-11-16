@@ -16,6 +16,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const count = faqCount();
   return {
     title: `Frequently asked questions — ${brandName}`,
+    alternates: { canonical: "/guide/faq" },
+    openGraph: { title: `Frequently asked questions — ${brandName}`, url: "/guide/faq", images: "/opengraph-image" },
     description: `${count} straight answers about tracking a lorry, credits, plans, payments and alerts on ${brandName}.`,
   };
 }

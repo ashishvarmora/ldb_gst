@@ -35,6 +35,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Plans and pricing — ${brandName}`,
+    alternates: { canonical: "/pricing" },
+    openGraph: { title: `Plans and pricing — ${brandName}`, url: "/pricing", images: "/opengraph-image" },
     description: "What a plan costs, what credits buy, and what each action spends.",
   };
 }

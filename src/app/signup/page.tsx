@@ -13,7 +13,11 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
-  return { title: `Create an account — ${brandName}` };
+  return {
+    title: `Create an account — ${brandName}`,
+    description: "Open a free account, verify your email and start a free trial. Check any truck's recorded toll crossings by vehicle number.",
+    alternates: { canonical: "/signup" },
+  };
 }
 
 /** Longest code we will even look up. Anything beyond this is not a code. */

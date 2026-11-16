@@ -205,7 +205,7 @@ const BUTTON_VARIANTS = {
 /* Comfortable tap targets: 36px at sm, 40px at md, both above the 32px floor
    that makes a control fiddly on a phone. */
 const BUTTON_SIZES = {
-  sm: "min-h-9 px-3 py-1.5 text-[13px] gap-1.5",
+  sm: "min-h-10 px-3 py-1.5 text-[13px] gap-1.5",
   md: "min-h-11 px-4 py-2 text-[15px] gap-2",
 } as const;
 

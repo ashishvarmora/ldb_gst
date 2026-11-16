@@ -13,6 +13,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Contact — ${brandName}`,
+    alternates: { canonical: "/contact" },
+    openGraph: { title: `Contact — ${brandName}`, url: "/contact", images: "/opengraph-image" },
     description: "How to reach us: email, phone and registered address.",
   };
 }

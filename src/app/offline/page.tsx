@@ -2,7 +2,7 @@ import { CloudOff } from "lucide-react";
 
 import { RetryButton } from "./RetryButton";
 
-export const metadata = { title: "Offline" };
+export const metadata = { title: "Offline", robots: { index: false } };
 
 /**
  * What the service worker shows when a page is asked for and there is no

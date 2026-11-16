@@ -12,6 +12,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Terms of use — ${brandName}`,
+    alternates: { canonical: "/terms" },
+    openGraph: { title: `Terms of use — ${brandName}`, url: "/terms", images: "/opengraph-image" },
     description:
       "The agreement between you and us: what you may use this for, what you may not, what we promise, and what we do not.",
   };

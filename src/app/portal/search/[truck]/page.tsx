@@ -122,15 +122,15 @@ export default async function SearchResultPage({
           ) : tracked ? (
             <Badge tone="warn">Tracking paused</Badge>
           ) : (
-            <Badge>not tracked</Badge>
+            <Badge>Not tracked</Badge>
           )}
         </div>
 
         <ActionForm action={searchAgain} closeOnSuccess={false}>
           <input type="hidden" name="truck_number" value={truckNumber} />
-          <SubmitButton variant="secondary" size="sm" pendingLabel="Checking...">
+          <SubmitButton variant="secondary" size="sm" pendingLabel="Checking…">
             <RefreshCw size={13} />
-            Check again
+            Check again · 1 credit
           </SubmitButton>
         </ActionForm>
       </div>

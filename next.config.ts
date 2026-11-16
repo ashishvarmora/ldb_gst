@@ -102,6 +102,8 @@ const ENFORCED_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // No "X-Powered-By: Next.js": it tells a scanner what to try first.
+  poweredByHeader: false,
   // Keep an optional local preview build separate from other running builds.
   distDir: process.env.RAHDARI_BUILD_DIR || ".next",
   devIndicators: false,
@@ -197,6 +199,14 @@ const nextConfig: NextConfig = {
    */
   async headers() {
     return [
+      /*
+       * Brand images and icons carry a version in their name (…-v2.png), so a
+       * week in the browser is safe; a new logo gets a new name.
+       */
+      {
+        source: "/brand/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
+      },
       {
         source: "/:path*",
         headers: [

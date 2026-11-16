@@ -12,6 +12,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
     title: `Where the data comes from — ${brandName}`,
+    alternates: { canonical: "/data-sources" },
+    openGraph: { title: `Where the data comes from — ${brandName}`, url: "/data-sources", images: "/opengraph-image" },
     description:
       "A plain declaration of our data sources, what the records can show, what they cannot, and the limits every reader should assume.",
   };
