@@ -25,9 +25,9 @@ function isActive(path: string, href: string) {
 export function PortalSidebar({ brandName, unreadMessages = 0 }: { brandName: string; referralsEnabled: boolean; unreadMessages?: number }) {
   const pathname = usePathname();
   return <aside className="portal-sidebar hidden w-56 shrink-0 border-r border-divider lg:block"><div className="sticky top-0 flex h-dvh flex-col px-4 py-6">
-    <Link href="/portal" className="app-sidebar-brand"><LogoBadge size="sm" /><span>{brandName}<small>Your road companion</small></span></Link>
+    <Link href="/portal" className="app-sidebar-brand"><LogoBadge size="sm" /><span>{brandName}<small>Truck tracking</small></span></Link>
     <nav className="app-sidebar-links" aria-label="Primary">{NAV.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={isActive(pathname, href) ? "page" : undefined}><Icon size={21} />{label}<NavSpinner /></Link>)}</nav>
-    <div className="app-sidebar-help"><MessageSquare size={24} /><strong>A hand along the way.</strong><p>We’re here when you need us.</p><Link href="/portal/support">Talk to support{unreadMessages > 0 && <span className="app-unread-count">{unreadMessages}</span>}</Link></div>
+    <div className="app-sidebar-help"><MessageSquare size={24} /><strong>Need help?</strong><p>Chat with our support team.</p><Link href="/portal/support">Talk to support{unreadMessages > 0 && <span className="app-unread-count">{unreadMessages}</span>}</Link></div>
     <div className="mt-auto border-t border-divider pt-4"><SignOutButton variant="ghost" className="w-full" /></div>
   </div></aside>;
 }

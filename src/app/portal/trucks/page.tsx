@@ -168,7 +168,7 @@ export default async function TrucksPage({
       <PageHeader
         icon={<PageIcon size={22} strokeWidth={2} />}
         title="My trucks"
-        subtitle="Your fleet, organised and easy to follow."
+        subtitle="All your trucks, and which ones are being tracked."
         /* No subtitle. It said "what you are watching, and what each one will
            tell you", which the two tabs and the rows below now say better -
            and on a phone it pushed the first truck below the fold. */
@@ -241,7 +241,7 @@ export default async function TrucksPage({
         <Panel bodyClassName="p-0">
           <EmptyState
             icon={<PageIcon size={28}/>}
-            title="A home for your trucks"
+            title="No trucks yet"
             description="Tap Add truck above, enter its registration and choose an alert. Its recorded crossings will stay together here."
           />
         </Panel>

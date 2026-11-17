@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type CSSProperties } from "react";
-import { CalendarRange, Check, X } from "lucide-react";
+import { CalendarRange, Check, ChevronDown, X } from "lucide-react";
 
 import { BUCKETS, RANGE_PRESETS, type DateRange } from "@/lib/analytics";
 import { cx } from "@/components/ui";
@@ -33,6 +33,8 @@ export function DateRangeBar({
   const router = useRouter();
 
   const [custom, setCustom] = useState(false);
+  /** The phone's one-button menu of ranges. Never used from sm up. */
+  const [menu, setMenu] = useState(false);
   const [from, setFrom] = useState(range.from);
   const [to, setTo] = useState(range.to);
 
@@ -60,14 +62,83 @@ export function DateRangeBar({
     setCustom(false);
   }
 
+  const currentLabel =
+    range.key === "custom"
+      ? `${range.from} → ${range.to}`
+      : (RANGE_PRESETS.find((preset) => preset.key === range.key)?.label ?? "Date range");
+
   return (
     <div className="mb-5 flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-        {/* Scrolls sideways on a phone rather than stacking into four rows and
-            pushing the report itself below the fold. */}
+        {/*
+         * ON A PHONE: ONE BUTTON.
+         *
+         * The row of ranges below is nine controls wide. On a phone that was a
+         * strip to drag sideways, with most of the choices off screen and no
+         * hint of how many there were. Here it is a single button that names
+         * the range in force and opens every choice at once, in a grid that
+         * fits the screen. The links are the same links, with the same hrefs.
+         */}
+        <button
+          type="button"
+          onClick={() => setMenu((open) => !open)}
+          aria-expanded={menu}
+          aria-controls="date-range-menu"
+          className="inline-flex min-h-10 min-w-0 flex-1 basis-full items-center gap-2 rounded-xl border border-line bg-panel px-3 text-sm font-semibold text-ink shadow-[var(--shadow-card)] transition hover:bg-sunken sm:hidden"
+        >
+          <CalendarRange size={15} className="shrink-0 text-brand-500" />
+          <span className="min-w-0 flex-1 truncate text-left">{currentLabel}</span>
+          <ChevronDown
+            size={15}
+            className={cx("shrink-0 text-muted transition-transform", menu && "rotate-180")}
+          />
+        </button>
+
+        {menu ? (
+          <div
+            id="date-range-menu"
+            className="grid basis-full grid-cols-2 gap-1.5 rounded-xl border border-line bg-panel p-2 shadow-[var(--shadow-card)] sm:hidden"
+          >
+            {RANGE_PRESETS.map((preset) => (
+              <Link
+                key={preset.key}
+                href={hrefWith({ range: preset.key, from: null, to: null })}
+                onClick={() => setMenu(false)}
+                aria-current={range.key === preset.key ? "true" : undefined}
+                className={cx(
+                  "inline-flex min-h-11 items-center justify-between gap-2 rounded-lg border px-3 text-sm font-medium transition",
+                  range.key === preset.key
+                    ? "border-brand-500 bg-brand-500/10 text-brand-500"
+                    : "border-transparent text-ink hover:bg-sunken",
+                )}
+              >
+                {preset.label}
+                {range.key === preset.key ? <Check size={14} className="shrink-0" /> : null}
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setMenu(false);
+                setCustom(true);
+              }}
+              className={cx(
+                "inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition",
+                range.key === "custom"
+                  ? "border-brand-500 bg-brand-500/10 text-brand-500"
+                  : "border-transparent text-ink hover:bg-sunken",
+              )}
+            >
+              <CalendarRange size={14} className="shrink-0" />
+              Custom dates
+            </button>
+          </div>
+        ) : null}
+
+        {/* From sm up: the row itself, which has the room there. */}
         <div
           style={{ "--swipe-bg": "var(--color-page)" } as CSSProperties}
-          className="swipeable -mx-4 min-w-0 flex-1 px-4 sm:mx-0 sm:px-0"
+          className="swipeable hidden min-w-0 flex-1 sm:block"
         >
           <div className="flex w-max min-w-full items-center gap-1.5">
             {RANGE_PRESETS.map((preset) => (

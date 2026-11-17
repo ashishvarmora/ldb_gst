@@ -165,7 +165,7 @@ export default async function ExplorePage({
       {!term ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            title="Two questions, one box"
+            title="What you can search"
             description="A registration number answers “which accounts have taken an interest in this lorry, and who is tracking it”. A name, email, phone or office answers “what has this account been doing”. Platform-wide figures are on the overview; individual lookups are in the logs."
           />
         </Panel>

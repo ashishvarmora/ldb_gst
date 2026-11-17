@@ -359,7 +359,7 @@ export default async function UsersPage({
     <>
       <PageHeader
         title="Users"
-        subtitle="Who signed up, who paid, who is still here. Every row opens the account itself."
+        subtitle="Sign-ups, paying customers and active accounts. Tap a row to open the account."
         actions={<PanelAction href="/admin/officers">Manage accounts</PanelAction>}
       />
 
@@ -419,7 +419,7 @@ export default async function UsersPage({
         <div className="xl:col-span-2" id="signups">
           <Panel
             title={`Sign-ups, by ${range.bucket}`}
-            description="Every column sorts. A period opens the accounts that registered in it."
+            description="Tap a column to sort. Tap a period to see who signed up in it."
             bodyClassName="p-0"
           >
             {emptyPeriods > 0 || periodsHidden > 0 ? (
@@ -500,8 +500,8 @@ export default async function UsersPage({
 
         <div className="space-y-5">
           <Panel
-            title="Where every account stands"
-            description="One stage each, so the parts add up to the whole."
+            title="Accounts by stage"
+            description="Each account is counted in one stage."
           >
             <ShareBreakdown slices={stageSlices} emptyLabel="No accounts yet" />
           </Panel>
@@ -510,7 +510,7 @@ export default async function UsersPage({
             href="/admin/finance"
             icon={<ArrowRight size={16} />}
             title="Lifetime value, all accounts"
-            description="What every customer has ever paid, and what the credits cost to give away."
+            description="Total paid by each customer, and credits given free."
             value={fmtRupees(funnel.lifetime_inr)}
           />
         </div>

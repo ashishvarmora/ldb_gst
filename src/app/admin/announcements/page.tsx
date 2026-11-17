@@ -136,7 +136,7 @@ export default async function AnnouncementsPage() {
     <>
       <PageHeader
         title="Announcements"
-        subtitle="Tell customers something - a banner across the portal, a popup, a phone notification, or all three. Choose who, when, and how often."
+        subtitle="Send customers a banner, a popup or a phone notification. Choose who sees it, when and how often."
         actions={<NewButton plans={plans} />}
       />
 
@@ -144,7 +144,7 @@ export default async function AnnouncementsPage() {
         <Panel>
           <EmptyState
             title="No announcements yet"
-            description="An offer, a maintenance notice, a new feature - anything every customer, or some of them, should hear about."
+            description="Use this for offers, maintenance notices or new features."
             action={<NewButton plans={plans} />}
           />
         </Panel>

@@ -274,7 +274,7 @@ export default async function AdminOverviewPage({
     <>
       <PageHeader
         title="Overview"
-        subtitle={`Everything running on ${settings.brandName} right now. Every figure below opens the report it comes from.`}
+        subtitle={`Today's numbers for ${settings.brandName}. Tap any number to open its report.`}
         actions={
           <>
             <LinkButton href="/admin/explore" variant="secondary">
@@ -354,7 +354,7 @@ export default async function AdminOverviewPage({
         <div className="space-y-5 xl:col-span-2">
           <Panel
             title="Platform usage, last 30 days"
-            description={`Every charged LDB call, split by manual and automatic. ${fmtNumber(callsMonth)} so far this month.`}
+            description={`Paid lookups, manual and automatic. ${fmtNumber(callsMonth)} so far this month.`}
             actions={<PanelAction href="/admin/usage">Call by call</PanelAction>}
           >
             <UsageChart series={series} />
@@ -367,29 +367,57 @@ export default async function AdminOverviewPage({
               href="/admin/finance"
               icon={<IndianRupee size={16} />}
               title="Finance"
-              description="Revenue by day and by method, the credit economy, and every receipt."
+              description="Money received, credits sold and receipts."
               value={fmtRupees(receivedMonth)}
             />
             <LinkCard
               href="/admin/users"
               icon={<Users size={16} />}
               title="Users"
-              description="Sign-ups, conversion, and where every account stands right now."
+              description="New sign-ups and who has paid."
               value={fmtNumber(funnel.total)}
             />
             <LinkCard
               href="/admin/usage"
               icon={<Gauge size={16} />}
               title="Usage"
-              description="Who is spending credits, on what, and which calls are failing."
+              description="Credits used by each account, and failed lookups."
               value={formatCredits(creditsMonth)}
             />
             <LinkCard
               href="/admin/trucks"
               icon={<Truck size={16} />}
               title="Trucks"
-              description="Every truck under automatic checking, across all accounts."
+              description="All trucks being tracked automatically."
               value={fmtNumber(trucks)}
+            />
+            {/* Alerts, Rewards and Logs sit with the other reports so the two
+                columns of this page end at about the same height. */}
+            <LinkCard
+              href="/admin/alerts/log"
+              icon={<Bell size={16} />}
+              title="Alerts, last 24 hours"
+              description={
+                (failedCalls ?? 0) > 0
+                  ? `${fmtNumber(failedCalls ?? 0)} LDB call${failedCalls === 1 ? "" : "s"} failed in the same period.`
+                  : "No failed LDB calls in the same period."
+              }
+              value={fmtNumber(alertsToday ?? 0)}
+              tone={(failedCalls ?? 0) > 0 ? "warn" : "neutral"}
+            />
+
+            <LinkCard
+              href="/admin/rewards"
+              icon={<Gift size={16} />}
+              title="Rewards"
+              description="Referral rewards and discount codes."
+            />
+
+            <LinkCard
+              href="/admin/logs"
+              icon={<ClipboardList size={16} />}
+              title="Logs"
+              description="Searches, alerts and admin changes. Filter by account, truck or day."
             />
           </div>
         </div>
@@ -399,7 +427,7 @@ export default async function AdminOverviewPage({
             title="Needs attention"
             description={
               attention.length === 0
-                ? "Nobody is blocked, and no payment is hanging."
+                ? "Nothing needs attention right now."
                 : `${attention.length} item${attention.length === 1 ? "" : "s"} to look at.`
             }
             bodyClassName="p-0"
@@ -407,7 +435,7 @@ export default async function AdminOverviewPage({
             {attention.length === 0 ? (
               <EmptyState
                 title="All clear"
-                description="Every account is running, and every payment finished."
+                description="No account or payment needs attention."
               />
             ) : (
               <>
@@ -461,32 +489,6 @@ export default async function AdminOverviewPage({
             </Panel>
           ) : null}
 
-          <LinkCard
-            href="/admin/alerts/log"
-            icon={<Bell size={16} />}
-            title="Alerts, last 24 hours"
-            description={
-              (failedCalls ?? 0) > 0
-                ? `${fmtNumber(failedCalls ?? 0)} LDB call${failedCalls === 1 ? "" : "s"} failed in the same period.`
-                : "No failed LDB calls in the same period."
-            }
-            value={fmtNumber(alertsToday ?? 0)}
-            tone={(failedCalls ?? 0) > 0 ? "warn" : "neutral"}
-          />
-
-          <LinkCard
-            href="/admin/rewards"
-            icon={<Gift size={16} />}
-            title="Rewards"
-            description="Referral terms and discount codes, and what each has cost."
-          />
-
-          <LinkCard
-            href="/admin/logs"
-            icon={<ClipboardList size={16} />}
-            title="Logs"
-            description="Every search, alert and console change — filter by account, truck or day."
-          />
         </div>
       </div>
     </>

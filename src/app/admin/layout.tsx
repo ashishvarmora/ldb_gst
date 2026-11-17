@@ -3,6 +3,7 @@ import { LayoutDashboard } from "lucide-react";
 
 import { MessageBell } from "@/components/MessageBell";
 import { AdminMobileNav, AdminSidebar } from "@/components/AdminNav";
+import { LoadingTruck } from "@/components/LoadingTruck";
 import { NavProgress } from "@/components/NavProgress";
 import { PushAutoOn } from "@/components/PushAutoOn";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -42,6 +43,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        * route change never makes it blink.
        */}
       <NavProgress />
+      <LoadingTruck />
       {/* Admins' phones start on too - sign-ups, payments and messages. */}
       <PushAutoOn platformReady={integrationHealth().webPush} appReady={integrationHealth().fcm} />
 
@@ -59,7 +61,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
          * overflows, and every page below keeps its wide content in its own
          * scroller.
          */}
-        <header className="safe-top-own sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 pt-[calc(var(--sat)+0.75rem)] pb-3 app-bar backdrop-blur">
+        <header className="admin-header safe-top-own sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-divider bg-page/85 px-4 pt-[calc(var(--sat)+0.75rem)] pb-3 app-bar backdrop-blur">
           {/*
            * min-w-0 plus truncate on the strapline. It is prose, so it breaks
            * at spaces and never overflows - but without a cap it wraps to four
@@ -68,8 +70,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
            */}
           <div className="flex min-w-0 items-center gap-3">
             <AdminMobileNav brandName={brandName} unreadMessages={unreadMessages} />
+            {/* The sidebar carries the name from lg up; below that the header does. */}
+            <span className="admin-header-brand truncate lg:hidden">{brandName}</span>
             <span className="hidden min-w-0 truncate text-xs text-faint sm:block">
-              Admin console — every account, plan and payment is managed here.
+              Manage accounts, plans and payments.
             </span>
           </div>
 
@@ -128,7 +132,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="admin-main min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>
   );

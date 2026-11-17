@@ -431,7 +431,7 @@ export function MetricCard({
     return (
       <Link
         href={href}
-        className="panel relative block px-4 py-3.5 transition hover:border-brand-500/50 hover:bg-sunken/40"
+        className="panel stat-card relative block px-4 py-3.5 transition hover:border-brand-500/50 hover:bg-sunken/40"
       >
         {body}
         {/* Childless: the wash and ring only. A card whose whole content is a
@@ -441,7 +441,7 @@ export function MetricCard({
     );
   }
 
-  return <div className="panel px-4 py-3.5">{body}</div>;
+  return <div className="panel stat-card px-4 py-3.5">{body}</div>;
 }
 
 /**

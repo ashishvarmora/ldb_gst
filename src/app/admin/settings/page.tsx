@@ -163,7 +163,7 @@ export default async function SettingsPage({
     <>
       <PageHeader
         title="Settings"
-        subtitle={`Platform-wide. Everything here applies to ${site.brandName} as a whole — there is nothing per customer on this page.`}
+        subtitle={`These settings apply to all of ${site.brandName}, not to one customer.`}
       />
 
       {/*
@@ -178,7 +178,7 @@ export default async function SettingsPage({
         <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
             title="Site"
-            description="What the product calls itself, whether anyone may register, and how to reach you. All of it is shown to people who are not signed in."
+            description="Site name, sign-up on or off, and your contact details. Visitors can see these."
           >
             <ActionForm action={saveSiteSettings} closeOnSuccess={false}>
               <div className="space-y-4">
@@ -342,7 +342,7 @@ export default async function SettingsPage({
         <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel
             title="Emails to admins"
-            description="Internal mail about customers and money. Never shown to anybody else."
+            description="Emails sent to admins about customers and payments."
           >
             <ActionForm action={saveNotificationSettings} closeOnSuccess={false}>
               <div className="space-y-5">
@@ -477,7 +477,7 @@ export default async function SettingsPage({
           <div className="space-y-5">
             <Panel
               title="Emails to customers"
-              description="What a customer is emailed about, beyond receipts and sign-in codes."
+              description="Extra emails sent to customers, apart from receipts and sign-in codes."
             >
               <ActionForm action={saveCustomerMailSettings} closeOnSuccess={false}>
                 <div className="space-y-4">
@@ -670,7 +670,7 @@ export default async function SettingsPage({
 
           <Panel
             title="Scheduling the worker"
-            description="Nothing in this project schedules itself. An outside scheduler has to call the worker."
+            description="The worker does not run on its own. An outside scheduler must call it."
           >
             <div className="space-y-3 text-xs leading-relaxed text-muted">
               <p>
@@ -797,7 +797,7 @@ export default async function SettingsPage({
 
           <Panel
             title="What a customer has to give you"
-            description="Nothing sensitive. You hold the credentials; the customer supplies one thing."
+            description="You keep the credentials. The customer gives only one thing."
           >
             <div className="rounded-lg border border-line/70 bg-panel/50 p-4">
               <p className="text-sm font-medium text-ink">Telegram chat id</p>

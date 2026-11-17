@@ -1,0 +1,148 @@
+/* ===========================================================================
+   The looping truck shown in the middle of a page while it loads
+   (src/components/LoadingTruck.tsx).
+
+   Hidden until the app is already showing one of its two loading signals:
+   the bar at the top of the window, or a placeholder block inside <main>.
+   No box and no solid screen: the page behind is softened a little (a light
+   blur and a 20% white veil) and the truck drives straight over it.
+   =========================================================================== */
+.loading-truck {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: none;
+  place-items: center;
+  pointer-events: none;
+  background: rgb(255 255 255 / 0.2);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  /* A short wait before it appears, so a page that opens at once never
+     flashes it. `backwards` only holds it clear during that wait. */
+  animation: lt-veil 260ms ease 220ms backwards;
+}
+:is(.portal-shell, .theme-console):has(> .nav-progress, main .skeleton) > .loading-truck {
+  display: grid;
+}
+/* On a wide screen the page sits to the right of the sidebar; so does this. */
+@media (min-width: 1024px) {
+  .loading-truck { left: 15.5rem; }
+}
+@media print {
+  .loading-truck { display: none !important; }
+}
+
+.loading-truck-card {
+  width: min(300px, 78vw);
+  text-align: center;
+  /* No card: just a soft shadow so the truck and road lift off the page. */
+  filter: drop-shadow(0 10px 14px rgb(23 47 80 / 0.22));
+  animation: lt-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) 220ms backwards;
+}
+.loading-truck-card svg { display: block; width: 100%; height: auto; overflow: visible; }
+.loading-truck-card p {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #172f50;
+  text-shadow: 0 1px 0 #ffffff, 0 0 12px #ffffff;
+}
+.loading-truck-card p span { display: inline-flex; gap: 3px; }
+.loading-truck-card p i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: #e76321;
+  animation: lt-dot 1000ms ease-in-out infinite;
+}
+.loading-truck-card p i:nth-child(2) { animation-delay: 150ms; }
+.loading-truck-card p i:nth-child(3) { animation-delay: 300ms; }
+
+.lt-road { stroke: #cfd9e6; stroke-width: 6; stroke-linecap: round; }
+.lt-lane {
+  stroke: #ffffff;
+  stroke-width: 1.1;
+  stroke-dasharray: 6 8;
+  animation: lt-lane 600ms linear infinite;
+}
+
+.lt-toll line { stroke: #b7c4d6; stroke-width: 1.8; stroke-linecap: round; }
+.lt-toll circle {
+  fill: #ffffff;
+  stroke: #c3cfdf;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.lt-toll path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+/* One loop is 2.4s. Each point turns green as the truck's nose reaches it and
+   goes back to grey just before the truck comes round again. */
+.lt-toll-1 circle { animation: lt-pass-1 2400ms linear infinite; }
+.lt-toll-1 path { animation: lt-tick-1 2400ms linear infinite; }
+.lt-toll-2 circle { animation: lt-pass-2 2400ms linear infinite; }
+.lt-toll-2 path { animation: lt-tick-2 2400ms linear infinite; }
+.lt-toll-3 circle { animation: lt-pass-3 2400ms linear infinite; }
+.lt-toll-3 path { animation: lt-tick-3 2400ms linear infinite; }
+
+.lt-truck { transform: translateX(-50px); animation: lt-drive 2400ms linear infinite; }
+.lt-truck-body { animation: lt-bob 320ms ease-in-out infinite alternate; }
+.lt-box { fill: #172f50; }
+.lt-stripe, .lt-cab { fill: #f0681f; }
+.lt-glass { fill: #ffe6d6; }
+.lt-beam { fill: url(#loading-truck-beam); }
+.lt-wheel { fill: #0f2038; stroke: #ffffff; stroke-width: 0.9; }
+.lt-hub { fill: #c9d3e0; }
+
+@keyframes lt-veil { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lt-in { from { opacity: 0; transform: translateY(8px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes lt-dot { 0%, 100% { opacity: 0.3; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+@keyframes lt-lane { to { stroke-dashoffset: -14; } }
+/* Fades in and out at the two ends, now that there is no box edge to hide it. */
+@keyframes lt-drive {
+  0% { transform: translateX(-50px); opacity: 0; }
+  9%, 90% { opacity: 1; }
+  100% { transform: translateX(240px); opacity: 0; }
+}
+@keyframes lt-bob { to { transform: translateY(-1px); } }
+
+@keyframes lt-pass-1 {
+  0%, 26% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+  30% { fill: #237861; stroke: #237861; transform: scale(1.25); }
+  34%, 94% { fill: #237861; stroke: #237861; transform: none; }
+  100% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+}
+@keyframes lt-tick-1 { 0%, 28% { opacity: 0; } 33%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes lt-pass-2 {
+  0%, 43% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+  47% { fill: #237861; stroke: #237861; transform: scale(1.25); }
+  51%, 94% { fill: #237861; stroke: #237861; transform: none; }
+  100% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+}
+@keyframes lt-tick-2 { 0%, 45% { opacity: 0; } 50%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes lt-pass-3 {
+  0%, 60% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+  64% { fill: #237861; stroke: #237861; transform: scale(1.25); }
+  68%, 94% { fill: #237861; stroke: #237861; transform: none; }
+  100% { fill: #ffffff; stroke: #c3cfdf; transform: none; }
+}
+@keyframes lt-tick-3 { 0%, 62% { opacity: 0; } 67%, 94% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Motion turned down: the card still says "Loading", with the truck parked
+   mid-road and nothing moving. */
+@media (prefers-reduced-motion: reduce) {
+  .lt-truck { transform: translateX(96px); animation: none; }
+  .lt-truck-body, .lt-lane, .loading-truck-card p i { animation: none; }
+  .lt-toll circle, .lt-toll path { animation: none; }
+}

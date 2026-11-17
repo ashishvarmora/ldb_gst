@@ -136,13 +136,13 @@ export default async function AccountsPage({
     <>
       <PageHeader
         title="Customers"
-        subtitle={`Every account on ${settings.brandName}, with the credits it has left right now.`}
+        subtitle={`All ${settings.brandName} accounts and their credit balance.`}
         actions={
           <Modal
             triggerLabel="New customer"
             triggerIcon={<UserPlus size={15} />}
             title="Create an account"
-            description="The account works immediately. Share the password over your own channel."
+            description="The account works right away. Send the password to the customer yourself."
             width="xl"
           >
             <ActionForm action={createAccount} closeOnSuccess={false} resetOnSuccess>
