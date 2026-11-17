@@ -41,11 +41,14 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   // Read the profile with the service role: the profiles policy calls
   // is_super_admin(), and we want a straight answer even if that row is odd.
   const admin = getSupabaseAdmin();
+  const started = Date.now();
   const { data: profile } = await admin
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .maybeSingle<Profile>();
+  // Diagnostic for the rare ~20 s page (17 Nov 2026): name the slow step.
+  if (Date.now() - started > 2_000) console.warn(`auth: profile read took ${Date.now() - started}ms`);
 
   if (!profile) return null;
   return { id: user.id, email: user.email ?? profile.email, profile };
@@ -74,7 +77,11 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 export const getSignedInUser = cache(
   async (): Promise<{ id: string; email: string | null } | null> => {
     const supabase = await getSupabaseServer();
+    const started = Date.now();
     const { data, error } = await supabase.auth.getClaims();
+    // getClaims fetches the signing key once per instance; log when that, or
+    // a token refresh, is what made a page slow.
+    if (Date.now() - started > 2_000) console.warn(`auth: getClaims took ${Date.now() - started}ms`);
     const sub = data?.claims?.sub;
     if (error || !sub) return null;
     return { id: sub, email: typeof data.claims.email === "string" ? data.claims.email : null };

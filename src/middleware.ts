@@ -48,6 +48,10 @@ export async function middleware(request: NextRequest) {
   }
 
   const supabase = createServerClient(url, key, {
+    // Bounded (17 Nov 2026): pages occasionally took ~20 s while every query
+    // behind them took milliseconds, which points here - this call had no
+    // timeout, so a stalled token refresh held the whole request.
+    global: { fetch: fetchWithin(8_000) },
     /*
      * HttpOnly and Secure (16 Nov 2026). The library default leaves the session
      * readable by page scripts, which only a browser Supabase client needs -
@@ -83,8 +87,25 @@ export async function middleware(request: NextRequest) {
    * instead of asking Supabase Auth over the network. That network call ran in
    * front of every page and every prefetch. The real gates are in auth.ts.
    */
-  await supabase.auth.getClaims();
+  const started = Date.now();
+  await supabase.auth.getClaims().catch((error: unknown) => {
+    console.warn("middleware: session refresh failed", error instanceof Error ? error.message : error);
+  });
+  const took = Date.now() - started;
+  if (took > 2_000) console.warn(`middleware: session refresh took ${took}ms on ${request.nextUrl.pathname}`);
+  // Visible in the browser's network panel: how much of a slow page was spent here.
+  response.headers.set("Server-Timing", `auth;desc="session refresh";dur=${took}`);
   return response;
+}
+
+/** fetch that gives up after `ms`, built from one AbortController so it runs on the edge. */
+function fetchWithin(ms: number): typeof fetch {
+  return (input, init = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    init.signal?.addEventListener("abort", () => controller.abort());
+    return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  };
 }
 
 export const config = {
