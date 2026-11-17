@@ -23,7 +23,37 @@ export type AccountFilters = {
   joined?: string;
   /** "range": paid something in the window. "none": paid nothing. */
   paid?: string;
+  /**
+   * "any": some figure in the window is not zero. "used": searched, was
+   * auto-checked, spent or paid. "none": every figure in the window is zero.
+   */
+  activity?: string;
+  /** Credits used in the window, at least this many. */
+  minspent?: number;
 };
+
+const ACTIVITY = ["any", "used", "none"] as const;
+
+/** Did the account itself do anything in the window - search, get checked, spend or pay. */
+export function usedInRange(row: AccountActivity): boolean {
+  return (
+    (Number(row.searches) || 0) > 0 ||
+    (Number(row.auto_checks) || 0) > 0 ||
+    (Number(row.credits_spent) || 0) > 0 ||
+    (Number(row.payments) || 0) > 0 ||
+    (Number(row.paid_inr) || 0) > 0 ||
+    (Number(row.credits_bought) || 0) > 0
+  );
+}
+
+/** Any window figure on the row that is not zero, free credits we gave included. */
+function hasNumbers(row: AccountActivity): boolean {
+  return (
+    usedInRange(row) ||
+    (Number(row.credits_free) || 0) > 0 ||
+    (Number(row.credits_admin) || 0) > 0
+  );
+}
 
 /** The filters a URL is actually allowed to set, so a stale link cannot blank the list. */
 export function parseAccountFilters(params: {
@@ -31,12 +61,17 @@ export function parseAccountFilters(params: {
   q?: string;
   joined?: string;
   paid?: string;
+  activity?: string;
+  minspent?: string;
 }): AccountFilters {
+  const minspent = Number(params.minspent);
   return {
     stage: LIFECYCLE_STAGES.some((s) => s.key === params.stage) ? params.stage : undefined,
     q: params.q?.trim() ? params.q : undefined,
     joined: params.joined === "range" ? "range" : undefined,
     paid: params.paid === "range" || params.paid === "none" ? params.paid : undefined,
+    activity: ACTIVITY.some((a) => a === params.activity) ? params.activity : undefined,
+    minspent: Number.isFinite(minspent) && minspent > 0 ? minspent : undefined,
   };
 }
 
@@ -71,6 +106,11 @@ export function filterAccounts(
     if (filters.paid === "range" && paid <= 0) return false;
     if (filters.paid === "none" && paid > 0) return false;
 
+    if (filters.activity === "any" && !hasNumbers(row)) return false;
+    if (filters.activity === "used" && !usedInRange(row)) return false;
+    if (filters.activity === "none" && hasNumbers(row)) return false;
+    if (filters.minspent && (Number(row.credits_spent) || 0) < filters.minspent) return false;
+
     if (!search) return true;
     return (
       row.email.toLowerCase().includes(search) ||
@@ -87,6 +127,10 @@ export function filtersSentence(filters: AccountFilters): string {
   if (filters.joined === "range") parts.push("signed up in this range");
   if (filters.paid === "range") parts.push("paid in this range");
   if (filters.paid === "none") parts.push("paid nothing in this range");
+  if (filters.activity === "any") parts.push("not all zero");
+  if (filters.activity === "used") parts.push("used the service in this range");
+  if (filters.activity === "none") parts.push("all zero in this range");
+  if (filters.minspent) parts.push(`used at least ${filters.minspent} credits`);
   if (filters.q) parts.push(`matching “${filters.q.trim()}”`);
   return parts.join(", ");
 }
@@ -140,12 +184,36 @@ export const ACCOUNT_SORT: Record<
  */
 const LEGACY_SORT: Record<string, Sort> = {
   value: { key: "paid_inr", desc: true },
+  az: { key: "name", desc: false },
   spent: { key: "credits_spent", desc: true },
   recent: { key: "signed_up_on", desc: true },
   active: { key: "last_active_at", desc: true },
   quiet: { key: "last_active_at", desc: false },
   balance: { key: "credits", desc: false },
 };
+
+/**
+ * The orders the sort dropdown offers, as the legacy names above. Names rather
+ * than column keys so a stale `dir` riding along from a header click cannot
+ * flip the order the dropdown promised.
+ */
+export const SORT_PRESETS: { value: string; label: string }[] = [
+  { value: "value", label: "Most paid in range" },
+  { value: "spent", label: "Most credits used" },
+  { value: "recent", label: "Newest sign-up" },
+  { value: "active", label: "Last seen" },
+  { value: "quiet", label: "Quietest first" },
+  { value: "balance", label: "Lowest balance" },
+  { value: "az", label: "Name, A to Z" },
+];
+
+/** The preset a sort is, if it is one; a header click can produce orders none of them name. */
+export function presetOf(sort: Sort): string | undefined {
+  return SORT_PRESETS.find((preset) => {
+    const target = LEGACY_SORT[preset.value];
+    return target && target.key === sort.key && target.desc === sort.desc;
+  })?.value;
+}
 
 export function parseAccountSort(params: { sort?: string; dir?: string }): Sort {
   const raw = params.sort;
@@ -236,9 +304,5 @@ export function accountCsv(rows: AccountActivity[], range: { from: string; to: s
     ]),
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* The table's columns                                                         */
-/* -------------------------------------------------------------------------- */
 
 

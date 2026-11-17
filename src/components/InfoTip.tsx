@@ -180,7 +180,7 @@ function InfoButton({
          * every label row it sits in, on the alert forms and the truck pages
          * as well as here, to fix a problem only the finger has.
          */
-        "before:absolute before:-inset-1 before:content-['']",
+        "before:absolute before:-inset-1.5 before:content-['']",
         open ? "bg-brand-500/12 text-brand-500" : "text-faint hover:bg-sunken hover:text-ink",
       )}
     >

@@ -87,7 +87,7 @@ export function HelpNote({
     <details className={cx("group", className)}>
       <summary
         className={cx(
-          "inline-flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg pr-2",
+          "inline-flex min-h-10 cursor-pointer list-none items-center gap-1.5 rounded-lg pr-2",
           "text-xs font-medium text-muted transition hover:text-ink",
           "[&::-webkit-details-marker]:hidden",
         )}

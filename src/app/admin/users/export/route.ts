@@ -17,7 +17,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * filters and the same order: download the renewal list and you get the renewal
  * list, not every account on the platform. A one-click "export everything"
  * would have been less code and would have answered a different question from
- * the one on the page.
+ * the one on the page. It is every matching row, not only the page of 25 on
+ * screen: paging is how the table is read, not part of what was asked.
  *
  * There is already an export at /admin/usage/export and this is not a second
  * copy of it. That one is officer_overview - the operational sheet: plan, truck
@@ -52,6 +53,8 @@ export async function GET(request: Request) {
     q: query.get("q") ?? undefined,
     joined: query.get("joined") ?? undefined,
     paid: query.get("paid") ?? undefined,
+    activity: query.get("activity") ?? undefined,
+    minspent: query.get("minspent") ?? undefined,
   });
   const sort = parseAccountSort({
     sort: query.get("sort") ?? undefined,

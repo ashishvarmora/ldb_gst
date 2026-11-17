@@ -81,12 +81,28 @@ const TONE_RANK: Record<Tone, number> = { bad: 0, warn: 1, neutral: 2 };
 
 type PaymentRow = Payment & { profiles: { full_name: string | null; email: string } | null };
 
+/*
+ * TEMPORARY (17 Nov 2026): the dashboard occasionally took 5-20 s while every
+ * query measured 15-60 ms on its own. Each load is timed and the breakdown is
+ * logged only when the whole page was slow, so the Vercel log names the part
+ * that stalled. Remove once found.
+ */
+const slowTimings: Record<string, number> = {};
+function timed<T>(label: string, work: PromiseLike<T>): Promise<T> {
+  const started = Date.now();
+  return Promise.resolve(work).then((value) => {
+    slowTimings[label] = Date.now() - started;
+    return value;
+  });
+}
+
 export default async function AdminOverviewPage({
   searchParams,
 }: {
   searchParams: Promise<{ attention?: string }>;
 }) {
-  await requireSuperAdmin();
+  const pageStarted = Date.now();
+  await timed("auth", requireSuperAdmin());
   const { attention: attentionParam } = await searchParams;
   const admin = getSupabaseAdmin();
 
@@ -116,21 +132,21 @@ export default async function AdminOverviewPage({
     { data: stuckPayments, count: stuckCount },
     settings,
   ] = await Promise.all([
-    admin.from("officer_overview").select("*").eq("role", "officer"),
-    loadDailyCalls(admin, { days: 30 }),
-    admin
+    timed("overview", admin.from("officer_overview").select("*").eq("role", "officer")),
+    timed("dailyCalls", loadDailyCalls(admin, { days: 30 })),
+    timed("failedCalls", admin
       .from("search_logs")
       .select("id", { count: "exact", head: true })
       .eq("ok", false)
-      .gte("created_at", dayAgo),
-    loadRevenueSeries(admin, todayRange),
-    loadRevenueSeries(admin, monthRange),
-    loadRevenueSeries(admin, lastMonthRange),
-    loadFunnel(admin),
-    admin
+      .gte("created_at", dayAgo)),
+    timed("revenueToday", loadRevenueSeries(admin, todayRange)),
+    timed("revenueMonth", loadRevenueSeries(admin, monthRange)),
+    timed("revenueLastMonth", loadRevenueSeries(admin, lastMonthRange)),
+    timed("funnel", loadFunnel(admin)),
+    timed("alerts", admin
       .from("alert_logs")
       .select("id", { count: "exact", head: true })
-      .gte("created_at", dayAgo),
+      .gte("created_at", dayAgo)),
     // Only the oldest few are listed; the count says how many there really are.
     admin
       .from("payments")
@@ -139,8 +155,11 @@ export default async function AdminOverviewPage({
       .lt("created_at", stuckBefore)
       .order("created_at", { ascending: true })
       .limit(ATTENTION_STEP),
-    loadSettings(admin),
+    timed("settings", loadSettings(admin)),
   ]);
+
+  const pageMs = Date.now() - pageStarted;
+  if (pageMs > 1500) console.warn(`admin overview slow: ${pageMs}ms`, JSON.stringify(slowTimings));
 
   const receivedToday = sumBy(todayRevenue, (row) => row.gross_inr);
   const receivedMonth = sumBy(monthRevenue, (row) => row.gross_inr);

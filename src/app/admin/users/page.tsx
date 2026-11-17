@@ -1,8 +1,10 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
   CalendarClock,
+  Download,
   Filter,
   MoonStar,
   UserPlus,
@@ -11,6 +13,16 @@ import {
 } from "lucide-react";
 
 import { balanceTone } from "../tables";
+import {
+  SORT_PRESETS,
+  filterAccounts,
+  filtersSentence,
+  parseAccountFilters,
+  parseAccountSort,
+  presetOf,
+  sortAccounts,
+  usedInRange,
+} from "./accounts";
 import {
   DataTable,
   MetricCard,
@@ -23,7 +35,7 @@ import { DateRangeBar } from "@/components/DateRangeBar";
 import { FilterSubmitButton } from "@/components/NavPending";
 import { bucketRange, parseSort, queryString, sortHrefFor } from "@/components/report";
 import { Input, Select } from "@/components/form";
-import { Pager, pageFromParam, pageSlice } from "@/components/Pager";
+import { Pager, ShowMore, pageCount, pageFromParam, pageSlice } from "@/components/Pager";
 import {
   Avatar,
   Badge,
@@ -32,10 +44,7 @@ import {
   PageHeader,
   Panel,
   PanelAction,
-  TableWrap,
-  Tbody,
-  Thead,
-  Tr,
+  buttonClass,
   type BadgeTone,
 } from "@/components/ui";
 import {
@@ -74,24 +83,17 @@ export const metadata = { title: "Users — Admin" };
  * duplicated on this side.
  */
 
+/** Accounts per page, and the most a "Show more" can stretch one page to. */
 const PER_PAGE = 25;
+const PER_PAGE_MAX = 200;
 
 /**
- * How the table can be ordered, and the question each order really asks.
- * Nulls sink in every one of them: an account that has never been seen is not
- * the answer to "who was here most recently".
+ * Sign-up periods shown before "Show more". A 90-day range by day is 90 rows,
+ * and the question is nearly always about the latest few - the totals line
+ * still covers the whole range.
  */
-const SORTS = {
-  value: { label: "Highest lifetime value" },
-  spent: { label: "Most credits used" },
-  recent: { label: "Newest sign-up" },
-  active: { label: "Last seen" },
-  quiet: { label: "Quietest first" },
-  balance: { label: "Lowest balance" },
-  name: { label: "Name" },
-} as const;
-
-type SortKey = keyof typeof SORTS;
+const PERIODS_SHOWN = 14;
+const PERIODS_STEP = 30;
 
 /** One period of the sign-up report. */
 type SignupPeriod = {
@@ -101,8 +103,10 @@ type SignupPeriod = {
   converted: number;
 };
 
-function isSort(value: string | undefined): value is SortKey {
-  return value !== undefined && value in SORTS;
+/** A ?per= value, as a multiple of 25 between 25 and the cap. */
+function perPage(raw: string | undefined): number {
+  const value = Math.round(Number(raw) / PER_PAGE) * PER_PAGE;
+  return Number.isFinite(value) ? Math.min(Math.max(value, PER_PAGE), PER_PAGE_MAX) : PER_PAGE;
 }
 
 type UsersParams = {
@@ -112,10 +116,20 @@ type UsersParams = {
   bucket?: string;
   stage?: string;
   q?: string;
+  joined?: string;
+  paid?: string;
+  activity?: string;
+  minspent?: string;
   sort?: string;
+  dir?: string;
+  per?: string;
   /* The period table's own sort, kept apart from the accounts table's. */
   psort?: string;
   pdir?: string;
+  /* "hide" drops sign-up periods where every figure is zero. */
+  pempty?: string;
+  /* How many sign-up periods to show; "Show more" raises it. */
+  plimit?: string;
   page?: string;
 };
 
@@ -129,10 +143,9 @@ export default async function UsersPage({
   const range = resolveRange(params);
   const admin = getSupabaseAdmin();
 
-  const sort: SortKey = isSort(params.sort) ? params.sort : "value";
-  const page = pageFromParam(params.page);
-  const stage = LIFECYCLE_STAGES.some((s) => s.key === params.stage) ? params.stage : undefined;
-  const search = (params.q ?? "").trim().toLowerCase();
+  const filters = parseAccountFilters(params);
+  const sort = parseAccountSort(params);
+  const per = perPage(params.per);
 
   const previous = previousRange(range);
 
@@ -148,11 +161,9 @@ export default async function UsersPage({
   const referred = sumBy(signups, (row) => row.referred);
   const converted = sumBy(signups, (row) => row.converted);
 
-  /* Everyone active in the window, whichever way they were active: a search
-     costs a credit, so a spender is by definition somebody who turned up. */
-  const activeInRange = accounts.filter(
-    (account) => account.credits_spent > 0 || account.payments > 0,
-  ).length;
+  /* Everyone who used the service in the window - the same test as the
+     accounts table's "Used the service" filter, so the two agree. */
+  const activeInRange = accounts.filter(usedInRange).length;
 
   /*
    * Sign-ups per period as ROWS, not as a picture.
@@ -196,6 +207,7 @@ export default async function UsersPage({
     desc: true,
   });
   const PERIOD_SORT_KEYS = { sort: "psort", dir: "pdir" } as const;
+
 
   const signupColumns: Column<SignupPeriod>[] = [
     {
@@ -274,6 +286,18 @@ export default async function UsersPage({
     },
   ];
 
+  /*
+   * Hiding empty periods and capping how many show are view choices only: the
+   * totals line still covers every period in the range, so "In range" never
+   * changes because a row was folded away.
+   */
+  const hideEmpty = params.pempty === "hide";
+  const periodRows = hideEmpty ? signupPeriods.filter((row) => row.signups > 0) : signupPeriods;
+  const emptyPeriods = signupPeriods.filter((row) => row.signups === 0).length;
+  const periodLimit = Math.max(PERIODS_SHOWN, Math.trunc(Number(params.plimit)) || 0);
+  const periodsShown = sortRows(periodRows, signupColumns, periodSort).slice(0, periodLimit);
+  const periodsHidden = periodRows.length - periodsShown.length;
+
   const stageSlices: Slice[] = LIFECYCLE_STAGES.map((item) => ({
     key: item.key,
     label: item.label,
@@ -282,23 +306,54 @@ export default async function UsersPage({
   }));
 
   /* ----------------------------------------------------------------------- */
-  /* The table                                                                */
+  /* The accounts table                                                       */
   /* ----------------------------------------------------------------------- */
 
-  const filtered = accounts.filter((account) => {
-    if (stage && account.stage !== stage) return false;
-    if (!search) return true;
-    return (
-      account.email.toLowerCase().includes(search) ||
-      (account.full_name ?? "").toLowerCase().includes(search) ||
-      (account.district ?? "").toLowerCase().includes(search)
-    );
-  });
+  /* The same filter and order the CSV route applies, from the same module, so
+     the export is exactly the list on screen - every page of it. */
+  const sorted = sortAccounts(filterAccounts(accounts, filters, range), sort);
+  const page = pageFromParam(params.page, pageCount(sorted.length, per));
+  const shown = pageSlice(sorted, page, per);
+  const moreOnPhone = page === 1 && per < PER_PAGE_MAX ? sorted.length - shown.length : 0;
 
-  const sorted = [...filtered].sort((a, b) => compare(a, b, sort));
-  const shown = pageSlice(sorted, page, PER_PAGE);
+  /* What each table's links must keep: the range and the other table's state. */
+  const accountState = {
+    stage: filters.stage,
+    q: filters.q,
+    joined: filters.joined,
+    paid: filters.paid,
+    activity: filters.activity,
+    minspent: filters.minspent ? String(filters.minspent) : undefined,
+    per: per === PER_PAGE ? undefined : String(per),
+  };
+  const periodState = {
+    psort: params.psort,
+    pdir: params.pdir,
+    pempty: hideEmpty ? "hide" : undefined,
+    plimit: periodLimit > PERIODS_SHOWN ? String(periodLimit) : undefined,
+  };
+  const base = {
+    ...rangeParams(range),
+    ...accountState,
+    sort: params.sort,
+    dir: params.dir,
+    ...periodState,
+  };
+  const usersHref = (changes: Record<string, string | undefined>, hash: string) =>
+    `/admin/users?${queryString({ ...base, ...changes })}#${hash}`;
 
-  const carried = { ...rangeParams(range), stage, q: params.q, sort };
+  const exportHref = `/admin/users/export?${queryString({
+    ...rangeParams(range),
+    ...accountState,
+    per: undefined,
+    sort: sort.key,
+    dir: sort.desc ? "desc" : "asc",
+  })}`;
+
+  const accountColumnList = accountColumns();
+  const preset = presetOf(sort);
+  const sortLabel = accountColumnList.find((column) => column.key === sort.key)?.label ?? sort.key;
+  const filterText = filtersSentence(filters);
 
   return (
     <>
@@ -367,17 +422,36 @@ export default async function UsersPage({
             description="Every column sorts. A period opens the accounts that registered in it."
             bodyClassName="p-0"
           >
+            {emptyPeriods > 0 || periodsHidden > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-divider px-4 py-2 text-xs text-muted sm:px-5">
+                <span className="tabular-nums">
+                  {fmtNumber(periodsShown.length)} of {fmtNumber(periodRows.length)} {range.bucket}s
+                  {hideEmpty && emptyPeriods > 0
+                    ? ` · ${fmtNumber(emptyPeriods)} with no sign-ups hidden`
+                    : ""}
+                </span>
+                {emptyPeriods > 0 ? (
+                  <Link
+                    href={usersHref({ pempty: hideEmpty ? undefined : "hide" }, "signups")}
+                    className="inline-flex min-h-8 items-center font-medium text-brand-500 hover:text-brand-600"
+                  >
+                    {hideEmpty
+                      ? `Show empty ${range.bucket}s`
+                      : `Hide ${fmtNumber(emptyPeriods)} with no sign-ups`}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
             <DataTable
-              rows={sortRows(signupPeriods, signupColumns, periodSort)}
+              rows={periodsShown}
               columns={signupColumns}
               sort={periodSort}
-              /* The range and the accounts table's own filters ride along, so
-                 sorting the periods does not silently widen the page under it.
-                 The anchor brings the reader back to the table they clicked -
-                 without it a sort on a long page lands them at the top. */
+              /* Everything else on the page rides along, so sorting the periods
+                 does not silently reset the accounts table under it. The anchor
+                 brings the reader back to the table they clicked. */
               sortHref={sortHrefFor(
                 "/admin/users",
-                { ...rangeParams(range), stage, q: params.q, sort: params.sort },
+                { ...base, page: params.page },
                 periodSort,
                 { keys: PERIOD_SORT_KEYS, hash: "signups" },
               )}
@@ -386,6 +460,15 @@ export default async function UsersPage({
               totalsLabel="In range"
               emptyLabel="Nobody registered in this range"
             />
+            {periodsHidden > 0 ? (
+              <div className="border-t border-divider px-2 py-1.5">
+                <ShowMore
+                  href={usersHref({ plimit: String(periodLimit + PERIODS_STEP) }, "signups")}
+                  remaining={Math.min(periodsHidden, PERIODS_STEP)}
+                  noun={`more ${range.bucket}s`}
+                />
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-3 border-t border-divider px-5 py-4 sm:grid-cols-4">
               <Figure label="Registered" value={fmtNumber(newAccounts)} />
               <Figure
@@ -434,21 +517,49 @@ export default async function UsersPage({
       </div>
 
       <Panel
+        id="accounts"
         title="Accounts"
-        description={`${fmtNumber(sorted.length)} of ${fmtNumber(accounts.length)} accounts. Money and credits are for the selected range; the balance and stage are as of now.`}
+        description={`${fmtNumber(sorted.length)} of ${fmtNumber(accounts.length)} accounts${filterText ? `: ${filterText}` : ""}. Money and credits are for the selected range; balance and stage are as of now.`}
         bodyClassName="p-0"
         actions={
-          <form method="get" action="/admin/users" className="flex flex-wrap items-center gap-1.5">
-            {Object.entries(rangeParams(range)).map(([key, value]) => (
-              <input key={key} type="hidden" name={key} value={value} />
-            ))}
+          /* A plain anchor: it is a download, and a client-side navigation
+             would try to render the CSV as a page. Every matching row, not
+             only this page. */
+          <a href={exportHref} className={buttonClass("secondary", "sm")}>
+            <Download size={13} />
+            CSV · {fmtNumber(sorted.length)}
+          </a>
+        }
+      >
+        <form
+          method="get"
+          action="/admin/users#accounts"
+          className="grid grid-cols-2 gap-2 border-b border-divider px-4 py-3 sm:flex sm:flex-wrap sm:items-end sm:px-5"
+        >
+          {/* The range and the sign-up table's view ride along; the page number
+              does not, since a new filter is a new list. A header-chosen
+              direction rides along only while the sort is not a preset. */}
+          {Object.entries({
+            ...rangeParams(range),
+            ...periodState,
+            dir: preset ? undefined : params.dir,
+          }).map(([key, value]) =>
+            value ? <input key={key} type="hidden" name={key} value={value} /> : null,
+          )}
+          <FilterField label="Search" className="col-span-2 sm:w-52">
             <Input
               name="q"
               defaultValue={params.q ?? ""}
               placeholder="Name, email or district"
-              className="h-9 w-44 py-0 text-xs"
+              className="h-9 w-full py-0 text-xs"
             />
-            <Select name="stage" defaultValue={stage ?? ""} className="h-9 py-0 text-xs">
+          </FilterField>
+          <FilterField label="Stage">
+            <Select
+              name="stage"
+              defaultValue={filters.stage ?? ""}
+              className="h-9 w-full py-0 text-xs"
+            >
               <option value="">Any stage</option>
               {LIFECYCLE_STAGES.map((item) => (
                 <option key={item.key} value={item.key}>
@@ -456,97 +567,134 @@ export default async function UsersPage({
                 </option>
               ))}
             </Select>
-            <Select name="sort" defaultValue={sort} className="h-9 py-0 text-xs">
-              {Object.entries(SORTS).map(([key, option]) => (
-                <option key={key} value={key}>
+          </FilterField>
+          <FilterField label="Activity in range">
+            <Select
+              name="activity"
+              defaultValue={filters.activity ?? ""}
+              className="h-9 w-full py-0 text-xs"
+            >
+              <option value="">Everyone</option>
+              <option value="any">Hide all-zero rows</option>
+              <option value="used">Used the service</option>
+              <option value="none">Only all-zero rows</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Payments in range">
+            <Select name="paid" defaultValue={filters.paid ?? ""} className="h-9 w-full py-0 text-xs">
+              <option value="">Paid or not</option>
+              <option value="range">Paid something</option>
+              <option value="none">Paid nothing</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Signed up">
+            <Select
+              name="joined"
+              defaultValue={filters.joined ?? ""}
+              className="h-9 w-full py-0 text-xs"
+            >
+              <option value="">Any time</option>
+              <option value="range">In this range</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Min credits used">
+            <Input
+              name="minspent"
+              type="number"
+              min={0}
+              step="any"
+              inputMode="decimal"
+              defaultValue={filters.minspent ?? ""}
+              placeholder="0"
+              className="h-9 w-full py-0 text-xs sm:w-28"
+            />
+          </FilterField>
+          <FilterField label="Sort">
+            <Select
+              name="sort"
+              defaultValue={preset ?? sort.key}
+              className="h-9 w-full py-0 text-xs"
+            >
+              {preset ? null : <option value={sort.key}>{`${sortLabel} (column)`}</option>}
+              {SORT_PRESETS.map((option) => (
+                <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </Select>
-            <FilterSubmitButton icon={<Filter size={13} />}>Apply</FilterSubmitButton>
-          </form>
-        }
-      >
+          </FilterField>
+          <FilterField label="Per page">
+            <Select name="per" defaultValue={String(per)} className="h-9 w-full py-0 text-xs">
+              {[...new Set([25, 50, 100, per])]
+                .sort((x, y) => x - y)
+                .map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+            </Select>
+          </FilterField>
+          <div className="col-span-2 flex items-center gap-2">
+            <FilterSubmitButton icon={<Filter size={13} />} className="flex-1 sm:flex-none">
+              Apply
+            </FilterSubmitButton>
+            {filterText ? (
+              <Link
+                href={`/admin/users?${queryString({ ...rangeParams(range), ...periodState })}#accounts`}
+                className={buttonClass("ghost", "sm")}
+              >
+                Clear
+              </Link>
+            ) : null}
+          </div>
+        </form>
+
         {shown.length === 0 ? (
           <EmptyState
             title="No accounts match"
-            description="Clear the search, or choose a different stage."
+            description={
+              filterText ? "Clear the filters, or widen the date range." : "No accounts yet."
+            }
           />
         ) : (
           <>
-            <TableWrap>
-              <Thead>
-                <th className="th">Account</th>
-                <th className="th">Stage</th>
-                <th className="th">Plan</th>
-                <th className="th text-right">Paid in range</th>
-                <th className="th text-right">Lifetime</th>
-                <th className="th text-right">Credits used</th>
-                <th className="th text-right">Free given</th>
-                <th className="th text-right">Balance</th>
-                <th className="th">Last seen</th>
-              </Thead>
-              <Tbody>
-                {shown.map((account) => {
-                  const stageInfo = stageOf(account.stage);
-                  return (
-                    <Tr key={account.id}>
-                      <td className="td">
-                        <Link
-                          href={`/admin/officers/${account.id}`}
-                          className="group flex items-center gap-2.5"
-                        >
-                          <Avatar size="sm" text={initials(account.full_name, account.email)} />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm text-ink group-hover:text-brand-400">
-                              {account.full_name ?? account.email}
-                            </span>
-                            <span className="block truncate text-xs text-faint">
-                              joined {fmtDate(account.signed_up_on)}
-                              {account.district ? ` · ${account.district}` : ""}
-                            </span>
-                          </span>
-                        </Link>
-                      </td>
-                      <td className="td">
-                        <Badge tone={(stageInfo?.tone ?? "neutral") as BadgeTone}>
-                          {stageInfo?.label ?? account.stage}
-                        </Badge>
-                      </td>
-                      <td className="td text-sm text-muted">{account.plan_name ?? "—"}</td>
-                      <td className="td text-right text-sm tabular-nums text-ink">
-                        {account.paid_inr > 0 ? fmtRupees(account.paid_inr) : "—"}
-                      </td>
-                      <td className="td text-right text-sm tabular-nums text-muted">
-                        {fmtRupees(account.paid_inr)}
-                      </td>
-                      <td className="td text-right text-sm tabular-nums text-muted">
-                        {formatCredits(account.credits_spent)}
-                      </td>
-                      <td className="td text-right text-sm tabular-nums text-muted">
-                        {formatCredits(account.credits_free + account.credits_admin)}
-                      </td>
-                      <td className="td text-right">
-                        <Badge tone={balanceTone(account.credits)}>
-                          {formatCredits(account.credits)}
-                        </Badge>
-                      </td>
-                      <td className="td text-xs whitespace-nowrap text-muted">
-                        {fmtRelative(account.last_active_at)}
-                      </td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </TableWrap>
+            <DataTable
+              rows={shown}
+              columns={accountColumnList}
+              sort={sort}
+              sortHref={sortHrefFor(
+                "/admin/users",
+                { ...rangeParams(range), ...accountState, ...periodState },
+                sort,
+                { hash: "accounts" },
+              )}
+              rowKey={(row) => row.id}
+              totalsOver={sorted}
+              totalsLabel="All matching"
+            />
+
+            {/* On a phone, lengthening the list reads better than paging it.
+                Capped, so it never becomes "load everything". */}
+            {moreOnPhone > 0 ? (
+              <div className="border-t border-divider px-2 py-1.5 sm:hidden">
+                <ShowMore
+                  href={usersHref(
+                    { per: String(Math.min(per + PER_PAGE, PER_PAGE_MAX)), page: undefined },
+                    "accounts",
+                  )}
+                  remaining={Math.min(moreOnPhone, PER_PAGE)}
+                  noun="more accounts"
+                />
+              </div>
+            ) : null}
 
             <div className="border-t border-divider px-4 py-3 sm:px-5">
               <Pager
                 page={page}
                 total={sorted.length}
-                pageSize={PER_PAGE}
+                pageSize={per}
                 noun="accounts"
-                href={{ path: "/admin/users", params: carried }}
+                href={{ path: "/admin/users", params: base }}
                 className=""
               />
             </div>
@@ -555,6 +703,122 @@ export default async function UsersPage({
       </Panel>
     </>
   );
+}
+
+/** A labelled control in the accounts filter bar. */
+function FilterField({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className={`flex min-w-0 flex-col gap-1 ${className ?? ""}`}>
+      <span className="text-[11px] font-medium text-muted">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/**
+ * The accounts table's columns. Every key is an ACCOUNT_SORT key, so a header
+ * click and the CSV route order by the same thing.
+ *
+ * There used to be a "Lifetime" column here, but admin_account_activity only
+ * returns the window's payments and it printed paid_inr twice. Lifetime value
+ * lives on the account itself and on Finance.
+ */
+function accountColumns(): Column<AccountActivity>[] {
+  const num = (value: unknown) => Number(value) || 0;
+  const free = (row: AccountActivity) => num(row.credits_free) + num(row.credits_admin);
+  return [
+    {
+      key: "name",
+      label: "Account",
+      sortBy: (row) => (row.full_name ?? row.email).toLowerCase(),
+      cell: (row) => (
+        <Link href={`/admin/officers/${row.id}`} className="group flex items-center gap-2.5">
+          <Avatar size="sm" text={initials(row.full_name, row.email)} />
+          <span className="min-w-0">
+            <span className="block max-w-56 truncate text-sm text-ink group-hover:text-brand-400">
+              {row.full_name ?? row.email}
+            </span>
+            <span className="block max-w-56 truncate text-xs text-faint">
+              joined {fmtDate(row.signed_up_on)}
+              {row.district ? ` · ${row.district}` : ""}
+            </span>
+          </span>
+        </Link>
+      ),
+    },
+    {
+      key: "stage",
+      label: "Stage",
+      sortBy: (row) => row.stage,
+      cell: (row) => {
+        const info = stageOf(row.stage);
+        return (
+          <Badge tone={(info?.tone ?? "neutral") as BadgeTone}>{info?.label ?? row.stage}</Badge>
+        );
+      },
+    },
+    {
+      key: "plan",
+      label: "Plan",
+      sortBy: (row) => row.plan_name ?? "",
+      className: "text-sm text-muted",
+      cell: (row) => row.plan_name ?? "—",
+    },
+    {
+      key: "paid_inr",
+      label: "Paid in range",
+      align: "right",
+      sortBy: (row) => num(row.paid_inr),
+      cell: (row) => (num(row.paid_inr) > 0 ? fmtRupees(num(row.paid_inr)) : "—"),
+      total: (rows) => fmtRupees(sumBy(rows, (row) => num(row.paid_inr))),
+    },
+    {
+      key: "payments",
+      label: "Payments",
+      align: "right",
+      sortBy: (row) => num(row.payments),
+      cell: (row) => (num(row.payments) > 0 ? fmtNumber(num(row.payments)) : "—"),
+      total: (rows) => fmtNumber(sumBy(rows, (row) => num(row.payments))),
+    },
+    {
+      key: "credits_spent",
+      label: "Credits used",
+      align: "right",
+      sortBy: (row) => num(row.credits_spent),
+      cell: (row) => (num(row.credits_spent) > 0 ? formatCredits(num(row.credits_spent)) : "—"),
+      total: (rows) => formatCredits(sumBy(rows, (row) => num(row.credits_spent))),
+    },
+    {
+      key: "free",
+      label: "Free given",
+      align: "right",
+      sortBy: free,
+      cell: (row) => (free(row) > 0 ? formatCredits(free(row)) : "—"),
+      total: (rows) => formatCredits(sumBy(rows, free)),
+    },
+    {
+      key: "credits",
+      label: "Balance",
+      align: "right",
+      sortBy: (row) => num(row.credits),
+      cell: (row) => <Badge tone={balanceTone(row.credits)}>{formatCredits(row.credits)}</Badge>,
+    },
+    {
+      key: "last_active_at",
+      label: "Last seen",
+      sortBy: (row) => row.last_active_at ?? "",
+      className: "whitespace-nowrap text-xs text-muted",
+      cell: (row) => fmtRelative(row.last_active_at),
+    },
+  ];
 }
 
 /** One number under the sign-up chart. */
@@ -566,32 +830,4 @@ function Figure({ label, value, sub }: { label: string; value: string; sub?: str
       {sub ? <p className="text-xs text-faint">{sub}</p> : null}
     </div>
   );
-}
-
-/**
- * The orders, in one place.
- *
- * "Lifetime" appears twice on the table on purpose: the range column answers
- * "did they pay me this month", the lifetime column answers "are they worth
- * chasing at all", and reading either one as the other is the mistake this
- * layout is trying to prevent.
- */
-function compare(a: AccountActivity, b: AccountActivity, sort: SortKey): number {
-  switch (sort) {
-    case "spent":
-      return b.credits_spent - a.credits_spent;
-    case "recent":
-      return b.signed_up_on.localeCompare(a.signed_up_on);
-    case "active":
-      return (b.last_active_at ?? "").localeCompare(a.last_active_at ?? "");
-    case "quiet":
-      // Never seen is the quietest of all, so an empty string sorts first here.
-      return (a.last_active_at ?? "").localeCompare(b.last_active_at ?? "");
-    case "balance":
-      return Number(a.credits) - Number(b.credits);
-    case "name":
-      return (a.full_name ?? a.email).localeCompare(b.full_name ?? b.email);
-    default:
-      return b.paid_inr - a.paid_inr;
-  }
 }

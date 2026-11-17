@@ -1,7 +1,6 @@
-import { Gift as PageIcon } from "lucide-react";
 import Link from "next/link";
-import { Fragment, type ReactNode } from "react";
-import { CheckCircle2, ChevronRight, Clock, Coins, Gift, Users } from "lucide-react";
+import type { ReactNode } from "react";
+import { CheckCircle2, Clock, Coins, Gift, Share2, UserPlus, Users, Wallet } from "lucide-react";
 
 import { ShareLink } from "./ShareLink";
 import { Pager, pageFromParam, pageSlice, pagerHref } from "@/components/Pager";
@@ -30,6 +29,7 @@ import {
   referralPercent as pct,
   referralStage,
   type ReferralRow,
+  type ReferralTerms,
 } from "@/lib/referrals";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -40,20 +40,21 @@ const PAGE_SIZE = 10;
 
 export async function generateMetadata() {
   const { brandName } = await loadSettings(getSupabaseAdmin());
-  return { title: `Invite and earn — ${brandName}` };
+  return { title: `Refer & earn — ${brandName}` };
 }
 
 /**
- * Invite someone, and earn when they pay.
+ * Refer & earn.
  *
- * One rule decides everything on this page, so it is said in the header, said
- * again beside the link, and then shown on every row: a referral earns nothing
- * until the person invited makes their FIRST PAYMENT. A page that counted
- * sign-ups would be promising money that is not coming.
+ * Phone-first order: the offer, the link with Copy and WhatsApp, the three
+ * steps, the reader's own numbers, the bonus, then the people. Every figure is
+ * read from the live settings (percentages via loadReferralTerms, minimum
+ * payment and milestone via loadSettings) - nothing about the reward is typed
+ * into this file. The rules live behind the (i) on "How it works".
  *
  * Nothing here grants anything. reward_referral() does that inside
- * settle_payment, on the one path from "money arrived" to "everyone owed was
- * paid". This only reports what that has already decided.
+ * settle_payment; this page only reports what it has already decided. One rule
+ * drives every line: an invite earns nothing until the person pays.
  */
 export default async function ReferralsPage({
   searchParams,
@@ -69,8 +70,7 @@ export default async function ReferralsPage({
     loadReferralSummary(admin, overview.id),
     loadReferrals(admin, overview.id),
     // The milestone bonus is granted straight to the balance and is not part of
-    // any referral row, so referral_summary cannot see it. Without this the
-    // page would understate what the scheme has actually paid out.
+    // any referral row, so referral_summary cannot see it.
     admin
       .from("credit_transactions")
       .select("delta")
@@ -92,9 +92,7 @@ export default async function ReferralsPage({
 
   const hasMilestone = settings.referralMilestoneCount > 0 && settings.referralMilestoneBonus > 0;
 
-  // Waiting first: those are the only ones the reader can do anything about,
-  // and they are the answer to "why have I not been paid yet". Newest first
-  // within each group, which is how the query already returns them.
+  // Waiting first: those are the answer to "why have I not been paid yet".
   const ordered = [
     ...referrals.filter((row) => row.status !== "rewarded"),
     ...referrals.filter((row) => row.status === "rewarded"),
@@ -104,156 +102,97 @@ export default async function ReferralsPage({
   const page = pageFromParam(params.page, pages);
   const visible = pageSlice(ordered, page, PAGE_SIZE);
 
-  /* The arithmetic on the face of the page, off the live percentages. */
   const example = referralExample(terms);
 
   /*
-   * Which of the two events actually pays somebody.
-   *
-   * Not decoration: an admin can set an event to 0 per cent, and this page must
-   * not then promise a reader they are "paid twice" and show them a worked
-   * example of nought credits. The database still closes a 0 event - that is
-   * deliberate, so raising the percentage later cannot back-pay every old
-   * referral at once - which means the only place the reader is protected from
-   * the wrong promise is here.
+   * Which events actually pay. An admin can set an event to 0%, and the page
+   * must not then promise "both get credits" or show an example of nought.
    */
   const paysPlan = terms.planReferrerPercent > 0 || terms.planInviteePercent > 0;
   const paysTopup = terms.topupReferrerPercent > 0 || terms.topupInviteePercent > 0;
-  /* The invitee's whole column disappears when neither welcome share is set,
-     rather than standing there as a pair of dashes headed "they get". */
   const paysInvitee = terms.planInviteePercent > 0 || terms.topupInviteePercent > 0;
+  const paysReferrer = terms.planReferrerPercent > 0 || terms.topupReferrerPercent > 0;
 
   return (
     <>
-      {/* No subtitle. It said "share your link with someone who runs trucks",
-          which is the page title as an instruction - and the offer card below
-          makes the case for sharing far better than a line of encouragement. */}
-      <PageHeader
-        icon={<PageIcon size={22} strokeWidth={2} />}
-        title="Invite and earn credits"
-        subtitle="Share your link. When they pay, you both get credits."
+      {/* ------------------------------- hero ----------------------------- */}
+      <Hero
+        headline={referralOfferHeadline(terms)}
+        sub={
+          paysReferrer
+            ? paysInvitee
+              ? "You earn when they pay. They get credits too."
+              : "You earn when they pay."
+            : null
+        }
       />
 
-      {/* --------------------------- the offer and the link ---------------- */}
-      {/*
-        ONE CARD, BECAUSE IT IS ONE THOUGHT: here is what an invite pays, here
-        is the thing you send.
+      {/* ------------------------------- share ---------------------------- */}
+      <Panel id="share" title="Your invite link" className="mb-3 scroll-mt-20">
+        {code ? (
+          <ShareLink
+            link={referralLink(env.siteUrl, code)}
+            code={code}
+            brandName={settings.brandName}
+            inviteeEarns={paysInvitee}
+          />
+        ) : (
+          /* The code comes from a trigger on the profile, so this is close to
+             impossible - but a missing link is not something to render blank. */
+          <p className="text-sm leading-relaxed text-muted">
+            Your link is still being set up. Please refresh in a minute. If it still does not
+            show, contact us.
+          </p>
+        )}
+      </Panel>
 
-        This was four stacked blocks - a panel description, a tinted callout of
-        two or three sentences, a bordered "for example" box and a folded note -
-        and on a 390px phone the reader met roughly a hundred and thirty words
-        before reaching a figure. The owner's verdict was that it read as messy
-        text, and that the detail belongs behind an (i).
+      {/* ---------------------------- how it works ------------------------ */}
+      <Panel className="mb-3">
+        <InfoTip
+          label="the rules"
+          rowClassName="justify-between"
+          info={
+            <Rules
+              terms={terms}
+              paysPlan={paysPlan}
+              paysTopup={paysTopup}
+              minPayment={settings.referralMinPayment}
+              milestoneCount={hasMilestone ? settings.referralMilestoneCount : 0}
+              milestoneBonus={hasMilestone ? settings.referralMilestoneBonus : 0}
+            />
+          }
+        >
+          <h2 className="text-base font-bold text-strong">How it works</h2>
+        </InfoTip>
 
-        So the offer is now figures: a headline carrying the live percentage,
-        the worked example as a small three-column table, and a caption. Every
-        number in it is computed from the live settings - see referralExample -
-        so an admin editing a percentage cannot leave a stale promise here.
-      */}
-      <Panel className="mb-3" bodyClassName="p-0">
-        <div className="border-b border-divider bg-brand-500/8 px-4 py-3.5 sm:px-5">
-          {/*
-            Everything the old callout, the example box and the folded note
-            said, behind one (i) on the headline it is all about - the same
-            treatment the credit history page had. Opens inline underneath, so
-            it pushes the link down rather than covering it, and costs nothing
-            above the fold while it is shut.
-          */}
-          <InfoTip
-            label="how an invite is paid"
-            info={
-              <>
-                <p>
-                  A share of what they pay, never a fixed amount:{" "}
-                  {pct(terms.planReferrerPercent)} of their first plan to you and{" "}
-                  {pct(terms.planInviteePercent)} to them, then {pct(terms.topupReferrerPercent)} of
-                  their first top-up to you and {pct(terms.topupInviteePercent)} to them.
-                </p>
-                <p>
-                  A sign-up on its own earns nothing. Each of the two events pays once per person,
-                  ever, on the rupees actually charged after any discount, rounded to the nearest
-                  whole credit. A payment that buys a plan and credits together settles both at once
-                  {settings.referralMinPayment > 0
-                    ? `, and a payment under ${fmtRupees(settings.referralMinPayment)} settles neither — a later, larger one still can`
-                    : ""}
-                  .
-                </p>
-                <p>
-                  {/* This used to claim the credits were good for "manual
-                      searches" only. That stopped being true when a check went
-                      back to costing a credit either way, so the cost model is
-                      no longer restated here at all - it belongs on the credit
-                      history page, which owns it and cannot drift from it. */}
-                  Credits are added to balances and are not money: they cannot be withdrawn or
-                  transferred. They spend exactly like bought ones and never expire. The
-                  percentages can change, but a reward already earned is never taken back.
-                </p>
-                <p>
-                  Your balance is on the{" "}
-                  <Link href="/portal/plan" className="link">
-                    plan and credits page
-                  </Link>
-                  .
-                </p>
-              </>
-            }
-          >
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-brand-500">
-              <Gift size={15} className="shrink-0" />
-              {referralOfferHeadline(terms)}
-            </span>
-          </InfoTip>
+        <ol className="mt-3 space-y-2.5">
+          <Step n={1} icon={<Share2 size={15} />} title="Share your link">
+            Send it on WhatsApp or copy it.
+          </Step>
+          <Step n={2} icon={<UserPlus size={15} />} title="They join and pay">
+            Your friend signs up with your link and makes a payment.
+          </Step>
+          <Step n={3} icon={<Wallet size={15} />} title={paysInvitee ? "You both get credits" : "You get credits"}>
+            Added to your balance on its own. No form to fill.
+          </Step>
+        </ol>
 
-          {/*
-            HOW IT WORKS, BEFORE WHAT IT PAYS.
-
-            The owner's note on this page was that it does not show how refer
-            and earn actually works. Everything above and below this was about
-            the MONEY - a percentage in the headline, credits in the table, the
-            terms behind the (i) - and none of it said the sequence: you send a
-            link, they join on it, they pay, and only then does anybody earn.
-
-            Three short steps rather than a paragraph. Somebody who has to
-            assemble the mechanism out of prose - "a referral earns nothing
-            until the person invited makes their first payment" - has usually
-            decided whether to share the link before they get to the end of the
-            sentence. Three labels with arrows between them are taken in at a
-            glance, which is the only speed this particular fact is useful at.
-          */}
-          <HowItWorks paysInvitee={paysInvitee} />
-
-          {/*
-            The worked example, as a table rather than as two sentences.
-
-            A percentage is a rule and nobody pictures a rule: "20% of their
-            first plan" is a sum the reader has to do before they know whether
-            the link is worth sending. The answer, in credits, is what goes on
-            the marketing surface - and in three columns it is read at a glance
-            instead of parsed, which two lines of prose never were.
-
-            grid rather than <table>: it is four rows of figures inside a card,
-            the column heads are a label each, and a real table would bring
-            TableWrap's horizontal scroll to something that has to fit 326px.
-          */}
-          {paysPlan || paysTopup ? (
+        {paysPlan || paysTopup ? (
+          <div className="mt-4 rounded-xl border border-brand-500/20 bg-brand-500/6 px-3.5 py-3">
+            <p className="mb-2 text-xs font-semibold text-muted">For example (in credits)</p>
             <div
               className={cx(
-                "mt-3 grid items-baseline gap-x-3 gap-y-1.5 text-xs tabular-nums",
-                /* Capped, because the card is the full width of a desktop
-                   column: without it "Their first plan" sits at one edge and
-                   "+200" at the other, and a sum whose figures are a foot away
-                   from what they are the sum of is not read as a sum. */
-                "max-w-md",
+                "grid max-w-md items-baseline gap-x-3 gap-y-1.5 text-[13px] tabular-nums",
                 paysInvitee ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]",
               )}
             >
               <span />
               <ColHead>You get</ColHead>
-              {paysInvitee ? <ColHead>They get</ColHead> : null}
+              {paysInvitee ? <ColHead>Friend gets</ColHead> : null}
 
               {paysPlan ? (
                 <>
-                  <span className="text-muted">Their first plan, {fmtRupees(example.planInr)}</span>
+                  <span className="text-muted">Plan of {fmtRupees(example.planInr)}</span>
                   <Figure value={example.planReferrer} />
                   {paysInvitee ? <Figure value={example.planInvitee} muted /> : null}
                 </>
@@ -261,82 +200,44 @@ export default async function ReferralsPage({
 
               {paysTopup ? (
                 <>
-                  <span className="text-muted">
-                    Their first top-up, {fmtRupees(example.topupInr)}
-                  </span>
+                  <span className="text-muted">Top-up of {fmtRupees(example.topupInr)}</span>
                   <Figure value={example.topupReferrer} />
                   {paysInvitee ? <Figure value={example.topupInvitee} muted /> : null}
                 </>
               ) : null}
 
-              {/* The total only earns its rule when there are two rows to add
-                  up. With one event switched off it would restate the row
-                  directly above it. */}
               {paysPlan && paysTopup ? (
                 <>
-                  {/* The rule is its own full-width row rather than a border on
-                      each of the three cells: a per-cell border breaks at every
-                      column gap, which reads as three short underlines instead
-                      of the line under a sum. */}
                   <span className="col-span-full border-t border-brand-500/20" />
-                  <span className="font-medium text-ink">One invite is worth</span>
+                  <span className="font-semibold text-ink">Total</span>
                   <Figure value={example.referrerTotal} total />
                   {paysInvitee ? <Figure value={example.inviteeTotal} total muted /> : null}
                 </>
               ) : null}
             </div>
-          ) : null}
-
-          {/* The three things that must not be discovered later, at rest and in
-              one line. Everything else about the terms is behind the (i). */}
-          <p className="mt-2.5 text-[11px] leading-relaxed text-faint">
-            Paid as credits, not cash, and once each per person
-            {settings.referralMinPayment > 0
-              ? ` — payments under ${fmtRupees(settings.referralMinPayment)} do not count`
-              : ""}
-            .
-          </p>
-        </div>
-
-        {/* The thing the reader came to send, and the biggest control on the
-            screen. Nothing is stacked above it but the offer it belongs to. */}
-        <div className="p-4 sm:p-5">
-          {code ? (
-            <ShareLink
-              link={referralLink(env.siteUrl, code)}
-              code={code}
-              brandName={settings.brandName}
-            />
-          ) : (
-            /* The code comes from a trigger on the profile, so this is close to
-               impossible - but a missing link is not something to render blank. */
-            <p className="text-sm leading-relaxed text-muted">
-              Your invite link is still being set up. Refresh this page in a moment, and get in
-              touch with us if it is still not here.
-            </p>
-          )}
-        </div>
+          </div>
+        ) : null}
       </Panel>
 
-      {/* ------------------------------- the score ------------------------ */}
+      {/* ------------------------------- stats ---------------------------- */}
       <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="Invited"
+          label="Joined"
           value={fmtNumber(counts.invited)}
-          sub="signed up with your link"
+          sub="used your link"
           icon={<Users size={14} />}
         />
         <StatCard
-          label="Waiting"
+          label="Yet to pay"
           value={fmtNumber(counts.waiting)}
-          sub="not paid yet, so nothing earned"
+          sub="no credits yet"
           tone={counts.waiting > 0 ? "warn" : "neutral"}
           icon={<Clock size={14} />}
         />
         <StatCard
           label="Paid"
           value={fmtNumber(counts.paid)}
-          sub="made their first payment"
+          sub="made a payment"
           tone={counts.paid > 0 ? "good" : "neutral"}
           icon={<CheckCircle2 size={14} />}
         />
@@ -345,16 +246,15 @@ export default async function ReferralsPage({
           value={formatCredits(totalEarned)}
           sub={
             milestoneCredits > 0
-              ? `includes a ${formatCredits(milestoneCredits)} credit bonus`
-              : "already on your balance"
+              ? `incl. ${formatCredits(milestoneCredits)} bonus`
+              : "on your balance"
           }
           tone={totalEarned > 0 ? "brand" : "neutral"}
           icon={<Coins size={14} />}
         />
       </div>
 
-      {/* Nothing to track when the admin has not set a milestone, and an empty
-          tracker reads as a reward that was taken away. */}
+      {/* Nothing to track when the admin has not set a milestone. */}
       {hasMilestone ? (
         <Milestone
           paid={counts.paid}
@@ -364,26 +264,33 @@ export default async function ReferralsPage({
         />
       ) : null}
 
-      {/* ------------------------------- the people ----------------------- */}
-      {/* The list is well down the page, so turning a page lands back on it
-          rather than at the top of the screen. */}
-      <div id="people">
-        {/* No description. It either counted the people who have not paid -
-            which is the Waiting tile two inches above, in a sentence - or said
-            "what each person has earned you", which is the title in longer
-            words. Every row states its own status three ways over. */}
-        <Panel title="Everyone you invited" bodyClassName="p-0">
+      {/* ------------------------------- people --------------------------- */}
+      {/* Turning a page lands back on the list rather than at the top. */}
+      <div id="people" className="scroll-mt-20">
+        <Panel title="People you invited" bodyClassName="p-0">
           {ordered.length === 0 ? (
             <EmptyState
-              title="Nobody has used your link yet"
-              description="Everyone who signs up through it shows up here."
+              icon={<Gift size={24} strokeWidth={1.9} />}
+              title="No one has joined yet"
+              description="Send your link to a transporter you know. When they join, you will see them here."
+              action={
+                <LinkButton href="#share" variant="primary">
+                  <Share2 size={15} />
+                  Share your link
+                </LinkButton>
+              }
             />
           ) : (
             <>
-              <Legend />
+              <Legend paysPlan={paysPlan} paysTopup={paysTopup} />
               <ul className="divide-y divide-divider">
                 {visible.map((referral) => (
-                  <InviteRow key={referral.id} referral={referral} />
+                  <InviteRow
+                    key={referral.id}
+                    referral={referral}
+                    planPaysYou={terms.planReferrerPercent > 0}
+                    topupPaysYou={terms.topupReferrerPercent > 0}
+                  />
                 ))}
               </ul>
               <Pager
@@ -398,13 +305,6 @@ export default async function ReferralsPage({
           )}
         </Panel>
       </div>
-
-      {/* The closing paragraph is gone. It said credits earned here spend "on
-          manual searches" - which stopped being true the day a check went back
-          to costing a credit either way, so it was a stale promise sitting
-          under a page whose whole point is not making stale promises. What it
-          was for, that these credits are ordinary credits and where the balance
-          lives, is in the (i) on the offer above. */}
     </>
   );
 }
@@ -441,114 +341,148 @@ function tally(
 }
 
 /**
- * What the badges mean - folded, because it is a key to a legend and not the
- * legend itself.
- *
- * Three badges and three explanations of them stood open above the list, which
- * put roughly sixty words between the reader and the first person they invited.
- * The badges are colour-coded and each row already says its own state in words
- * underneath the name, so somebody scrolling the list is not the person who
- * needs this - the person who does gets it one tap away, in the row it heads.
+ * The top card: the page's h1 and the live offer. Same blue card and gold gift
+ * as the InviteCard that links here from Home and the plan page, so the reader
+ * lands on the thing they tapped.
  */
-function Legend() {
+function Hero({ headline, sub }: { headline: string; sub: string | null }) {
   return (
-    <div className="border-b border-divider bg-raised/50 px-4 py-2">
-      <HelpNote title="What the badges mean">
-        <span className="flex flex-col gap-1.5">
-          <span className="flex flex-wrap items-baseline gap-1.5">
-            <Badge tone="warn">Waiting</Badge>
-            <span>signed up, has not paid — earns you nothing yet.</span>
-          </span>
-          <span className="flex flex-wrap items-baseline gap-1.5">
-            <Badge tone="brand">Part paid</Badge>
-            <span>one of the two rewards has landed; the other is still to come.</span>
-          </span>
-          <span className="flex flex-wrap items-baseline gap-1.5">
-            <Badge tone="good">Both paid</Badge>
-            <span>plan and top-up — everything this invite is worth is yours.</span>
-          </span>
+    <section className="invite-card relative isolate mb-3 overflow-hidden rounded-[20px] bg-navy px-5 py-5 text-white">
+      <span
+        aria-hidden
+        className="absolute -right-8 -bottom-16 -z-10 size-40 rounded-full bg-white/[0.07]"
+      />
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="font-display text-[22px] leading-tight font-bold sm:text-[26px]">
+            Invite a transporter, earn credits
+          </h1>
+          <p className="mt-2 text-[17px] leading-snug font-bold text-[#ffb134]">{headline}</p>
+          {sub ? <p className="mt-1 text-sm leading-relaxed text-white/80">{sub}</p> : null}
+        </div>
+        <Gift
+          size={44}
+          strokeWidth={1.6}
+          aria-hidden
+          className="invite-gift mt-1 shrink-0 -rotate-6"
+        />
+      </div>
+    </section>
+  );
+}
+
+/** One of the three steps. Stacked on a phone, so each line has room. */
+function Step({
+  n,
+  icon,
+  title,
+  children,
+}: {
+  n: number;
+  icon: ReactNode;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3">
+      <span
+        aria-hidden
+        className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-500/12 text-brand-500"
+      >
+        {icon}
+        <span className="absolute -top-1 -right-1 inline-flex size-4 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold text-on-brand">
+          {n}
         </span>
-      </HelpNote>
-    </div>
+      </span>
+      <span className="min-w-0 pt-0.5">
+        <span className="block text-sm font-semibold text-ink">{title}</span>
+        <span className="mt-0.5 block text-[13px] leading-relaxed text-muted">{children}</span>
+      </span>
+    </li>
   );
 }
 
+/** "20% of their first plan and 20% of their first top-up" - or one half. */
+function shares(planPercent: number, topupPercent: number): string | null {
+  const parts: string[] = [];
+  if (planPercent > 0) parts.push(`${pct(planPercent)} of their first plan`);
+  if (topupPercent > 0) parts.push(`${pct(topupPercent)} of their first top-up`);
+  return parts.length ? parts.join(" and ") : null;
+}
+
 /**
- * The mechanism, as three steps with arrows between them.
- *
- * WHY THE MIDDLE STEP SAYS "AND PAY".
- *
- * It is the whole scheme in two words, and the thing every reader gets wrong.
- * A sign-up earns nothing here - the rewards are granted by reward_referral()
- * inside settle_payment, on the path from "money arrived" to "everyone owed
- * was paid" - so a flow that read "share, they join, you earn" would be
- * promising money that is not coming, which is the complaint this whole page is
- * built to avoid. The Waiting tile below counts exactly the people this step
- * has not happened to yet.
- *
- * NO FIGURES AND NO PERCENTAGES IN HERE, deliberately. The headline above
- * carries the live percentage and the table below turns it into credits, both
- * off the settings; repeating either here would be a third place for an admin's
- * edit to go stale, and a percentage is not what this component is for. The one
- * thing it does read from the terms is whether the invited person is paid at
- * all, because with both welcome shares at zero "you both" is simply untrue.
- *
- * Three across at every width rather than stacking on a phone: the arrows are
- * the content. A vertical list of three lines is a list, and a list does not
- * say "this happens, then this".
+ * Everything the page used to say in paragraphs, as short lines behind the (i).
+ * Each line that depends on a setting is built from it, or left out when the
+ * setting is off.
  */
-function HowItWorks({ paysInvitee }: { paysInvitee: boolean }) {
-  const steps = [
-    "Share your link",
-    "They sign up and pay",
-    paysInvitee ? "You both get credits" : "You get credits",
-  ];
+function Rules({
+  terms,
+  paysPlan,
+  paysTopup,
+  minPayment,
+  milestoneCount,
+  milestoneBonus,
+}: {
+  terms: ReferralTerms;
+  paysPlan: boolean;
+  paysTopup: boolean;
+  minPayment: number;
+  milestoneCount: number;
+  milestoneBonus: number;
+}) {
+  const you = shares(terms.planReferrerPercent, terms.topupReferrerPercent);
+  const them = shares(terms.planInviteePercent, terms.topupInviteePercent);
 
   return (
-    <ol className="mt-3 flex max-w-md items-start gap-1">
-      {steps.map((step, index) => (
-        <Fragment key={step}>
-          {index > 0 ? (
-            /* mt-2 lines a 12px chevron up with the numbered circle rather
-               than with the middle of a label that may be one line or two. */
-            <ChevronRight size={12} aria-hidden className="mt-2 shrink-0 text-brand-500/50" />
-          ) : null}
-          <li className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
-            <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-brand-500/40 bg-brand-500/12 text-[10px] font-semibold text-brand-400">
-              {index + 1}
-            </span>
-            <span className="text-[11px] leading-tight font-medium text-ink">{step}</span>
-          </li>
-        </Fragment>
-      ))}
-    </ol>
+    <ul className="list-disc space-y-1.5 pl-4">
+      <li>You earn only when your friend pays. Just signing up does not count.</li>
+      {you ? <li>You get {you}, as credits.</li> : <li>Invites do not pay anything right now.</li>}
+      {them ? <li>Your friend gets {them}, as credits.</li> : null}
+      {paysPlan && paysTopup ? (
+        <li>
+          Each friend pays you at most twice: once for their first plan, once for their first
+          top-up. If they buy both in one payment, both rewards come together.
+        </li>
+      ) : paysPlan || paysTopup ? (
+        <li>Each friend earns you a reward only once.</li>
+      ) : null}
+      <li>Worked out on what they actually pay, after any discount, rounded to whole credits.</li>
+      {minPayment > 0 ? (
+        <li>
+          Payments under {fmtRupees(minPayment)} do not count. A bigger payment later still can.
+        </li>
+      ) : null}
+      {milestoneCount > 0 && milestoneBonus > 0 ? (
+        <li>
+          Bonus: {formatCredits(milestoneBonus)} extra credits when {fmtNumber(milestoneCount)}{" "}
+          friends have paid.
+        </li>
+      ) : null}
+      <li>Your friend must sign up with your link or code. You cannot invite yourself.</li>
+      <li>
+        Credits are not cash. They cannot be withdrawn or sent to someone else. They never expire
+        and work just like credits you buy.
+      </li>
+      <li>Rates may change, but credits you have earned stay yours.</li>
+      <li>
+        See your balance on{" "}
+        <Link href="/portal/plan" className="link">
+          Plan &amp; credits
+        </Link>
+        .
+      </li>
+    </ul>
   );
 }
 
-/**
- * A column head on the worked example. Its own component only so the two or
- * three of them cannot drift apart, and so the grid reads as rows of content.
- */
+/** A column head on the worked example. */
 function ColHead({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-right text-xs font-semibold text-faint">
-      {children}
-    </span>
-  );
+  return <span className="text-right text-xs font-semibold text-faint">{children}</span>;
 }
 
 /**
- * One credit figure in the worked example.
- *
- * A dash rather than "+0" when a percentage is switched off: a plus sign in
- * front of nothing reads as a sum that went wrong, and this is a page whose
- * only job is being believed about money.
- *
- * `muted` is the invitee's column - the reader's own figure is the one in brand
- * colour, because it is the one the decision to share turns on. `total` is the
- * bottom row, which is the biggest number on the page and drops the plus sign:
- * the rows above are amounts landing, the total is what the invite is worth,
- * and "worth +800" reads as an increase on something.
+ * One credit figure in the worked example. A dash rather than "+0" when a
+ * percentage is switched off; the total drops the plus sign.
  */
 function Figure({ value, total, muted }: { value: number; total?: boolean; muted?: boolean }) {
   return (
@@ -564,30 +498,83 @@ function Figure({ value, total, muted }: { value: number; total?: boolean; muted
   );
 }
 
-/**
- * The badge and the one line under the name, for each of the four states a
- * referral can be in.
- *
- * Kept as a table rather than nested ternaries because it is exactly what the
- * two-event scheme added: "paid" is no longer one thing, and a reader who has
- * been paid for the plan needs to know the top-up share is still coming rather
- * than that this invite is finished.
- */
-const STAGE = {
-  waiting: { tone: "warn", badge: "Waiting", next: "waiting for their first payment" },
-  plan: { tone: "brand", badge: "Part paid", next: "bought a plan — more when they first top up" },
-  topup: { tone: "brand", badge: "Part paid", next: "topped up — more when they buy a plan" },
-  both: { tone: "good", badge: "Both paid", next: "plan and top-up, both rewarded" },
-} as const;
+/** What the labels on each row mean - folded, one tap away. */
+function Legend({ paysPlan, paysTopup }: { paysPlan: boolean; paysTopup: boolean }) {
+  return (
+    <div className="border-b border-divider bg-raised/50 px-4 py-1.5">
+      <HelpNote title="What do the labels mean?">
+        <span className="flex flex-col gap-1.5">
+          <span className="flex flex-wrap items-baseline gap-1.5">
+            <Badge tone="warn">Waiting</Badge>
+            <span>Joined, not paid yet.</span>
+          </span>
+          {paysPlan && paysTopup ? (
+            <>
+              <span className="flex flex-wrap items-baseline gap-1.5">
+                <Badge tone="brand">Part paid</Badge>
+                <span>One reward done, one more to come.</span>
+              </span>
+              <span className="flex flex-wrap items-baseline gap-1.5">
+                <Badge tone="good">Both paid</Badge>
+                <span>Plan and top-up rewards both done.</span>
+              </span>
+            </>
+          ) : (
+            <span className="flex flex-wrap items-baseline gap-1.5">
+              <Badge tone="good">Paid</Badge>
+              <span>Reward done.</span>
+            </span>
+          )}
+        </span>
+      </HelpNote>
+    </div>
+  );
+}
 
 /**
- * One person invited. The status has to survive being read at arm's length on
- * a phone, so it is said three ways at once: the colour of the edge, the badge,
- * and what the row is worth in credits.
+ * The badge and the status line for one row.
+ *
+ * "Part paid" only when the other event can still pay this reader something.
+ * With that event at 0% there is nothing more to come, and "more when they top
+ * up" would be a promise the ledger never keeps.
  */
-function InviteRow({ referral }: { referral: ReferralRow }) {
+function rowStatus(
+  stage: ReturnType<typeof referralStage>,
+  planPaysYou: boolean,
+  topupPaysYou: boolean,
+): { tone: "warn" | "brand" | "good"; badge: string; line: string } {
+  switch (stage) {
+    case "waiting":
+      return { tone: "warn", badge: "Waiting", line: "Not paid yet" };
+    case "plan":
+      return topupPaysYou
+        ? { tone: "brand", badge: "Part paid", line: "Bought a plan · more when they top up" }
+        : { tone: "good", badge: "Paid", line: "Bought a plan" };
+    case "topup":
+      return planPaysYou
+        ? { tone: "brand", badge: "Part paid", line: "Topped up · more when they buy a plan" }
+        : { tone: "good", badge: "Paid", line: "Topped up" };
+    case "both":
+      return {
+        tone: "good",
+        badge: planPaysYou && topupPaysYou ? "Both paid" : "Paid",
+        line: "Plan and top-up done",
+      };
+  }
+}
+
+/** One person invited: name, status line, and what they have earned you. */
+function InviteRow({
+  referral,
+  planPaysYou,
+  topupPaysYou,
+}: {
+  referral: ReferralRow;
+  planPaysYou: boolean;
+  topupPaysYou: boolean;
+}) {
   const stage = referralStage(referral);
-  const { tone, badge, next } = STAGE[stage];
+  const { tone, badge, line } = rowStatus(stage, planPaysYou, topupPaysYou);
   const paid = stage !== "waiting";
   const name = referral.referred?.full_name?.trim();
   const email = referral.referred?.email;
@@ -596,57 +583,45 @@ function InviteRow({ referral }: { referral: ReferralRow }) {
     <li
       className={cx(
         "flex items-start justify-between gap-3 border-l-2 px-4 py-3",
-        stage === "both" ? "border-l-good-500" : paid ? "border-l-brand-500" : "border-l-warn-500",
+        tone === "good" ? "border-l-good-500" : tone === "brand" ? "border-l-brand-500" : "border-l-warn-500",
       )}
     >
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-ink">
+        <p className="truncate text-sm font-semibold text-ink">
           {name || email || "Someone you invited"}
         </p>
         {name && email ? <p className="truncate text-xs text-faint">{email}</p> : null}
-        <p className={cx("mt-1 text-xs leading-relaxed", paid ? "text-muted" : "text-warn-500")}>
-          {paid ? (
-            <>
-              {next}
-              {referral.first_amount ? ` — first paid ${fmtRupees(referral.first_amount)}` : ""} on{" "}
-              {fmtDate(referral.rewarded_at)}
-            </>
-          ) : (
-            <>Signed up {fmtDate(referral.created_at)} — {next}</>
-          )}
+        <p className={cx("mt-1 text-[13px] leading-snug", paid ? "text-muted" : "text-warn-500")}>
+          {line}
+        </p>
+        <p className="mt-0.5 text-xs text-faint">
+          {paid
+            ? `${referral.first_amount ? `Paid ${fmtRupees(referral.first_amount)} · ` : ""}${fmtDate(referral.rewarded_at)}`
+            : `Joined ${fmtDate(referral.created_at)}`}
         </p>
       </div>
 
       <div className="shrink-0 text-right">
         <Badge tone={tone}>{badge}</Badge>
         {paid ? (
-          <>
-            <p
-              className={cx(
-                "mt-1.5 text-sm font-semibold tabular-nums",
-                stage === "both" ? "text-good-500" : "text-brand-500",
-              )}
-            >
-              +{formatCredits(referral.reward_credits)}
-            </p>
-            <p className="text-[11px] text-faint">credits</p>
-          </>
-        ) : (
-          <p className="mt-1.5 text-[11px] leading-tight text-faint">
-            Nothing
-            <br />
-            earned yet
+          <p
+            className={cx(
+              "mt-1.5 text-sm font-semibold tabular-nums",
+              tone === "good" ? "text-good-500" : "text-brand-500",
+            )}
+          >
+            +{formatCredits(referral.reward_credits)}
+            <span className="block text-[11px] font-normal text-faint">credits</span>
           </p>
+        ) : (
+          <p className="mt-1.5 text-[11px] leading-tight text-faint">No credits yet</p>
         )}
       </div>
     </li>
   );
 }
 
-/**
- * How close the bonus is. Stated as a sentence first and a bar second: the
- * sentence is the answer, the bar is only how far along it feels.
- */
+/** How close the bonus is: one sentence, then the bar. */
 function Milestone({
   paid,
   need,
@@ -663,18 +638,34 @@ function Milestone({
   const ratio = Math.min(need > 0 ? paid / need : 0, 1);
 
   return (
-    <Panel title="Bonus for bringing several people" className="mb-4">
-      <p className={cx("text-sm leading-relaxed", reached ? "text-good-500" : "text-ink")}>
-        {reached
-          ? alreadyPaid
-            ? `Done — ${fmtNumber(need)} of the people you invited have paid, and the ${formatCredits(bonus)} credit bonus is on your balance.`
-            : `Done — ${fmtNumber(need)} of the people you invited have paid, so the ${formatCredits(bonus)} credit bonus is yours.`
-          : `${fmtNumber(togo)} more ${togo === 1 ? "person has" : "people have"} to make a first payment, and ${formatCredits(bonus)} credits are added on top.`}
-      </p>
+    <Panel className="mb-3">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className={cx(
+            "inline-flex size-10 shrink-0 items-center justify-center rounded-full",
+            reached ? "bg-good-500/12 text-good-500" : "bg-brand-500/12 text-brand-500",
+          )}
+        >
+          {reached ? <CheckCircle2 size={20} /> : <Gift size={20} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-bold text-strong">
+            Bonus: {formatCredits(bonus)} credits
+          </h2>
+          <p className={cx("mt-0.5 text-sm leading-relaxed", reached ? "text-good-500" : "text-muted")}>
+            {reached
+              ? alreadyPaid
+                ? "Unlocked! The bonus is on your balance."
+                : "Unlocked! The bonus is yours."
+              : `${fmtNumber(togo)} more ${togo === 1 ? "friend needs" : "friends need"} to pay to unlock it.`}
+          </p>
+        </div>
+      </div>
 
       <div className="mt-3">
         <div className="mb-1.5 flex items-baseline justify-between gap-2 text-xs">
-          <span className="text-muted">People who have paid</span>
+          <span className="text-muted">Friends who paid</span>
           <span className="font-medium tabular-nums text-ink">
             {fmtNumber(Math.min(paid, need))}
             <span className="text-faint"> / {fmtNumber(need)}</span>
@@ -682,12 +673,16 @@ function Milestone({
         </div>
         {/* Not QuotaBar: that turns red at the top of its range, which is right
             for a limit being used up and wrong for a target being reached. */}
-        <div className="h-2 w-full overflow-hidden rounded-full bg-sunken">
+        <div
+          className="h-2.5 w-full overflow-hidden rounded-full bg-sunken"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={need}
+          aria-valuenow={Math.min(paid, need)}
+          aria-label="Friends who paid"
+        >
           <div
-            className={cx(
-              "h-full rounded-full transition-all",
-              reached ? "bg-good-500" : "bg-brand-500",
-            )}
+            className={cx("h-full rounded-full transition-all", reached ? "bg-good-500" : "bg-brand-500")}
             style={{ width: `${Math.max(ratio * 100, paid > 0 ? 4 : 0)}%` }}
           />
         </div>
@@ -700,12 +695,11 @@ function Milestone({
 function SwitchedOff() {
   return (
     <>
-      <PageHeader
-        icon={<PageIcon size={22} strokeWidth={2} />} title="Invite and earn credits" />
+      <PageHeader icon={<Gift size={22} strokeWidth={2} />} title="Refer & earn" />
       <Panel>
-        <p className="text-sm leading-relaxed text-muted">
-          Inviting people is switched off at the moment, so there is nothing to show here yet. Your
-          credits and everything else on your account are unaffected.
+        <p className="text-[15px] font-semibold text-strong">Refer &amp; earn is paused right now.</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted">
+          Your credits and account are safe. Please check back later.
         </p>
         <div className="mt-4">
           <LinkButton href="/portal" variant="secondary">
