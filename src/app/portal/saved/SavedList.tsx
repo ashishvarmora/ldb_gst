@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { checkSavedTruck, removeSavedTruck, renameSavedTruck } from "./actions";
+import { directionLabel } from "@/components/Timeline";
 import { buttonClass, cx } from "@/components/ui";
 import type { SavedTruck } from "@/lib/saved-trucks";
 
@@ -141,7 +142,7 @@ export function SavedList({
           className={buttonClass("primary", "sm")}
         >
           {running ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {running ? `Checking ${running.done}/${running.total}…` : `Check all · ${rows.length * searchCost} credits`}
+          {running ? `Checking ${running.done}/${running.total}…` : `Check all · ${rows.length * searchCost} credit${rows.length * searchCost === 1 ? "" : "s"}`}
         </button>
       </div>
 
@@ -167,7 +168,7 @@ export function SavedList({
                     {row.last_plaza ? (
                       <span className="min-w-0">
                         <span className="font-medium">{row.last_plaza}</span>
-                        <span className="text-muted"> · {ago(row.last_event_at)}{row.last_direction ? ` · ${row.last_direction}` : ""}</span>
+                        <span className="text-muted"> · {ago(row.last_event_at)}{directionLabel(row.last_direction) ? ` · ${directionLabel(row.last_direction)}` : ""}</span>
                       </span>
                     ) : (
                       <span className="text-muted">{row.last_checked_at ? "No crossings on record" : "Not checked yet"}</span>

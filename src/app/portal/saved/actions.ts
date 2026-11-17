@@ -42,7 +42,46 @@ export async function toggleSavedTruck(rawNumber: string): Promise<SavedResult &
     return { ok: true, saved: false, message: `${truckNumber} removed from Saved trucks.` };
   }
 
-  const { error } = await admin.from("saved_trucks").insert({ user_id: session.id, truck_number: truckNumber });
+  /*
+   * Saved straight after a search is the common case, so the row starts with
+   * what that search already found rather than "Not checked yet".
+   */
+  const [{ data: lastLog }, { data: newest }] = await Promise.all([
+    admin
+      .from("search_logs")
+      .select("created_at, ok, events_found, new_events, error")
+      .eq("user_id", session.id)
+      .eq("truck_number", truckNumber)
+      .eq("source", "manual")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ created_at: string; ok: boolean; events_found: number; new_events: number; error: string | null }>(),
+    admin
+      .from("truck_events")
+      .select("loc_name, event_time, direction")
+      .eq("user_id", session.id)
+      .eq("truck_number", truckNumber)
+      .order("event_time", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle<{ loc_name: string | null; event_time: string | null; direction: string | null }>(),
+  ]);
+
+  const { error } = await admin.from("saved_trucks").insert({
+    user_id: session.id,
+    truck_number: truckNumber,
+    ...(lastLog
+      ? {
+          last_checked_at: lastLog.created_at,
+          last_ok: lastLog.ok,
+          last_found: lastLog.events_found,
+          last_new: lastLog.new_events,
+          last_error: lastLog.error,
+        }
+      : {}),
+    ...(newest
+      ? { last_plaza: newest.loc_name, last_event_at: newest.event_time, last_direction: newest.direction }
+      : {}),
+  });
   if (error) {
     if (/saved_trucks_full/.test(error.message)) {
       return {
