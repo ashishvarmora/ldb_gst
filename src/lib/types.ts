@@ -124,6 +124,11 @@ export type Profile = {
   referral_code: string | null;
   referred_by: string | null;
   last_active_at: string | null;
+  /** Last time they opened any signed-in page, and from where (0065). */
+  last_seen_at: string | null;
+  last_seen_via: string | null;
+  /** Last manual search (0065). */
+  last_search_at: string | null;
   created_at: string;
 };
 

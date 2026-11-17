@@ -1,4 +1,7 @@
 import { LoadingTruck } from "@/components/LoadingTruck";
+import { headers } from "next/headers";
+import { after } from "next/server";
+
 import { NavProgress } from "@/components/NavProgress";
 import Link from "next/link";
 import { ShieldCheck, Truck, UserRound } from "lucide-react";
@@ -70,6 +73,20 @@ function PlanPill({ name }: { name: string | null }) {
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await requirePortalSession();
   const { overview } = session;
+
+  /*
+   * "Last seen" - the customer opened the app or the site (0065). Recorded
+   * after the page is sent, so it never slows a page down, and touch_seen()
+   * itself writes at most once per five minutes per customer.
+   */
+  const userAgent = (await headers()).get("user-agent") ?? "";
+  after(async () => {
+    const { error } = await getSupabaseAdmin().rpc("touch_seen", {
+      p_user: overview.id,
+      p_via: userAgent.includes("RahdariApp/") ? "app" : "web",
+    });
+    if (error) console.error("touch_seen failed:", error.message);
+  });
 
   const [
     { brandName, referralEnabled },

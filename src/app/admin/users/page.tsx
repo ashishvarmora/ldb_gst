@@ -67,7 +67,7 @@ import { formatCredits } from "@/lib/credits";
 import { fmtDate, fmtNumber, fmtRelative, fmtRupees, initials } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
-export const metadata = { title: "Users — Admin" };
+export const metadata = { title: "Growth — Admin" };
 
 /**
  * Who the customers are, as a population rather than as a list.
@@ -358,8 +358,8 @@ export default async function UsersPage({
   return (
     <>
       <PageHeader
-        title="Users"
-        subtitle="Sign-ups, paying customers and active accounts. Tap a row to open the account."
+        title="Growth"
+        subtitle="Who signs up, who pays and who keeps using it, for any date range. Tap a row to open the customer."
         actions={<PanelAction href="/admin/officers">Manage accounts</PanelAction>}
       />
 

@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Search,
   Settings,
+  ShieldCheck,
   Truck,
   Users,
   UsersRound,
@@ -48,39 +49,55 @@ import { cx } from "@/components/ui";
  * more - only the word a reader sees is different.
  */
 const NAV = [
+  /*
+   * Grouped by the hat the admin is wearing (17 Nov 2026). One person is the
+   * owner, the support desk, the analyst and the marketer, so each group is one
+   * of those jobs: help a customer, look after the money, understand the
+   * numbers, keep the machine running, change how it behaves.
+   */
   {
     group: null,
     items: [{ href: "/admin", label: "Overview", icon: LayoutDashboard }],
   },
   {
-    group: "Analyse",
+    group: "Customers",
     items: [
-      { href: "/admin/finance", label: "Finance", icon: IndianRupee },
-      { href: "/admin/users", label: "Users", icon: UsersRound },
-      { href: "/admin/usage", label: "Usage", icon: Gauge },
-    ],
-  },
-  {
-    group: "Operate",
-    items: [
+      // The customer 360: profile, activity, trucks, credits, payments, edit.
       { href: "/admin/officers", label: "Customers", icon: Users },
-      { href: "/admin/trucks", label: "Trucks", icon: Truck },
-      { href: "/admin/explore", label: "Explore", icon: Search },
-      { href: "/admin/logs", label: "Logs", icon: ClipboardList },
-      // Under OPERATE rather than CONFIGURE: answering a customer is the day's
-      // work, not a setting.
       { href: "/admin/chat", label: "Messages", icon: MessageSquare },
-      // Next to Messages: the same job - talking to customers - to many at once.
       { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
     ],
   },
   {
-    group: "Configure",
+    group: "Money",
     items: [
+      { href: "/admin/finance", label: "Finance", icon: IndianRupee },
       { href: "/admin/plans", label: "Plans & credits", icon: Coins },
       { href: "/admin/rewards", label: "Rewards", icon: Gift },
+    ],
+  },
+  {
+    group: "Insights",
+    items: [
+      // Sign-ups, the funnel and every account's numbers over a date range.
+      { href: "/admin/users", label: "Growth", icon: UsersRound },
+      { href: "/admin/usage", label: "Usage", icon: Gauge },
+      { href: "/admin/explore", label: "Explore", icon: Search },
+    ],
+  },
+  {
+    group: "Operations",
+    items: [
+      { href: "/admin/trucks", label: "Trucks", icon: Truck },
+      { href: "/admin/logs", label: "Logs", icon: ClipboardList },
       { href: "/admin/alerts", label: "Alert rules", icon: Bell },
+    ],
+  },
+  {
+    group: "System",
+    items: [
       { href: "/admin/storage", label: "Storage", icon: Database },
+      { href: "/admin/audit", label: "Audit log", icon: ShieldCheck },
       { href: "/admin/settings", label: "Settings", icon: Settings },
     ],
   },

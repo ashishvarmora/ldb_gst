@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { CreditCard, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
+import { Activity, CreditCard, LayoutDashboard, Settings, Truck, Wallet } from "lucide-react";
 
 import { LinkPending } from "@/components/NavPending";
 import { cx } from "@/components/ui";
@@ -36,6 +36,8 @@ import { cx } from "@/components/ui";
  */
 export const TABS = [
   { key: "overview", label: "Overview", icon: LayoutDashboard },
+  // What they did and when - last seen, visits, one merged timeline (0065).
+  { key: "activity", label: "Activity", icon: Activity },
   { key: "credits", label: "Credits", icon: Wallet },
   { key: "payments", label: "Payments", icon: CreditCard },
   { key: "trucks", label: "Trucks", icon: Truck },

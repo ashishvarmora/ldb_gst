@@ -12,6 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 
+import { ActivityTab } from "./ActivityTab";
 import { CreditsTab } from "./CreditsTab";
 import { PaymentsTab } from "./PaymentsTab";
 import { OverviewTab } from "./OverviewTab";
@@ -175,7 +176,11 @@ export default async function AccountDetailPage({
           {overview.telegram_connected ? "Telegram linked" : "No Telegram"}
         </Badge>
         <span className="text-xs text-faint">
-          Signed up {fmtDate(overview.created_at)} · last seen {fmtRelative(overview.last_active_at)}
+          Signed up {fmtDate(overview.created_at)} · last seen{" "}
+          {overview.last_seen_at
+            ? `${fmtRelative(overview.last_seen_at)} (${overview.last_seen_via === "app" ? "app" : "web"})`
+            : "not recorded yet"}{" "}
+          · last search {overview.last_search_at ? fmtRelative(overview.last_search_at) : "never"}
         </span>
       </div>
 
@@ -225,6 +230,7 @@ export default async function AccountDetailPage({
       />
 
       {tab === "overview" ? <OverviewTab id={id} overview={overview} /> : null}
+      {tab === "activity" ? <ActivityTab id={id} overview={overview} /> : null}
       {tab === "credits" ? <CreditsTab id={id} overview={overview} params={search} /> : null}
       {tab === "payments" ? <PaymentsTab id={id} overview={overview} params={search} /> : null}
       {tab === "trucks" ? <TrucksTab id={id} overview={overview} params={search} /> : null}

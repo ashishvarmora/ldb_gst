@@ -68,7 +68,14 @@ export async function OverviewTab({
               <DescRow label="Company">{overview.office ?? "--"}</DescRow>
               <DescRow label="Place">{place || "--"}</DescRow>
               <DescRow label="Signed up">{fmtDate(overview.created_at)}</DescRow>
-              <DescRow label="Last seen">{fmtRelative(overview.last_active_at)}</DescRow>
+              <DescRow label="Last seen">
+                {overview.last_seen_at
+                  ? `${fmtRelative(overview.last_seen_at)} · ${overview.last_seen_via === "app" ? "app" : "web"}`
+                  : "not recorded yet"}
+              </DescRow>
+              <DescRow label="Last search">
+                {overview.last_search_at ? fmtRelative(overview.last_search_at) : "never"}
+              </DescRow>
             </dl>
           </div>
           {overview.notes ? (

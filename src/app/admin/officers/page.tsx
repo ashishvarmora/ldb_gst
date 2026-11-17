@@ -41,7 +41,8 @@ const PER_PAGE = 25;
  */
 const SORTS = {
   recent: { label: "Newest first", column: "created_at", ascending: false },
-  active: { label: "Last active", column: "last_active_at", ascending: false },
+  active: { label: "Last seen", column: "last_seen_at", ascending: false },
+  searched: { label: "Last search", column: "last_search_at", ascending: false },
   name: { label: "Name", column: "full_name", ascending: true },
   balance: { label: "Lowest balance", column: "credits", ascending: true },
   spending: { label: "Spent most this month", column: "credits_spent_month", ascending: false },
@@ -61,6 +62,8 @@ type AccountSearchParams = {
   plan?: string;
   /** "soon" = paid plan ends in the next 7 days; "expired" = it has ended. */
   expiry?: string;
+  /** "7" / "30" = not seen for that many days; "never" = never recorded. */
+  seen?: string;
   sort?: string;
   page?: string;
 };
@@ -72,7 +75,7 @@ export default async function AccountsPage({
 }) {
   await requireSuperAdmin();
   const params = await searchParams;
-  const { q, status, plan, expiry } = params;
+  const { q, status, plan, expiry, seen } = params;
   const sort: SortKey = isSort(params.sort) ? params.sort : "recent";
 
   const admin = getSupabaseAdmin();
@@ -102,6 +105,12 @@ export default async function AccountsPage({
     } else if (expiry === "expired") {
       narrowed = narrowed.lt("plan_expires_on", istToday());
     }
+    // Who has gone quiet: the call list for re-engagement.
+    if (seen === "7" || seen === "30") {
+      narrowed = narrowed.lt("last_seen_at", new Date(Date.now() - Number(seen) * 86_400_000).toISOString());
+    } else if (seen === "never") {
+      narrowed = narrowed.is("last_seen_at", null);
+    }
     if (term) {
       const like = `%${term}%`;
       narrowed = narrowed.or(
@@ -129,7 +138,7 @@ export default async function AccountsPage({
   const error = countError ?? rowsError;
   const rows = (accounts ?? []) as OfficerOverview[];
   const planList = (plans ?? []) as Plan[];
-  const filtered = Boolean(term || status || plan || expiry);
+  const filtered = Boolean(term || status || plan || expiry || seen);
   const total = count ?? rows.length;
 
   return (
@@ -186,6 +195,13 @@ export default async function AccountsPage({
           <option value="">Any status</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
+        </Select>
+
+        <Select name="seen" defaultValue={seen ?? ""} className="w-full sm:w-48">
+          <option value="">Any last seen</option>
+          <option value="7">Not seen for 7+ days</option>
+          <option value="30">Not seen for 30+ days</option>
+          <option value="never">Never recorded</option>
         </Select>
 
         <Select name="expiry" defaultValue={expiry ?? ""} className="w-full sm:w-48">
@@ -249,7 +265,7 @@ export default async function AccountsPage({
               <th className="th text-right">Credits left</th>
               <th className="th text-right">Spent this month</th>
               <th className="th">Contact</th>
-              <th className="th">Last active</th>
+              <th className="th">Last seen</th>
             </Thead>
             <Tbody>
               {rows.map((account) => (
@@ -333,8 +349,14 @@ export default async function AccountsPage({
                   </td>
 
                   <td className="td whitespace-nowrap">
+                    {/* Opened the app vs searched - two different signals (0065). */}
                     <span className="block text-xs text-muted">
-                      {fmtRelative(account.last_active_at)}
+                      {account.last_seen_at
+                        ? `${fmtRelative(account.last_seen_at)} · ${account.last_seen_via === "app" ? "app" : "web"}`
+                        : "not recorded yet"}
+                    </span>
+                    <span className="block text-xs text-faint">
+                      searched {account.last_search_at ? fmtRelative(account.last_search_at) : "never"}
                     </span>
                     <span className="block text-xs text-faint">
                       last crossing {fmtRelative(account.last_event_at)}
@@ -352,7 +374,7 @@ export default async function AccountsPage({
         total={total}
         pageSize={PER_PAGE}
         noun="customers"
-        href={{ path: "/admin/officers", params: { q, status, plan, expiry, sort } }}
+        href={{ path: "/admin/officers", params: { q, status, plan, expiry, seen, sort } }}
       />
 
       {rows.length > 0 ? (
