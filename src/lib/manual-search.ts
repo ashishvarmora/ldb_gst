@@ -8,6 +8,7 @@ import { fmtDateTime } from "@/lib/format";
 import { blockedReason, loadOverview } from "@/lib/officer";
 import type { CreditVerdict } from "@/lib/types";
 import { loadSettings } from "@/lib/settings";
+import { recordSavedLookup } from "@/lib/saved-trucks";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export type LookupResult =
@@ -88,6 +89,7 @@ export async function runManualLookup({
         new_events: 0,
         error: result.error,
       }),
+      recordSavedLookup(admin, userId, truckNumber, { ok: false, error: result.error }),
     ]);
     return {
       ok: false,
@@ -170,7 +172,17 @@ export async function runManualLookup({
       })
       .eq("id", tracked.id)
     : null;
-  await Promise.all([writeLog, updateTracked]);
+  await Promise.all([
+    writeLog,
+    updateTracked,
+    // A saved truck remembers this check, wherever it was run from (0066).
+    recordSavedLookup(admin, userId, truckNumber, {
+      ok: true,
+      found: result.events.length,
+      newCount,
+      newest: newest ? { locName: newest.locName, eventTime: newest.eventTime, direction: newest.direction } : null,
+    }),
+  ]);
 
   // Every lookup an officer runs by hand is recorded, which is what makes
   // "which numbers has this officer been asking about" answerable. Automatic

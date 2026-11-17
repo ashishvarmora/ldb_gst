@@ -1,30 +1,61 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, FolderPlus, Plus, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  ExternalLink,
+  FolderPlus,
+  MapPin,
+  MessageCircle,
+  Navigation,
+  Plus,
+  RefreshCw,
+  Star,
+} from "lucide-react";
 
 import { searchAgain } from "../actions";
 import { addTruckToCase } from "@/app/portal/cases/actions";
 import { addTruck } from "@/app/portal/trucks/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, Input, Select } from "@/components/form";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { Pager, pageFromParam } from "@/components/Pager";
+import { SaveTruckButton } from "@/components/SaveTruckButton";
 import { publicSettings } from "@/components/SiteFooter";
-import { RouteHistory, RouteSummary } from "@/components/Timeline";
-import { TRUCK_STATUS_LABEL, TRUCK_STATUS_TONE } from "@/components/TruckCard";
-import { Badge, EmptyState, LinkButton, Panel, buttonClass } from "@/components/ui";
+import { directionLabel } from "@/components/Timeline";
+import { Badge, EmptyState, LinkButton, Panel, buttonClass, cx } from "@/components/ui";
+import { formatCredits } from "@/lib/credits";
 import { friendlyError } from "@/lib/errors";
-import { fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber, fmtRelative } from "@/lib/format";
 import { normalizeTruck } from "@/lib/forms";
-import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
+import { stateFromLocation } from "@/lib/geo";
+import { loadSearchCost, requirePortalSession, truckSlotsLeft } from "@/lib/officer";
+import { isTruckSaved } from "@/lib/saved-trucks";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { SearchLog, TrackedTruck, TruckEvent, TruckGroup } from "@/lib/types";
 
+import { CopyPlate } from "./CopyPlate";
+import { RouteTimeline } from "./RouteTimeline";
+import {
+  MOVING_WITHIN_MS,
+  fmtSpan,
+  istDayKey,
+  mapUrl,
+  msBetween,
+  plazaName,
+  whatsappUrl,
+} from "./result-utils";
+
 /**
- * Crossings loaded per page. The whole record is kept and the count below the
- * route says how much of it there is, but a phone is never handed a year of
- * crossings in one response - older pages are one tap away instead.
+ * Crossings loaded per page. The whole record is kept and the pager says how
+ * much of it there is, but a phone is never handed a year of crossings in one
+ * response - older pages are one tap away instead.
  */
 const PAGE_SIZE = 50;
+
+/** Enough to count distinct plazas over any real history without paging. */
+const PLAZA_SCAN_LIMIT = 5000;
 
 export async function generateMetadata({ params }: { params: Promise<{ truck: string }> }) {
   const [{ truck }, { brandName }] = await Promise.all([params, publicSettings()]);
@@ -32,9 +63,9 @@ export async function generateMetadata({ params }: { params: Promise<{ truck: st
 }
 
 /**
- * The route comes first and full width: it is the whole reason a number was
- * typed. What can be done about it sits underneath, in the order someone reads
- * it once they already know where the truck went.
+ * One truck's answer, in the order it is read on a phone: which truck, what
+ * can be done with it, where it was last seen, the route that led there, and
+ * the totals.
  */
 export default async function SearchResultPage({
   params,
@@ -45,7 +76,7 @@ export default async function SearchResultPage({
 }) {
   const { truck: rawTruck } = await params;
   const truckNumber = normalizeTruck(decodeURIComponent(rawTruck));
-  const { overview } = await requirePortalSession();
+  const [{ overview }, searchCost] = await Promise.all([requirePortalSession(), loadSearchCost()]);
   const admin = getSupabaseAdmin();
 
   const page = pageFromParam((await searchParams).page);
@@ -53,29 +84,48 @@ export default async function SearchResultPage({
 
   const [
     { data: events, count },
+    { data: newestRows },
     { data: oldestRows },
+    { data: plazaRows },
     { data: tracked },
     { data: lastSearch },
     { data: cases },
+    saved,
   ] = await Promise.all([
-    // One page of the crossings kept for this number. The exact count comes
-    // back with it, so the page can always say how many are stored in all.
+    // One page of crossings plus one more: the extra row is never shown, it
+    // only lets the last row on the page say how long after the previous
+    // crossing it came. The exact count comes back with it.
     admin
       .from("truck_events")
       .select("*", { count: "exact" })
       .eq("user_id", overview.id)
       .eq("truck_number", truckNumber)
       .order("event_time", { ascending: false, nullsFirst: false })
-      .range(from, from + PAGE_SIZE - 1),
-    // The first crossing ever recorded, so the summary can span the whole
-    // history rather than only the page on screen.
+      .range(from, from + PAGE_SIZE),
+    // The newest crossing, so "Last seen" is right on every page, not only the first.
     admin
       .from("truck_events")
       .select("*")
       .eq("user_id", overview.id)
       .eq("truck_number", truckNumber)
-      .order("event_time", { ascending: true, nullsFirst: false })
+      .order("event_time", { ascending: false, nullsFirst: false })
       .limit(1),
+    // The first crossing ever recorded, for "First seen" and "Days covered".
+    admin
+      .from("truck_events")
+      .select("*")
+      .eq("user_id", overview.id)
+      .eq("truck_number", truckNumber)
+      .not("event_time", "is", null)
+      .order("event_time", { ascending: true })
+      .limit(1),
+    // Plaza names only, to count distinct plazas over the whole history.
+    admin
+      .from("truck_events")
+      .select("loc_name")
+      .eq("user_id", overview.id)
+      .eq("truck_number", truckNumber)
+      .limit(PLAZA_SCAN_LIMIT),
     admin
       .from("tracked_trucks")
       .select("*")
@@ -91,163 +141,163 @@ export default async function SearchResultPage({
       .limit(1)
       .maybeSingle<SearchLog>(),
     admin.from("truck_groups").select("*").eq("user_id", overview.id).order("name"),
+    isTruckSaved(admin, overview.id, truckNumber),
   ]);
 
-  const eventList = (events ?? []) as TruckEvent[];
+  const loaded = (events ?? []) as TruckEvent[];
+  const eventList = loaded.slice(0, PAGE_SIZE);
+  const olderNeighbour = loaded[PAGE_SIZE] ?? null;
   const caseList = (cases ?? []) as TruckGroup[];
   const total = count ?? eventList.length;
+  const newest = ((newestRows ?? []) as TruckEvent[])[0] ?? null;
   const oldest = ((oldestRows ?? []) as TruckEvent[])[0] ?? null;
+  const plazaCount = new Set(
+    ((plazaRows ?? []) as Pick<TruckEvent, "loc_name">[])
+      .map((row) => row.loc_name?.trim().toLowerCase())
+      .filter(Boolean),
+  ).size;
   const slots = truckSlotsLeft(overview);
-  // A paused truck said "Not checked yet" here - right beside a search that had
-  // just checked it. Paused is its own badge; the status is only for an active one.
-  const status = tracked?.is_active ? tracked.status : null;
+  const costLabel = `${formatCredits(searchCost)} ${searchCost === 1 ? "credit" : "credits"}`;
+
+  // Tracked and active, tracked but paused, or a one-off lookup.
+  const trackState: "live" | "paused" | "none" = tracked
+    ? tracked.is_active
+      ? "live"
+      : "paused"
+    : "none";
 
   return (
     <>
       <Link
         href="/portal/search"
-        className="mb-3 inline-flex min-h-9 items-center gap-1.5 text-xs text-muted transition hover:text-brand-500"
+        className="mb-2 inline-flex min-h-10 items-center gap-1.5 text-sm text-muted transition hover:text-brand-500"
       >
-        <ArrowLeft size={13} />
+        <ArrowLeft size={15} />
         Search another truck
       </Link>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h1 className="font-mono text-xl font-semibold tracking-wide text-strong sm:text-2xl">
-            {truckNumber}
-          </h1>
-          {status ? (
-            <Badge tone={TRUCK_STATUS_TONE[status]}>{TRUCK_STATUS_LABEL[status]}</Badge>
-          ) : tracked ? (
+      {/* ------------------------------- header ---------------------------- */}
+      <header className="mb-4">
+        <CopyPlate truckNumber={truckNumber} />
+
+        <InfoTip
+          label="About this lookup"
+          className="mt-1"
+          info={
+            trackState === "live" ? (
+              <p>
+                This truck is tracked. It is checked whenever one of its alerts is due, and every
+                crossing found lands here.
+              </p>
+            ) : trackState === "paused" ? (
+              <p>Tracking is paused, so nothing is checked in the background.</p>
+            ) : (
+              <p>
+                This was a one-off lookup. Nothing is checked in the background — tap Check again
+                any time, or Track automatically and we check it for you.
+              </p>
+            )
+          }
+        >
+          {trackState === "live" ? (
+            <Badge tone="good">Tracking live</Badge>
+          ) : trackState === "paused" ? (
             <Badge tone="warn">Tracking paused</Badge>
           ) : (
             <Badge>Not tracked</Badge>
           )}
-        </div>
-
-        <ActionForm action={searchAgain} closeOnSuccess={false}>
-          <input type="hidden" name="truck_number" value={truckNumber} />
-          <SubmitButton variant="secondary" size="sm" pendingLabel="Checking…">
-            <RefreshCw size={13} />
-            Check again · 1 credit
-          </SubmitButton>
-        </ActionForm>
-      </div>
-
-      {/* ------------------------------- the route ------------------------- */}
-      <Panel
-        title="Route"
-        description={
-          total === 0
-            ? "Nothing on record yet."
-            : `${fmtNumber(total)} crossing${total === 1 ? "" : "s"} kept for this number, newest first, with the time each was recorded.`
-        }
-        className="mb-4"
-      >
-        {eventList.length === 0 ? (
-          <EmptyState
-            title={page > 1 ? "Nothing on this page" : "Nothing on record for this truck"}
-            description={
-              page > 1
-                ? "There are no crossings this far back."
-                : lastSearch?.ok === false
-                  ? friendlyError(lastSearch.error)
-                  : "The toll network only reports roughly the last week, so a truck that has not passed a plaza recently shows nothing."
-            }
-            action={
-              page > 1 ? (
-                <LinkButton href={`/portal/search/${truckNumber}`}>Back to the newest</LinkButton>
-              ) : null
-            }
-          />
-        ) : (
-          <RouteHistory events={eventList} />
-        )}
-      </Panel>
-
-      <Pager
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        noun="crossings on record"
-        href={{ path: `/portal/search/${truckNumber}` }}
-        className="mb-4"
-      />
-
-      {/* The summary reads the newest crossing, which only the first page
-          holds. Further back it would quietly describe the wrong moment. */}
-      {page === 1 ? <RouteSummary events={eventList} total={total} oldest={oldest} /> : null}
-
-      {/* ------------------------------- what to do next ------------------- */}
-      <Panel title="This truck" className="mt-4">
-        <p className="text-sm leading-relaxed text-muted">
-          {tracked ? (
-            tracked.is_active ? (
-              <>
-                This truck is under tracking. It is checked when one of its alerts is due, and
-                every crossing it finds lands here.
-              </>
-            ) : (
-              <>Tracking is paused on this truck, so nothing is being checked.</>
-            )
-          ) : (
-            <>
-              This was a one-off lookup. Nothing about this truck is checked in the background
-              until you add it to tracking and give it an alert.
-            </>
-          )}
-        </p>
+          {saved ? (
+            <Badge tone="warn">
+              <Star size={10} className="fill-current" />
+              Saved
+            </Badge>
+          ) : null}
+        </InfoTip>
 
         {lastSearch ? (
-          <p className="mt-2 text-xs text-faint">
-            Last looked up {fmtDateTime(lastSearch.created_at)}
+          <p className="mt-1.5 text-xs text-faint" title={fmtDateTime(lastSearch.created_at)}>
+            Checked {fmtRelative(lastSearch.created_at)}
           </p>
         ) : null}
+      </header>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-divider pt-4">
-          {tracked ? (
-            <LinkButton href={`/portal/trucks/${tracked.id}`} variant="primary" size="sm">
-              Open this truck
-            </LinkButton>
-          ) : (
-            <Modal
-              triggerLabel="Add to tracking"
-              triggerIcon={<Plus size={14} />}
-              triggerSize="sm"
-              title={`Track ${truckNumber}`}
-              description={
-                slots === Number.POSITIVE_INFINITY
-                  ? "Adds the truck to your list so you can put alerts on it."
-                  : `${slots} tracking slot${slots === 1 ? "" : "s"} free on your plan.`
-              }
-              width="sm"
+      {/* ------------------------------- actions --------------------------- */}
+      <div className="mb-2 flex flex-wrap items-start gap-2">
+        <SaveTruckButton truckNumber={truckNumber} saved={saved} />
+
+        <ActionForm action={searchAgain} closeOnSuccess={false} className="max-w-full">
+          <input type="hidden" name="truck_number" value={truckNumber} />
+          <SubmitButton variant="secondary" size="sm" pendingLabel="Checking…">
+            <RefreshCw size={14} />
+            Check again · {costLabel}
+          </SubmitButton>
+        </ActionForm>
+
+        {tracked ? (
+          <LinkButton href={`/portal/trucks/${tracked.id}`} variant="primary" size="sm">
+            Open tracked truck
+          </LinkButton>
+        ) : (
+          <Modal
+            triggerLabel="Track automatically"
+            triggerIcon={<Plus size={14} />}
+            triggerSize="sm"
+            title={`Track ${truckNumber}`}
+            description={
+              slots === Number.POSITIVE_INFINITY
+                ? "Adds the truck to your list so you can put alerts on it."
+                : `${slots} tracking slot${slots === 1 ? "" : "s"} free on your plan.`
+            }
+            width="sm"
+          >
+            <ActionForm action={addTruck} closeOnSuccess={false}>
+              <input type="hidden" name="truck_number" value={truckNumber} />
+              <Field label="Label" name="label" hint="Optional. Something you will recognise later.">
+                <Input name="label" placeholder="e.g. Supplier vehicle — north route" />
+              </Field>
+              <p className="mt-4 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+                Adding it on its own checks nothing. A truck is only checked once it has an alert,
+                so open it afterwards and add the alert you want.
+              </p>
+              <FormActions>
+                <SubmitButton pendingLabel="Adding...">Start tracking</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Modal>
+        )}
+
+        {newest ? (
+          <a
+            href={whatsappUrl(truckNumber, newest)}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={buttonClass("secondary", "sm")}
+          >
+            <MessageCircle size={14} className="text-good-500" />
+            Share on WhatsApp
+          </a>
+        ) : null}
+      </div>
+
+      {/* Secondary actions: kept small so the row above stays the focus. */}
+      {total > 0 || caseList.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-faint">More:</span>
+          {total > 0 ? (
+            // A file download, not a page - so not a Link.
+            <a
+              href={`/portal/records/export?truck=${encodeURIComponent(truckNumber)}&range=all`}
+              className={buttonClass("ghost", "sm")}
             >
-              <ActionForm action={addTruck} closeOnSuccess={false}>
-                <input type="hidden" name="truck_number" value={truckNumber} />
-                <Field
-                  label="Label"
-                  name="label"
-                  hint="Optional. Something you will recognise later."
-                >
-                  <Input name="label" placeholder="e.g. Supplier vehicle — north route" />
-                </Field>
-                <p className="mt-4 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-                  Adding it on its own checks nothing. A truck is only checked once it has an
-                  alert, so open it afterwards and add the alert you want.
-                </p>
-                <FormActions>
-                  <SubmitButton pendingLabel="Adding...">Start tracking</SubmitButton>
-                </FormActions>
-              </ActionForm>
-            </Modal>
-          )}
-
+              <Download size={14} />
+              Download CSV
+            </a>
+          ) : null}
           {caseList.length > 0 ? (
             <Modal
               triggerLabel="Add to group"
               triggerIcon={<FolderPlus size={14} />}
-              triggerVariant="secondary"
+              triggerVariant="ghost"
               triggerSize="sm"
               title="Add to a group"
               width="sm"
@@ -271,30 +321,185 @@ export default async function SearchResultPage({
               </ActionForm>
             </Modal>
           ) : null}
-
-          {/*
-            Was "All records", pointing at /portal/records - a page that no
-            longer exists, and one this screen already outclassed for a single
-            truck: the route above is the whole stored history, paged, with the
-            exact count on the panel.
-
-            So the button becomes the one thing that page could do and this one
-            could not. Not a Link: it is a file download, not a page. Scoped to
-            this truck and to everything kept, because that is the question the
-            reader is already looking at the answer to.
-          */}
-          {total > 0 ? (
-            <a
-              href={`/portal/records/export?truck=${encodeURIComponent(truckNumber)}&range=all`}
-              className={buttonClass("secondary", "sm")}
-            >
-              <Download size={14} />
-              Download CSV
-            </a>
-          ) : null}
         </div>
-      </Panel>
+      ) : (
+        <div className="mb-4" />
+      )}
+
+      {total === 0 ? (
+        <NothingYet error={lastSearch?.ok === false ? friendlyError(lastSearch.error) : null} />
+      ) : (
+        <>
+          {newest ? <LastSeenCard event={newest} /> : null}
+
+          {/* ----------------------------- route ----------------------------- */}
+          <Panel className="mb-4" bodyClassName="p-0">
+            <div className="border-b border-divider px-4 py-3.5 sm:px-5">
+              <InfoTip
+                label="About these times"
+                info={
+                  <p>
+                    Times are when the truck crossed the plaza, in IST, newest first. Rahdari saves
+                    each crossing when a lookup finds it, so the toll network&apos;s roughly
+                    one-week window does not erase older ones.
+                  </p>
+                }
+              >
+                <h2 className="text-base font-bold text-strong">Route</h2>
+              </InfoTip>
+            </div>
+            <div className="p-4 sm:p-5">
+              {eventList.length === 0 ? (
+                <EmptyState
+                  title="Nothing on this page"
+                  description="There are no crossings this far back."
+                  action={<LinkButton href={`/portal/search/${truckNumber}`}>Back to the newest</LinkButton>}
+                />
+              ) : (
+                <RouteTimeline
+                  events={eventList}
+                  olderNeighbour={olderNeighbour}
+                  isFirstPage={page === 1}
+                />
+              )}
+            </div>
+          </Panel>
+
+          <Pager
+            page={page}
+            total={total}
+            pageSize={PAGE_SIZE}
+            noun="crossings on record"
+            href={{ path: `/portal/search/${truckNumber}` }}
+            className="mb-4"
+          />
+
+          {/* ----------------------------- stats ----------------------------- */}
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4">
+            <Stat label="Crossings on record">{fmtNumber(total)}</Stat>
+            <Stat label="Plazas">{fmtNumber(plazaCount)}</Stat>
+            <Stat label="First seen" sub={oldest ? plazaName(oldest) : undefined}>
+              {fmtDate(oldest?.event_time)}
+            </Stat>
+            <Stat label="Days covered">{daysCovered(oldest, newest)}</Stat>
+          </dl>
+        </>
+      )}
     </>
   );
 }
 
+/** The answer to "where is it": the newest crossing, big. */
+function LastSeenCard({ event }: { event: TruckEvent }) {
+  const state = stateFromLocation(event.loc_name);
+  const direction = directionLabel(event.direction);
+  const map = mapUrl(event);
+  const age = event.event_time ? Date.now() - Date.parse(event.event_time) : null;
+  const moving = age !== null && age >= 0 && age < MOVING_WITHIN_MS;
+  const quietFor = age !== null ? fmtSpan(age) : null;
+
+  return (
+    <section className="mb-4 rounded-xl border border-brand-500/25 bg-brand-500/[0.07] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-brand-500">Last seen</p>
+        {moving ? (
+          <Badge tone="good">
+            <Navigation size={10} />
+            On the move
+          </Badge>
+        ) : quietFor ? (
+          <Badge>No crossing for {quietFor}</Badge>
+        ) : null}
+      </div>
+
+      <p className="mt-1 text-xl leading-snug font-bold break-words text-strong sm:text-2xl">
+        {plazaName(event)}
+      </p>
+      {state ? <p className="text-sm text-muted">{state}</p> : null}
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
+        <span className="font-medium text-ink">{fmtRelative(event.event_time)}</span>
+        <span className="text-faint">·</span>
+        <span>{fmtDateTime(event.event_time)}</span>
+        {direction ? (
+          <>
+            <span className="text-faint">·</span>
+            <span>{direction}</span>
+          </>
+        ) : null}
+      </div>
+
+      {map ? (
+        <a
+          href={map}
+          target="_blank"
+          rel="noreferrer noopener"
+          className={buttonClass("secondary", "sm", "mt-3")}
+        >
+          <MapPin size={14} />
+          Map
+          <ExternalLink size={11} className="text-faint" />
+        </a>
+      ) : null}
+    </section>
+  );
+}
+
+function NothingYet({ error }: { error: string | null }) {
+  return (
+    <Panel>
+      <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+        <span
+          aria-hidden
+          className="pop-in mb-1 inline-flex size-14 items-center justify-center rounded-full bg-mint text-brand-600 ring-8 ring-mint/40"
+        >
+          <MapPin size={24} strokeWidth={1.9} />
+        </span>
+        <p className="text-[15px] font-semibold text-strong">No crossings on record yet</p>
+        <p className="max-w-md text-sm text-muted">
+          {error ??
+            "The toll network only shares about the last week, so a truck that has not passed a plaza lately shows nothing."}
+        </p>
+        <ul className="mt-3 w-full max-w-sm space-y-2 text-left text-sm text-muted">
+          <Tip>Check the number is typed right.</Tip>
+          <Tip>Save it, then check again later.</Tip>
+          <Tip>Track it automatically and we check it for you.</Tip>
+        </ul>
+      </div>
+    </Panel>
+  );
+}
+
+function Tip({ children }: { children: ReactNode }) {
+  return (
+    <li className="flex items-start gap-2 rounded-lg border border-line bg-raised/60 px-3 py-2">
+      <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand-500" />
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function Stat({ label, sub, children }: { label: string; sub?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 bg-panel px-4 py-3">
+      <dt className="text-xs font-semibold text-muted">{label}</dt>
+      <dd className="mt-1 min-w-0">
+        <span className={cx("block truncate text-base font-bold tabular-nums text-strong")}>
+          {children}
+        </span>
+        {sub ? <span className="mt-0.5 block truncate text-xs text-muted">{sub}</span> : null}
+      </dd>
+    </div>
+  );
+}
+
+/** Calendar days (IST) from the first crossing to the newest, both included. */
+function daysCovered(oldest: TruckEvent | null, newest: TruckEvent | null): string {
+  if (!oldest || !newest) return "--";
+  const a = istDayKey(oldest.event_time);
+  const b = istDayKey(newest.event_time);
+  if (a === "unknown" || b === "unknown") return "--";
+  const span = msBetween(`${b}T00:00:00Z`, `${a}T00:00:00Z`);
+  if (span === null) return "--";
+  return fmtNumber(Math.round(span / 86_400_000) + 1);
+}
