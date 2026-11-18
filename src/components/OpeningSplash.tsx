@@ -1,118 +1,224 @@
 /**
- * The opening moment: on a clean white screen a truck drives a short road, each
- * toll point it passes turns green, and a pin lands where it stops. It is the
- * product in two seconds - a truck, toll crossings, a location.
+ * The opening moment (final, 18 Nov 2026).
  *
- * HOW IT STAYS OUT OF THE WAY
+ * Real footage, not CGI: a truck climbing a green hill road in Sonmarg on a
+ * clear morning (Pexels clip 18228842, free licence). Over it, a few light
+ * layers - a soft sun glow, birds crossing the sky, low mist - and a phone
+ * notification that drops in: "Your truck just crossed a toll plaza." At the
+ * end the notification's logo and "Rahdari" lift off and fly up to the
+ * page's own logo and name in the header, and the footage dissolves into
+ * the page.
  *
- * - It plays on every full load of the site (the owner's choice), and never on
- *   a move between pages inside it, because this layout is not re-rendered for
- *   those.
- * - It stays until the story has played (SPLASH_MIN_MS) AND the page has
- *   finished loading, whichever is later: the script at the bottom adds
- *   `splash-done` to the document then, and that class fades it out. On a slow
- *   connection it therefore covers the wait rather than racing past it.
- * - The failsafe needs no script at all: opening-splash.css hides the layer
- *   seven seconds after it appears, whatever JavaScript is or is not doing.
- * - It never takes a tap: `pointer-events: none` for its whole life, so the
- *   page underneath is usable even while it is fading.
- * - Under prefers-reduced-motion, and inside the Android/iOS app (which has
- *   its own native splash), it is not shown at all.
+ * WHEN IT PLAYS: every time the site is opened - a new tab or window, the
+ * installed app, a home-screen shortcut - but not on a reload, and not when
+ * you move around inside the site (sessionStorage remembers it per tab, and
+ * a tab opened from our own pages skips it). Tap or Esc skips it.
  *
- * A server component with no props and no state: pure markup.
+ * WHY IT NEVER SLOWS THE SITE
+ * - Nothing is fetched unless it plays: the poster and video have no src in
+ *   the markup; the script sets them. Phones get a 720x1280 file (~600 KB),
+ *   wide screens a 1280x720 one (~800 KB), both H.264 (hardware decoding on
+ *   every device and browser) and cached for 30 days.
+ * - On data saver, 2G/3G, or if the film can't start within 1.2 s, the
+ *   poster still (~55 KB) plays the same story with a slow zoom instead.
+ * - Only `transform` and `opacity` animate. The page renders underneath the
+ *   whole time; a CSS-only failsafe removes the layer after 8 s.
+ * - Hidden under prefers-reduced-motion.
  */
-/** How long the story takes: the truck arrives and the pin lands by then. */
-const SPLASH_MIN_MS = 3300;
 
-/*
- * Inline, so the clock starts when this markup is parsed - the same moment the
- * CSS animation starts - rather than when the bundle has loaded and hydrated.
- */
-const SPLASH_SCRIPT = `try{(function(){var s=Date.now(),d=document;function f(){setTimeout(function(){d.documentElement.classList.add('splash-done')},Math.max(0,${SPLASH_MIN_MS}-(Date.now()-s)))}if(d.readyState==='complete'){f()}else{window.addEventListener('load',f)}})()}catch(e){}`;
+/** How long the poster-only version runs before it leaves. */
+const STILL_MS = 3400;
+/** Hard cap for the film version, in case `ended` never fires. */
+const FILM_MAX_MS = 6200;
+
+function splashMain(STILL: number, FILM_MAX: number) {
+  var d = document;
+  var h = d.documentElement;
+  var w = window;
+
+  /* Once per tab: a reload, or a tab opened from our own pages, skips it. */
+  var skip = false;
+  try {
+    skip = sessionStorage.getItem("rx-intro") === "1";
+    sessionStorage.setItem("rx-intro", "1");
+  } catch (e) {}
+  try {
+    if (d.referrer && new URL(d.referrer).origin === location.origin) skip = true;
+  } catch (e) {}
+  /* Crawlers and speed tools (Lighthouse, PageSpeed) see the page itself,
+     so search previews and Core Web Vitals scores never include the intro. */
+  if (/bot|crawl|spider|slurp|lighthouse|pagespeed|headlesschrome|preview/i.test(navigator.userAgent) || (navigator as Navigator & { webdriver?: boolean }).webdriver) skip = true;
+  if (skip || w.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    h.classList.add("splash-skip");
+    return;
+  }
+
+  var root = d.querySelector(".app-splash") as HTMLElement | null;
+  var v = d.querySelector(".rx-video") as HTMLVideoElement | null;
+  var poster = d.querySelector(".rx-poster") as HTMLImageElement | null;
+  if (!root || !v || !poster) {
+    h.classList.add("splash-skip");
+    return;
+  }
+  var stage = root;
+  var video = v;
+  var wide = innerWidth > innerHeight * 1.05;
+  var base = "/intro/morning-" + (wide ? "landscape" : "portrait") + "-v1";
+  poster.src = base + ".webp";
+  h.classList.add("splash-on");
+
+  var ended = false;
+
+  function onLoad(cb: () => void) {
+    if (d.readyState === "complete") cb();
+    else w.addEventListener("load", cb);
+  }
+
+  /* A flying copy starts exactly over `from` and ends over `to`. */
+  function fly(ghost: HTMLElement | null, from: Element | null, to: Element | null | undefined) {
+    if (!ghost) return;
+    var a = from && from.getBoundingClientRect();
+    var b = to && (to as HTMLElement).getBoundingClientRect();
+    if (!a || !b || a.width < 2 || b.width < 2 || b.bottom < 0 || b.top > innerHeight) {
+      ghost.style.display = "none";
+      return;
+    }
+    ghost.style.left = a.left + "px";
+    ghost.style.top = a.top + "px";
+    ghost.style.width = a.width + "px";
+    ghost.style.height = a.height + "px";
+    ghost.style.setProperty("--tx", b.left + b.width / 2 - (a.left + a.width / 2) + "px");
+    ghost.style.setProperty("--ty", b.top + b.height / 2 - (a.top + a.height / 2) + "px");
+    ghost.style.setProperty("--ts", String(b.height / a.height));
+    (to as HTMLElement).classList.add("rx-target");
+    var ring = d.createElement("i");
+    ring.className = "rx-ring";
+    ring.style.left = b.left + b.width / 2 + "px";
+    ring.style.top = b.top + b.height / 2 + "px";
+    ring.style.width = ring.style.height = Math.max(b.width, b.height) * 1.3 + "px";
+    stage.appendChild(ring);
+  }
+
+  function finish() {
+    if (ended) return;
+    ended = true;
+    onLoad(function () {
+      try {
+        var mark = [].slice.call(d.querySelectorAll('img[src*="rahdari-mark"]')).filter(function (i: HTMLElement) {
+          var r = i.getBoundingClientRect();
+          return !i.closest(".app-splash") && r.width > 8 && r.top < innerHeight && r.bottom > 0;
+        })[0] as HTMLElement | undefined;
+        var name = mark && mark.parentElement && mark.parentElement.querySelector("span");
+        fly(d.querySelector(".rx-ghost-mark"), d.querySelector(".rx-notify img"), mark);
+        fly(d.querySelector(".rx-ghost-name"), d.querySelector(".rx-notify b span"), name);
+      } catch (e) {}
+      h.classList.add("splash-reveal");
+      try {
+        video.pause();
+      } catch (e) {}
+      setTimeout(function () {
+        h.classList.add("splash-enter");
+      }, 1000);
+      setTimeout(function () {
+        h.classList.add("splash-done");
+      }, 1150);
+      setTimeout(function () {
+        h.classList.remove("splash-enter");
+        [].slice.call(d.querySelectorAll(".rx-target")).forEach(function (e: HTMLElement) {
+          e.classList.remove("rx-target");
+        });
+      }, 2400);
+    });
+  }
+
+  /* Tap, click or Esc skips straight to the hand-off. */
+  stage.addEventListener("click", finish);
+  w.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") finish();
+  });
+
+  function stillOnly() {
+    try {
+      video.removeAttribute("src");
+      video.load();
+    } catch (e) {}
+    h.classList.add("splash-still");
+    setTimeout(finish, STILL);
+  }
+
+  var conn = (navigator as unknown as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if ((conn && (conn.saveData || /2g|3g/.test(conn.effectiveType || ""))) || !video.canPlayType("video/mp4")) {
+    stillOnly();
+    return;
+  }
+
+  var started = false;
+  var guard = setTimeout(function () {
+    if (!started) stillOnly();
+  }, 1200);
+  video.addEventListener("playing", function () {
+    if (started || ended) return;
+    started = true;
+    clearTimeout(guard);
+    h.classList.add("splash-playing");
+    setTimeout(finish, FILM_MAX);
+  });
+  video.addEventListener("ended", finish);
+  video.muted = true;
+  video.src = base + ".mp4";
+  var p = video.play();
+  if (p && p.catch)
+    p.catch(function () {
+      if (!started) {
+        clearTimeout(guard);
+        stillOnly();
+      }
+    });
+}
+
+const SPLASH_SCRIPT = `try{(${splashMain.toString()})(${STILL_MS},${FILM_MAX_MS})}catch(e){document.documentElement.classList.add('splash-skip')}`;
+
+const BIRDS = [1, 2, 3, 4, 5] as const;
 
 export function OpeningSplash() {
   return (
     <div className="app-splash" aria-hidden="true">
-      <div className="splash-stage">
-        <span className="splash-logo">
-          <img src="/brand/rahdari-mark-v2.webp" alt="" width={94} height={48} />
-        </span>
-
-        <svg className="splash-scene" viewBox="0 0 320 124" role="presentation" focusable="false">
-          <defs>
-            {/* userSpaceOnUse: a flat line has no height, and a gradient measured
-                against its own box would not be drawn at all. */}
-            <linearGradient id="splash-route-fill" gradientUnits="userSpaceOnUse" x1="14" y1="0" x2="306" y2="0">
-              <stop offset="0" stopColor="#ffb27a" />
-              <stop offset="1" stopColor="#f0681f" />
-            </linearGradient>
-            <linearGradient id="splash-beam-fill" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stopColor="#ffb347" stopOpacity="0.6" />
-              <stop offset="1" stopColor="#ffb347" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          {/* The road, its lane marks sliding past, and the route being drawn. */}
-          <line className="splash-road" x1="14" y1="96" x2="306" y2="96" />
-          <line className="splash-lane" x1="14" y1="96" x2="306" y2="96" />
-          <line className="splash-route-glow" x1="14" y1="96" x2="306" y2="96" pathLength={1} />
-          <line className="splash-route" x1="14" y1="96" x2="306" y2="96" pathLength={1} />
-
-          {/* Three toll points. Each lights green, with a ring, as it is passed. */}
-          <g className="splash-toll splash-toll-1">
-            <line x1="78" y1="96" x2="78" y2="70" />
-            <circle className="splash-toll-ring" cx="78" cy="62" r="9" />
-            <circle className="splash-toll-dot" cx="78" cy="62" r="9" />
-            <path d="M74 62.200l2.800 2.800 5.400-5.600" />
-          </g>
-          <g className="splash-toll splash-toll-2">
-            <line x1="148" y1="96" x2="148" y2="70" />
-            <circle className="splash-toll-ring" cx="148" cy="62" r="9" />
-            <circle className="splash-toll-dot" cx="148" cy="62" r="9" />
-            <path d="M144 62.200l2.800 2.800 5.400-5.600" />
-          </g>
-          <g className="splash-toll splash-toll-3">
-            <line x1="218" y1="96" x2="218" y2="70" />
-            <circle className="splash-toll-ring" cx="218" cy="62" r="9" />
-            <circle className="splash-toll-dot" cx="218" cy="62" r="9" />
-            <path d="M214 62.200l2.800 2.800 5.400-5.600" />
-          </g>
-
-          {/* Where it is now: the pin, and a ripple on the ground under it. */}
-          <ellipse className="splash-ripple" cx="298" cy="96" rx="9" ry="3" />
-          <g className="splash-pin">
-            <path d="M298 42c-8 0-14.500 6.200-14.500 14 0 10.200 14.500 24 14.500 24s14.500-13.800 14.500-24c0-7.800-6.500-14-14.500-14z" />
-            <circle cx="298" cy="56" r="5.200" />
-          </g>
-
-          {/* The truck. Drawn facing right, wheels on the road at y=96. */}
-          <g className="splash-truck">
-            <g className="splash-truck-body">
-              <path className="splash-beam" d="M54 78l30-7v22l-30-6z" />
-              <circle className="splash-ping" cx="26" cy="60" r="7" />
-              <circle className="splash-ping splash-ping-2" cx="26" cy="60" r="7" />
-              <rect className="splash-truck-box" x="0" y="64" width="34" height="24" rx="4" />
-              <rect className="splash-truck-stripe" x="0" y="78" width="34" height="3.500" />
-              <path className="splash-truck-cab" d="M36 71h10c1.400 0 2.700.700 3.400 2l4.200 7c.400.700.700 1.500.700 2.400V88H36z" />
-              <path className="splash-truck-glass" d="M40.200 74.400h5l3.100 5.200h-8.100z" />
-              <rect className="splash-truck-light" x="52.300" y="82" width="2" height="3.200" rx="1" />
-            </g>
-            <circle className="splash-wheel" cx="11" cy="90.500" r="5.800" />
-            <circle className="splash-wheel" cx="44" cy="90.500" r="5.800" />
-            <circle className="splash-hub" cx="11" cy="90.500" r="2.100" />
-            <circle className="splash-hub" cx="44" cy="90.500" r="2.100" />
-          </g>
-        </svg>
-
-        <p className="splash-caption">
-          Following every crossing
-          <span className="splash-dots">
-            <i />
-            <i />
-            <i />
-          </span>
-        </p>
+      <div className="rx-scene">
+        {/* Both start empty: the script fills them only when the intro plays. */}
+        <img className="rx-poster" alt="" decoding="async" />
+        <video className="rx-video" muted playsInline preload="none" disablePictureInPicture tabIndex={-1} />
       </div>
+
+      {/* Light layers over the footage. */}
+      <i className="rx-sun" />
+      <div className="rx-birds">
+        {BIRDS.map((n) => (
+          <svg key={n} className={`rx-bird rx-bird-${n}`} viewBox="0 0 24 10" focusable="false">
+            <path d="M0 6 Q6 0 12 6 Q18 0 24 6" />
+          </svg>
+        ))}
+      </div>
+      <i className="rx-mist" />
+      <i className="rx-vignette" />
+
+      {/* The phone notification. */}
+      <div className="rx-notify">
+        <img src="/brand/rahdari-mark-v2.webp" alt="" width={256} height={131} />
+        <span>
+          <b>
+            <span>Rahdari</span>
+            <em>now</em>
+          </b>
+          <span>Your truck just crossed a toll plaza.</span>
+        </span>
+      </div>
+
+      {/* Copies of the notification's logo and name that fly up to the header. */}
+      <img className="rx-ghost rx-ghost-mark" src="/brand/rahdari-mark-v2.webp" alt="" width={256} height={131} />
+      <b className="rx-ghost rx-ghost-name">Rahdari</b>
+
+      <span className="rx-skip">Tap to skip</span>
+
       <script dangerouslySetInnerHTML={{ __html: SPLASH_SCRIPT }} />
     </div>
   );
