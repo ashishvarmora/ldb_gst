@@ -1,243 +1,228 @@
 /* ===========================================================================
-   The opening intro (src/components/OpeningSplash.tsx) - final, 18 Nov 2026.
+   The opening animation (src/components/OpeningSplash.tsx).
 
-   Real morning footage with light layers over it. The script sets classes
-   on <html>:
-     splash-skip     already seen in this tab -> nothing shows at all
-     splash-on       playing: the layer is visible (t = 0)
-     splash-playing  the film has frames moving (fades in over the poster)
-     splash-still    no film (slow network / data saver): poster + slow zoom
-     splash-reveal   hand-off: logo and name fly to the header, scene fades
-     splash-enter    they have landed (the header items settle)
-     splash-done     remove the layer
+   Plays on every full load, at an unhurried pace: about three seconds of
+   story. It stays until BOTH the story has finished and the page has finished
+   loading (the small script in OpeningSplash.tsx adds .splash-done), so on a
+   slow connection it covers the wait instead of flashing past it.
 
-   Timeline (from splash-on):
-     0       poster/film, sun glow, mist drifting, birds cross the sky
-     1.7 s   notification drops in from the top
-     end     notification logo + "Rahdari" fly to the header logo + name,
-             ring bursts where they land, footage dissolves into the page
-
-   PERFORMANCE: only transform/opacity animate; the video is hardware-
-   decoded H.264; failsafe removal at 8 s with no script at all.
+   The failsafe is CSS alone: seven seconds after it appears the layer hides
+   itself whether or not that script ever ran. It never receives a tap.
    =========================================================================== */
-
 .app-splash {
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: none;
-  overflow: hidden;
-  background: #cfe0ec;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  animation: splash-leave 400ms ease 8000ms forwards;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: #172f50;
+  background:
+    radial-gradient(60% 40% at 50% 44%, #e4edfb 0%, transparent 72%),
+    radial-gradient(46% 30% at 86% 98%, rgb(231 99 33 / 0.13) 0%, transparent 72%),
+    radial-gradient(40% 28% at 6% 2%, rgb(49 94 171 / 0.12) 0%, transparent 72%),
+    linear-gradient(180deg, #ffffff 0%, #f6f9fd 100%);
+  animation: splash-leave 500ms cubic-bezier(0.4, 0, 0.2, 1) 7000ms forwards;
 }
-.splash-on .app-splash { display: block; }
-.splash-skip .app-splash { display: none !important; }
-.splash-reveal .app-splash { pointer-events: none; background: transparent; }
-.splash-done .app-splash { animation: splash-leave-now 240ms ease forwards; }
-@media (prefers-reduced-motion: reduce) {
-  .app-splash { display: none !important; }
-}
-@media print {
-  .app-splash { display: none !important; }
-}
-
-/* ------------------------------------------------------------- the scene */
-.rx-scene { position: absolute; inset: 0; }
-.rx-poster,
-.rx-video {
+/* A different keyframe name on purpose: re-timing the SAME running animation
+   keeps its clock, which is already past 500ms, so it would snap shut with no
+   fade at all. A new name starts a new animation from zero. */
+.splash-done .app-splash { animation: splash-leave-now 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+/* A faint field of dots, so the white has texture rather than being flat. */
+.app-splash::before {
+  content: "";
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  background-image: radial-gradient(rgb(23 47 80 / 0.09) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(70% 55% at 50% 46%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(70% 55% at 50% 46%, #000 0%, transparent 100%);
 }
-.rx-poster { transform: scale(1.04); animation: rx-in 500ms ease both; }
-.splash-still .rx-poster { animation: rx-in 500ms ease both, rx-kenburns 4200ms cubic-bezier(0.3, 0, 0.4, 1) both; }
-.rx-video { opacity: 0; }
-.splash-playing .rx-video { animation: rx-in 300ms ease forwards; }
-.splash-reveal .rx-scene { animation: rx-dissolve 620ms cubic-bezier(0.4, 0, 0.2, 1) 180ms forwards; }
 
-/* soft morning sun, top right */
-.rx-sun {
-  position: absolute;
-  right: -18vmax;
-  top: -22vmax;
-  width: 70vmax;
-  height: 70vmax;
+/* Inside the native app, in print, or with motion turned down: not shown. */
+.native-app .app-splash { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .app-splash { display: none; }
+}
+@media print {
+  .app-splash { display: none; }
+}
+
+.splash-stage {
+  position: relative;
+  width: min(340px, 84vw);
+  text-align: center;
+  animation: splash-rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.splash-done .splash-stage { animation: splash-stage-leave 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+/* The mark on a white tile, as in the admin sidebar. */
+.splash-logo {
+  display: inline-grid;
+  place-items: center;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid #e4e9f0;
+  box-shadow:
+    0 18px 36px -20px rgb(23 47 80 / 0.4),
+    0 0 0 6px rgb(49 94 171 / 0.06);
+  animation: splash-pop 760ms cubic-bezier(0.3, 1.4, 0.5, 1) backwards;
+}
+.splash-logo img { display: block; width: 94px; height: 48px; object-fit: contain; }
+
+.splash-scene { display: block; width: 100%; height: auto; overflow: visible; }
+
+.splash-caption {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #172f50;
+  animation: splash-rise 640ms cubic-bezier(0.2, 0.7, 0.2, 1) 300ms backwards;
+}
+.splash-dots { display: inline-flex; gap: 3px; }
+.splash-dots i {
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(255 244 214 / 0.55), rgb(255 226 170 / 0.18) 45%, transparent 72%);
-  opacity: 0;
-  animation: rx-sun 5000ms ease-out both;
+  background: #e76321;
+  animation: splash-dot 1000ms ease-in-out 8;
 }
+.splash-dots i:nth-child(2) { animation-delay: 150ms; }
+.splash-dots i:nth-child(3) { animation-delay: 300ms; }
 
-/* birds crossing the sky, wings flapping */
-.rx-birds { position: absolute; inset: 0; }
-.rx-bird {
-  position: absolute;
-  left: 0;
-  width: 34px;
-  height: 15px;
+/* Road, lane marks and route. */
+.splash-road { stroke: #e3eaf3; stroke-width: 7; stroke-linecap: round; }
+.splash-lane {
+  stroke: #b7c4d6;
+  stroke-width: 1.2;
+  stroke-dasharray: 7 9;
+  animation: splash-lane 700ms linear 4;
+}
+.splash-route,
+.splash-route-glow {
+  stroke: url(#splash-route-fill);
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: splash-draw 2300ms ease-in-out 400ms forwards;
+}
+.splash-route { stroke-width: 3.2; }
+.splash-route-glow { stroke-width: 11; opacity: 0.18; }
+
+/* Toll points: dim until passed, then green with a tick and a ring. */
+.splash-toll line { stroke: #cfd9e6; stroke-width: 2; stroke-linecap: round; }
+.splash-toll-dot {
+  fill: #ffffff;
+  stroke: #c3cfdf;
+  stroke-width: 1.6;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.splash-toll-ring {
   fill: none;
-  stroke: rgb(30 36 44 / 0.75);
-  stroke-width: 2;
+  stroke: #237861;
+  stroke-width: 1.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.splash-toll path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.1;
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0;
-  animation: rx-bird-fly 6000ms linear both;
 }
-.rx-bird path { transform-origin: 12px 6px; animation: rx-flap 420ms ease-in-out infinite alternate; }
-.rx-bird-1 { top: 22%; animation-delay: 150ms; }
-.rx-bird-2 { top: 25%; width: 28px; animation-delay: 380ms; }
-.rx-bird-2 path { animation-delay: -140ms; }
-.rx-bird-3 { top: 20%; width: 24px; animation-delay: 560ms; }
-.rx-bird-3 path { animation-delay: -260ms; }
-.rx-bird-4 { top: 28%; width: 20px; animation-delay: 900ms; animation-duration: 7000ms; }
-.rx-bird-4 path { animation-delay: -90ms; }
-.rx-bird-5 { top: 18%; width: 18px; animation-delay: 1300ms; animation-duration: 7500ms; }
+.splash-toll-1 .splash-toll-dot { animation: splash-pass 460ms ease 1270ms forwards; }
+.splash-toll-1 .splash-toll-ring { animation: splash-ring 760ms ease-out 1320ms forwards; }
+.splash-toll-1 path { animation: splash-tick 240ms ease 1390ms forwards; }
+.splash-toll-2 .splash-toll-dot { animation: splash-pass 460ms ease 1620ms forwards; }
+.splash-toll-2 .splash-toll-ring { animation: splash-ring 760ms ease-out 1670ms forwards; }
+.splash-toll-2 path { animation: splash-tick 240ms ease 1740ms forwards; }
+.splash-toll-3 .splash-toll-dot { animation: splash-pass 460ms ease 2010ms forwards; }
+.splash-toll-3 .splash-toll-ring { animation: splash-ring 760ms ease-out 2060ms forwards; }
+.splash-toll-3 path { animation: splash-tick 240ms ease 2130ms forwards; }
 
-/* low mist drifting across */
-.rx-mist {
-  position: absolute;
-  left: -30%;
-  right: -30%;
-  bottom: 0;
-  height: 42%;
-  background:
-    radial-gradient(40% 60% at 30% 80%, rgb(255 255 255 / 0.32), transparent 70%),
-    radial-gradient(45% 55% at 75% 90%, rgb(255 255 255 / 0.26), transparent 70%);
-  animation: rx-mist 6000ms linear both;
-}
-.rx-vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(120% 95% at 50% 45%, transparent 60%, rgb(10 20 30 / 0.38) 100%);
-}
-.splash-reveal .rx-sun,
-.splash-reveal .rx-birds,
-.splash-reveal .rx-mist,
-.splash-reveal .rx-vignette,
-.splash-reveal .rx-skip { animation: rx-out 360ms ease forwards; }
-
-/* ------------------------------------------------------ the notification */
-.rx-notify {
-  position: absolute;
-  z-index: 3;
-  top: max(14px, calc(env(safe-area-inset-top) + 10px));
-  left: 50%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(380px, calc(100vw - 24px));
-  margin-left: calc(min(380px, calc(100vw - 24px)) / -2);
-  padding: 11px 16px 11px 11px;
-  border-radius: 22px;
-  background: rgb(250 251 253 / 0.96);
-  box-shadow: 0 18px 40px -14px rgb(10 25 45 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.6);
+/* The pin drops when the truck arrives, and the ground ripples under it. */
+.splash-pin {
   opacity: 0;
-  transform: translateY(-150%) scale(0.94);
-  animation: rx-notify-in 640ms cubic-bezier(0.2, 1.3, 0.3, 1) 1700ms forwards;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: splash-drop 520ms cubic-bezier(0.3, 1.5, 0.5, 1) 2560ms forwards;
 }
-.rx-notify > img {
-  flex: none;
-  width: 52px;
-  height: 27px;
-  object-fit: contain;
-  padding: 7px 4px;
-  box-sizing: content-box;
-  border-radius: 11px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgb(15 35 70 / 0.08);
-}
-.rx-notify > span { display: grid; gap: 2px; min-width: 0; flex: 1; text-align: left; }
-.rx-notify b { display: flex; justify-content: space-between; align-items: baseline; font: 700 13px/1.2 var(--font-display, system-ui), system-ui, sans-serif; color: #172f50; }
-.rx-notify b em { font: 500 12px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; font-style: normal; color: #7a8aa3; }
-.rx-notify > span > span { font: 500 14px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2d44; }
-@media (min-width: 900px) {
-  .rx-notify { left: auto; right: 28px; margin-left: 0; top: 28px; }
-}
-/* the card's own logo and name go invisible as their copies take off */
-.splash-reveal .rx-notify { opacity: 1; transform: none; animation: rx-card-out 420ms ease 120ms forwards; }
-.splash-reveal .rx-notify > img,
-.splash-reveal .rx-notify b > span { visibility: hidden; }
-
-.rx-skip {
-  position: absolute;
-  right: 14px;
-  bottom: max(14px, calc(env(safe-area-inset-bottom) + 10px));
-  padding: 6px 12px;
-  border-radius: 999px;
-  font: 600 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #fff;
-  background: rgb(10 20 30 / 0.35);
+.splash-pin path { fill: url(#splash-route-fill); }
+.splash-pin circle { fill: #ffffff; }
+.splash-ripple {
+  fill: none;
+  stroke: #e76321;
+  stroke-width: 1.4;
   opacity: 0;
-  animation: rx-in 400ms ease 1200ms forwards;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ripple 760ms ease-out 2860ms forwards;
 }
 
-/* ------------------------------------------------------ the flying copies */
-.rx-ghost {
-  position: fixed;
-  z-index: 4;
-  display: none;
-  margin: 0;
-  will-change: transform;
-  transform-origin: 50% 50%;
+/* The truck. */
+.splash-truck {
+  transform: translateX(-70px);
+  animation: splash-drive 2300ms ease-in-out 400ms forwards;
 }
-.rx-ghost-mark { object-fit: contain; }
-.rx-ghost-name {
-  align-items: center;
-  font: 700 13px/1.2 var(--font-display, system-ui), system-ui, sans-serif;
-  color: #172f50;
-  white-space: nowrap;
-}
-.splash-reveal .rx-ghost { display: flex; animation: rx-fly 760ms cubic-bezier(0.65, 0, 0.25, 1) 60ms forwards; }
-.splash-reveal .rx-ghost-mark { display: block; }
-.splash-enter .rx-ghost { animation: rx-out 140ms ease forwards; transform: translate(var(--tx), var(--ty)) scale(var(--ts)); }
-
-.rx-ring {
-  position: fixed;
-  z-index: 4;
-  display: block;
-  translate: -50% -50%;
-  border-radius: 50%;
-  border: 2px solid rgb(255 138 42 / 0.9);
-  box-shadow: 0 0 20px rgb(255 138 42 / 0.5);
+.splash-truck-body { animation: splash-bob 330ms ease-in-out 400ms 7 alternate; }
+.splash-truck-box { fill: #172f50; }
+.splash-truck-stripe { fill: #f0681f; }
+.splash-truck-cab { fill: #f0681f; }
+.splash-truck-glass { fill: #ffe6d6; }
+.splash-truck-light { fill: #ffd27a; }
+.splash-beam { fill: url(#splash-beam-fill); }
+.splash-wheel { fill: #0f2038; stroke: #ffffff; stroke-width: 1; }
+.splash-hub { fill: #c9d3e0; }
+.splash-ping {
+  fill: none;
+  stroke: #315eab;
+  stroke-width: 1.4;
   opacity: 0;
-  scale: 0.4;
-  animation: rx-ring 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 800ms forwards;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ping 900ms ease-out 500ms 2;
 }
+.splash-ping-2 { animation-delay: 950ms; }
 
-/* the header's own logo and name wait under the copies, then settle */
-.splash-on:not(.splash-enter):not(.splash-done) .rx-target { opacity: 0; }
-.splash-enter .rx-target { animation: rx-land 520ms cubic-bezier(0.2, 1.5, 0.4, 1) both; }
-
-/* ------------------------------------------------------------- keyframes */
 @keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
 @keyframes splash-leave-now { to { opacity: 0; visibility: hidden; } }
-@keyframes rx-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes rx-out { to { opacity: 0; } }
-@keyframes rx-dissolve { to { opacity: 0; transform: scale(1.04); } }
-@keyframes rx-kenburns { from { transform: scale(1.04); } to { transform: scale(1.12) translateY(-1.5%); } }
-@keyframes rx-sun {
-  0% { opacity: 0; transform: scale(0.85); }
-  30% { opacity: 1; }
-  100% { opacity: 1; transform: scale(1.05); }
+@keyframes splash-stage-leave { to { transform: scale(1.06); } }
+@keyframes splash-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes splash-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
+@keyframes splash-dot { 0%, 100% { opacity: 0.3; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+@keyframes splash-lane { to { stroke-dashoffset: -16; } }
+@keyframes splash-draw { to { stroke-dashoffset: 0.05; } }
+@keyframes splash-drive { to { transform: translateX(226px); } }
+@keyframes splash-bob { to { transform: translateY(-1.2px); } }
+@keyframes splash-pass {
+  40% { transform: scale(1.28); }
+  100% { transform: none; fill: #237861; stroke: #237861; }
 }
-@keyframes rx-bird-fly {
-  0% { opacity: 0; transform: translate(-6vw, 2vh); }
-  8% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { opacity: 0; transform: translate(108vw, -6vh); }
+@keyframes splash-ring {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(2.3); }
 }
-@keyframes rx-flap { from { transform: scaleY(1); } to { transform: scaleY(-0.55); } }
-@keyframes rx-mist { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
-@keyframes rx-notify-in {
-  0% { opacity: 0; transform: translateY(-150%) scale(0.94); }
-  60% { opacity: 1; }
-  100% { opacity: 1; transform: none; }
+@keyframes splash-tick { to { opacity: 1; } }
+@keyframes splash-drop {
+  from { opacity: 0; transform: translateY(-18px) scale(0.6); }
+  to { opacity: 1; transform: none; }
 }
-@keyframes rx-card-out { to { opacity: 0; transform: translateY(-20%) scale(0.97); } }
-@keyframes rx-fly { from { transform: none; } to { transform: translate(var(--tx), var(--ty)) scale(var(--ts)); } }
-@keyframes rx-ring { 0% { opacity: 0; scale: 0.4; } 25% { opacity: 1; } 100% { opacity: 0; scale: 1.6; } }
-@keyframes rx-land { 0% { transform: scale(1.14); } 100% { transform: none; } }
+@keyframes splash-ripple {
+  from { opacity: 0.9; transform: scale(0.6); }
+  to { opacity: 0; transform: scale(2.6); }
+}
+@keyframes splash-ping {
+  from { opacity: 0.9; transform: scale(0.5); }
+  to { opacity: 0; transform: scale(2.4); }
+}

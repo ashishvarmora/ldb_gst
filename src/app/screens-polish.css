@@ -284,52 +284,31 @@ html.system-insets {
   background-repeat: no-repeat;
 }
 
-/*
- * The navigation bar as a little road: a dashed lane along the top edge and
- * a small truck driving across it, headlights on, with a warm light trail
- * behind. One pass reads as complete on a half-second load; on a slow one
- * it simply keeps driving. Each layer moves with one transform (compositor
- * only, no layout); the truck is a tiny inline SVG.
- */
 @keyframes nav-progress-run {
-  from { transform: translateX(-40vw); }
-  to { transform: translateX(104vw); }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
 }
 .nav-progress {
-  height: 16px;
+  height: 3px;
   overflow: hidden;
   animation: none;
-  background: repeating-linear-gradient(90deg, rgb(231 99 33 / 0.32) 0 12px, transparent 12px 22px) left 14px / 100% 2px no-repeat;
+  background: rgb(231 99 33 / 0.14);
 }
-.nav-progress::before,
-.nav-progress::after {
+.nav-progress::before {
   content: "";
   position: absolute;
+  inset-block: 0;
   left: 0;
-  will-change: transform;
-  animation: nav-progress-run 1.5s cubic-bezier(0.45, 0.05, 0.3, 1) infinite;
-}
-/* the light trail on the lane */
-.nav-progress::before {
-  top: 14px;
-  height: 2px;
-  width: 30vw;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, rgb(255 138 61 / 0.6) 60%, #ff9a5c);
-}
-/* the truck, riding at the front of the trail */
-.nav-progress::after {
-  top: 1px;
-  width: 30px;
-  height: 14px;
-  margin-left: calc(30vw - 4px);
-  background: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2030%2014'%3E%3Crect%20x%3D'0'%20y%3D'1'%20width%3D'18'%20height%3D'9'%20rx%3D'1.6'%20fill%3D'%231d4fae'%2F%3E%3Crect%20x%3D'2'%20y%3D'5.4'%20width%3D'12'%20height%3D'1.4'%20rx%3D'.7'%20fill%3D'%23ff8a2a'%2F%3E%3Cpath%20d%3D'M19%203.5h5.2c.7%200%201.3.4%201.7%201l2.3%203.6c.3.4.4.9.4%201.4V10H19z'%20fill%3D'%23f0681f'%2F%3E%3Cpath%20d%3D'M20.6%204.8h3.4l2%203.1h-5.4z'%20fill%3D'%23dcefff'%2F%3E%3Ccircle%20cx%3D'5'%20cy%3D'11'%20r%3D'2.4'%20fill%3D'%2313233f'%2F%3E%3Ccircle%20cx%3D'5'%20cy%3D'11'%20r%3D'.9'%20fill%3D'%23c9d3e0'%2F%3E%3Ccircle%20cx%3D'23'%20cy%3D'11'%20r%3D'2.4'%20fill%3D'%2313233f'%2F%3E%3Ccircle%20cx%3D'23'%20cy%3D'11'%20r%3D'.9'%20fill%3D'%23c9d3e0'%2F%3E%3Ccircle%20cx%3D'28.7'%20cy%3D'8.3'%20r%3D'.9'%20fill%3D'%23fff4d6'%2F%3E%3C%2Fsvg%3E") center / contain no-repeat;
+  width: 30%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #ff9a5c, var(--app-orange));
+  animation: nav-progress-run 1.1s cubic-bezier(0.45, 0.05, 0.3, 1) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse.bg-sunken { animation: none; background-image: none; }
-  .nav-progress { height: 3px; background: var(--app-orange); }
-  .nav-progress::before, .nav-progress::after { animation: none; display: none; }
+  .nav-progress { background: var(--app-orange); }
+  .nav-progress::before { animation: none; display: none; }
 }
 
 /* ===========================================================================
