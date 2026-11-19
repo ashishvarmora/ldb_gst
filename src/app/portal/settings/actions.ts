@@ -252,7 +252,7 @@ export async function testMyWhatsApp(
   const result = await sendWhatsAppTemplate({
     to: config.phone,
     template: env.whatsappTripTemplate,
-    bodyParams: ["Test", "WhatsApp alerts are connected", whatsappTime()],
+    bodyParams: ["test", "connected to WhatsApp alerts", whatsappTime()],
     purpose: "test",
     userId: session.id,
   });

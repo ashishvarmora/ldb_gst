@@ -209,8 +209,14 @@ export function whatsappTime(iso?: string | null): string {
 }
 
 /**
- * A toll crossing (or a system notice) as the trip-update template's three
- * parameters: {{1}} truck, {{2}} what happened, {{3}} when.
+ * A toll crossing as the trip-update template's three parameters. The approved
+ * body reads:
+ *
+ *   "Hello, your Rahdari trip {{1}} status has been updated to {{2}} on {{3}}.
+ *    Open the Rahdari app for full trip details."
+ *
+ * so {{1}} is the truck number, {{2}} a short status that reads after
+ * "updated to" ("crossed Chabri Toll Plaza, northbound"), {{3}} the IST time.
  */
 export function tripUpdateParams({
   title,
@@ -225,7 +231,13 @@ export function tripUpdateParams({
   direction?: string | null;
   eventTime?: string | null;
 }): string[] {
-  const where = [location, direction ? `(${direction})` : null].filter(Boolean).join(" ");
-  const status = where ? `${title}: ${where}` : title;
+  const status = location
+    ? `crossed ${location}${direction ? `, ${direction.toLowerCase()}` : ""}`
+    : title;
   return [truckNumber, status.slice(0, 200), whatsappTime(eventTime)];
+}
+
+/** An account or truck notice ("Tracking paused: no credits left") in the same template. */
+export function noticeParams(truckNumber: string | null, title: string): string[] {
+  return [truckNumber ?? "alerts", title.slice(0, 200), whatsappTime()];
 }

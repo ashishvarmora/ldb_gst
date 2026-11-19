@@ -18,7 +18,7 @@ import { formatPushAlert, sendPushToUser } from "@/lib/push";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
-import { sendWhatsAppTemplate, tripUpdateParams, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
+import { noticeParams, sendWhatsAppTemplate, tripUpdateParams, whatsappConfigured } from "@/lib/whatsapp";
 import { fmtDateTime } from "@/lib/format";
 import { canEmailCustomers, esc, sendEmail, shell } from "@/lib/email";
 import { env } from "@/lib/env";
@@ -477,7 +477,7 @@ async function sendSystemAlert({
        */
       url: "/portal/notifications",
     },
-    whatsapp: [truckNumber ?? "Your account", title, whatsappTime()],
+    whatsapp: noticeParams(truckNumber, title),
   });
 
   const { error } = await admin.from("alert_logs").insert({
