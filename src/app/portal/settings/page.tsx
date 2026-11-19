@@ -10,7 +10,7 @@ import {
 
 import { CopyAddress } from "./CopyAddress";
 import { PushSetup } from "./PushSetup";
-import { saveMySheet, saveMyTelegram, testMyTelegram } from "./actions";
+import { saveMySheet, saveMyTelegram, saveMyWhatsApp, testMyTelegram, testMyWhatsApp } from "./actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { AppDownload } from "@/components/AppDownload";
 import { Disclosure, HelpNote } from "@/components/Disclosure";
@@ -27,6 +27,15 @@ import { SHEET_TABS } from "@/lib/sheets";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { ALERT_BOT_START_URL, ALERT_BOT_USERNAME } from "@/lib/telegram-bot";
 import type { GoogleSheetConfig, TelegramConfig } from "@/lib/types";
+import { formatIndianMobile } from "@/lib/phone";
+import { whatsappConfigured } from "@/lib/whatsapp";
+
+type WhatsAppConfig = {
+  phone: string;
+  is_enabled: boolean;
+  verified_at: string | null;
+  last_error: string | null;
+};
 
 export async function generateMetadata() {
   const { brandName } = await publicSettings();
@@ -38,7 +47,8 @@ export default async function PortalSettingsPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [{ supportEmail }, { data: telegram }, { data: sheet }, { count: pushDevices }] =
+  const waReady = whatsappConfigured();
+  const [{ supportEmail }, { data: telegram }, { data: sheet }, { count: pushDevices }, { data: whatsapp }, { data: me }] =
     await Promise.all([
       publicSettings(),
       admin
@@ -56,7 +66,19 @@ export default async function PortalSettingsPage() {
         .from("push_subscriptions")
         .select("id", { count: "exact", head: true })
         .eq("user_id", overview.id),
+      // Before migration 0067 this errors and data is null: the form still shows.
+      waReady
+        ? admin
+            .from("whatsapp_configs")
+            .select("phone, is_enabled, verified_at, last_error")
+            .eq("user_id", overview.id)
+            .maybeSingle<WhatsAppConfig>()
+        : Promise.resolve({ data: null }),
+      admin.from("profiles").select("phone").eq("id", overview.id).maybeSingle<{ phone: string | null }>(),
     ]);
+
+  const waOn = Boolean(whatsapp?.phone) && (whatsapp?.is_enabled ?? false);
+  const waNumber = whatsapp?.phone ?? me?.phone ?? "";
 
   const connected = Boolean(telegram?.chat_id) && (telegram?.is_enabled ?? false);
 
@@ -218,13 +240,73 @@ export default async function PortalSettingsPage() {
           />
 
 
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
-            <span className="flex min-w-0 items-center gap-2 text-sm text-muted">
-              <MessageCircle size={14} className="shrink-0 text-faint" />
-              WhatsApp alerts
-            </span>
-            <Badge tone="neutral">coming soon</Badge>
-          </div>
+          {waReady ? (
+            <div className="mt-5 border-t border-line pt-4">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted">
+                <MessageCircle size={12} />
+                WhatsApp
+              </p>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-line bg-raised/60 px-3 py-2.5">
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                  {waOn ? (
+                    <Badge tone="good">
+                      <CheckCircle2 size={10} />
+                      on
+                    </Badge>
+                  ) : (
+                    <Badge tone="warn">off</Badge>
+                  )}
+                  <span className="min-w-0 text-xs leading-relaxed">
+                    {whatsapp?.last_error ? (
+                      <span className="text-bad-500">{whatsapp.last_error}</span>
+                    ) : whatsapp?.verified_at ? (
+                      <span className="text-good-500">Last verified {fmtRelative(whatsapp.verified_at)}.</span>
+                    ) : (
+                      <span className="text-faint">Alerts come from Rahdari, +91 92134 34855.</span>
+                    )}
+                  </span>
+                </span>
+                {waOn ? (
+                  <InlineActionForm action={testMyWhatsApp} className="shrink-0">
+                    <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
+                      <Send size={13} />
+                      Send test
+                    </SubmitButton>
+                  </InlineActionForm>
+                ) : null}
+              </div>
+              <ActionForm action={saveMyWhatsApp} closeOnSuccess={false}>
+                <div className="space-y-3">
+                  <Field label="WhatsApp number" name="whatsapp_phone">
+                    <Input
+                      name="whatsapp_phone"
+                      defaultValue={waNumber ? formatIndianMobile(waNumber) : ""}
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="e.g. 98765 43210"
+                    />
+                  </Field>
+                  <Checkbox
+                    name="opt_in"
+                    label="Send my truck alerts on WhatsApp"
+                    hint="You can turn this off at any time."
+                    defaultChecked={waOn || !whatsapp}
+                  />
+                </div>
+                <FormActions>
+                  <SubmitButton>Save</SubmitButton>
+                </FormActions>
+              </ActionForm>
+            </div>
+          ) : (
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
+              <span className="flex min-w-0 items-center gap-2 text-sm text-muted">
+                <MessageCircle size={14} className="shrink-0 text-faint" />
+                WhatsApp alerts
+              </span>
+              <Badge tone="neutral">coming soon</Badge>
+            </div>
+          )}
         </Panel>
 
 

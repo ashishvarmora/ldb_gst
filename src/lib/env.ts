@@ -68,20 +68,33 @@ export const env = {
     return process.env.TELEGRAM_BOT_TOKEN ?? "";
   },
   /**
-   * WhatsApp Cloud API, the second alert channel. Nothing is set yet - there is
-   * no business account - so these are empty, whatsappConfigured() is false and
-   * every send is a logged no-op. The url has a default because only the token
-   * and the phone number id are ever account-specific; override it to move to a
-   * newer Graph version without a code change.
+   * WhatsApp Cloud API (Meta), sender "Rahdari" +91 92134 34855. Token and
+   * phone number id are what make the channel live; the rest have defaults.
+   * Business-initiated messages need an approved template, so alerts go out
+   * as WA_TEMPLATE_TRIP_UPDATE. Never log the token.
    */
   get whatsappApiUrl() {
-    return process.env.WHATSAPP_API_URL ?? "https://graph.facebook.com/v21.0";
+    return process.env.WHATSAPP_API_URL ?? "https://graph.facebook.com/v25.0";
   },
   get whatsappToken() {
     return process.env.WHATSAPP_TOKEN ?? "";
   },
   get whatsappPhoneId() {
-    return process.env.WHATSAPP_PHONE_ID ?? "";
+    return process.env.WHATSAPP_PHONE_ID ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+  },
+  get whatsappTripTemplate() {
+    return process.env.WA_TEMPLATE_TRIP_UPDATE ?? "rahdari_trip_update";
+  },
+  get whatsappTemplateLang() {
+    return process.env.WA_TEMPLATE_LANG ?? "en";
+  },
+  /** Echoed back to Meta when it verifies the webhook url (any long random string). */
+  get whatsappWebhookVerifyToken() {
+    return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? "";
+  },
+  /** Signs every webhook POST (X-Hub-Signature-256). Without it the webhook refuses everything. */
+  get metaAppSecret() {
+    return process.env.META_APP_SECRET ?? "";
   },
   /**
    * Web Push (VAPID), the third alert channel and the only one that reaches a
@@ -216,10 +229,8 @@ export function integrationHealth() {
     supabase: resolves(() => env.supabaseUrl) && resolves(() => env.supabaseAnonKey),
     serviceRole: resolves(() => env.serviceRoleKey),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-    // False everywhere today, and expected to be: the channel is built but
-    // unbought. Shown on the health panel so it reads as "not yet" rather than
-    // as a feature nobody knows exists.
-    whatsapp: Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID),
+    whatsapp: Boolean(process.env.WHATSAPP_TOKEN && (process.env.WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID)),
+    whatsappWebhook: Boolean(process.env.META_APP_SECRET && process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN),
     /*
      * Reported, and reported strictly, because a half-configured push channel
      * fails in the one way nobody can see: the browser subscribes, the row is

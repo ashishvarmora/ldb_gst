@@ -1108,13 +1108,15 @@ export default async function SettingsPage({
                 label="Notifications in the Android app"
                 detail="FCM_PROJECT_ID + FCM_CLIENT_EMAIL + FCM_PRIVATE_KEY, from a Firebase project service account. The app's WebView has no Web Push, so it goes through Firebase Cloud Messaging instead — free. See mobile/README.md"
               />
-              {/* Expected to be red, and here anyway: the channel is built and
-                  waiting on an account, so this row is the only place that says
-                  what is missing before WhatsApp alerts can be switched on. */}
               <HealthRow
                 ok={health.whatsapp}
                 label="WhatsApp alerts"
-                detail="WHATSAPP_TOKEN + WHATSAPP_PHONE_ID. Until both are set, WhatsApp is shown to customers as coming soon and sends nothing — Telegram is unaffected"
+                detail="WHATSAPP_TOKEN + WHATSAPP_PHONE_ID (Meta Cloud API). Alerts use the approved template WA_TEMPLATE_TRIP_UPDATE (default rahdari_trip_update); needs migration 0067"
+              />
+              <HealthRow
+                ok={health.whatsappWebhook}
+                label="WhatsApp delivery webhook"
+                detail="META_APP_SECRET + WHATSAPP_WEBHOOK_VERIFY_TOKEN; callback url /api/webhooks/whatsapp. Without it messages still send, but delivered/read is not recorded"
               />
               <HealthRow
                 ok={health.googleSheets}

@@ -1,177 +1,231 @@
 import { env } from "@/lib/env";
+import { indianMobileDigits } from "@/lib/phone";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
- * WhatsApp as a second alert channel. Built, wired to nothing, and switched off
- * until credentials exist.
+ * WhatsApp alerts through Meta's WhatsApp Cloud API.
  *
- * There is no WhatsApp Business account yet, so nothing here has ever spoken to
- * a live endpoint. It is written now so the shape is settled - the same
- * arguments and the same result type as telegram.ts, so a caller can send on
- * both without knowing which is which - and so the only work left on the day the
- * account is approved is filling in three environment variables and correcting
- * one function if the payload is wrong.
+ * Sender: "Rahdari", +91 92134 34855 (WHATSAPP_PHONE_ID). Every alert is
+ * business-initiated, which WhatsApp only allows through a pre-approved
+ * template, so alerts go out as WA_TEMPLATE_TRIP_UPDATE with three body
+ * parameters: {{1}} the truck, {{2}} what happened, {{3}} when. Free text is
+ * only accepted inside the 24-hour window after the customer messages us, so
+ * nothing here sends free text.
  *
- * Outbound only, like Telegram: no webhook, nothing received, no replies read.
+ * Same contract as telegram.ts and push.ts: never throws, and `skipped` tells
+ * "the platform has no WhatsApp" apart from "this send failed".
+ *
+ * Every send is logged to whatsapp_messages under Meta's message id (wamid) so
+ * the webhook can record delivered / read / failed. The token, and the full
+ * number, never reach a log line.
  */
 
 export type WhatsAppResult =
-  | { ok: true }
-  /**
-   * `skipped` separates "there is no WhatsApp account" from "the send failed".
-   * A caller must be able to stay quiet about the first and complain about the
-   * second, or every alert on a platform with no WhatsApp credentials reports
-   * an error it cannot act on.
-   */
-  | { ok: false; error: string; skipped?: boolean };
+  | { ok: true; wamid: string | null }
+  | { ok: false; error: string; code?: number; skipped?: boolean };
 
 const TIMEOUT_MS = 10_000;
+const RETRIES = 3;
 
-/**
- * Whether a send can even be attempted. Both the token and the phone number id
- * are needed - the API url has a working default, so its absence is not a
- * reason to call this unconfigured.
- */
+/** Meta error codes worth naming (https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes). */
+const RETRYABLE = new Set([130429, 131056, 131000, 2]);
+
 export function whatsappConfigured(): boolean {
   return Boolean(env.whatsappToken && env.whatsappPhoneId);
 }
 
-/**
- * The one function to correct against real documentation.
- *
- * This is the WhatsApp Cloud API shape - POST to /<phone-number-id>/messages
- * with a bearer token - and it is UNVERIFIED: it has never been run against a
- * live account, and it is copied from the published Cloud API format rather
- * than observed. Everything vendor-specific is deliberately in this one small
- * function, so a wrong url, header or body is a single edit and not a hunt.
- *
- * Also unverified, and more likely to bite than the payload: business-initiated
- * messages outside a 24-hour customer service window need a pre-approved
- * template, which is exactly what an unprompted toll alert is. Plain text may
- * well be refused until a template is approved, in which case the `type` and
- * `text` fields below become `template`.
- */
-function buildRequest({ to, text }: { to: string; text: string }): {
-  url: string;
-  init: RequestInit;
-} {
-  const base = env.whatsappApiUrl.replace(/\/+$/, "");
-  return {
-    url: `${base}/${env.whatsappPhoneId}/messages`,
-    init: {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.whatsappToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "text",
-        text: { preview_url: false, body: text },
-      }),
-      cache: "no-store" as RequestCache,
-    },
-  };
+/** `9876543210`, `+91 98765-43210`, `919876543210` → `919876543210`; anything else → null. */
+export function toWhatsAppNumber(raw: string | null | undefined): string | null {
+  const digits = indianMobileDigits(raw);
+  return digits === null ? null : `91${digits}`;
+}
+
+/** `91XXXXXX4855` - for logs. */
+export function maskNumber(n: string): string {
+  return n.length > 4 ? `${n.slice(0, 2)}${"X".repeat(Math.max(0, n.length - 6))}${n.slice(-4)}` : "XXXX";
 }
 
 /**
- * Sends one message. `to` is a phone number in international format without a
- * plus or spaces, which is what the Cloud API expects.
- *
- * Never throws. An alert usually goes out on more than one channel, and a
- * channel nobody has bought yet must not be able to take Telegram down with it -
- * so a missing configuration is a logged no-op that returns `skipped`, and a
- * genuine failure comes back as a value rather than an exception.
+ * A template parameter may not contain a newline, a tab or more than four
+ * spaces in a row - Meta rejects the whole message (132018) - and an empty one
+ * is refused too.
  */
-export async function sendWhatsAppMessage({
+function cleanParam(text: string): string {
+  const t = String(text ?? "").replace(/[\r\n\t]+/g, " ").replace(/ {4,}/g, "   ").trim();
+  return t || "-";
+}
+
+/** What a customer reads for a failure, by Meta's error code. */
+function explain(code: number | undefined, fallback: string): string {
+  switch (code) {
+    case 190:
+      return "WhatsApp is temporarily unavailable.";
+    case 131026:
+      return "This number could not receive the message. Check that it uses WhatsApp.";
+    case 131047:
+      return "This message needs an approved template.";
+    case 132000:
+    case 132018:
+      return "The WhatsApp message format was not accepted.";
+    case 132001:
+      return "WhatsApp alerts are waiting for approval from Meta. They will start automatically once approved.";
+    case 130429:
+    case 131056:
+      return "WhatsApp is busy right now. Please try again in a minute.";
+    case 131030:
+      return "This number is not yet allowed to receive messages from Rahdari.";
+    default:
+      return fallback;
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function post(body: unknown): Promise<{ ok: true; wamid: string | null } | { ok: false; code?: number; error: string; status: number | null }> {
+  const url = `${env.whatsappApiUrl.replace(/\/+$/, "")}/${env.whatsappPhoneId}/messages`;
+  let last: { ok: false; code?: number; error: string; status: number | null } = { ok: false, error: "Not sent", status: null };
+
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.whatsappToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const json = (await response.json().catch(() => null)) as
+        | { messages?: { id?: string }[]; error?: { message?: string; code?: number; error_data?: { details?: string } } }
+        | null;
+      if (response.ok) return { ok: true, wamid: json?.messages?.[0]?.id ?? null };
+
+      const code = json?.error?.code;
+      last = {
+        ok: false,
+        code,
+        status: response.status,
+        error: json?.error?.error_data?.details ?? json?.error?.message ?? `HTTP ${response.status}`,
+      };
+      // 4xx is final unless Meta says it is a rate limit; 5xx is worth retrying.
+      const retry = response.status >= 500 || (code !== undefined && RETRYABLE.has(code));
+      if (!retry) return last;
+    } catch (error) {
+      const aborted = error instanceof Error && error.name === "AbortError";
+      last = { ok: false, status: null, error: aborted ? "WhatsApp did not respond in time." : (error as Error).message };
+    } finally {
+      clearTimeout(timer);
+    }
+    await sleep(500 * 2 ** attempt);
+  }
+  return last;
+}
+
+async function logSend(row: {
+  wamid: string | null;
+  userId: string | null;
+  to: string;
+  template: string;
+  purpose: "alert" | "test" | "otp";
+  errorCode?: number;
+  errorMessage?: string;
+}) {
+  try {
+    const { error } = await getSupabaseAdmin().from("whatsapp_messages").insert({
+      wamid: row.wamid,
+      user_id: row.userId,
+      to_last4: row.to.slice(-4),
+      template: row.template,
+      purpose: row.purpose,
+      status: row.errorMessage ? "failed" : "accepted",
+      error_code: row.errorCode ?? null,
+      error_message: row.errorMessage ?? null,
+    });
+    if (error) console.error("[whatsapp] log insert failed:", error.message);
+  } catch (error) {
+    console.error("[whatsapp] log insert failed:", (error as Error).message);
+  }
+}
+
+/**
+ * Sends an approved template. `bodyParams` fill {{1}}, {{2}}… in order.
+ */
+export async function sendWhatsAppTemplate({
   to,
-  text,
+  template,
+  bodyParams,
+  purpose,
+  userId = null,
+  lang = env.whatsappTemplateLang,
 }: {
   to: string;
-  text: string;
+  template: string;
+  bodyParams: string[];
+  purpose: "alert" | "test" | "otp";
+  userId?: string | null;
+  lang?: string;
 }): Promise<WhatsAppResult> {
   if (!whatsappConfigured()) {
-    // Logged rather than silent: on the day the credentials land, this line is
-    // how you tell whether anything was actually trying to use the channel.
-    console.info("[whatsapp] not configured — message not sent");
-    return {
-      ok: false,
-      skipped: true,
-      error: "WhatsApp alerts are not switched on yet.",
-    };
+    return { ok: false, skipped: true, error: "WhatsApp alerts are not switched on yet." };
   }
-  if (!to?.trim()) {
-    return { ok: false, error: "No WhatsApp number saved for this account." };
+  const number = toWhatsAppNumber(to);
+  if (!number) return { ok: false, error: "No valid WhatsApp number saved for this account." };
+
+  const result = await post({
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: number,
+    type: "template",
+    template: {
+      name: template,
+      language: { code: lang },
+      components: [{ type: "body", parameters: bodyParams.map((text) => ({ type: "text", text: cleanParam(text) })) }],
+    },
+  });
+
+  if (result.ok) {
+    await logSend({ wamid: result.wamid, userId, to: number, template, purpose });
+    return { ok: true, wamid: result.wamid };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  console.warn(`[whatsapp] ${template} to ${maskNumber(number)} failed (${result.code ?? result.status}): ${result.error}`);
+  await logSend({ wamid: null, userId, to: number, template, purpose, errorCode: result.code, errorMessage: result.error });
+  return { ok: false, code: result.code, error: explain(result.code, "The WhatsApp message could not be sent.") };
+}
 
-  try {
-    const { url, init } = buildRequest({ to: to.trim().replace(/[^\d]/g, ""), text });
-    const response = await fetch(url, { ...init, signal: controller.signal });
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: { message?: string } }
-        | null;
-      return {
-        ok: false,
-        error: body?.error?.message ?? `HTTP ${response.status}`,
-      };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    const aborted = error instanceof Error && error.name === "AbortError";
-    return {
-      ok: false,
-      error: aborted ? "WhatsApp did not respond in time." : (error as Error).message,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+/** IST, e.g. "19 Nov 2026, 4:30 pm". */
+export function whatsappTime(iso?: string | null): string {
+  const date = iso ? new Date(iso) : new Date();
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 /**
- * The same crossing as formatAlertMessage in telegram.ts, in the only markup
- * WhatsApp understands: *bold*, and no HTML at all. Nothing is escaped because
- * nothing can be - a plaza name containing an asterisk loses its asterisk, and
- * that is the whole of the damage.
+ * A toll crossing (or a system notice) as the trip-update template's three
+ * parameters: {{1}} truck, {{2}} what happened, {{3}} when.
  */
-export function formatWhatsAppAlert({
+export function tripUpdateParams({
   title,
   truckNumber,
   location,
   direction,
   eventTime,
-  extra,
 }: {
   title: string;
   truckNumber: string;
   location?: string | null;
   direction?: string | null;
   eventTime?: string | null;
-  extra?: string | null;
-}): string {
-  const when = eventTime
-    ? new Date(eventTime).toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        day: "2-digit",
-        month: "short",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      })
-    : null;
-
-  const lines = [`*${title}*`, "", `🚚 ${truckNumber}`];
-
-  if (location) lines.push(`📍 ${location}`);
-  if (direction) lines.push(`🧭 ${direction}`);
-  if (when) lines.push(`🕒 ${when} IST`);
-  if (extra) lines.push("", extra);
-
-  return lines.join("\n");
+}): string[] {
+  const where = [location, direction ? `(${direction})` : null].filter(Boolean).join(" ");
+  const status = where ? `${title}: ${where}` : title;
+  return [truckNumber, status.slice(0, 200), whatsappTime(eventTime)];
 }

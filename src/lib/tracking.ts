@@ -18,6 +18,7 @@ import { formatPushAlert, sendPushToUser } from "@/lib/push";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
+import { sendWhatsAppTemplate, tripUpdateParams, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
 import { fmtDateTime } from "@/lib/format";
 import { canEmailCustomers, esc, sendEmail, shell } from "@/lib/email";
 import { env } from "@/lib/env";
@@ -227,10 +228,12 @@ export type OfficerContext = {
    * is usually empty.
    */
   pushDevices: number;
+  /** The number alerts go to on WhatsApp, when the customer has opted in (0067). */
+  whatsapp: { phone: string; is_enabled: boolean } | null;
 };
 
 async function loadOfficerContext(admin: Admin, userId: string): Promise<OfficerContext> {
-  const [{ data: limits }, { data: telegram }, { count: pushDevices }] = await Promise.all([
+  const [{ data: limits }, { data: telegram }, { count: pushDevices }, { data: whatsapp }] = await Promise.all([
     admin
       .from("officer_effective_limits")
       .select("*")
@@ -241,6 +244,15 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId),
+    // Before migration 0067 is applied this errors, `data` is null and
+    // WhatsApp is simply not a channel for anybody - nothing else breaks.
+    whatsappConfigured()
+      ? admin
+          .from("whatsapp_configs")
+          .select("phone, is_enabled")
+          .eq("user_id", userId)
+          .maybeSingle<{ phone: string; is_enabled: boolean }>()
+      : Promise.resolve({ data: null }),
   ]);
 
   return {
@@ -248,6 +260,7 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
     limits: limits ?? null,
     telegram: telegram ?? null,
     pushDevices: pushDevices ?? 0,
+    whatsapp: whatsapp ?? null,
   };
 }
 
@@ -280,24 +293,29 @@ async function deliverAlert({
   context,
   telegramText,
   push,
+  whatsapp,
 }: {
   context: OfficerContext;
   telegramText: string;
   push: { title: string; body: string; tag: string; url: string };
+  /** The trip-update template's three parameters: truck, what happened, when. */
+  whatsapp: string[];
 }): Promise<Delivery> {
   const telegramAllowed =
     (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
   const pushAllowed = context.pushDevices > 0;
+  const whatsappAllowed =
+    whatsappConfigured() && (context.whatsapp?.is_enabled ?? false) && Boolean(context.whatsapp?.phone);
 
-  if (!telegramAllowed && !pushAllowed) {
+  if (!telegramAllowed && !pushAllowed && !whatsappAllowed) {
     return {
       sent: false,
       error:
-        "No Telegram chat ID saved and no phone set up for notifications. Set one up in Settings to receive alerts.",
+        "No WhatsApp number, Telegram chat ID or phone notifications set up. Set one up in Settings to receive alerts.",
     };
   }
 
-  const [telegram, phone] = await Promise.all([
+  const [telegram, phone, wa] = await Promise.all([
     telegramAllowed
       ? sendTelegramMessage({
           chatId: context.telegram!.chat_id!,
@@ -306,9 +324,18 @@ async function deliverAlert({
         })
       : null,
     pushAllowed ? sendPushToUser(context.userId, push) : null,
+    whatsappAllowed
+      ? sendWhatsAppTemplate({
+          to: context.whatsapp!.phone,
+          template: env.whatsappTripTemplate,
+          bodyParams: whatsapp,
+          purpose: "alert",
+          userId: context.userId,
+        })
+      : null,
   ]);
 
-  const sent = Boolean(telegram?.ok) || Boolean(phone?.ok);
+  const sent = Boolean(telegram?.ok) || Boolean(phone?.ok) || Boolean(wa?.ok);
   if (sent) {
     // A channel that failed while the other worked is not this alert's problem
     // to report: the alert reached them. The failure is already in the log.
@@ -325,6 +352,7 @@ async function deliverAlert({
   const reasons = [
     telegram && !telegram.ok ? `Telegram: ${telegram.error}` : null,
     phone && !phone.ok && !phone.skipped ? `Phone: ${phone.error}` : null,
+    wa && !wa.ok && !wa.skipped ? `WhatsApp: ${wa.error}` : null,
   ].filter(Boolean);
 
   return { sent: false, error: reasons.join(" ") || "The alert could not be delivered." };
@@ -382,6 +410,7 @@ async function dispatchAlerts({
         tag: `${truckId}:${draft.kind}`,
         url: `/portal/trucks/${truckId}`,
       },
+      whatsapp: tripUpdateParams(position),
     });
 
     if (sent) delivered += 1;
@@ -448,6 +477,7 @@ async function sendSystemAlert({
        */
       url: "/portal/notifications",
     },
+    whatsapp: [truckNumber ?? "Your account", title, whatsappTime()],
   });
 
   const { error } = await admin.from("alert_logs").insert({
