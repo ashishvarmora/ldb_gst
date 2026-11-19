@@ -207,6 +207,11 @@ const nextConfig: NextConfig = {
         source: "/brand/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
       },
+      /* The opening video, versioned by name the same way (…-v1.webm). */
+      {
+        source: "/intro/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, immutable" }],
+      },
       {
         source: "/:path*",
         headers: [
