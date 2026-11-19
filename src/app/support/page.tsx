@@ -14,11 +14,11 @@ export const revalidate = 300;
 export async function generateMetadata(): Promise<Metadata> {
   const { brandName } = await publicSettings();
   return {
-    title: `Help and support — ${brandName}`,
+    title: `Support — ${brandName}`,
     alternates: { canonical: "/support" },
-    openGraph: { title: `Help and support — ${brandName}`, url: "/support", images: "/opengraph-image" },
+    openGraph: { title: `Support — ${brandName}`, url: "/support", images: "/opengraph-image" },
     description:
-      "Answers to the questions people actually ask: why a vehicle shows nothing, what credits are spent on, and how alerts reach you.",
+      "Answers about truck search results, toll crossing records, credits, alerts and your account.",
   };
 }
 
@@ -36,39 +36,36 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function SupportPage() {
   const [settings, action] = await Promise.all([publicSettings(), publicHeaderAction()]);
-  const { brandName, supportEmail, supportPhone } = settings;
+  const { supportEmail, supportPhone } = settings;
 
   return (
     <PublicShell action={action} mainClassName="flex-1">
       <ContentPage
-        title="Help and support"
-        intro="The questions we are asked most, answered properly. If yours is not here, write to us — a person reads it."
+        title="Support"
+        intro="Answers to common questions. If yours is not here, write to us and our team will reply."
       >
         <Section id="data" title="About the data">
           <div className="space-y-2">
-            <HelpNote title="I searched a vehicle and nothing came back. Is it broken?">
-              Usually not. A vehicle is only visible where there is a reading point — a tolled
-              highway plaza. A lorry on state roads, on a short local run, or one that simply has
-              not passed a plaza recently produces no records at all. Nothing found means nothing
-              was recorded, which is not the same as the vehicle not moving.
+            <HelpNote title="Why does a search show no crossings?">
+              Crossings appear only where a truck passes a toll plaza. Trucks on untolled or local
+              roads, or that have not crossed a plaza recently, show no records. No records does not
+              mean the truck has not moved.
             </HelpNote>
 
             <HelpNote title="How fresh is what I am seeing?">
-              A crossing appears once it has been recorded and passed on to us. That is usually
-              quick but it is not instant, and it is not guaranteed. Treat a timestamp as
-              &ldquo;recorded at&rdquo;, not as a live position.
+              A crossing appears once it has been recorded and shared with us. This is usually quick,
+              but not instant. Read each time as &ldquo;recorded at&rdquo;, not as a live position.
             </HelpNote>
 
             <HelpNote title="The same plaza appears twice. Why?">
-              A plaza often reports one physical crossing several times. Repeats inside a short
-              window are folded into one so a single crossing is not counted twice; past that window
-              the vehicle has genuinely come back, and that is recorded as a new crossing. The
-              administrator sets how long that window is.
+              A plaza can report one crossing more than once. Repeats within a short window are merged
+              into a single crossing. A repeat after that window is a genuine return and is shown as
+              a new crossing.
             </HelpNote>
 
-            <HelpNote title="Can I use this as evidence?">
-              Not on its own. Records can be delayed, incomplete or absent, and gaps have innocent
-              explanations. Use what you find as a lead to corroborate by other means. See{" "}
+            <HelpNote title="Can I rely on this as proof?">
+              Use it as an operational record. Records can be delayed or incomplete, so for legal
+              or contractual use, verify through official channels. See{" "}
               <Link href="/data-sources" className="font-medium text-brand-500 hover:underline">
                 where the data comes from
               </Link>{" "}
@@ -77,12 +74,12 @@ export default async function SupportPage() {
           </div>
         </Section>
 
-        <Section id="watching" title="Watching a vehicle">
+        <Section id="watching" title="Tracking a truck">
           <div className="space-y-2">
-            <HelpNote title="I added a vehicle but hear nothing.">
-              A vehicle is only checked when one of its alerts is due, so a vehicle with no alert
-              switched on is never checked at all. Open it and add one. The list marks any live
-              vehicle that has no alert on it.
+            <HelpNote title="I added a truck but get no alerts.">
+              A truck is checked only when one of its alerts is due, so a truck with no alert
+              switched on is not checked. Open the truck and add an alert. The list marks any live
+              truck without one.
             </HelpNote>
 
             {/*
@@ -99,16 +96,11 @@ export default async function SupportPage() {
               "four limits" was already wrong about the list, whose first entry
               is a pause the officer made themselves.
             */}
-            {/* "vehicle", not "truck", only because every other question on
-                this page says vehicle and one odd word in a list of five reads
-                as a different author. */}
-            <HelpNote title="Why was my vehicle paused automatically?">
+            <HelpNote title="Why was my truck paused automatically?">
               <p>
-                A tracked vehicle is checked every fifteen minutes and each check spends one credit
-                — about 96 a day for one vehicle — so checking stops by itself rather than let
-                credits go on checks that cannot tell you anything new. Pausing a vehicle yourself
-                does the same thing and is the largest saving available to you; the rest happen
-                without you:
+                Every automatic check uses credits, so tracking pauses by itself when further checks
+                are unlikely to show anything new. Pausing a truck yourself is the best way to save
+                credits. The reasons a truck can pause:
               </p>
               <ul className="mt-2 space-y-1.5">
                 {AUTO_PAUSE_RULES.map((rule) => (
@@ -118,42 +110,39 @@ export default async function SupportPage() {
                 ))}
               </ul>
               <p className="mt-2">
-                A suspended account stops every vehicle on it at once — that one is not about any
-                vehicle&apos;s settings, and support can switch it back on.
+                If an account is on hold, all its trucks pause together. Please contact support to
+                resolve it.
               </p>
               <p className="mt-2">
-                {PAUSE_HELP_LINE} Every paused vehicle is on your{" "}
+                {PAUSE_HELP_LINE} Every paused truck is on your{" "}
                 <Link
                   href="/portal/trucks?filter=watchlist"
                   className="font-medium text-brand-500 hover:underline"
                 >
                   watchlist
                 </Link>
-                , where it says why it stopped and can be opened or taken live again.
+                , which shows why it paused and lets you switch it back on.
               </p>
             </HelpNote>
 
-            <HelpNote title="Its checks kept failing. What do I do?">
-              That is nearly always a registration number that does not match any vehicle, or one
-              the portal has stopped reporting. You are messaged after five failures in a row, and
-              if they continue the vehicle is paused — a failed check costs a credit like any other,
-              so retrying a number the portal will not answer only buys errors. Nothing is deleted:
-              its recorded crossings stay, and it goes live again as soon as the number is
-              corrected.
+            <HelpNote title="A truck's checks keep failing. What should I do?">
+              This usually means the vehicle number is wrong. We notify you after five unsuccessful
+              checks in a row, and if they continue the truck is paused. Its saved crossings are
+              kept. Correct the number and switch the truck back on.
             </HelpNote>
 
             <HelpNote title="How do alerts reach me?">
-              Through Telegram, once you have connected it in Settings, and in the bell inside the
-              app either way. If Telegram is not connected the alert is still recorded — you will
-              just have to open the app to see it.
+              By phone notification, by Telegram (once connected in Settings) and in the bell inside
+              the app. Every alert is saved in the app, even if a message could not be delivered.
             </HelpNote>
 
-            <HelpNote title="How often should I check a vehicle?">
-              As often as the vehicle is worth. Every automatic check spends one credit, so a
-              fifteen-minute beat is about 96 credits a day and an hourly one is 24 — the choice is
-              how soon you want to hear about a crossing against what that costs. A slower beat
-              still records every crossing the portal reports, just later. Your plan caps how many
-              vehicles may be watched at once; the credits cover how closely.
+            <HelpNote title="How often should a truck be checked?">
+              Check more often for trucks you need to follow closely and less often for others.
+              More frequent checks use more credits; see{" "}
+              <Link href="/pricing" className="font-medium text-brand-500 hover:underline">
+                Pricing
+              </Link>{" "}
+              for rates. A longer interval still records every crossing, just later.
             </HelpNote>
           </div>
         </Section>
@@ -161,13 +150,13 @@ export default async function SupportPage() {
         <Section id="account" title="Account, credits and billing">
           <div className="space-y-2">
             <HelpNote title="What is the difference between a plan and credits?">
-              A plan sets how many vehicles you may watch at once, and until when. Credits pay for
-              the checking itself — one credit per check, whether we ran it automatically or you
-              ran the lookup yourself. So the plan decides how many and the credits decide how
-              closely. A plan is priced for its whole term and charged once, not per month.
-              Topping up never changes your plan, its end date or its vehicle limit, and credits
-              you have paid for never expire — the one exception is the free trial, whose credits
-              end with it.
+              A plan sets how many trucks you can track and for how long. It is charged once for its
+              whole term, not per month. Credits pay for searches and automatic checks at the rates
+              shown on{" "}
+              <Link href="/pricing" className="font-medium text-brand-500 hover:underline">
+                Pricing
+              </Link>
+              . Topping up does not change your plan. Credits never expire, including trial credits.
             </HelpNote>
 
             {/* The answer changed with the empty-balance auto-pause: the
@@ -176,25 +165,24 @@ export default async function SupportPage() {
                 Left as the first thing to check because it is still the
                 commonest cause, and because the reader arriving at this
                 question has not seen the message. */}
-            <HelpNote title="My checks stopped and I was not told.">
-              Three things stop them: an empty balance, the plan itself ending, and a vehicle
-              pausing itself. Check your balance first — with nothing in it nothing is checked, and
-              every live vehicle is paused and marked{" "}
-              <span className="font-medium text-ink">No credits left</span> so it stops costing you
-              anything. Top up and take the ones you still need live again. If the balance is fine,
-              check whether Telegram is still connected in Settings, then write to us.
+            <HelpNote title="Why did my checks stop?">
+              Checks stop when the balance runs out, when the plan ends, or when a truck pauses
+              automatically. Check your balance first: when it runs out, every live truck is paused
+              and marked{" "}
+              <span className="font-medium text-ink">No credits left</span>. Top up and switch back
+              on the trucks you need. If your balance is fine, check that notifications are still
+              connected in Settings, then write to us.
             </HelpNote>
 
-            <HelpNote title="I cannot sign in and the reset email never arrives.">
-              Check the spam folder first. If nothing is there, write to us from the address you
-              registered with — resets depend on outbound mail being correctly configured on the
-              deployment, and if it is not, we would rather fix it than leave you locked out.
+            <HelpNote title="I cannot sign in and the reset email has not arrived.">
+              Check your spam folder. If it is not there, write to us from your registered email and
+              we will help you sign in.
             </HelpNote>
           </div>
         </Section>
 
-        <Section id="contact" title="Still stuck?">
-          <p>Write to us with your account email and roughly when the problem happened.</p>
+        <Section id="contact" title="Need more help?">
+          <p>Write to us with your account email and when the issue happened.</p>
           {supportEmail || supportPhone ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {supportEmail ? (
@@ -218,7 +206,7 @@ export default async function SupportPage() {
             </div>
           ) : (
             <p>
-              Contact details for this deployment of {brandName} have not been published yet. See{" "}
+              See{" "}
               <Link href="/contact" className="font-medium text-brand-500 hover:underline">
                 the contact page
               </Link>

@@ -313,7 +313,7 @@ export function referralExample(terms: ReferralTerms): ReferralExample {
 export function referralOfferHeadline(terms: ReferralTerms): string {
   const { planReferrerPercent: plan, topupReferrerPercent: topup } = terms;
 
-  if (plan <= 0 && topup <= 0) return "Invites are not paying anything at the moment";
+  if (plan <= 0 && topup <= 0) return "Referral rewards are paused right now";
   if (plan > 0 && topup > 0) {
     // Two identical numbers in one line read as a difference the eye then hunts
     // for, so matching percentages collapse into "twice" - which is also the
@@ -344,18 +344,18 @@ export function describeReferralReward(
 
   let base: string;
   if (plan <= 0 && topup <= 0) {
-    base = "Nothing is paid for an invite at the moment";
+    base = "Referral rewards are paused right now";
   } else if (plan === topup) {
-    base = `${pct(plan)} of what somebody you invite pays for their first plan and their first top-up, back as credits`;
+    base = `Earn ${pct(plan)} of your invitee's first plan and first top-up as credits`;
   } else {
     const parts: string[] = [];
     if (plan > 0) parts.push(`${pct(plan)} of their first plan`);
     if (topup > 0) parts.push(`${pct(topup)} of their first top-up`);
-    base = `${parts.join(", and ")}, back as credits`;
+    base = `Earn ${parts.join(", and ")} as credits`;
   }
 
   if (milestoneCount <= 0 || milestoneBonus <= 0) return `${base}.`;
-  return `${base} — plus ${credits(milestoneBonus)} credits once ${milestoneCount} of them have paid.`;
+  return `${base}, plus ${credits(milestoneBonus)} bonus credits once ${milestoneCount} invitees have paid.`;
 }
 
 /**
@@ -372,10 +372,10 @@ export function describeWelcomeBonus(terms: ReferralTerms): string | null {
   if (plan <= 0 && topup <= 0) return null;
 
   if (plan === topup) {
-    return `They get ${pct(plan)} of both payments back as credits — joining on an invite pays both of you.`;
+    return `Your invitee gets ${pct(plan)} of their first plan and first top-up back as credits.`;
   }
   const parts: string[] = [];
   if (plan > 0) parts.push(`${pct(plan)} of their first plan`);
   if (topup > 0) parts.push(`${pct(topup)} of their first top-up`);
-  return `They get ${parts.join(", and ")} back as credits — joining on an invite pays both of you.`;
+  return `Your invitee gets ${parts.join(", and ")} back as credits.`;
 }

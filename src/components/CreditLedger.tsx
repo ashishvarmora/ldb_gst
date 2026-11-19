@@ -195,7 +195,7 @@ type ReasonGroup = { bucket: ReasonBucket; label: string; reasons: string[] };
  */
 function bucketLabel(bucket: ReasonBucket): string {
   if (bucket === "spend") return "Spent";
-  return CREDIT_SOURCES.find((source) => source.key === bucket)?.label ?? "Unclassified";
+  return CREDIT_SOURCES.find((source) => source.key === bucket)?.label ?? "Other";
 }
 
 /**
@@ -1188,10 +1188,10 @@ async function loadRollups(
 function LoadFailed({ message }: { message: string }) {
   return (
     <EmptyState
-      title="Could not read the ledger"
+      title="Credit history unavailable"
       // `message` goes to the log, never the screen: a customer has no use for a
       // database error and some read it as their credits having gone.
-      description={message ? "We couldn't load your credit history just now. Your balance is safe — please refresh in a moment." : "We couldn't load your credit history just now. Please refresh in a moment."}
+      description={message ? "Your credit history could not be loaded. Your balance is not affected; please refresh in a moment." : "Your credit history could not be loaded. Please refresh in a moment."}
     />
   );
 }
@@ -1369,7 +1369,7 @@ function SortHead({
         title={
           only
             ? undefined
-            : "Sorts by size, so a 5,000-credit purchase and a 5,000-credit spend rank together."
+            : "Sorts by amount, whether credits were added or used."
         }
       >
         {/* Deliberately NOT align="right", which would flip the icon to the
@@ -1496,7 +1496,7 @@ async function RollupList({
   /* A cap that bit is said out loud. A truncated total reads as an exact one. */
   const capped =
     rows.length >= FOLD_CAP
-      ? ` — capped at the ${FOLD_CAP.toLocaleString("en-IN")} most recent rows, so narrow the dates for an exact total`
+      ? ` — showing the latest ${FOLD_CAP.toLocaleString("en-IN")} rows; narrow the dates for a full total`
       : "";
   /* Grouped by day and nothing else, the rows ARE days, so the pager counts
      them as days. "31 groups, by day" was the same fact spelt in the
@@ -1794,7 +1794,7 @@ async function EntryList({
            the switches did what they said - see Toggle. */
         scope={`${total.toLocaleString("en-IN")} individual ${plural(entryNoun, total)}${
           capped
-            ? ` — the ${FOLD_CAP.toLocaleString("en-IN")} most recent, sorted by size, so narrow the dates for the whole ledger`
+            ? ` — the latest ${FOLD_CAP.toLocaleString("en-IN")}, sorted by amount; narrow the dates to see all`
             : ""
         }`}
       />
@@ -2151,7 +2151,7 @@ export async function CreditSummary({
   const tiles = [
     { key: "balance", icon: Coins, label: "Credits left", value: balance },
     { key: "today", icon: Minus, label: "Used today", value: spentToday },
-    { key: "month", icon: Minus, label: "Used in 31 days", value: spentMonth },
+    { key: "month", icon: Minus, label: "Used in last 31 days", value: spentMonth },
   ];
 
   return (

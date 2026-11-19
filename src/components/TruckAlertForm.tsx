@@ -153,8 +153,8 @@ export function AlertChooser({
         <AlreadyOn rows={alreadyOn} />
         <p className="rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
           {alreadyOn.length > 0
-            ? "Everything this truck can be watched for is already on it, so there is nothing to add."
-            : "Alert types are not available yet, so nothing can watch this truck. Please try again shortly, or contact support if it stays this way."}
+            ? "Every available alert is already on this truck."
+            : "Alerts are not available right now. Please try again later, or contact support if this continues."}
         </p>
       </div>
     );
@@ -245,7 +245,7 @@ export function AlertChooser({
             behind this (i). Reading it needs one tap; the cost is stated in the
             same breath rather than two rows apart. */}
         <LabelWithInfo
-          label="Every how many minutes auto checks"
+          label="Check every"
           htmlFor="interval_value"
           required
           info={
@@ -253,10 +253,10 @@ export function AlertChooser({
               <strong className="font-medium text-ink">
                 {minutes === null ? "Enter a whole number." : describeCadence(effective)}
               </strong>{" "}
-              How soon you hear about a crossing, and what this truck costs. Every automatic check
-              spends one credit, so a fifteen-minute beat is about 96 credits a day and an hourly
-              one is 24 - and a slower beat still records every crossing the toll network reports,
-              just later. This rule may run every {intervalLabel(floor)} at the fastest.
+              More frequent checks mean faster alerts and higher credit use: each automatic check
+              uses credits at your plan's rate, and a 15-minute interval is about 96 checks a
+              day. Slower checks still record every crossing, just later. Fastest allowed:{" "}
+              {intervalLabel(floor)}.
             </>
           }
         />
@@ -291,7 +291,7 @@ export function AlertChooser({
             honoured, and it says what will happen instead. */}
         {tooFast ? (
           <p className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
-            This alert may run every {intervalLabel(floor)} at the fastest, so it will check every{" "}
+            The fastest this alert allows is every {intervalLabel(floor)}, so it will check every{" "}
             {intervalLabel(floor)}.
           </p>
         ) : null}
@@ -313,7 +313,7 @@ export function AlertChooser({
               <a href={heldPlaza.href} className="font-medium underline">
                 Change how often
               </a>{" "}
-              instead, or name a different plaza.
+              instead, or enter a different plaza.
             </p>
           ) : null}
         </div>
@@ -620,10 +620,9 @@ function PlazaPicker({
               misspelling of a DIFFERENT plaza still never fires.
             */}
             <span>
-              {closest ? <>Did you mean {closest}? Picking it is surest. </> : null}
-              No plaza we hold is spelt &ldquo;{value.trim()}&rdquo;. We will still watch for it,
-              allowing for &ldquo;Toll Plaza&rdquo; and small spelling differences &mdash; but if
-              it is a misspelling of somewhere else, it will never fire.
+              {closest ? <>Did you mean {closest}? Select it for best results. </> : null}
+              &ldquo;{value.trim()}&rdquo; is not in our plaza list. We will match close spellings,
+              but if it is the wrong name, the alert will not trigger.
             </span>
           </p>
           <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warn-500">
@@ -670,7 +669,7 @@ export function TruckAlertForm({
 
       {offered.length > 0 ? (
         <FormActions>
-          <SubmitButton pendingLabel="Adding...">
+          <SubmitButton pendingLabel="Adding…">
             <Plus size={14} />
             Add alert
           </SubmitButton>

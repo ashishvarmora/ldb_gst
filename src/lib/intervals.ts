@@ -68,5 +68,5 @@ export function checksPerDay(minutes: number): number {
  */
 export function describeCadence(minutes: number): string {
   const perDay = checksPerDay(minutes);
-  return `We look every ${intervalLabel(minutes)} — ${perDay.toLocaleString("en-IN")} time${perDay === 1 ? "" : "s"} a day.`;
+  return `Checked every ${intervalLabel(minutes)} — ${perDay.toLocaleString("en-IN")} time${perDay === 1 ? "" : "s"} a day.`;
 }

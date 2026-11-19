@@ -114,7 +114,7 @@ export default async function SearchPage({
         : null;
 
   return <SearchWorkspace
-    form={<SearchBox hint={`${formatCredits(searchCost)} ${searchCost === 1 ? "credit" : "credits"} per search — refunded if the search fails. Spaces and dashes are ignored.`} />}
+    form={<SearchBox hint={`${formatCredits(searchCost)} ${searchCost === 1 ? "credit" : "credits"} per search.`} />}
     history={history.map(({ log, times }) => ({ id: log.id, truck: log.truck_number, date: fmtDateTime(log.created_at), crossings: log.events_found, ok: log.ok, times, saved: savedSet.has(log.truck_number) }))}
     saved={saved.slice(0, SAVED_STRIP).map((row) => ({
       truck: row.truck_number,

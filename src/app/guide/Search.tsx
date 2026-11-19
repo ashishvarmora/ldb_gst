@@ -31,7 +31,7 @@ import type { SearchEntry } from "./lib";
 export function GuideSearch({
   index,
   labels,
-  placeholder = "Search the guide — try “telegram” or “credit”",
+  placeholder = "Search the help centre — try “telegram” or “credits”",
 }: {
   index: SearchEntry[];
   /** Category id to its plain-English title, so a result can say where it lives. */
@@ -69,7 +69,7 @@ export function GuideSearch({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={placeholder}
-          aria-label="Search the guide"
+          aria-label="Search the help centre"
           /* min-h-12: this is the one control on the page and a thumb has to
              hit it first time. pr-10 leaves room for the clear button, and the
              .field rule already forces 16px text on a phone so iOS does not

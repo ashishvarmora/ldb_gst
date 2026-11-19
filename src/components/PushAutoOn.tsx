@@ -263,7 +263,7 @@ export function PushAutoOn({
         if (permission !== "granted") {
           setNote({
             ok: false,
-            text: "Your browser did not show the box because this site is blocked there. Follow the 3 steps above — it takes 10 seconds.",
+            text: "Notifications are blocked for this site in your browser. Follow the steps above to allow them.",
           });
           return;
         }

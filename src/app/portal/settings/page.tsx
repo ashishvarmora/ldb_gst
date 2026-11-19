@@ -115,7 +115,7 @@ export default async function PortalSettingsPage() {
             </span>
 
             <InlineActionForm action={testMyTelegram} className="shrink-0">
-              <SubmitButton variant="secondary" size="sm" pendingLabel="Sending...">
+              <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
                 <Send size={13} />
                 Send test
               </SubmitButton>
@@ -125,11 +125,11 @@ export default async function PortalSettingsPage() {
           {!env.telegramBotToken ? (
 
             <p className="mb-4 text-xs leading-relaxed text-warn-500">
-              Telegram delivery is not switched on yet, so a test will fail.
+              Telegram alerts are temporarily unavailable, so a test will not be delivered.
               {supportEmail ? (
                 <>
                   {" "}
-                  Let us know at{" "}
+                  For help, contact{" "}
                   <a href={`mailto:${supportEmail}`} className="underline">
                     {supportEmail}
                   </a>
@@ -143,7 +143,7 @@ export default async function PortalSettingsPage() {
             <div className="space-y-4">
 
               <div>
-                <Field label="Chat id" name="chat_id">
+                <Field label="Chat ID" name="chat_id">
                   <Input
                     name="chat_id"
                     defaultValue={telegram?.chat_id ?? ""}
@@ -163,12 +163,12 @@ export default async function PortalSettingsPage() {
 
           <HelpNote title="Telegram alerts do not reach me" className="mt-4">
             <p>
-              A Telegram alert is a <strong className="text-ink">Telegram message</strong>, so it is
-              Telegram that has to be allowed to notify you. For the app itself to notify you, see{" "}
+              Telegram alerts arrive as <strong className="text-ink">Telegram messages</strong>, so
+              Telegram itself must be allowed to notify you. For app notifications, see{" "}
               <strong className="text-ink">Notifications on this phone</strong> below.
             </p>
 
-            <p className="mt-2">Worth checking, in this order:</p>
+            <p className="mt-2">Check these in order:</p>
             <ol className="mt-1.5 space-y-1.5">
               {[
                 <>
@@ -178,7 +178,7 @@ export default async function PortalSettingsPage() {
                   Telegram&apos;s own notifications are on in the phone&apos;s Settings — on an
                   iPhone, Settings &rsaquo; Notifications &rsaquo; Telegram.
                 </>,
-                <>The chat id above is saved.</>,
+                <>The chat ID above is saved.</>,
 
                 <>
                   You pressed <strong className="text-ink">Start</strong> on{" "}
@@ -191,11 +191,11 @@ export default async function PortalSettingsPage() {
                     t.me/{ALERT_BOT_USERNAME}
                     <ExternalLink size={11} className="shrink-0" />
                   </a>
-                  . Telegram forbids a bot from messaging anyone who has not sent it a{" "}
+                  . Telegram only lets the bot message you after you send it{" "}
                   <Mono className="text-[11px]">/start</Mono>.
                 </>,
                 <>
-                  <strong className="text-ink">Send test</strong> above reports connected.
+                  <strong className="text-ink">Send test</strong> above shows connected.
                 </>,
               ].map((step, index) => (
                 <li key={index} className="flex gap-2">
@@ -205,8 +205,7 @@ export default async function PortalSettingsPage() {
               ))}
             </ol>
             <p className="mt-2">
-              The bell at the top of the screen is this app&apos;s own list of the same alerts. It
-              is there to look at rather than to interrupt you.
+              The bell at the top of the screen also lists your alerts inside the app.
             </p>
           </HelpNote>
 
@@ -262,7 +261,7 @@ export default async function PortalSettingsPage() {
                 <>Last copied {fmtRelative(sheet.last_synced_at)}.</>
               ) : sheetId ? (
 
-                <>Nothing copied across yet — it runs on a schedule, not on save.</>
+                <>No backup yet. Backups run on a schedule, not when you save.</>
               ) : (
                 <>Keep your own copy of every record, in a sheet you own.</>
               )
@@ -283,18 +282,18 @@ export default async function PortalSettingsPage() {
                   <HelpNote title="How do I share it?" className="mt-1.5">
                     In your sheet tap <strong className="text-ink">Share</strong>, paste this
                     address in, set it to <strong className="text-ink">Editor</strong> and send.
-                    Anything less and rows cannot be added.
+                    Rows cannot be added with any lower access.
                   </HelpNote>
                 </>
               ) : (
 
                 <p className="mt-1 text-xs leading-relaxed text-warn-500">
-                  Copying to sheets is not switched on yet, so nothing is being written to any
+                  Sheet backup is temporarily unavailable, so nothing is being written to any
                   sheet.
                   {supportEmail ? (
                     <>
                       {" "}
-                      Let us know at{" "}
+                      For help, contact{" "}
                       <a href={`mailto:${supportEmail}`} className="underline">
                         {supportEmail}
                       </a>
@@ -356,9 +355,8 @@ export default async function PortalSettingsPage() {
                 ))}
               </ul>
               <p className="mt-2.5 text-xs leading-relaxed text-muted">
-                Rows are only ever added to the end of a tab. Nothing in your sheet is read, changed
-                or removed, so anything you write there yourself is safe. The app clears its own
-                records in time; your sheet keeps them.
+                Rows are only added to the end of a tab. Nothing in your sheet is read, changed or
+                removed, so anything you add yourself is safe. Your sheet keeps a permanent copy.
               </p>
             </Disclosure>
           </Disclosure>

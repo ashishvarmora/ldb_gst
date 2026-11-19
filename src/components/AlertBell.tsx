@@ -140,7 +140,7 @@ export function AlertBell({
         aria-haspopup="dialog"
         aria-label={badge > 0 ? `Alerts, ${badge} unread` : "Alerts"}
         className={cx(
-          "relative inline-flex size-10 items-center justify-center rounded-lg border border-line bg-panel transition",
+          "hdr-btn relative inline-flex size-10 items-center justify-center rounded-lg border border-line bg-panel transition",
           open ? "bg-sunken text-ink" : "text-muted hover:bg-sunken hover:text-ink",
         )}
       >
@@ -214,8 +214,8 @@ export function AlertBell({
               title={unreadMessages > 0 ? "No truck alerts" : "Nothing yet"}
               description={
                 unreadMessages > 0
-                  ? "Nothing from the tracker. The message above is waiting for you."
-                  : "Switch an alert on for a truck and anything it reports shows up here, along with replies from the team."
+                  ? "No truck alerts yet. You have a new message above."
+                  : "Truck alerts and replies from our team will appear here."
               }
             />
           ) : (

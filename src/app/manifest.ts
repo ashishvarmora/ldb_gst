@@ -36,7 +36,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     name: brandName,
     short_name: shortName,
     description:
-      "Look up a lorry by its registration number, see the toll plazas it has passed, and get a message when it moves.",
+      "Check which toll plazas a truck crossed by its vehicle number, track your fleet, and get alerts on every crossing.",
     start_url: "/portal",
     scope: "/",
     display: "standalone",

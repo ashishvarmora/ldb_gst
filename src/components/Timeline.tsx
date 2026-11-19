@@ -9,14 +9,14 @@ import type { TruckEvent } from "@/lib/types";
 
 /** Compass letter -> words, because "N" alone reads as noise on a report. */
 const DIRECTION_LABEL: Record<string, string> = {
-  N: "North bound",
-  S: "South bound",
-  E: "East bound",
-  W: "West bound",
-  NE: "North-east bound",
-  NW: "North-west bound",
-  SE: "South-east bound",
-  SW: "South-west bound",
+  N: "Northbound",
+  S: "Southbound",
+  E: "Eastbound",
+  W: "Westbound",
+  NE: "North-eastbound",
+  NW: "North-westbound",
+  SE: "South-eastbound",
+  SW: "South-westbound",
 };
 
 export function directionLabel(direction: string | null | undefined): string | null {
@@ -46,7 +46,7 @@ export function Timeline({
     return (
       <EmptyState
         title="No toll crossings on record"
-        description="The toll network only reports crossings from roughly the last week. If the truck has not passed a plaza recently there is nothing to show."
+        description="The toll network shares about the last week of crossings. If the truck has not passed a plaza recently, there is nothing to show."
       />
     );
   }

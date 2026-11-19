@@ -450,7 +450,7 @@ export function paymentsCsv(rows: PaymentRow[]): string {
     "Razorpay order id",
     "Razorpay payment id",
     "Note",
-    "Why it failed",
+    "Failure reason",
   ];
 
   const body = rows.map((row) => {

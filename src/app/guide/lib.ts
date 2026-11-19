@@ -47,31 +47,31 @@ export const CATEGORIES: GuideCategory[] = [
   {
     id: "start",
     title: "Getting started",
-    blurb: "Open an account, take the trial, and watch your first lorry.",
+    blurb: "Open an account, start the trial, and track your first truck.",
     icon: LifeBuoy,
   },
   {
     id: "trucks",
-    title: "Lorries and tracking",
-    blurb: "Search a number, add a lorry, and read what the crossings mean.",
+    title: "Trucks and tracking",
+    blurb: "Search a number, add a truck, and read what the crossings mean.",
     icon: Truck,
   },
   {
     id: "alerts",
     title: "Alerts and Telegram",
-    blurb: "Get told on your phone when something happens, and prove it works.",
+    blurb: "Get alerts on your phone and test that they work.",
     icon: BellRing,
   },
   {
     id: "credits",
     title: "Credits and what they cost",
-    blurb: "What spends a credit, how fast, and where the money goes.",
+    blurb: "What uses credits and how to manage them.",
     icon: Wallet,
   },
   {
     id: "plans",
     title: "Plans and the free trial",
-    blurb: "How many lorries, until when, and what happens when a plan ends.",
+    blurb: "How many trucks, for how long, and what happens when a plan ends.",
     icon: ReceiptIndianRupee,
   },
   {
@@ -82,8 +82,8 @@ export const CATEGORIES: GuideCategory[] = [
   },
   {
     id: "rewards",
-    title: "Invite and earn",
-    blurb: "Share your link, and what you and your friend each receive.",
+    title: "Invite & earn",
+    blurb: "Share your link, and what you and your invitee each receive.",
     icon: Gift,
   },
   {
@@ -95,7 +95,7 @@ export const CATEGORIES: GuideCategory[] = [
   {
     id: "trouble",
     title: "Problems and fixes",
-    blurb: "Nothing found, a silent phone, a lorry that paused itself.",
+    blurb: "Empty results, missing alerts and paused trucks.",
     icon: CircleAlert,
   },
 ];

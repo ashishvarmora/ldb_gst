@@ -386,8 +386,8 @@ export function PushSetup({
       setNote({
         ok: false,
         text: PUBLIC_KEY
-          ? "This device would not subscribe. Close the app fully, open it again and try once more."
-          : "Notifications are not switched on for this site yet.",
+          ? "Notifications could not be turned on. Close and reopen the app, then try again."
+          : "Notifications are temporarily unavailable.",
       });
     } finally {
       setBusy(null);
@@ -497,11 +497,11 @@ export function PushSetup({
           keys a subscription is stored and never sent to. */}
       {!channelReady ? (
         <p className="mt-2 text-xs leading-relaxed text-warn-500">
-          Phone notifications are not switched on yet, so nothing will arrive.
+          Phone notifications are temporarily unavailable, so nothing will arrive.
           {supportEmail ? (
             <>
               {" "}
-              Let us know at{" "}
+              For help, contact{" "}
               <a href={`mailto:${supportEmail}`} className="underline">
                 {supportEmail}
               </a>
@@ -529,9 +529,9 @@ export function PushSetup({
                 <strong className="text-ink">Share</strong>, then{" "}
                 <strong className="text-ink">Add to Home Screen</strong>.
               </>,
-              <>Open the new icon. Not Safari — the icon.</>,
+              <>Open Rahdari from the new Home Screen icon, not from Safari.</>,
               <>
-                In there, come back to this screen and tap{" "}
+                In the app, return to this screen and tap{" "}
                 <strong className="text-ink">Allow notifications</strong>. Allow it when iOS asks.
               </>,
               <>
@@ -550,8 +550,8 @@ export function PushSetup({
             ))}
           </ol>
           <p className="mt-2">
-            Turning it on in Safari and turning it on in the installed icon are two separate
-            permissions, so it has to be the icon.
+            Permission given in Safari does not apply to the Home Screen app, so allow it from the
+            app.
           </p>
         </HelpNote>
       )}
@@ -607,7 +607,7 @@ function StateLine({
          officer on Android sent to "iOS Settings" is being sent nowhere. */
       return (
         <span className="text-bad-500">
-          Notifications were refused on this device, and a button here cannot undo it.{" "}
+          Notifications are blocked on this device and must be turned on in its settings.{" "}
           {native ? (
             <>
               Open Android Settings &rsaquo; Apps &rsaquo; Rahdari &rsaquo; Notifications and
@@ -633,15 +633,15 @@ function StateLine({
     case "needs-ios-update":
       return <>This needs iOS 16.4 or newer. Update the phone, then come back.</>;
     case "no-worker":
-      return <>Still starting up. Close the app fully, open it again and come back.</>;
+      return <>Not ready yet. Close and reopen the app, then return to this screen.</>;
     case "unsupported":
       return <>This browser cannot show notifications. Telegram alerts still work.</>;
     case "in-app":
       return (
         <>
           {apple
-            ? "Notifications aren't in the iPhone app yet."
-            : "This version of the app can't show notifications. Update it to the latest."}{" "}
+            ? "Notifications are not available in the iPhone app yet."
+            : "This version of the app cannot show notifications. Please update to the latest version."}{" "}
           Telegram alerts still work.
         </>
       );

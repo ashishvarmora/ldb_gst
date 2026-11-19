@@ -293,7 +293,7 @@ async function deliverAlert({
     return {
       sent: false,
       error:
-        "No Telegram chat id saved and no phone set up for notifications. Add one in Settings to receive alerts.",
+        "No Telegram chat ID saved and no phone set up for notifications. Set one up in Settings to receive alerts.",
     };
   }
 
@@ -676,18 +676,14 @@ export async function checkTruck({
           admin,
           context,
           /* No registration number. This is an account-wide event, and naming
-             whichever lorry happened to be polled first would read as a fault
+             whichever truck happened to be polled first would read as a fault
              with that one truck. Same choice as the plan-expiry message. */
           truckNumber: null,
           kind: "out_of_credits",
-          title: "Tracking has been paused - no credits left",
+          title: "Tracking paused: no credits left",
           message:
-            "Your credit balance could not cover another check, so every truck that was " +
-            "live has been paused. Each automatic check costs one credit, so from now " +
-            "nothing is being checked and nothing is being spent. " +
-            "Nothing has been lost - the trucks, their alerts and every crossing they " +
-            "recorded are all still here, and credits you have paid for never expire. " +
-            "Top up, then take the trucks you still need live again from My trucks.",
+            "All tracked trucks are paused. Your trucks, alerts and history are saved. " +
+            "Top up, then switch the trucks you need back on from My trucks.",
         });
       }
 
@@ -751,12 +747,11 @@ export async function checkTruck({
         context,
         truckNumber: truck.truck_number,
         kind: "tracking_paused",
-        title: "Checking paused after repeated failures",
+        title: "Tracking paused after repeated failures",
         message:
-          `The last ${errors} checks in a row could not be completed, so this truck has been ` +
-          "paused. Every one of those checks cost a credit for an answer we never got, which is " +
-          "what the limit is there to stop. Its recorded crossings are untouched. Check the " +
-          "number is right, then take it live again from My trucks.",
+          `We could not get records for this number after ${errors} checks in a row, so tracking ` +
+          "is paused. Its recorded crossings are saved. Please check the number and switch it " +
+          "back on from My trucks.",
       });
     } else if (warnNow) {
       await sendSystemAlert({
@@ -764,11 +759,10 @@ export async function checkTruck({
         context,
         truckNumber: truck.truck_number,
         kind: "tracking_failing",
-        title: "This truck is not answering",
+        title: "No records for this truck",
         message:
-          `${errors} checks in a row have failed. That is usually a number that does not ` +
-          "match any lorry, or one the toll network has stopped reporting. " +
-          `If it keeps failing it will be paused after ${budget} in a row.`,
+          `${errors} checks in a row returned no result. Please verify the vehicle number. ` +
+          `Tracking will pause after ${budget} unsuccessful checks in a row.`,
       });
     }
 
@@ -1002,19 +996,17 @@ export async function checkTruck({
 /** How a paused truck is described to the person who owns it. */
 const AUTO_PAUSE_MESSAGE = {
   schedule: {
-    title: "Checking has finished as scheduled",
+    title: "Tracking ended as scheduled",
     body:
-      "This truck was set to stop being checked automatically, and that time has now arrived. " +
-      "It is spending no more credits. Everything it recorded is still here, and you can take it " +
-      "live again from My trucks whenever you want.",
+      "The end time set for this truck has arrived, so tracking has stopped and it uses no " +
+      "more credits. Its history is saved. You can switch it back on from My trucks at any time.",
   },
   inactive: {
-    title: "Checking paused - the lorry has stopped moving",
+    title: "Tracking paused: no recent movement",
     body:
-      "No new toll crossing has come through for this truck for a while, so it has been paused " +
-      "rather than left burning credits on a question with the same answer every time. " +
-      "Its recorded crossings are untouched. Switch it back on from My trucks when it is on the " +
-      "road again.",
+      "No new toll crossings for this truck within the set time, so tracking is paused to save " +
+      "credits. Its recorded crossings are saved. Switch it back on from My trucks when the " +
+      "truck is moving again.",
   },
 } as const;
 
@@ -1202,13 +1194,11 @@ async function applyPlanExpiryTeardown(
       context,
       truckNumber: null,
       kind: "plan_expired",
-      title: "Your trucks have been switched off",
+      title: "Your plan has ended",
       message:
-        `Your plan ended more than ${PLAN_GRACE_DAYS} days ago, so automatic checking has been ` +
-        "switched off on every truck. Nothing has been deleted - your trucks, their alerts and " +
-        "every crossing they recorded are all still here, and so are your credits: the ones you " +
-        "have paid for never expire, and they still pay for manual searches. Renew the plan and " +
-        "switch the trucks back on from My trucks.",
+        `Your plan ended more than ${PLAN_GRACE_DAYS} days ago, so tracking is paused on all ` +
+        "trucks. Your trucks, history and credits are saved, and credits can still be used for " +
+        "manual searches. Renew to resume, then switch your trucks back on from My trucks.",
     });
   }
 
@@ -1626,7 +1616,7 @@ export async function sendPlanExpiryReminders(): Promise<{ sent: number }> {
         timeZone: "Asia/Kolkata",
       });
       const credits = Math.floor(Number(row.credits) || 0);
-      const keep = `Your trucks, history and ${credits} credit${credits === 1 ? "" : "s"} stay safe, and searching keeps working.`;
+      const keep = `Your trucks, history and ${credits} credit${credits === 1 ? "" : "s"} stay safe, and manual search keeps working.`;
 
       const title =
         stage === 3 ? `${what} ends in 3 days`
@@ -1636,7 +1626,7 @@ export async function sendPlanExpiryReminders(): Promise<{ sent: number }> {
       const message =
         stage === -1
           ? `Automatic tracking has stopped. ${keep} ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to start tracking again.`
-          : `Automatic tracking stops after ${date}. ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to keep your trucks watched — credits never expire.`;
+          : `Automatic tracking stops after ${date}. ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to keep your trucks tracked — credits never expire.`;
 
       const context = await loadOfficerContext(admin, row.id);
       await sendSystemAlert({ admin, context, truckNumber: null, kind, title, message });

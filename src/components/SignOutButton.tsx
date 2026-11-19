@@ -53,7 +53,7 @@ function SignOutSubmit({
       className={buttonClass(variant, size, cx("min-h-11", className))}
     >
       <LogOut size={14} />
-      {pending ? "Signing out..." : label}
+      {pending ? "Signing out…" : label}
     </button>
   );
 }

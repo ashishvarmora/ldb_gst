@@ -38,7 +38,7 @@ export async function runManualLookup({
    */
   const [overview, settings] = await Promise.all([loadOverview(userId), loadSettings(admin)]);
   if (!overview) {
-    return { ok: false, error: "Could not read your account. Sign in again.", creditSpent: false };
+    return { ok: false, error: "Could not load your account. Please sign in again.", creditSpent: false };
   }
 
   const blocked = blockedReason(overview);
@@ -128,8 +128,8 @@ export async function runManualLookup({
       return {
         ok: false,
         creditSpent: !refunded,
-        error: `Sorry — we found the crossings for ${truckNumber} but could not save them on our side. ${
-          refunded ? "Your credit has been returned. " : ""
+        error: `The search for ${truckNumber} could not be completed. ${
+          refunded ? "No credit was used. " : ""
         }Please try again in a moment.`,
       };
     }
@@ -269,14 +269,14 @@ function failureMessage(
   const status = result.httpStatus;
   const what =
     status === null && /respond within/i.test(result.error)
-      ? "the toll records service is responding very slowly right now"
+      ? "the toll network is responding slowly"
       : status === 403 || status === 429
-        ? "the toll records service is limiting requests at the moment"
+        ? "the toll network is limiting requests"
         : status !== null && status >= 400 && status < 500
-          ? `the toll records service could not look up ${truckNumber} — please check the number is correct`
-          : "the toll records service is having a temporary problem";
+          ? `the toll network could not look up ${truckNumber}. Check that the number is correct`
+          : "the toll network is temporarily unavailable";
   const charge = refunded
-    ? "You have not been charged for this search."
-    : "If a credit was taken for this search, contact support and we will return it.";
-  return `Sorry — we couldn't fetch crossings for ${truckNumber} because ${what}. ${charge} Please try again in a few minutes.`;
+    ? "No credit was used."
+    : "If a credit was used for this search, contact support and we will return it.";
+  return `Crossings for ${truckNumber} could not be fetched because ${what}. ${charge} Please try again in a few minutes.`;
 }

@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: `Contact — ${brandName}`,
     alternates: { canonical: "/contact" },
     openGraph: { title: `Contact — ${brandName}`, url: "/contact", images: "/opengraph-image" },
-    description: "How to reach us: email, phone and registered address.",
+    description: "Contact Rahdari by email or phone about your account, payments or coverage.",
   };
 }
 
@@ -48,7 +48,7 @@ export default async function ContactPage() {
           label: "Email",
           value: supportEmail,
           href: `mailto:${supportEmail}`,
-          note: "The best route for anything involving an account or a bill.",
+          note: "Best for account and billing questions.",
         }
       : null,
     supportPhone
@@ -58,7 +58,7 @@ export default async function ContactPage() {
           label: "Phone",
           value: supportPhone,
           href: `tel:${supportPhone.replace(/[^\d+]/g, "")}`,
-          note: "Fastest when something is broken and you need it looked at now.",
+          note: "Best for urgent issues.",
         }
       : null,
   ].filter((row) => row !== null);
@@ -67,7 +67,7 @@ export default async function ContactPage() {
     <PublicShell action={action} mainClassName="flex-1">
       <ContentPage
         title="Contact us"
-        intro={`Questions about ${brandName}, an account, a payment or coverage — here is how to reach a person.`}
+        intro={`Questions about ${brandName}, your account, a payment or coverage — here is how to reach our team.`}
       >
         {rows.length > 0 ? (
           <Section id="reach" title="How to reach us">
@@ -95,10 +95,8 @@ export default async function ContactPage() {
             </div>
           </Section>
         ) : (
-          <Callout tone="warn" title="Contact details are not published yet">
-            The administrator of this deployment has not filled in a support email or phone number.
-            If you already have an account, the fastest route is to reply to any message you have
-            had from us.
+          <Callout tone="warn" title="Contact details coming soon">
+            If you have an account, reply to any email from us and our team will help.
           </Callout>
         )}
 
@@ -115,17 +113,16 @@ export default async function ContactPage() {
           <p className="flex items-start gap-2.5">
             <Clock size={16} className="mt-0.5 shrink-0 text-faint" />
             <span>
-              We aim to answer within one working day, Monday to Saturday. Anything about billing or
-              a locked account is picked up first.
+              We aim to reply within one working day, Monday to Saturday. Billing and sign-in issues
+              are handled first.
             </span>
           </p>
         </Section>
 
         <Section id="what-to-send" title="What to include">
           <p>
-            It saves a round trip if your first message already has the account email you signed up
-            with, the vehicle number in question if there is one, and roughly when the problem
-            happened. Please do not send your password — nobody here will ever ask for it.
+            To help us respond quickly, include your account email, the truck number (if relevant)
+            and when the issue happened. Never share your password — we will never ask for it.
           </p>
         </Section>
 

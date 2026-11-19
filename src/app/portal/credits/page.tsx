@@ -133,17 +133,16 @@ export default async function CreditHistoryPage({
                     either kind. */}
                 <p>
                   A search you run costs {formatCredits(searchCost)} credit
-                  {searchCost === 1 ? "" : "s"}. An automatic check costs less — your plan decides
-                  how many automatic checks one credit buys. Credits never expire. Pausing a truck
-                  stops its checks, so it stops spending.
+                  {searchCost === 1 ? "" : "s"}. Automatic checks are charged at your plan&apos;s rate,
+                  which sets how many checks one credit buys. Credits never expire. Paused trucks
+                  use no credits.
                 </p>
                 <p>
-                  Credits can arrive without a payment: a plan an administrator assigned by hand, a
-                  bonus code, a referral. What actually changed hands is on Payments.
+                  Credits can also come from bonus codes, referrals or plans set up by our team.
+                  Payments lists what you paid.
                 </p>
                 <p>
-                  Spending is one row a day, because a day is the unit a balance is read in. Tap
-                  any day for the truck-by-truck breakdown on Activity.
+                  Spending is shown per day. Tap a day to see each truck on Activity.
                 </p>
               </>
             }

@@ -26,6 +26,13 @@ export type FormAction = (
 /** Whether the surrounding ActionForm is submitting - see the onSubmit below. */
 const ActionPendingContext = createContext(false);
 
+/** True while the surrounding ActionForm (or a React-run form action) is submitting. */
+export function useActionPending() {
+  const { pending } = useFormStatus();
+  const actionPending = useContext(ActionPendingContext);
+  return pending || actionPending;
+}
+
 /**
  * Wraps a Server Action with inline error/success feedback. On success it
  * closes the surrounding modal (if any) and refreshes the route so the new
@@ -127,7 +134,7 @@ export function SubmitButton({
       className={buttonClass(variant, size, className)}
     >
       {pending ? <Loader2 size={14} className="animate-spin" /> : null}
-      {pending ? (pendingLabel ?? "Saving...") : children}
+      {pending ? (pendingLabel ?? "Saving…") : children}
     </button>
   );
 }

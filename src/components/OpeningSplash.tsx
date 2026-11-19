@@ -158,16 +158,16 @@ function splashMain(STILL: number, FILM_MAX: number, S: typeof SRC) {
       } catch (e) {}
       setTimeout(function () {
         h.classList.add("splash-enter");
-      }, 1150);
+      }, 1700);
       setTimeout(function () {
         h.classList.add("splash-done");
-      }, 1300);
+      }, 1850);
       setTimeout(function () {
         h.classList.remove("splash-enter");
         [].slice.call(d.querySelectorAll(".rx-target")).forEach(function (e: HTMLElement) {
           e.classList.remove("rx-target");
         });
-      }, 2500);
+      }, 3100);
     });
   }
 

@@ -103,7 +103,7 @@ export async function sendCustomerMessage(
     revalidatePath("/admin/chat");
     return { ok: true };
   } catch (error) {
-    return fail(reportError("sendCustomerMessage crashed", error, "That message did not send."));
+    return fail(reportError("sendCustomerMessage crashed", error, "Your message could not be sent. Please try again."));
   }
 }
 
@@ -192,7 +192,7 @@ export async function sendAdminMessage(
     revalidatePath("/portal/support");
     return { ok: true };
   } catch (error) {
-    return fail(reportError("sendAdminMessage crashed", error, "That message did not send."));
+    return fail(reportError("sendAdminMessage crashed", error, "Your message could not be sent. Please try again."));
   }
 }
 

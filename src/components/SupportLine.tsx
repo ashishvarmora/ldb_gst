@@ -61,7 +61,7 @@ export function SupportPanel({
     <div className={className}>
       <p className="flex items-center gap-1.5 text-xs font-semibold text-muted">
         {report ? <MessageSquareWarning size={11} /> : <LifeBuoy size={11} />}
-        {report ? "Something wrong?" : "Need help?"}
+        {report ? "Report a problem" : "Need help?"}
       </p>
 
       <div className="mt-2 flex flex-col gap-1.5">
@@ -104,8 +104,8 @@ export function SupportPanel({
 
       {report ? (
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
-          Tell us the truck number and roughly when it happened — that is
-          usually enough for us to find it.
+          Include the truck number and roughly when it happened so we can
+          find it quickly.
         </p>
       ) : null}
     </div>
@@ -130,7 +130,7 @@ export function SupportLine({
 
   return (
     <p className={cx("text-xs leading-relaxed text-faint", className)}>
-      Something look wrong, or found a bug?{" "}
+      Notice something wrong?{" "}
       {email ? (
         <a href={`mailto:${email}`} className="text-brand-500 transition hover:underline">
           Email us

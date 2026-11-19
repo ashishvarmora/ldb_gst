@@ -117,7 +117,7 @@ function itemGroups({
   if (referralsEnabled) {
     money.push({
       href: "/portal/referrals",
-      label: "Invite and earn",
+      label: "Invite & earn",
       icon: Gift,
       hint: "Credits when someone you invited pays",
       flag: "earn",

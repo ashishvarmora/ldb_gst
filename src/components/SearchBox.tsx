@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { manualSearch } from "@/app/portal/search/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Input } from "@/components/form";
+import { SearchScan } from "@/components/SearchScan";
 import { cx } from "@/components/ui";
 
 /**
@@ -12,7 +13,7 @@ import { cx } from "@/components/ui";
 export function SearchBox({
   autoFocus = false,
   className,
-  hint = "Uses one manual search credit. Spaces and dashes are ignored.",
+  hint = "1 credit per search.",
 }: {
   autoFocus?: boolean;
   className?: string;
@@ -50,6 +51,7 @@ export function SearchBox({
           <span>Search</span>
         </SubmitButton>
       </div>
+      <SearchScan />
       {hint ? <p className="mt-2 text-xs text-faint">{hint}</p> : null}
     </ActionForm>
   );

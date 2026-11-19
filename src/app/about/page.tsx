@@ -17,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
     alternates: { canonical: "/about" },
     openGraph: { title: `About — ${brandName}`, url: "/about", images: "/opengraph-image" },
     description:
-      "Who runs this platform, what it does with commercial vehicle movement data, and what it deliberately does not do.",
+      "Rahdari helps transport businesses see which toll plazas their trucks crossed, by vehicle number, and get alerts on new crossings.",
   };
 }
 
@@ -36,31 +36,31 @@ export default async function AboutPage() {
     <PublicShell action={action} mainClassName="flex-1">
       <ContentPage
         title={`About ${brandName}`}
-        intro={`${brandName} turns toll-plaza crossing records into a plain answer to one question: where has this lorry been, and where is it now?`}
+        intro={`${brandName} turns toll plaza crossing records into a clear answer to one question: which toll plazas has this truck crossed, and when?`}
       >
         <Section id="what" title="What it does">
           <p>
-            A commercial vehicle passing a tolled highway is recorded electronically at the plaza.
-            Those records exist, but individually they are just timestamps at gantries.{" "}
-            {brandName} collects them against a registration number, arranges them into a journey,
-            and tells you when something you asked to know about happens.
+            A truck passing a toll plaza is recorded electronically through FASTag. On their own,
+            these records are just time-stamped entries.{" "}
+            {brandName} collects them by vehicle number, arranges them into a journey, and alerts you
+            when a tracked truck crosses a plaza.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {[
               {
                 icon: MapPin,
-                title: "Look up a vehicle",
-                body: "One registration number, and the crossings recorded against it in order.",
+                title: "Search a truck",
+                body: "Enter a vehicle number to see its recorded toll crossings in order.",
               },
               {
                 icon: Bell,
-                title: "Watch it from then on",
-                body: "Pick what is worth an alert and how often to check. The rest stays quiet.",
+                title: "Track it",
+                body: "Choose which alerts you want and how often the truck is checked.",
               },
               {
                 icon: ShieldCheck,
                 title: "Keep the record",
-                body: "What was found is kept and exportable, so a finding can be shown later.",
+                body: "Results are saved to your account, so you can refer back to them later.",
               },
             ].map(({ icon: Icon, title, body }) => (
               <div key={title} className="rounded-xl border border-line bg-panel p-4">
@@ -76,14 +76,12 @@ export default async function AboutPage() {
 
         <Section id="who" title="Who it is for">
           <p>
-            Anyone with a lawful reason to know where a commercial vehicle has been. In practice
-            that has meant two groups: businesses following their own consignments, contracted
-            carriers and supplier vehicles; and officers carrying out statutory functions who need
-            to establish the movement of a specific vehicle.
+            Built for transport businesses, fleet owners and logistics teams tracking their own or
+            contracted trucks.
           </p>
           <p>
-            It is not a consumer product and it is not for tracking people. Every account is tied to
-            a named holder, and every lookup is recorded against that account.
+            It is not a consumer product and it is not for tracking people. Every account belongs to
+            a named holder, and every search is recorded against that account.
           </p>
         </Section>
 
@@ -100,19 +98,19 @@ export default async function AboutPage() {
                 .
               </>,
               <>
-                <strong className="text-ink">Not live GPS.</strong> A vehicle is visible when it
-                passes a reading point, not continuously. Between two plazas there is nothing to
-                report, and that silence is not evidence that a vehicle stopped.
+                <strong className="text-ink">Not live GPS.</strong> A truck is recorded when it
+                crosses a toll plaza, not continuously. Between two plazas there is nothing to
+                report, and a gap does not mean the truck stopped.
               </>,
               <>
                 <strong className="text-ink">Not proof on its own.</strong> Records may be delayed,
-                incomplete, or missing for routes without reading points. Treat what you find as a
-                lead to be corroborated, never as a finding in itself.
+                incomplete, or missing on routes without toll plazas. Use it as an operational
+                record; verify through official channels where proof is needed.
               </>,
               <>
                 <strong className="text-ink">Not a people-tracking tool.</strong> Using it to follow
-                an individual, rather than a vehicle you have a lawful basis to enquire about, is a
-                breach of the{" "}
+                an individual, rather than a truck you have a legitimate business reason to track,
+                breaks the{" "}
                 <Link href="/terms" className="font-medium text-brand-500 hover:underline">
                   terms of use
                 </Link>{" "}
@@ -124,13 +122,10 @@ export default async function AboutPage() {
 
         <Section id="how-paid" title="How it is paid for">
           <p>
-            A plan sets how many vehicles may be watched automatically, until when, and how
-            cheap each automatic check is — a bigger plan gets more checks for every credit. Its
-            price is for the whole plan and is charged once. Credits pay for the checking itself:
-            a search you run costs the same for everyone, and automatic checks cost what your plan
-            says. Credits never expire, can be bought with or without a plan, and the price of
-            every action is published before you buy. A paused vehicle costs nothing: no checks,
-            no credits.
+            A plan sets how many trucks you can track and for how long, and is charged once for its
+            whole term. Credits pay for searches and automatic checks at the published rates. Credits
+            never expire, and a paused truck uses no credits. See Pricing for current
+            plans and rates.
           </p>
           {/* The consequence, said here because "one credit per check" above is
               exactly the sentence that raises it. A reader who works out what a
@@ -139,10 +134,7 @@ export default async function AboutPage() {
               quietly go unwatched - is a reason to trust the product, not a
               caveat to bury. */}
           <p>
-            When the balance runs out, checking does not go quiet on you: every vehicle you have
-            live is paused and says so, and stops spending. Top up and take the ones you still need
-            live again. The free trial is the one thing with an end date on its credits — they come
-            with it and finish with it.
+            If your balance runs out, tracked trucks pause and you are notified. Top up to resume.
           </p>
           <p>
             <Link
@@ -157,15 +149,15 @@ export default async function AboutPage() {
 
         <Section id="talk" title="Talk to us">
           <p>
-            Questions about coverage, billing or whether this fits what you need are answered by a
-            person, not a form letter.
+            Questions about coverage, billing or whether {brandName} fits your needs are answered by
+            our team.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <LinkButton href="/contact" variant="primary" size="sm">
               Contact us
             </LinkButton>
             <LinkButton href="/support" variant="secondary" size="sm">
-              Help and support
+              Support
             </LinkButton>
           </div>
         </Section>

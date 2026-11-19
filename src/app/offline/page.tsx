@@ -28,8 +28,8 @@ export default function OfflinePage() {
 
         <h1 className="mt-5 text-xl font-semibold tracking-tight text-strong">Connection problem</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          This phone could not reach Rahdari just now - usually the mobile network. Your trucks and
-          history are safe on the server. Check your connection and try again.
+          Rahdari cannot be reached right now. Check your internet connection and try again. Your
+          trucks and history are safe.
         </p>
 
         <RetryButton />

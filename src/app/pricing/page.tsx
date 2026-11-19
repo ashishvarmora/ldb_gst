@@ -38,7 +38,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: `Plans and pricing — ${brandName}`,
     alternates: { canonical: "/pricing" },
     openGraph: { title: `Plans and pricing — ${brandName}`, url: "/pricing", images: "/opengraph-image" },
-    description: "What a plan costs, what credits buy, and what each action spends.",
+    description: "Plans, credit packs and rates for truck toll crossing searches and automatic tracking.",
   };
 }
 
@@ -84,8 +84,8 @@ export default async function PricingPage() {
   const payNote = settings.razorpayEnabled
     ? null
     : settings.supportEmail
-      ? `Online payment is switched off at the moment. Write to ${settings.supportEmail} and your account will be set up by hand.`
-      : "Online payment is switched off at the moment. Contact us and your account will be set up by hand.";
+      ? `Online payment is not available right now. Write to ${settings.supportEmail} and we will activate your plan.`
+      : "Online payment is not available right now. Contact us and we will activate your plan.";
 
   return (
     <PublicShell action={headerAction} mainClassName="flex-1 px-4 py-7 sm:py-10">
@@ -102,16 +102,13 @@ export default async function PricingPage() {
             Plans and pricing
           </h1>
           <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-muted">
-            A plan sets how many trucks you can watch. Credits pay for each search and check.
+            A plan sets how many trucks you can track. Credits pay for searches and automatic checks.
           </p>
 
           <div className="mt-2 flex justify-center">
-            <HelpNote title="Why two things and not one price?">
-              A plan decides how many trucks may be under watch at once, and for how long - it
-              carries its own term and is what allows automatic checking at all. Credits are the
-              running cost of looking: every search and every automatic check draws one credit from
-              a balance you top up whenever it runs low, and credits never expire. Kept apart, a
-              quiet spell costs you almost nothing and a busy one does not need a bigger plan.
+            <HelpNote title="Why a plan and credits?">
+              A plan sets how many trucks you can track and for how long. Credits pay for each
+              search and check, never expire, and can be topped up any time.
             </HelpNote>
           </div>
         </header>
@@ -133,8 +130,7 @@ export default async function PricingPage() {
           {plans.length === 0 ? (
             <Panel className="mt-5">
               <p className="text-sm text-muted">
-                No plans are on sale at the moment. Please check back shortly, or get in touch and we
-                will tell you when there are.
+                No plans are available right now. Contact us and we will help you get started.
               </p>
             </Panel>
           ) : (
@@ -159,8 +155,8 @@ export default async function PricingPage() {
                   <ul className="mt-4 space-y-2 border-t border-divider pt-4 text-sm">
                     <Feature icon={<Truck size={13} />}>
                       {plan.truck_limit === -1
-                        ? "Unlimited trucks watched at once"
-                        : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} watched at once`}
+                        ? "Unlimited trucks tracked at once"
+                        : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} tracked at once`}
                     </Feature>
                     {autoCheckRateLabel(plan) ? (
                       <Feature icon={<Gauge size={13} />}>{autoCheckRateLabel(plan)}</Feature>
@@ -186,13 +182,13 @@ export default async function PricingPage() {
         <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="Buying credits"
-            body="Credits never expire, and buying more does not touch your plan. Bigger packs cost less per credit."
+            body="Credits never expire, and topping up does not change your plan. Larger packs cost less per credit."
           />
 
           {packs.length === 0 ? (
             <Panel className="mt-5">
               <p className="text-sm text-muted">
-                No credit packs are on sale at the moment. Get in touch if you need more credits.
+                No credit packs are available right now. Contact us if you need more credits.
               </p>
             </Panel>
           ) : (
@@ -208,14 +204,13 @@ export default async function PricingPage() {
         <section className="mt-9 sm:mt-12">
           <SectionHeading
             title="What credits are spent on"
-            body="Both kinds of look cost the same: a search you type, and each automatic check of a truck you are watching. So how closely you watch a lorry is what it costs — a faster alert is more checks a day — and pausing a truck stops the meter. Your plan caps how many trucks you may watch at once and for how long; the balance is what the looking is paid from."
+            body="Searches and automatic checks both use credits, at the rates below. Checking a truck more often uses more credits; a paused truck uses none."
           />
 
           {rates.length === 0 ? (
             <Panel className="mt-5">
               <p className="text-sm text-muted">
-                Rates have not been published yet. Get in touch and we will tell you what an action
-                costs.
+                Rates have not been published yet. Contact us for current rates.
               </p>
             </Panel>
           ) : (
@@ -264,8 +259,8 @@ export default async function PricingPage() {
                   {/* Said plainly because it is the condition, not the small
                       print: a sign-up on its own earns nothing at all. */}
                   <p className="mt-2 text-sm leading-relaxed text-muted">
-                    Twice over: once when they buy their first plan, and again when they first top
-                    up. Nothing arrives when they merely register.
+                    You earn on their first plan purchase and their first top-up. Sign-up alone does not
+                    earn a reward.
                   </p>
                   {/* The invitee's half. This is the public page a person
                       holding an invite link reads before deciding, so the half
@@ -274,7 +269,7 @@ export default async function PricingPage() {
                       is switched on. */}
                   {welcomeLine ? (
                     <p className="mt-2 text-sm leading-relaxed text-muted">
-                      And it pays both ways. {welcomeLine}
+                      {welcomeLine}
                     </p>
                   ) : null}
                   <p className="mt-2 text-xs leading-relaxed text-faint">
@@ -292,14 +287,14 @@ export default async function PricingPage() {
         <section className="mt-12 mb-4">
           <div className="panel flex flex-col items-center gap-4 p-6 text-center sm:p-8">
             <h2 className="text-lg font-semibold tracking-tight text-strong">
-              {signedIn ? "Ready when you are" : "Start watching your first truck"}
+              {signedIn ? "Ready when you are" : "Start tracking your first truck"}
             </h2>
             <p className="max-w-md text-sm leading-relaxed text-muted">
               {signedIn
                 ? "Plans and top-ups are both bought from your account page."
                 : settings.signupEnabled
-                  ? "Registering takes a minute, and nothing is charged until you choose a plan."
-                  : "New accounts are not being opened at the moment. Existing accounts work as usual."}
+                  ? "Sign-up takes a minute. Nothing is charged until you choose a plan."
+                  : "New sign-ups are paused. Existing accounts work as usual."}
             </p>
 
             <div className="flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
@@ -493,11 +488,11 @@ function WorkedExample({
   return (
     <div className="panel mt-3 p-5">
       <p className="text-sm font-semibold text-strong">
-        What {formatCredits(anchor)} credits comes to
+        What {formatCredits(anchor)} credits buy
       </p>
       {anchorIsReal ? null : (
         <p className="mt-1 text-xs text-muted">
-          A round number, as an example — the credits your plan gives are listed above.
+          An example figure. The credits included with each plan are listed above.
         </p>
       )}
 
@@ -507,7 +502,7 @@ function WorkedExample({
             <span className="font-semibold tabular-nums text-brand-500">
               {formatCredits(anchor * searchRate.units_per_credit)}
             </span>{" "}
-            searches you type in yourself, if you spent every credit that way.
+            manual searches, if every credit is used that way.
           </li>
         ) : null}
 
@@ -517,17 +512,17 @@ function WorkedExample({
             <span className="font-semibold tabular-nums text-brand-500">
               {formatCredits(anchor * checkRate.units_per_credit)}
             </span>{" "}
-            background checks of the trucks you are watching.
+            automatic checks of your tracked trucks.
           </li>
         ) : null}
 
         {checkRate && checksPerDay && creditsPerDay && daysWatched ? (
           <li className="border-t border-divider pt-2 text-muted">
-            Put concretely: one truck with an alert running every {intervalMinutes} minutes is
-            checked {checksPerDay} times a day, which is{" "}
-            <span className="tabular-nums">{formatCredits(creditsPerDay)}</span> credits a day — so{" "}
-            {formatCredits(anchor)} credits keeps that truck watched for about {daysWatched} day
-            {daysWatched === 1 ? "" : "s"}. Watch two trucks and it lasts half as long.
+            Example: one truck checked every {intervalMinutes} minutes is checked {checksPerDay} times a
+            day and uses{" "}
+            <span className="tabular-nums">{formatCredits(creditsPerDay)}</span> credits a day, so{" "}
+            {formatCredits(anchor)} credits last about {daysWatched} day
+            {daysWatched === 1 ? "" : "s"}. Two trucks: about half that.
           </li>
         ) : null}
       </ul>

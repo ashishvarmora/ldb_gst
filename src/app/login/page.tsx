@@ -41,7 +41,7 @@ export default async function LoginPage() {
             <>
               Not registered yet?{" "}
               <Link href="/pricing" className="font-medium text-brand-500 hover:text-brand-600">
-                See what it costs
+                View plans and pricing
               </Link>
             </>
           )

@@ -43,7 +43,7 @@ export function MessageBell({
          * circles of different sizes read as a mistake, and this one has to
          * survive a thumb.
          */
-        "relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border transition",
+        "hdr-btn relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border transition",
         unread > 0
           ? "border-brand-500/40 bg-brand-500/10 text-brand-500 hover:bg-brand-500/15"
           : "border-line bg-panel text-muted hover:bg-sunken hover:text-ink",

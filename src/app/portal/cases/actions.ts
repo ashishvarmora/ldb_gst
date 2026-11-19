@@ -80,7 +80,7 @@ export async function updateCase(_prev: ActionResult | null, fd: FormData): Prom
 
   const caseId = str(fd, "case_id");
   const name = str(fd, "name");
-  if (!caseId) return fail("Missing group id.");
+  if (!caseId) return fail("Something went wrong. Refresh the page and try again.");
   if (!name) return fail("Give the group a name.");
 
   const { error } = await admin
@@ -101,7 +101,7 @@ export async function deleteCase(_prev: ActionResult | null, fd: FormData): Prom
   const admin = getSupabaseAdmin();
 
   const caseId = str(fd, "case_id");
-  if (!caseId) return fail("Missing group id.");
+  if (!caseId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { error } = await admin
     .from("truck_groups")
@@ -128,11 +128,11 @@ export async function addTruckToCase(
   if (!raw) return fail("Enter a truck number.");
 
   const owned = await ownedCase(session.id, caseId);
-  if (!owned) return fail("That group is not yours.");
+  if (!owned) return fail("You do not have access to this group.");
 
   const truckNumber = normalizeTruck(raw);
   if (!looksLikeTruckNumber(truckNumber)) {
-    return fail(`"${truckNumber}" does not look like a registration number.`);
+    return fail(`"${truckNumber}" is not a valid registration number. Example: MH12AB1234.`);
   }
 
   const { error } = await admin
@@ -160,10 +160,10 @@ export async function removeTruckFromCase(
 
   const caseId = str(fd, "case_id");
   const truckNumber = str(fd, "truck_number");
-  if (!caseId || !truckNumber) return fail("Missing group or truck.");
+  if (!caseId || !truckNumber) return fail("Something went wrong. Refresh the page and try again.");
 
   const owned = await ownedCase(session.id, caseId);
-  if (!owned) return fail("That group is not yours.");
+  if (!owned) return fail("You do not have access to this group.");
 
   const { error } = await admin
     .from("truck_group_members")

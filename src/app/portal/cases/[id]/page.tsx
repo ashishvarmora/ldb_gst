@@ -150,7 +150,7 @@ export default async function CaseDetailPage({
               <Field
                 label="Truck number"
                 name="truck_number"
-                hint="It does not have to be under tracking."
+                hint="It does not need to be tracked."
               >
                 <Input
                   name="truck_number"
@@ -211,7 +211,7 @@ export default async function CaseDetailPage({
         <Panel bodyClassName="p-0">
           <EmptyState
             title="No trucks in this group yet"
-            description="Add the vehicles you want to follow and their movements appear together here."
+            description="Add trucks to see their crossings together here."
           />
         </Panel>
       ) : (
@@ -237,7 +237,7 @@ export default async function CaseDetailPage({
                     ? `${latest.loc_name ?? "Unnamed plaza"} · ${fmtRelative(latest.event_time)}`
                     : truck
                       ? "No crossing on record yet"
-                      : "Open to look it up";
+                      : "Open to search it";
 
                 return (
                   <li key={number} className="flex items-start justify-between gap-2 px-4 py-3">
@@ -303,7 +303,7 @@ export default async function CaseDetailPage({
             {eventList.length === 0 ? (
               <EmptyState
                 title="No crossings on record"
-                description="Search one of these trucks, or add it to tracking, and its movements will show up here."
+                description="Search or track one of these trucks and its crossings will appear here."
               />
             ) : (
               <>

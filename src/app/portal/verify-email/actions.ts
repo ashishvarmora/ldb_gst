@@ -232,8 +232,8 @@ async function examineCode(fd: FormData): Promise<ActionResult> {
       const left = verdict.attempts_left ?? 0;
       return fail(
         left > 0
-          ? `That code is not right. ${left} attempt${left === 1 ? "" : "s"} left.`
-          : "That code is not right, and no attempts are left. Send a new one.",
+          ? `That code is incorrect. ${left} attempt${left === 1 ? "" : "s"} left.`
+          : "That code is incorrect and no attempts are left. Send a new code.",
       );
     }
     default:

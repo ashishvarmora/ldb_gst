@@ -76,7 +76,7 @@ export async function setNewPassword(
    */
   const throttle = await rateLimit("forgot:ip", await clientIp());
   if (!throttle.allowed) {
-    return fail("Too many attempts from here. Please wait a few minutes and try again.");
+    return fail("Too many attempts. Please wait a few minutes and try again.");
   }
 
   const supabase = await getSupabaseServer();
@@ -158,7 +158,7 @@ export async function setNewPassword(
     console.error(
       `Password reset: updateUser refused after a valid token (${updateError.code ?? "no code"}): ${updateError.message}`,
     );
-    return fail(passwordRefusal(updateError.code, updateError.message));
+    return fail(passwordRefusal(updateError.code));
   }
 
   store.delete(RECOVERY_VERIFIED_COOKIE);
@@ -173,14 +173,14 @@ export async function setNewPassword(
 }
 
 /** Supabase's reasons, in words that tell the reader what to do next. */
-function passwordRefusal(code: string | undefined, message: string): string {
+function passwordRefusal(code: string | undefined): string {
   if (code === "weak_password") {
-    return "That password is too easy to guess. Please choose a longer one, mixing letters and numbers.";
+    return "That password is too easy to guess. Please choose a longer one with letters and numbers.";
   }
   if (code === "reauthentication_needed" || code === "session_expired" || code === "session_not_found") {
-    return "Your reset session has run out. Please request a new link and try again.";
+    return "Your reset session has expired. Please request a new link and try again.";
   }
-  return message
-    ? `That password could not be saved: ${message} Please try a different one.`
-    : "That password could not be saved. Please try a different one, or request a new link.";
+  // The provider's own wording is logged above and never shown: it is written
+  // for developers, not for the person choosing a password.
+  return "That password could not be saved. Please choose a different one or request a new link.";
 }

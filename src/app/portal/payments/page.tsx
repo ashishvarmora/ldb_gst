@@ -312,7 +312,7 @@ export default async function PaymentsPage({
              one state where the screen has to say the failure is its own. */
           <EmptyState
             title="Could not read your payments"
-            description="Nothing you have paid for is affected. Please try again in a moment."
+            description="Your purchases are not affected. Please try again in a moment."
           />
         ) : ordered.length === 0 ? (
           <EmptyState
@@ -392,13 +392,11 @@ export default async function PaymentsPage({
           the customer: nothing was charged, and here is what to send us.
         */}
         <HelpNote title='A payment that says "started, not paid"'>
-          A row is written the moment the payment window opens, before any money moves, and stays{" "}
-          <strong>started, not paid</strong> if the window is closed or the card is never
-          confirmed — nothing was charged, and nothing was added to your balance. Credits arrive
-          when Razorpay confirms a payment, usually within seconds. If a row still says started,
-          not paid an hour later and money has left your account, send us the reference on it{" "}
-          {settings.supportEmail ? `at ${settings.supportEmail}` : ""} — it is all that is needed
-          to find the payment and put it right.{" "}
+          <strong>Started, not paid</strong> means the payment was not completed, so nothing
+          was charged and nothing was added to your balance. Credits are added once Razorpay
+          confirms a payment, usually within seconds. If a row still shows started, not paid
+          after an hour and money was debited from your account, contact support
+          {settings.supportEmail ? ` at ${settings.supportEmail}` : ""} with its reference.{" "}
           {/* The address in app_settings is blank on this platform as it
               stands, so a sentence that only names an email is a dead end.
               /contact is always there and says whatever the owner has set. */}

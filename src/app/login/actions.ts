@@ -61,7 +61,7 @@ export async function signIn(_prev: ActionResult | null, fd: FormData): Promise<
    */
   const ip = await clientIp();
   const byIp = await rateLimit("login:ip", ip);
-  if (!byIp.allowed) return fail(rateLimitMessage(byIp, "sign-in attempts from here"));
+  if (!byIp.allowed) return fail(rateLimitMessage(byIp, "sign-in attempts from this network"));
 
   if (parsed.success) {
     const byEmail = await rateLimit("login:email", parsed.data.email);

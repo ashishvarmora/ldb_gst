@@ -43,7 +43,7 @@ export async function updateMyProfile(
   const session = await assertPortalUser();
 
   const fullName = str(fd, "full_name");
-  if (!fullName) return fail("Tell us your name - it is what your account is called on screen.");
+  if (!fullName) return fail("Enter your name.");
   if (fullName.length > MAX.full_name) {
     return fail(`That name is too long. Keep it under ${MAX.full_name} characters.`);
   }
@@ -120,7 +120,7 @@ export async function saveMyTelegram(
 
   const chatId = str(fd, "chat_id");
   if (chatId && !/^-?\d{5,20}$/.test(chatId)) {
-    return fail("A chat id is a plain number, like 123456789. The bot replies with yours.");
+    return fail("A chat ID is a number, like 123456789. The bot replies with yours.");
   }
 
   const { error } = await admin.from("telegram_configs").upsert(
@@ -141,7 +141,7 @@ export async function saveMyTelegram(
   }
 
   revalidatePath("/portal/settings");
-  return done(chatId ? "Saved. Send a test message to confirm it works." : "Chat id cleared.");
+  return done(chatId ? "Saved. Send a test message to confirm it works." : "Chat ID cleared.");
 }
 
 export async function testMyTelegram(
@@ -156,7 +156,7 @@ export async function testMyTelegram(
     loadSettings(admin),
   ]);
 
-  if (!config?.chat_id) return fail("Save your chat id first.");
+  if (!config?.chat_id) return fail("Save your chat ID first.");
 
   // The brand is admin-typed and the message is sent as HTML, so the three
   // characters Telegram parses as markup have to be escaped first.
@@ -184,7 +184,7 @@ export async function testMyTelegram(
         reportError(
           "telegram test message",
           result.error,
-          "The test message did not go through. Check the chat id and that you have started the bot.",
+          "The test message could not be sent. Check the chat ID and make sure you have started the bot.",
         ),
       );
 }
@@ -232,10 +232,10 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
   // A subscription with a piece missing cannot be encrypted to, so it would sit
   // in the table failing every send.
   if (!endpoint || !p256dh || !auth) {
-    return fail("Your browser did not return a complete subscription. Try again.");
+    return fail("Notifications could not be turned on. Please try again.");
   }
   if (!/^https:\/\//i.test(endpoint) || endpoint.length > 2000) {
-    return fail("That does not look like a push address your browser produced.");
+    return fail("Notifications could not be turned on. Please try again.");
   }
 
   const { error } = await getSupabaseAdmin().from("push_subscriptions").upsert(
@@ -261,7 +261,7 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
   }
 
   revalidatePath("/portal/settings");
-  return done("Notifications are on for this device. Send yourself a test to be sure.");
+  return done("Notifications are on for this device. Send a test notification to confirm.");
 }
 
 /**
@@ -285,7 +285,7 @@ export async function saveNativePushToken(input: {
   const token = input?.token?.trim() ?? "";
   // FCM tokens are ~150-200 characters of url-safe base64 and a colon or two.
   if (!token || token.length > 4096 || !/^[\w:.\-]+$/.test(token)) {
-    return fail("The app did not return a usable notification token. Try again.");
+    return fail("Notifications could not be turned on. Please try again.");
   }
 
   const { error } = await getSupabaseAdmin().from("push_subscriptions").upsert(
@@ -306,7 +306,7 @@ export async function saveNativePushToken(input: {
   }
 
   revalidatePath("/portal/settings");
-  return done("Notifications are on for this phone. Send yourself a test to be sure.");
+  return done("Notifications are on for this phone. Send a test notification to confirm.");
 }
 
 /**
@@ -325,7 +325,7 @@ export async function removePushSubscription(endpoint: string): Promise<ActionRe
   const session = await assertPortalUser();
 
   const value = endpoint?.trim();
-  if (!value) return fail("Nothing to switch off on this device.");
+  if (!value) return fail("Notifications are already off on this device.");
 
   const { error } = await getSupabaseAdmin()
     .from("push_subscriptions")
@@ -383,7 +383,7 @@ export async function testMyPush(): Promise<ActionResult> {
     reportError(
       "push test notification",
       result.error,
-      "The test did not arrive. Check notifications are allowed for this app in your phone's Settings.",
+      "The test notification could not be delivered. Check that notifications are allowed for this app in your phone settings.",
     ),
   );
 }
@@ -420,7 +420,7 @@ export async function saveMySheet(
 
   if (raw && !spreadsheetId) {
     return fail(
-      "That does not look like a Google Sheets link. Open your sheet, copy the whole address out of the browser bar, and paste it here.",
+      "That is not a Google Sheets link. Open your sheet, copy the full address from the browser bar, and paste it here.",
     );
   }
 
@@ -456,11 +456,11 @@ export async function saveMySheet(
   revalidatePath("/portal/settings");
 
   if (!spreadsheetId) {
-    return done("Sheet removed. Your history is still copied out - just not to a sheet of yours.");
+    return done("Sheet removed. Backups to it have stopped.");
   }
   return done(
     enabled
-      ? "Saved. Make sure the sheet is shared as Editor with the address above, or nothing can be written to it."
-      : "Saved, and switched off. Nothing will be written to your sheet until you switch it back on.",
+      ? "Saved. Make sure the sheet is shared as Editor with the address above so backups can be written."
+      : "Saved and turned off. Nothing will be written to your sheet until you turn it back on.",
   );
 }

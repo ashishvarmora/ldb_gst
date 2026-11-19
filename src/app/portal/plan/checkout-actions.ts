@@ -162,12 +162,12 @@ async function paymentBlocked(): Promise<string | null> {
   const settings = await loadSettings(getSupabaseAdmin());
 
   if (!settings.razorpayEnabled) {
-    return "Online payment is switched off at the moment. Contact support and they will set your account up.";
+    return "Online payment is temporarily unavailable. Contact support to complete your purchase.";
   }
   // Switched on in the admin panel, but the keys are missing from the
   // environment - an operator problem, described without saying so.
   if (!razorpayConfigured()) {
-    return "Online payment is not available yet. Please try again later, or contact support.";
+    return "Online payment is not available right now. Please try again later, or contact support.";
   }
   return null;
 }
@@ -256,7 +256,7 @@ async function priceCredits(admin: Admin, userId: string, fd: FormData): Promise
     if (asked > MAX_TOPUP_INR) {
       return {
         ok: false,
-        error: "That is more than can be paid in one go. Contact support for an amount that size.",
+        error: "This amount is above the online payment limit. Contact support for larger purchases.",
       };
     }
 
@@ -326,7 +326,7 @@ async function pricePlan(admin: Admin, userId: string, fd: FormData): Promise<Pr
     // A free plan has nothing to charge for, so there is no order to open.
     return {
       ok: false,
-      error: "That plan cannot be bought online. Contact support and they will set it up.",
+      error: "This plan is not available online. Contact support to set it up.",
     };
   }
 
@@ -764,7 +764,7 @@ export async function startCheckout(
     const admin = getSupabaseAdmin();
 
     const [overview, blocked] = await Promise.all([loadOverview(session.id), paymentBlocked()]);
-    if (!overview) return refuse("Could not read your account. Please sign in again.");
+    if (!overview) return refuse("Could not load your account. Please sign in again.");
 
     if (blocked) return refuse(blocked);
 
@@ -860,8 +860,8 @@ export async function startPlanCheckout(
     if (overview?.plan_active && overview.plan_id === priced.columns.plan_id) {
       return refuse(
         overview.plan_expires_on
-          ? `This plan is already running until ${overview.plan_expires_on}. You can renew it once it ends.`
-          : "This plan is already running on your account.",
+          ? `This plan is already active until ${overview.plan_expires_on}. You can renew it once it ends.`
+          : "This plan is already active on your account.",
       );
     }
 
@@ -1020,7 +1020,7 @@ export async function confirmCheckout(
       const added = Number(effect?.data?.credits_added ?? 0);
       if (added > 0) {
         return done(
-          `Already done — ${formatCredits(added)} credits are on your balance, now ${formatCredits(
+          `This payment has already been applied: ${formatCredits(added)} credits added. Your balance is ${formatCredits(
             Number(effect?.data?.balance_after ?? 0),
           )}.`,
         );
@@ -1028,7 +1028,7 @@ export async function confirmCheckout(
 
       // No ledger row against it, so there is genuinely nothing to report.
       // Says what is true without claiming credits arrived.
-      return done("This payment was already settled. Nothing further is owed.");
+      return done("This payment has already been settled. Nothing more is due.");
     }
 
     /*
@@ -1222,19 +1222,19 @@ export async function redeemBonusCode(
   if (!verdict.ok) {
     switch (verdict.reason) {
       case "unknown_code":
-        return fail(`We have no code called "${code}". Check the spelling.`);
+        return fail(`Code "${code}" was not found. Check the spelling.`);
       case "is_discount":
         return fail(
           `"${code}" is a discount code, not a credit code. Enter it on the payment screen when you buy credits or a plan.`,
         );
       case "inactive":
-        return fail(`"${code}" has been switched off.`);
+        return fail(`"${code}" is no longer active.`);
       case "not_started":
-        return fail(`"${code}" is not usable yet.`);
+        return fail(`"${code}" is not active yet.`);
       case "expired":
         return fail(`"${code}" has expired.`);
       case "all_claimed":
-        return fail(`"${code}" has been fully claimed.`);
+        return fail(`"${code}" has reached its usage limit.`);
       case "already_used":
         return fail(`You have already used "${code}".`);
       default:

@@ -69,11 +69,11 @@ export default async function SignupPage({
     >
       <AuthCard
         icon={<UserPlus size={22} />}
-        title={signupEnabled ? "Create your account" : "Registration is closed"}
+        title={signupEnabled ? "Create your account" : "New sign-ups are paused"}
         intro={
           signupEnabled
             ? "Fill in your details. You can choose a plan after you sign up."
-            : "New accounts are not being opened at the moment."
+            : "New sign-ups are paused. Existing accounts work as usual."
         }
         footer={
           signupEnabled ? (

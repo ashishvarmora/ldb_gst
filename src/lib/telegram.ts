@@ -26,7 +26,7 @@ export async function sendTelegramMessage({
     return { ok: false, error: "No Telegram bot token configured on the platform." };
   }
   if (!chatId?.trim()) {
-    return { ok: false, error: "No Telegram chat id saved for this officer." };
+    return { ok: false, error: "No Telegram chat ID saved for this account." };
   }
 
   const controller = new AbortController();

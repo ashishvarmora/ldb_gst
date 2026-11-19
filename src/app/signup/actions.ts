@@ -56,7 +56,7 @@ export async function signUp(_prev: ActionResult | null, fd: FormData): Promise<
   // Checked again here, not only on the page: a closed sign-up that only hides
   // the form is still open to anyone who posts to the action directly.
   if (!settings.signupEnabled) {
-    return fail("Registration is closed at the moment. Please get in touch with us instead.");
+    return fail("New sign-ups are paused. Existing accounts work as usual.");
   }
 
   // Passwords are read raw, never trimmed: a leading space someone typed on

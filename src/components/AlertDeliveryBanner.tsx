@@ -88,14 +88,14 @@ export const loadAlertDelivery = cache(async (userId: string): Promise<AlertDeli
  */
 const COPY: Record<Exclude<AlertDelivery, "ready">, { fix: string; detail: string }> = {
   "no-chat-id": {
-    fix: "Add a Telegram chat id",
+    fix: "Add a Telegram chat ID",
     detail:
-      "Nowhere to send to, so alerts are raised and charged for but never reach you. In Settings, add a Telegram chat id or switch on notifications for this phone — either one clears this.",
+      "Alerts are not being delivered. In Settings, add a Telegram chat ID or turn on notifications for this phone.",
   },
   "switched-off": {
     fix: "Turn Telegram back on",
     detail:
-      "Your Telegram chat id is saved but sending is switched off, and no phone is subscribed either, so alerts are raised and charged for but never reach you. Fix either one in Settings.",
+      "Telegram is turned off and no phone is set up for notifications, so alerts are not being delivered. Turn on either one in Settings.",
   },
 };
 

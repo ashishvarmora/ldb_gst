@@ -29,18 +29,18 @@ import type { AlertRuleKind, TruckAlert, TruckAlertWithTemplate } from "@/lib/ty
  * a rule name there as well as an answer here.
  */
 export const ALERT_KIND_LABEL: Record<AlertRuleKind, string> = {
-  periodic_location: "Every time we look",
+  periodic_location: "Every check",
   location_change: "Only when it moves",
   plaza_crossing: "When it reaches a plaza",
 };
 
 export const ALERT_KIND_HINT: Record<AlertRuleKind, string> = {
   periodic_location:
-    "A message on every check, saying which toll plaza the truck is at - even if it has not moved.",
+    "A message on every check with the truck's latest toll plaza — even if unchanged.",
   location_change:
-    "We check just as often, but you only hear from us when the truck has reached a different toll plaza.",
+    "Checked just as often, but you are notified only when the truck reaches a different toll plaza.",
   plaza_crossing:
-    "Name one toll plaza. You hear from us the first time the truck is recorded there.",
+    "Name one toll plaza. You are notified the first time the truck is recorded there.",
 };
 
 /** A sample of the message itself. Shorter than any explanation of it. */
@@ -108,16 +108,16 @@ export function alertSentence(
   minutes: number,
   plaza?: string | null,
 ): string {
-  // "We look" matches describeCadence() in src/lib/intervals.ts - the two sit
-  // next to each other in the form and should not sound like two features.
-  const beat = `We look every ${intervalLabel(minutes)}`;
+  // "Checked every" matches describeCadence() in src/lib/intervals.ts - the two
+  // sit next to each other in the form and should not sound like two features.
+  const beat = `Checked every ${intervalLabel(minutes)}`;
   switch (kind) {
     case "periodic_location":
-      return `${beat} and message you every time with where the truck is.`;
+      return `${beat}; you get a message each time with the truck's latest toll plaza.`;
     case "location_change":
-      return `${beat} and message you only when the truck has reached a different toll plaza.`;
+      return `${beat}; you get a message only when the truck reaches a different toll plaza.`;
     case "plaza_crossing":
-      return `${beat} and message you when the truck reaches ${plaza?.trim() || "the toll plaza you name"}.`;
+      return `${beat}; you get a message when the truck reaches ${plaza?.trim() || "the toll plaza you name"}.`;
     default:
       return `${beat}.`;
   }

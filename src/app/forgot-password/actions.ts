@@ -17,7 +17,7 @@ import type { ActionResult } from "@/lib/types";
  * site which of a list of email addresses are registered.
  */
 const SAME_ANSWER =
-  "If that address has an account, a link to choose a new password is on its way. It expires in an hour, so use it soon.";
+  "If that address has an account, we have sent a link to choose a new password. It expires in one hour.";
 
 /**
  * The answer when the fault is ours. It has to be given for *every* address,
@@ -29,8 +29,8 @@ const SAME_ANSWER =
 function ourFault(supportEmail: string): ActionResult {
   return done(
     supportEmail
-      ? `We cannot send reset emails at the moment - the fault is on our side, not with your address. Please write to ${supportEmail} and we will get you back in.`
-      : "We cannot send reset emails at the moment - the fault is on our side, not with your address. Please contact support and we will get you back in.",
+      ? `We cannot send reset emails right now. Please write to ${supportEmail} and we will help you sign in.`
+      : "We cannot send reset emails right now. Please contact support and we will help you sign in.",
   );
 }
 
@@ -52,7 +52,7 @@ export async function requestPasswordReset(
    */
   const throttle = await rateLimit("forgot:ip", await clientIp());
   if (!throttle.allowed) {
-    return fail("Too many reset requests from here. Please try again later.");
+    return fail("Too many reset requests. Please try again later.");
   }
 
   const email = str(fd, "email")?.toLowerCase() ?? "";
@@ -62,7 +62,7 @@ export async function requestPasswordReset(
   const perAddress = await rateLimit("forgot:email", email);
   if (!perAddress.allowed) {
     return fail(
-      "A reset link has already been requested for that address. Check the inbox and the spam folder, then try again in an hour.",
+      "A reset link has already been requested for that address. Check your inbox and spam folder, or try again in an hour.",
     );
   }
 

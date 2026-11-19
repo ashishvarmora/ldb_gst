@@ -102,7 +102,7 @@ export async function sendWhatsAppMessage({
     };
   }
   if (!to?.trim()) {
-    return { ok: false, error: "No WhatsApp number saved for this officer." };
+    return { ok: false, error: "No WhatsApp number saved for this account." };
   }
 
   const controller = new AbortController();

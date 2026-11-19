@@ -56,7 +56,7 @@ export async function generateMetadata({
   if (!category) return { title: `Help centre — ${brandName}` };
 
   return {
-    title: `${category.title} — help centre — ${brandName}`,
+    title: `${category.title} — Help centre — ${brandName}`,
     description: category.blurb,
   };
 }
@@ -80,7 +80,7 @@ export default async function GuideCategoryPage({
   return (
     <PublicShell action={action} mainClassName="flex-1 px-4 py-6 sm:py-9">
       <div className="mx-auto w-full max-w-3xl">
-        <Crumbs trail={[{ href: "/guide", label: "Guide" }, { label: category.title }]} />
+        <Crumbs trail={[{ href: "/guide", label: "Help centre" }, { label: category.title }]} />
 
         <header className="mb-6">
           <div className="flex items-start gap-3">
@@ -100,8 +100,8 @@ export default async function GuideCategoryPage({
         {articles.length === 0 ? (
           <div className="panel">
             <EmptyState
-              title="Nothing on this shelf yet"
-              description="This part of the manual is still being written. The questions below may already cover it."
+              title="Articles coming soon"
+              description="See the questions below."
             />
           </div>
         ) : (

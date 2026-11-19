@@ -202,9 +202,9 @@ export async function spendCredits({
 export function creditRefusalMessage(verdict: CreditVerdict): string {
   switch (verdict.reason) {
     case "out_of_credits":
-      return `Not enough credits. This needs ${formatCredits(verdict.cost ?? 0)} and you have ${formatCredits(verdict.balance ?? 0)}.`;
+      return `Not enough credits. This needs ${formatCredits(verdict.cost ?? 0)} and your balance is ${formatCredits(verdict.balance ?? 0)}.`;
     case "account_suspended":
-      return "This account has been suspended. Contact support if you think that is wrong.";
+      return "This account has been suspended. Contact support if you think this is a mistake.";
     case "no_active_plan":
       /*
        * Names the half that stopped and the half that has not, because both
@@ -212,7 +212,7 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
        * credits are gone too. They are not: the balance is theirs and manual
        * search still spends it.
        */
-      return "Automatic tracking needs a plan that is still running. Your credits are untouched and searching still works — choose a plan to start checking trucks again.";
+      return "Automatic tracking needs an active plan. Your credits are kept and searches still work. Choose a plan to restart automatic checks.";
     case "trial_ended":
       /*
        * LEGACY, AND KEPT ONLY FOR THE LENGTH OF A DEPLOY.
@@ -228,11 +228,11 @@ export function creditRefusalMessage(verdict: CreditVerdict): string {
        * not: a trial ending now costs automatic tracking and nothing else, so
        * this says what the account can actually still do.
        */
-      return "Automatic tracking needs a plan that is still running. Your credits are untouched and searching still works — choose a plan to start checking trucks again.";
+      return "Automatic tracking needs an active plan. Your credits are kept and searches still work. Choose a plan to restart automatic checks.";
     case "unknown_action":
-      return "That is not something this account can be charged for yet. Contact support.";
+      return "This action is not available on your account. Contact support.";
     default:
-      return "That could not be completed. Contact support if it keeps happening.";
+      return "That could not be completed. Contact support if this continues.";
   }
 }
 
@@ -461,7 +461,7 @@ export function planTermLabel(plan: PlanTerm): string {
  * "Rs 999 for 3 months", "Rs 199 once - the plan never expires".
  */
 export function planTermSuffix(plan: PlanTerm): string {
-  if (planDays(plan) === null) return "once - the plan never expires";
+  if (planDays(plan) === null) return "once — the plan never expires";
   return `for ${planTermLabel(plan).toLowerCase()}`;
 }
 

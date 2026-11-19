@@ -9,7 +9,7 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
   const sections = [
     { title: "Your workspace", items: [
       { href: "/portal/dashboard", title: "Dashboard", detail: "Your balance, usage and daily overview", icon: LayoutDashboard, tone: "blue" },
-      { href: "/portal/cases", title: "Truck groups", detail: "Keep related trucks together", icon: Layers, tone: "mint" },
+      { href: "/portal/cases", title: "Groups", detail: "Keep related trucks together", icon: Layers, tone: "mint" },
     ] },
     { title: "Plan & payments", items: [
       { href: "/portal/plan", title: "My plan", detail: m.planName, icon: Wallet, tone: "orange" },

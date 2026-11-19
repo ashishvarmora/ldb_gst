@@ -347,7 +347,7 @@ export default async function TruckDetailPage({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <ActionForm action={checkTruckNow} closeOnSuccess={false}>
             <input type="hidden" name="truck_id" value={truck.id} />
-            <SubmitButton variant="secondary" size="sm" pendingLabel="Checking...">
+            <SubmitButton variant="secondary" size="sm" pendingLabel="Checking…">
               <RefreshCw size={13} />
               Check now · {formatCredits(manualCost)} credit{manualCost === 1 ? "" : "s"}
             </SubmitButton>
@@ -375,7 +375,7 @@ export default async function TruckDetailPage({
         {truck.consecutive_errors > 0 ? (
           <p className="mt-3 rounded-lg border border-bad-500/35 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
             The last {truck.consecutive_errors} check
-            {truck.consecutive_errors === 1 ? "" : "s"} did not go through.
+            {truck.consecutive_errors === 1 ? "" : "s"} could not be completed.
           </p>
         ) : null}
       </Panel>
@@ -390,7 +390,7 @@ export default async function TruckDetailPage({
               one case where the truck is on the list and nothing will happen. */}
           <span>
             {truck.truck_number} is on your list.
-            {enabledRules.length > 0 ? "" : " Nothing is watching it yet — add an alert below."}
+            {enabledRules.length > 0 ? "" : " Add an alert below to start checking it."}
           </span>
         </p>
       ) : null}
@@ -581,7 +581,7 @@ export default async function TruckDetailPage({
         {alertList.length === 0 ? (
           <EmptyState
             title="No alerts raised for this truck"
-            description="Anything an alert reports shows up here and on Telegram."
+            description="Anything an alert reports appears here and is sent to you."
           />
         ) : (
           <ul className="divide-y divide-divider">
@@ -749,18 +749,15 @@ export default async function TruckDetailPage({
             <div className="border-t border-divider px-3 py-3.5">
               <div className="max-w-xs">
                 <LabelWithInfo
-                  label="Stop checking after this many failures"
+                  label="Pause after this many failed checks"
                   htmlFor="max_consecutive_failures"
                   info={
                     <>
-                      A check fails when the portal cannot answer for this number. After five
-                      failures in a row we message you; at this number the truck is paused, because
-                      a failed check costs a credit like any other and retrying a number the portal
-                      will not answer only buys errors. Nothing is deleted.
+                      If the toll network cannot answer for this number this many times in a row,
+                      tracking pauses. The usual cause is a mistyped number. History is kept.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to follow the platform default, currently{" "}
-                        {defaultFailureCutoff}. Setting your own here fixes it for this truck only,
-                        and it will not move when the default does.
+                        {defaultFailureCutoff}. A value here applies to this truck only.
                       </span>
                     </>
                   }
@@ -784,17 +781,15 @@ export default async function TruckDetailPage({
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <LabelWithInfo
-                    label="Stop checking automatically after"
+                    label="Pause automatically after"
                     htmlFor="auto_pause_amount"
                     info={
                       <>
-                        A countdown that starts when you save. Use it when you only need to follow
-                        this truck for a while — when the time is up it is paused and you are told,
-                        so it stops spending credits whether or not you remembered to come back. Its
-                        tracking slot goes back to your plan at the same moment.
+                        A countdown that starts when you save. When the time is up, tracking pauses and
+                        you are notified, and the truck's tracking slot is freed.
                         <span className="mt-1.5 block text-faint">
-                          Leave it empty to keep checking until you pause it yourself. Saving with a
-                          number in the box restarts the countdown from now.
+                          Leave it empty to keep checking until you pause it yourself. Saving a number
+                          restarts the countdown.
                         </span>
                       </>
                     }
@@ -824,9 +819,8 @@ export default async function TruckDetailPage({
                     htmlFor="inactive_pause_hours"
                     info={
                       <>
-                        Counted from the last toll crossing that came through. A parked lorry
-                        answers every check with the same crossing as yesterday, so this pauses it
-                        rather than spending a credit every fifteen minutes to be told nothing new.
+                        If no new toll crossing is recorded for this long, tracking pauses and you are
+                        notified, so a parked truck does not keep using credits.
                         <span className="mt-1.5 block text-faint">
                           Leave it empty to follow the platform default, currently{" "}
                           {defaultInactiveHours} hours. Set it longer for a truck you expect to be
@@ -881,7 +875,7 @@ export default async function TruckDetailPage({
           <ActionForm action={removeTruck} closeOnSuccess={false}>
             <input type="hidden" name="truck_id" value={truck.id} />
             <ConfirmSubmitButton
-              message={`Remove ${truck.truck_number} from tracking? Its alerts go and its slot is freed. The ${totalCrossings} toll crossing${totalCrossings === 1 ? "" : "s"} on record are kept.`}
+              message={`Remove ${truck.truck_number} from tracking? Its alerts are removed and its slot is freed. The ${totalCrossings} toll crossing${totalCrossings === 1 ? "" : "s"} on record are kept.`}
               size="md"
             >
               <Trash2 size={13} />

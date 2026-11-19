@@ -205,13 +205,9 @@ export async function SiteFooter({ className }: { className?: string }) {
            customer will come across it - and an officer whose sign-in is
            broken or whose plan has lapsed is exactly the reader who needs it
            and cannot reach the portal to find it. */
-        /* "and FAQs" because the guide became a help centre with a whole page
-           of questions in it, and "FAQ" is the word a visitor scans a footer
-           for. Still not called "Help centre": the Company column already has
-           "Help and support", and two links a column apart with almost the
-           same label is how a reader ends up opening both to learn which is
-           which. The href is unchanged - /guide is still the front door. */
-        { key: "guide", href: "/guide", label: "User guide and FAQs" },
+        /* "Help centre" for /guide and "Support" for /support, the same two
+           names used everywhere else on the site. */
+        { key: "guide", href: "/guide", label: "Help centre" },
         { key: "sources", href: "/data-sources", label: "Where the data comes from" },
       ],
     },
@@ -220,7 +216,7 @@ export async function SiteFooter({ className }: { className?: string }) {
       links: [
         { key: "about", href: "/about", label: "About us" },
         { key: "contact", href: "/contact", label: "Contact" },
-        { key: "support", href: "/support", label: "Help and support" },
+        { key: "support", href: "/support", label: "Support" },
       ],
     },
     {
@@ -244,7 +240,7 @@ export async function SiteFooter({ className }: { className?: string }) {
             </Link>
 
             <p className="mt-2.5 text-xs leading-relaxed text-muted">
-              Toll-plaza crossing records, arranged into a journey you can follow.
+              Toll plaza crossing records for your trucks, arranged as a journey.
             </p>
 
             {supportEmail || supportPhone ? (
@@ -317,11 +313,10 @@ export async function SiteFooter({ className }: { className?: string }) {
             or endorsed by any government department or agency.
           </p>
           <p className="shrink-0">
-            Records may be delayed or incomplete.{" "}
+            Based on recorded toll crossings.{" "}
             <Link href="/data-sources" className="underline underline-offset-2 hover:text-brand-500">
-              Read the limits
+              How the data works
             </Link>
-            .
           </p>
         </div>
       </div>

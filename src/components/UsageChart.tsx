@@ -47,12 +47,12 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
       <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
         <span className="flex items-center gap-1.5 text-muted">
           <span className="inline-block size-2 rounded-sm bg-brand-500" />
-          Manual searches
+          Searches
           <span className="font-medium tabular-nums text-ink">{fmtNumber(totalManual)}</span>
         </span>
         <span className="flex items-center gap-1.5 text-muted">
           <span className="inline-block size-2 rounded-sm bg-good-500" />
-          Tracking queries
+          Automatic checks
           <span className="font-medium tabular-nums text-ink">{fmtNumber(totalTracking)}</span>
         </span>
       </div>
@@ -67,7 +67,7 @@ export function UsageChart({ series }: { series: UsageDay[] }) {
             <div
               key={day.date}
               className="group relative flex h-full flex-1 flex-col justify-end"
-              title={`${day.date}\n${day.manual} manual, ${day.tracking} tracking`}
+              title={`${day.date}\n${day.manual} searches, ${day.tracking} automatic checks`}
             >
               <div
                 className={cx(

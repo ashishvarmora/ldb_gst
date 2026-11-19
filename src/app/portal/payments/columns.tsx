@@ -182,7 +182,7 @@ export const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
           ) : null}
         </>
       ) : (
-        <span className="text-xs text-faint">{row.note ?? "recorded by hand"}</span>
+        <span className="text-xs text-faint">{row.note ?? "recorded by our team"}</span>
       ),
   },
 ];

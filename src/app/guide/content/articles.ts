@@ -12,12 +12,12 @@ import { ALERT_BOT_START_URL, ALERT_BOT_USERNAME, ID_BOT_START_URL, ID_BOT_USERN
  *    no-movement window and the failure limit are all rows an administrator
  *    edits without a deploy. Prose that quotes one of them is prose that goes
  *    silently wrong, so every one of them is pointed at instead - the pricing
- *    page, the officer's own screen, or the field that holds it. The two
- *    exceptions are fixed in code and stated as numbers: one credit a manual
- *    search, one credit an automatic check.
+ *    page, the officer's own screen, or the field that holds it. Manual search
+ *    is stated as one credit; an automatic check is "your plan's rate", because
+ *    each plan can set its own (0064).
  *
  * 2. THE MONEY RULES ARE STATED, NOT SOFTENED. A credit is spent when a check
- *    runs and never on its outcome; trial credits die with the trial; an
+ *    runs and never on its outcome; trial credits outlive the trial (0057); an
  *    expired plan searches but does not track and cannot top up; renewing and
  *    topping up never switch a truck back on by themselves. Every one of those
  *    surprises somebody, and a guide that hedges them is the reason they were
@@ -31,7 +31,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "what-rahdari-does",
     title: "What Rahdari does, and what it costs you",
     summary:
-      "Give it a lorry number and it tells you which toll plazas that number has been recorded at. Every look costs one credit.",
+      "Enter a truck number to see the toll plazas it crossed. Each search uses one credit.",
     category: "start",
     minutes: 3,
     keywords: [
@@ -49,73 +49,73 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "You give Rahdari a lorry's registration number. It asks the national toll network what that number has been recorded at, and shows you the plazas it has passed, newest first, with the time of each crossing.",
+        text: "Enter a truck's vehicle number. Rahdari checks the national toll records for that number and shows the plazas it has crossed, newest first, with the time of each crossing.",
       },
       {
         kind: "p",
-        text: "You can do that once by hand, whenever you want to know. Or you can put a lorry under watch, and Rahdari does the asking for you on a beat you choose, sending a Telegram message when it finds something.",
+        text: "You can search manually whenever you need to. Or you can track a truck, and Rahdari checks it automatically at an interval you choose and alerts you when it finds a new crossing.",
       },
       { kind: "h", text: "How a crossing reaches your screen" },
       {
         kind: "steps",
         items: [
-          "A lorry passes a tolled highway plaza.",
+          "A truck passes a tolled highway plaza.",
           "The gantry at that plaza records the passing.",
           "The record reaches the national logistics data infrastructure.",
-          "Rahdari asks for it, and it appears on your screen.",
+          "Rahdari retrieves it and shows it on your screen.",
         ],
       },
       {
         kind: "note",
         tone: "warn",
         title: "This is not GPS",
-        text: "A lorry is only visible where there is a reading point. One on state roads, on a short local run, or one that simply has not passed a plaza recently produces no records at all. Nothing found means nothing was recorded — not that the lorry is not moving. Records can also arrive late, so read every time as recorded at, never as is at.",
+        text: "A truck is recorded only where it crosses a toll plaza. A truck on state roads, on a short local run, or one that has not crossed a plaza recently shows no records. No records does not mean the truck is not moving. Records can also arrive late, so read every time as when the crossing was recorded, not where the truck is now.",
       },
       { kind: "h", text: "What each action costs" },
       {
         kind: "p",
-        text: "There is one balance, called credits, and two things draw on it. Both cost the same.",
+        text: "There is one balance, called credits. Searches and automatic checks both use it.",
       },
       {
         kind: "table",
         head: ["What you do", "What it costs"],
         rows: [
-          ["A search you type yourself", "1 credit"],
-          ["One automatic check of a lorry you are watching", "1 credit"],
-          ["An alert being raised, and the Telegram message", "Free"],
-          ["Adding a lorry, adding an alert, making a group", "Free"],
-          ["Pausing a lorry", "Free, and it stops the spending"],
+          ["A manual search", "1 credit"],
+          ["One automatic check of a tracked truck", "At your plan's rate (see Pricing)"],
+          ["Sending an alert", "Free"],
+          ["Adding a truck, adding an alert, making a group", "Free"],
+          ["Pausing a truck", "Free, and it uses no credits while paused"],
         ],
       },
       {
         kind: "p",
-        text: "So how closely you watch is the whole cost of the product. A lorry checked every fifteen minutes is checked 96 times a day, which is 96 credits a day for that one lorry. A lorry checked every six hours is four. Read [how credits work](/guide/start/how-credits-work) before you switch anything on.",
+        text: "Check frequency sets your cost. A truck checked every fifteen minutes is checked 96 times a day, and each check uses credits at your plan's rate. A truck checked every six hours is checked four times a day. Read [how credits work](/guide/start/how-credits-work) before you start tracking.",
       },
       { kind: "h", text: "What you need to buy" },
       {
         kind: "p",
-        text: "Two different things, and getting them the wrong way round is how people buy the wrong one. A plan decides how many lorries you may watch at once and until when. Credits pay for each look. You need both — a plan with an empty balance checks nothing, and credits with no plan still search by hand.",
+        text: "A plan sets how many trucks you can track and for how long; credits pay for each search and check. Tracking needs both — a plan with an empty balance checks nothing. Credits without a plan still pay for manual searches.",
       },
       {
         kind: "note",
         tone: "info",
         title: "What the records can and cannot show",
-        text: "A crossing means the lorry was recorded at that plaza at that time. It says nothing about where it is now, and a gap has innocent explanations. Treat what you find as a lead to check by other means, never as proof on its own. Where the data comes from is set out on [the data sources page](/data-sources).",
+        text: "A crossing means the truck was recorded at that plaza at that time. It does not show where the truck is now, and a gap does not mean it stopped. Use it as an operational record; verify through official channels where proof is needed. See [where the data comes from](/data-sources).",
       },
-      { kind: "cta", href: "/pricing", label: "See the plans and prices", hint: "Live prices, always current" },
+      { kind: "cta", href: "/pricing", label: "See plans and pricing", hint: "Current prices" },
     ],
     faqs: [
       {
-        q: "Can I see where a lorry is right now?",
-        a: "No. You see where it was last recorded crossing a toll plaza. Between plazas, and on roads with no plaza, there is nothing to see.",
+        q: "Can I see where a truck is right now?",
+        a: "No. You see the last toll plaza it was recorded crossing. Between plazas, and on roads with no plaza, there are no records.",
       },
       {
         q: "Does a search cost the same whether it finds something or not?",
-        a: "Yes. One credit, because the asking is what costs. An empty result is a real answer and it costs the same one credit.",
+        a: "Yes. A search that returns no crossings uses one credit, like any other. If the search cannot reach the toll records, the credit is returned.",
       },
       {
-        q: "Do I need a plan just to search one lorry by hand?",
-        a: "No. Manual search runs off your credit balance and works even when a plan has ended. Automatic tracking is the part that needs a plan that is still running.",
+        q: "Do I need a plan just to search one truck by hand?",
+        a: "No. Manual search uses your credit balance and works even after a plan has ended. Automatic tracking needs an active plan.",
       },
     ],
   },
@@ -124,7 +124,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "create-your-account",
     title: "Open an account and confirm your email",
     summary:
-      "Sign up with an email address and a password, then type in the six-digit code we email you. Nothing is charged for either.",
+      "Sign up with an email address and a password, then enter the six-digit code we email you. Both are free.",
     category: "start",
     minutes: 2,
     keywords: [
@@ -143,45 +143,45 @@ export const ARTICLES: GuideArticle[] = [
         kind: "steps",
         items: [
           "Open [the sign-up page](/signup) and register with an email address and a password. Nothing is charged for this.",
-          "Add your mobile number when it asks. It is how we reach you if something goes wrong with a payment.",
+          "Add your mobile number when asked. We use it only to contact you about your account.",
           "Open [Verify your email](/portal/verify-email) and send yourself the code.",
-          "Check that mailbox and type the six-digit code in.",
+          "Check your inbox and enter the six-digit code.",
         ],
       },
       {
         kind: "note",
         tone: "warn",
         title: "Do not skip the code",
-        text: "The free trial will not start until the address is confirmed. The trial is once per account, and an unconfirmed address can be made up, so the code is the thing that keeps the trial honest. Buying a plan or credits never asks you for a code — only the trial does.",
+        text: "The free trial starts only after your email is confirmed, as the trial is limited to one per account. Buying a plan or credits does not need the code — only the trial does.",
       },
       { kind: "h", text: "If the code does not arrive" },
       {
         kind: "bullets",
         items: [
           "Check the spam and promotions folders first.",
-          "Check the address on the screen is the one you actually read. The code goes wherever that says.",
-          "Codes can take a minute. Each one can be used once, and one that has expired needs a fresh send.",
-          "Send it again from the same page. There is no limit on trying.",
+          "Check that the address shown on screen is correct. The code is sent to that address.",
+          "Codes can take a minute to arrive. Each code works once; if one has expired, send a new one.",
+          "You can send it again from the same page.",
         ],
       },
       {
         kind: "p",
-        text: "If it still does not come, write to us from [the contact page](/contact) with the address you registered with. A person reads it.",
+        text: "If it still does not arrive, write to us from [the contact page](/contact) with your registered email address and our team will help.",
       },
       { kind: "cta", href: "/signup", label: "Open an account" },
     ],
     faqs: [
       {
         q: "Can I change my sign-in email later?",
-        a: "Write to us. It is not a field you can edit yourself, because the address is what the trial, the receipts and the password reset all hang on.",
+        a: "Please write to us. It cannot be changed in the app, because your trial, receipts and password reset are linked to it.",
       },
       {
         q: "Is my mobile number required?",
-        a: "Add it. It is what we use to reach you about a payment, and the trial is one per mobile number as well as one per account.",
+        a: "Yes, please add it. We use it to contact you about your account, and the trial is limited to one per mobile number as well as one per account.",
       },
       {
         q: "I registered but nothing is being tracked. Why?",
-        a: "Registering only opens the account. Automatic checking needs a plan or a running trial, plus a lorry with at least one alert switched on. Follow [your first lorry, end to end](/guide/start/first-truck-in-five-minutes).",
+        a: "Signing up only opens the account. Automatic checks need a plan or an active trial, plus a truck with at least one alert switched on. Follow [your first truck, end to end](/guide/start/first-truck-in-five-minutes).",
       },
     ],
   },
@@ -190,7 +190,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "the-free-trial",
     title: "Claim the free trial",
     summary:
-      "A short trial with a fixed pot of credits, once per account, after your email is confirmed. It ends when either the days or the credits run out.",
+      "A short trial with a set amount of free credits, once per account, after your email is confirmed. It ends when either the days or the credits run out.",
     category: "start",
     minutes: 2,
     keywords: [
@@ -206,57 +206,57 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Go to [Plan and credits](/portal/plan) and press Start the free trial. It is a button rather than something handed over at sign-up, so the clock starts when you are ready, not on the day you registered.",
+        text: "Go to [Plan and credits](/portal/plan) and press Start the free trial. The trial starts when you press the button, not on the day you signed up.",
       },
       {
         kind: "note",
         tone: "warn",
         title: "The trial ends on whichever runs out first",
-        text: "It is limited by both its days and its credits. Spend the credits on day two and the trial is finished on day two. Let the days run out with credits still in the pot and the trial is finished then. Your own [Plan and credits](/portal/plan) page shows both numbers.",
+        text: "The trial is limited by both days and credits. If the credits are used up on day two, the trial ends on day two. If the days run out first, the trial ends then, even with credits left. Your [Plan and credits](/portal/plan) page shows both.",
       },
-      { kind: "h", text: "Three things the trial will not do" },
+      { kind: "h", text: "Trial limits" },
       {
         kind: "bullets",
         items: [
-          "It cannot be topped up. Buying credits needs a paid plan that is running, and a trial is not one. So a trial that runs out of credits is finished until you choose a plan.",
-          "Its credits do not survive it. When the trial ends the unused trial balance is cleared. They were free and the trial is over.",
-          "It is once per account, and once per mailbox and mobile number too. If you think that is wrong for you, write to us.",
+          "It cannot be topped up. Buying credits needs an active paid plan, so when trial credits run out, choose a plan to continue.",
+          "Automatic tracking stops when the trial ends. Any unused credits stay on your balance and can still be used for manual searches.",
+          "It is limited to one per account, email address and mobile number. If you think this is wrong for you, write to us.",
         ],
       },
       {
         kind: "note",
         tone: "info",
-        title: "Purchased credits are different",
-        text: "Credits you pay for never expire. They survive your plan ending, they survive a renewal, and they are still there months later. Only trial credits die with the trial.",
+        title: "Credits do not expire",
+        text: "Credits do not expire, including trial credits. They remain after a plan or trial ends, and can still be used for manual searches.",
       },
-      { kind: "h", text: "Spend it on the right thing" },
+      { kind: "h", text: "Make the trial last" },
       {
         kind: "p",
-        text: "A trial pot does not go far on a fast beat: one lorry checked every fifteen minutes spends 96 credits a day. Put your one lorry on a slower beat — an hour, or three hours — and you will see the product work for several days instead of one afternoon. See [how often we look](/guide/trucks/how-often-we-look).",
+        text: "Trial credits do not last long with frequent checks: one truck checked every fifteen minutes is checked 96 times a day. Set a longer check interval — an hour, or three hours — and the trial lasts several days instead of one afternoon. See [check frequency and cost](/guide/trucks/how-often-we-look).",
       },
       { kind: "cta", href: "/portal/plan", label: "Start the free trial" },
     ],
     faqs: [
       {
         q: "Can I get a second trial?",
-        a: "No. It is refused by the account, the mailbox and the mobile number. An administrator can add credits by hand if there is a real reason, so write to us rather than making a second account.",
+        a: "No. The trial is limited by account, email address and mobile number. If you have a genuine need for more trial time, write to us rather than creating a second account.",
       },
       {
-        q: "My trial ended and I still had credits showing. Where did they go?",
-        a: "They were cleared, which is the rule for trial credits. The clearing is recorded in [your credit history](/portal/credits) so you can see exactly what happened and when.",
+        q: "My trial ended. What happens to my remaining credits?",
+        a: "They stay on your balance and can be used for manual searches. Automatic tracking needs a plan. Every credit added and used is shown in [your credit history](/portal/credits).",
       },
       {
         q: "Do I have to give card details for the trial?",
-        a: "No. Nothing is charged and nothing is asked for. You only reach a payment screen when you choose a plan.",
+        a: "No. The trial is free and needs no payment details. You only see a payment screen when you choose a plan.",
       },
     ],
   },
 
   {
     slug: "first-truck-in-five-minutes",
-    title: "Your first lorry, end to end",
+    title: "Your first truck, end to end",
     summary:
-      "Five steps, in this order. The Telegram step is the one people skip and the expensive one to skip.",
+      "Five steps, in order. Set up alerts before you start tracking, so you do not miss crossings.",
     category: "start",
     minutes: 3,
     keywords: [
@@ -272,48 +272,48 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Do these in order. Step three is the one people leave for later, and leaving it for later is what makes the balance go down while the phone stays silent.",
+        text: "Follow these steps in order. Set up alerts (step three) before tracking, so you are notified of every crossing.",
       },
       {
         kind: "steps",
         items: [
-          "Confirm your email with the six-digit code, then start the free trial or choose a plan on [Plan and credits](/portal/plan). A plan is what allows automatic checking at all.",
-          "Try one search by hand on [Search](/portal/search). Type any registration number. It costs one credit and it proves the account works before you commit to a beat.",
-          "Connect Telegram in [Settings](/portal/settings) — before you switch any tracking on. Save your chat id, turn the switch on, and press Send test. If the test message does not arrive, alerts will not either.",
-          "Add the lorry on [My trucks](/portal/trucks). The form asks for the number and then for its first alert.",
-          "Give it one alert and pick how often to look. Only when it moves is the sensible choice. An hour is a sensible first beat; fifteen minutes is 96 credits a day for that one lorry.",
+          "Confirm your email with the six-digit code, then start the free trial or choose a plan on [Plan and credits](/portal/plan). Automatic checks need a plan or trial.",
+          "Try a manual search on [Search](/portal/search). Enter any vehicle number. It uses one credit and confirms your account is working.",
+          "Set up alerts in [Settings](/portal/settings) before you start tracking: turn on phone notifications or connect Telegram, then press Send test. If the test does not arrive, alerts will not either.",
+          "Add the truck on [My trucks](/portal/trucks). The form asks for the number and then for its first alert.",
+          "Give it one alert and choose a check interval. Only when it moves is a good default, and an hour is a good first interval. Checking every fifteen minutes uses 96 checks a day for that truck.",
         ],
       },
       {
         kind: "figure",
         name: "portal-home",
-        caption: "The home screen after signing in: your balance, and the three things to do first.",
+        caption: "The home screen after signing in: your balance and the first things to set up.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "A lorry with no alert is never checked",
-        text: "It sits on the list costing nothing and telling you nothing. That is why the add form asks for the first alert in the same breath as the number.",
+        title: "A truck with no alert is never checked",
+        text: "It stays on the list but is not checked and sends no alerts. That is why the add form asks for the first alert together with the number.",
       },
       {
         kind: "note",
         tone: "good",
         title: "How to tell it is working",
-        text: "Within one beat, the lorry's own page shows a last-checked time. [Your activity page](/portal/activity) shows the check and its cost. And a movement produces a Telegram message. If the first two happen and the third does not, the problem is Telegram — see [I got no alert](/guide/trouble/no-alert-arrived).",
+        text: "Within one check interval, the truck's page shows a last-checked time, and [your activity page](/portal/activity) shows the check and its cost. A new crossing sends you an alert. If the first two happen but no alert arrives, check your alert settings — see [I got no alert](/guide/trouble/no-alert-arrived).",
       },
-      { kind: "cta", href: "/portal/trucks", label: "Add your first lorry" },
+      { kind: "cta", href: "/portal/trucks", label: "Add your first truck" },
     ],
     faqs: [
       {
         q: "How long until I see something?",
-        a: "The first check happens within one beat of the alert you set. But a message only arrives when there is something to say: a parked lorry produces no movement and, on the Only when it moves rule, no message.",
+        a: "The first check runs within one check interval of the alert you set. An alert is sent only when there is something new: with Only when it moves, a parked truck sends no alert.",
       },
       {
-        q: "Should I start with a fast beat to see it working?",
-        a: "No. Use Check now on the lorry's own page instead — it is one credit and it answers straight away. Then leave the automatic beat slow until you know what you want.",
+        q: "Should I start with frequent checks to see it working?",
+        a: "No. Use Check now on the truck's page instead — it uses one credit and shows the result straight away. Keep the automatic interval longer until you know what you need.",
       },
       {
-        q: "Can I add several lorries at once?",
+        q: "Can I add several trucks at once?",
         a: "Add them one at a time on [My trucks](/portal/trucks), because each one needs its own alert. For reading several together afterwards, put them in a group on [Groups](/portal/cases).",
       },
     ],
@@ -323,7 +323,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "how-credits-work",
     title: "How credits work",
     summary:
-      "One balance pays for every look. A plan is a separate thing that decides how many lorries and for how long. This is the idea worth getting right first.",
+      "One credit balance pays for searches and automatic checks. A plan separately sets how many trucks you can track and for how long.",
     category: "start",
     minutes: 3,
     keywords: [
@@ -340,61 +340,65 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "There is one number on your account called credits. Every look at a lorry draws one credit from it — a search you type, or an automatic check of a lorry you are watching. Nothing else draws on it.",
+        text: "Your account has one credit balance. It pays for manual searches (one credit each) and automatic checks of tracked trucks (at your plan's rate, shown on [Pricing](/pricing)). Nothing else uses credits.",
       },
       { kind: "h", text: "A plan and credits are two different things" },
       {
         kind: "table",
         head: ["", "A plan", "Credits"],
         rows: [
-          ["Decides", "How many lorries at once, and until when", "What each look costs"],
+          ["Sets", "How many trucks at once, and until when", "How many searches and checks you can run"],
           ["Charged", "Once, for the whole term — not per month", "Whenever you top up"],
-          ["Runs out", "On its end date", "Never — except a trial's"],
+          ["Expires", "On its end date", "Never"],
         ],
       },
       {
         kind: "p",
-        text: "You need both. A plan with an empty balance checks nothing. Credits with no plan still search by hand.",
+        text: "Tracking needs both. A plan with an empty balance checks nothing. Credits without a plan still pay for manual searches.",
       },
-      { kind: "h", text: "Which one do you buy when you run short" },
+      { kind: "h", text: "What to buy when you run short" },
       {
         kind: "bullets",
         items: [
-          "Checks being refused, or every lorry paused saying No credits left, means you need credits. Top up.",
-          "The app will not let you add another lorry, which means you need a bigger plan.",
-          "Your plan has ended, which means renewing is the only thing that brings automatic checking back. Credits alone will not.",
+          "If checks are refused, or every truck is paused with No credits left, top up credits.",
+          "If you cannot add another truck, you need a larger plan.",
+          "If your plan has ended, renew it to resume automatic checks. Credits alone will not.",
         ],
       },
-      { kind: "h", text: "Credits are spent on execution, never on outcome" },
+      { kind: "h", text: "Credits are used when a check runs" },
       {
         kind: "p",
-        text: "The credit goes the moment a check is made. It does not depend on whether the lorry moved, whether an alert was raised, whether Telegram delivered it, or whether anything was found at all. A new crossing, nothing new since last time, the portal failing to answer, an alert that could not be delivered — all four cost the same one credit.",
+        text: "Automatic checks are charged when they run, whatever the result — a new crossing, nothing new, no response from the toll records, or an alert that could not be delivered.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "So the beat is the bill",
-        text: "How often you look is the whole cost of the product. One lorry on a fifteen-minute beat is 96 checks a day and 96 credits a day, whether it moves or not. Pausing a lorry that is parked is the largest saving available to you.",
+        title: "Check frequency sets your cost",
+        text: "One truck checked every fifteen minutes is 96 checks a day, whether it moves or not. Pausing a parked truck is the best way to save credits.",
       },
       { kind: "h", text: "Do credits expire" },
       {
         kind: "p",
-        text: "Credits you have paid for never expire. They survive your plan ending, they survive a renewal, and they are still there months later. The one exception is the free trial: trial credits are cleared when the trial ends.",
+        text: "Credits never expire, including trial credits. They remain after a plan or trial ends, and can still be used for manual searches.",
       },
       { kind: "cta", href: "/portal/credits", label: "See your credit history", hint: "Every credit in and out, with dates" },
     ],
     faqs: [
       {
-        q: "Do more alerts on one lorry cost more?",
-        a: "No. A credit is charged per lorry per check, not per alert. Several alerts due on the same lorry at the same moment share one charge. A faster beat costs more; more rules on the same beat do not.",
+        q: "Do more alerts on one truck cost more?",
+        a: "No. Credits are charged per truck per check, not per alert. Several alerts due on the same truck at the same time share one check. A shorter check interval costs more; more alerts on the same interval do not.",
       },
       {
         q: "I have credits but my plan ended. Can I still use them?",
-        a: "For searching by hand, yes — that is the point of credits never expiring. For automatic tracking, no: that needs a plan that is still running.",
+        a: "Yes, for manual searches. Automatic tracking needs an active plan.",
       },
       {
         q: "Does an alert or a Telegram message cost anything?",
-        a: "No. Raising an alert and sending it are free. Only the looking costs.",
+        a: "No. Alerts and messages are free. Only searches and checks use credits.",
+      },
+      {
+        q: "Is a failed search charged?",
+        a: "Automatic checks are charged when they run. A manual search that cannot reach the toll records is not charged — the credit is returned.",
       },
     ],
   },
@@ -404,9 +408,9 @@ export const ARTICLES: GuideArticle[] = [
   /* ======================================================================== */
   {
     slug: "add-a-truck",
-    title: "Add a lorry",
+    title: "Add a truck",
     summary:
-      "The number, an optional remark, its first alert, and the three limits that stop it by itself. Adding costs nothing.",
+      "The number, an optional remark, its first alert, and three optional limits that pause it automatically. Adding a truck is free.",
     category: "trucks",
     minutes: 2,
     keywords: [
@@ -424,10 +428,10 @@ export const ARTICLES: GuideArticle[] = [
         kind: "steps",
         items: [
           "Open [My trucks](/portal/trucks) and press Add a truck.",
-          "Type the registration number. Spaces and capitals do not matter — `GJ01AB1234` and `gj 01 ab 1234` are the same lorry.",
+          "Enter the vehicle number. Spaces and capitals do not matter — `GJ01AB1234` and `gj 01 ab 1234` are the same truck.",
           "Add a remark if it helps you recognise it later, such as the transporter or the route. Only you see it.",
-          "Choose its first alert and how often to look. This is the part that decides what it costs.",
-          "Save. Adding the lorry costs nothing; the checking is what costs.",
+          "Choose its first alert and check interval. The interval decides how many credits it uses.",
+          "Save. Adding a truck is free; only checks use credits.",
         ],
       },
       {
@@ -438,50 +442,50 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "note",
         tone: "warn",
-        title: "A lorry with no alert is never checked",
-        text: "That is why the alert is on the add form and not a step you can leave for later. With no alert switched on, the lorry sits on your list costing nothing and telling you nothing.",
+        title: "A truck with no alert is never checked",
+        text: "That is why the first alert is part of the add form. With no alert switched on, the truck stays on your list but is not checked and sends no alerts.",
       },
-      { kind: "h", text: "When it stops by itself" },
+      { kind: "h", text: "Automatic pause limits" },
       {
         kind: "p",
-        text: "The add form has three optional limits, all of them there to stop a forgotten lorry quietly spending credits. You can leave every one of them blank and change them later on the lorry's own page.",
+        text: "The add form has three optional limits that stop a forgotten truck from using credits. You can leave them blank and change them later on the truck's page.",
       },
       {
         kind: "bullets",
         items: [
-          "Stop checking after — an end time. Checking stops there even if you forget about it.",
-          "Stop checking after this many failures — how many unanswered checks in a row before it pauses. Leave it blank to follow the platform default, which the field shows you.",
-          "Pause if it stops moving for — how long a lorry may sit still before checking pauses. Leave it blank to follow the platform default, which the field shows you.",
+          "Stop checking after — an end time. Checks stop at that time automatically.",
+          "Stop checking after this many failures — how many unsuccessful checks in a row before it pauses. Leave it blank to use the default shown in the field.",
+          "Pause if it stops moving for — how long a truck can go without a new crossing before checks pause. Leave it blank to use the default shown in the field.",
         ],
       },
       { kind: "h", text: "Slots" },
       {
         kind: "p",
-        text: "Your plan caps how many lorries may be watched at once. My trucks tells you how many slots are free. A paused lorry does not use a slot, so pausing one you are not watching frees room for another.",
+        text: "Your plan sets how many trucks can be tracked at once. My trucks shows how many slots are free. A paused truck does not use a slot, so pausing one frees room for another.",
       },
       { kind: "cta", href: "/portal/trucks", label: "Go to My trucks" },
     ],
     faqs: [
       {
         q: "I typed the number wrong. What happens?",
-        a: "The portal cannot answer for a number that does not exist, so the checks fail — and a failed check costs a credit like any other. After five failures in a row we message you, and at the failure limit the lorry pauses. Fix the number on the lorry's own page before going live again.",
+        a: "Checks for a number that does not exist return no result, and automatic checks are charged when they run. After five unsuccessful checks in a row we notify you, and at the failure limit the truck pauses. Correct the number on the truck's page before switching it back on.",
       },
       {
-        q: "Can I add the same lorry twice?",
-        a: "There is no reason to. One lorry may carry one alert of each kind, and a plaza alert for each named plaza, which covers every question you would otherwise add a second copy for.",
+        q: "Can I add the same truck twice?",
+        a: "There is no need to. One truck can have one alert of each type, plus a plaza alert for each named plaza, which covers what a second copy would do.",
       },
       {
-        q: "Does removing a lorry delete its history?",
-        a: "No. Its alerts go and its slot is freed, but every toll crossing on record is kept.",
+        q: "Does removing a truck delete its history?",
+        a: "No. Its alerts are removed and its slot is freed, but every recorded toll crossing is kept.",
       },
     ],
   },
 
   {
     slug: "my-trucks-and-the-truck-page",
-    title: "My trucks, and a lorry's own page",
+    title: "My trucks, and a truck's own page",
     summary:
-      "What each row on the list tells you, and what is on the page behind it: the route, the alerts, and every check with its cost.",
+      "What each row on the list shows, and what is on each truck's page: the route, the alerts, and every check with its cost.",
     category: "trucks",
     minutes: 3,
     keywords: [
@@ -500,82 +504,82 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "bullets",
         items: [
-          "Live tracking — being checked automatically, and spending credits.",
-          "Watchlist — on your list, not being checked and not spending credits.",
+          "Live tracking — checked automatically and using credits.",
+          "Watchlist — on your list, not checked and not using credits.",
         ],
       },
       {
         kind: "p",
-        text: "A lorry moves between the two with the switch on its row. Nothing is deleted either way, and nothing is re-added when it comes back.",
+        text: "Use the switch on a truck's row to move it between the two. Nothing is deleted either way.",
       },
       { kind: "h", text: "What a row tells you" },
       {
         kind: "table",
-        head: ["On the row", "What it means"],
+        head: ["On the row", "What it shows"],
         rows: [
-          ["The registration number", "Tap it to open the lorry's own page"],
-          ["A badge", "Whether it is running, or which stop paused it"],
-          ["The switch", "What starts and stops the spending on this lorry"],
-          ["What it has done lately", "Its last crossing, and how often it is checked"],
+          ["The vehicle number", "Tap it to open the truck's page"],
+          ["A badge", "Whether it is live, or why it paused"],
+          ["The switch", "Starts and stops tracking for this truck"],
+          ["Recent activity", "Its last crossing, and how often it is checked"],
         ],
       },
       {
         kind: "figure",
         name: "truck-row",
-        caption: "One row: the number, its badge, the switch, and how often it is looked at.",
+        caption: "One row: the number, its badge, the switch, and its check interval.",
       },
-      { kind: "h", text: "The lorry's own page" },
+      { kind: "h", text: "The truck's page" },
       {
         kind: "p",
-        text: "Tap the number to open it. From top to bottom the page holds:",
+        text: "Tap the number to open it. From top to bottom, the page shows:",
       },
       {
         kind: "bullets",
         items: [
-          "The number, its badge, and the exact time it was last checked. If it is paused, the badge has an (i) that says paused since when and why.",
-          "Check now — one look, straight away, for one credit. Useful when you do not want to wait for the beat.",
-          "Pause and Go live — the same switch as the list, with a fuller explanation.",
-          "Alerts on this truck — every rule, its beat, and whether it is switched on.",
-          "Route — every toll crossing on record, newest first.",
-          "Alerts raised — what was sent about this lorry, and whether it was delivered.",
-          "Every check, and its cost — opens [your activity](/portal/activity) narrowed to this lorry, so you can see exactly what it has spent.",
-          "Settings — the remark, the tracking switch, the three stop limits, and Remove.",
+          "The number, its badge, and when it was last checked. If it is paused, the (i) on the badge shows when and why.",
+          "Check now — an immediate check for one credit, without waiting for the next scheduled check.",
+          "Pause and Go live — the same switch as on the list, with more detail.",
+          "Alerts on this truck — each alert, its check interval, and whether it is switched on.",
+          "Route — every recorded toll crossing, newest first.",
+          "Alerts raised — what was sent about this truck, and whether it was delivered.",
+          "Every check, and its cost — opens [your activity](/portal/activity) filtered to this truck, so you can see the credits it has used.",
+          "Settings — the remark, the tracking switch, the three pause limits, and Remove.",
         ],
       },
       {
         kind: "figure",
         name: "truck-detail",
-        caption: "A lorry's page: last checked, where it was last recorded, and what to do next.",
+        caption: "A truck's page: last checked, where it was last recorded, and what to do next.",
       },
       {
         kind: "note",
         tone: "info",
         title: "Only movements are stored",
-        text: "A reading that reports the plaza the lorry is already at is never written to the route. So a short route list does not mean checks are missing — it means the lorry has not moved between plazas. The complete list of checks, including the quiet ones, is on the activity page.",
+        text: "A check that reports the same plaza as before is not added to the route. A short route list does not mean checks are missing — it means the truck has not crossed a new plaza. The full list of checks is on the activity page.",
       },
       { kind: "cta", href: "/portal/trucks", label: "Open My trucks" },
     ],
     faqs: [
       {
         q: "The route is empty but the balance is going down. Is something broken?",
-        a: "Probably not. Checks are charged whether or not they find anything, and only movements are written to the route. Look at the last-checked time: if it is recent, the checking is working and the lorry has not crossed a plaza.",
+        a: "Probably not. Automatic checks are charged whether or not they find a new crossing, and only new crossings are added to the route. If the last-checked time is recent, checks are working and the truck has not crossed a new plaza.",
       },
       {
         q: "What does Check now cost?",
-        a: "One credit, the same as a search you type. The button says the figure before you press it.",
+        a: "One credit, the same as a manual search. The button shows the cost before you press it.",
       },
       {
-        q: "Can I read several lorries together?",
-        a: "Yes. Put them in a group on [Groups](/portal/cases) and their crossings appear on one combined timeline. A group checks nothing of its own and costs nothing.",
+        q: "Can I read several trucks together?",
+        a: "Yes. Put them in a group on [Groups](/portal/cases) and their crossings appear on one combined timeline. Groups are free.",
       },
     ],
   },
 
   {
     slug: "going-live-and-pausing",
-    title: "Going live, switching off, and every reason a lorry pauses",
+    title: "Going live, switching off, and every reason a truck pauses",
     summary:
-      "Pausing is the main lever you have on your bill. Seven things stop a lorry being checked; four of them you can undo yourself.",
+      "Pausing is the best way to manage your credit use. Seven things can stop a truck being checked; you can undo four of them yourself.",
     category: "trucks",
     minutes: 4,
     keywords: [
@@ -593,22 +597,22 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "The switch on a lorry's row, and the Pause and Go live buttons on its own page, are the same control. Live means it is being checked and spending credits. Paused means it is not being checked and not spending anything.",
+        text: "The switch on a truck's row and the Pause and Go live buttons on its page are the same control. Live means it is checked and uses credits. Paused means it is not checked and uses no credits.",
       },
       {
         kind: "note",
         tone: "good",
         title: "Nothing is lost by pausing",
-        text: "Paused lorries keep their history but do not consume tracking credits. Resume anytime when tracking is needed again. Its alerts, its settings and every crossing it recorded are all still there, and its slot is free for another lorry meanwhile.",
+        text: "Paused trucks keep their history and use no credits. Resume any time. Alerts, settings and recorded crossings are all kept, and the slot is free for another truck meanwhile.",
       },
       {
         kind: "p",
-        text: "A lorry parked in a yard answers every check with yesterday's crossing, at a credit a check. Pausing it is not tidying up — it is the largest saving available to you.",
+        text: "A parked truck returns the same crossing on every check, and each check uses credits. Pausing a parked truck is the best way to save credits.",
       },
-      { kind: "h", text: "The seven reasons a lorry stops being checked" },
+      { kind: "h", text: "Why a truck stops being checked" },
       {
         kind: "table",
-        head: ["The badge you see", "What happened", "Can you switch it back on yourself"],
+        head: ["Badge", "What happened", "Can you switch it back on?"],
         rows: [
           ["Paused by you", "You paused it", "Yes, whenever you like"],
           [
@@ -618,27 +622,27 @@ export const ARTICLES: GuideArticle[] = [
           ],
           [
             "No movement detected",
-            "No toll crossing arrived for as long as this lorry allows",
+            "No new toll crossing for the time set for this truck",
             "Yes, when it is back on the road",
           ],
           [
-            "Portal not responding",
-            "Too many checks in a row could not be answered for this number",
-            "Yes, but check the number for a typo first",
+            "No response for this number",
+            "Too many checks in a row returned no result for this number",
+            "Yes, after checking the number is correct",
           ],
           [
             "No credits left",
-            "Your balance could not cover another check, so every live lorry stopped at once",
-            "No — top up first, then take them live",
+            "Your balance ran out, so all live trucks paused",
+            "No — top up first, then switch them back on",
           ],
           [
             "Plan ended",
-            "The plan ran out and the days to renew in have passed, so every lorry was switched off",
-            "No — renew first, then take them live",
+            "The plan ended and was not renewed in time, so all trucks were switched off",
+            "No — renew first, then switch them back on",
           ],
           [
             "Account suspended",
-            "This account is switched off, so nothing on it is checked",
+            "This account is on hold, so no trucks are checked",
             "No — contact support",
           ],
         ],
@@ -646,62 +650,62 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "figure",
         name: "pause-badges",
-        caption: "Each badge says what happened, and whether it is your own doing or the platform's.",
+        caption: "Each badge shows why the truck paused.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "The last three do not respond to the switch",
-        text: "With an empty balance, a lapsed plan or a suspended account, a lorry taken live would be refused at its very next check and paused again. The switch would appear to work and then undo itself. Fix the account first — top up, renew, or write to us — and then take each lorry live.",
+        title: "The last three need account action first",
+        text: "With an empty balance, an ended plan or an account on hold, a truck switched on would pause again at its next check. Top up, renew, or contact us first, then switch each truck back on.",
       },
-      { kind: "h", text: "Renewing and topping up do not switch anything back on" },
+      { kind: "h", text: "Renewing and topping up do not restart trucks automatically" },
       {
         kind: "p",
-        text: "This surprises people, so it is worth stating plainly. Buying credits clears the refusal, and renewing a plan brings automatic checking back — but neither takes a lorry live by itself. You go to [My trucks](/portal/trucks) and switch on the ones you still need. That is deliberate: an account that comes back should not immediately start spending on forty lorries it may no longer be watching.",
+        text: "Topping up or renewing a plan allows automatic checks again, but does not switch trucks back on by itself. Go to [My trucks](/portal/trucks) and switch on the ones you need. This prevents credits being used on trucks you no longer need to track.",
       },
-      { kind: "h", text: "The no-movement stop, exactly" },
+      { kind: "h", text: "How the no-movement pause works" },
       {
         kind: "p",
-        text: "The clock is counted from the later of the last crossing and the moment the lorry went live — not from a crossing that was already old when you added it. So a lorry that has been standing still for a week still gets a full window of being watched from the moment you switch it on. A crossing mid-journey resets the clock. The window itself is the Pause if it stops moving for field in the lorry's Settings, and the field shows the platform default it follows when you leave it blank.",
+        text: "The time is counted from the later of the last crossing and the moment the truck went live — not from an older crossing. So a truck that has been parked for a week still gets the full window from the moment you switch it on. Each new crossing resets the time. The window is the Pause if it stops moving for field in the truck's Settings, which shows the default when left blank.",
       },
-      { kind: "h", text: "The failure stop, exactly" },
+      { kind: "h", text: "How the failure pause works" },
       {
         kind: "p",
-        text: "A check fails when the portal cannot answer for that number. After five failures in a row we message you once. At the lorry's failure limit it pauses, because a failed check costs a credit like any other and retrying a number the portal will not answer only buys errors. The usual cause is a typo. You are allowed to go live again after fixing the number — a run of failures can be retried — but nothing will change if the number is still wrong.",
+        text: "A check fails when the toll records return no result for that number. After five unsuccessful checks in a row we notify you once. At the truck's failure limit it pauses, because automatic checks are charged when they run. The usual cause is an incorrect number. Correct it and switch the truck back on.",
       },
       {
         kind: "note",
         tone: "info",
-        title: "No farewell charge",
-        text: "A lorry that reaches one of its stops is not charged for a last check. The stop is worked out before any credit is spent.",
+        title: "No charge on pausing",
+        text: "A truck that reaches one of its pause limits is not charged for a final check. The pause is decided before any credit is used.",
       },
-      { kind: "cta", href: "/portal/trucks", label: "Review what is live", hint: "The Live tracking tab is what is spending" },
+      { kind: "cta", href: "/portal/trucks", label: "Review live trucks", hint: "Trucks on the Live tracking tab use credits" },
     ],
     faqs: [
       {
         q: "Does pausing lose my alerts or my history?",
-        a: "No. The alerts stay attached with their settings, and every crossing on record is kept. Going live carries on where it stopped.",
+        a: "No. Alerts keep their settings, and every recorded crossing is kept. Switching back on continues where it stopped.",
       },
       {
-        q: "My lorry paused itself and I did not do anything. Why?",
-        a: "It says which reason applied, on the row and on its own page. The commonest are no movement for long enough, an end time you set arriving, and an empty balance.",
+        q: "My truck paused itself and I did not do anything. Why?",
+        a: "The reason is shown on the row and on the truck's page. The most common are no recent movement, an end time you set, and an empty balance.",
       },
       {
-        q: "Does a paused lorry use a slot on my plan?",
-        a: "No. Only lorries being checked use slots, so pausing one frees room for another.",
+        q: "Does a paused truck use a slot on my plan?",
+        a: "No. Only live trucks use slots, so pausing one frees room for another.",
       },
       {
         q: "I renewed my plan. Why is nothing being checked?",
-        a: "Because renewing does not switch the lorries back on. Open [My trucks](/portal/trucks) and take live the ones you need.",
+        a: "Renewing does not switch trucks back on automatically. Open [My trucks](/portal/trucks) and switch on the ones you need.",
       },
     ],
   },
 
   {
     slug: "how-often-we-look",
-    title: "How often we look, and what that costs",
+    title: "Check frequency and cost",
     summary:
-      "The beat you choose is your bill. This is the one table worth reading before you switch a lorry on.",
+      "How often a truck is checked decides how many credits it uses. Read this before you start tracking.",
     category: "trucks",
     minutes: 3,
     keywords: [
@@ -718,11 +722,11 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Every alert carries its own interval — how often we look at that lorry. Every look is one credit, so the number of looks a day is the spend a day, per lorry.",
+        text: "Every alert has its own check interval — how often that truck is checked. Each check uses credits at your plan's rate. The table below assumes 1 credit per check; see [Pricing](/pricing) for your plan's rate.",
       },
       {
         kind: "table",
-        head: ["Look every", "Times a day", "Credits a day, per lorry"],
+        head: ["Check every", "Checks a day", "Credits a day, per truck (at 1 credit per check)"],
         rows: [
           ["15 minutes", "96", "96"],
           ["30 minutes", "48", "48"],
@@ -734,53 +738,53 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         kind: "p",
-        text: "Two lorries on the same beat cost twice this. Ten lorries on a fifteen-minute beat spend about 960 credits a day without you touching the phone.",
+        text: "Two trucks on the same interval use twice this. Ten trucks checked every fifteen minutes use about 960 checks a day.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "No plan's included credits cover its own term on the fastest beat",
-        text: "That is not a fault, it is the shape of the product. A plan sets how many lorries and for how long; the credits set how closely. Pick a slower beat and the same credits go much further. Topping up is expected.",
+        title: "Plan credits and frequent checks",
+        text: "Included credits suit moderate check intervals. For frequent checks, plan to top up. A longer interval makes the same credits last much longer.",
       },
-      { kind: "h", text: "Choosing a beat" },
+      { kind: "h", text: "Choosing a check interval" },
       {
         kind: "bullets",
         items: [
-          "A consignment you are actively waiting on: 15 or 30 minutes, and pause it the moment it arrives.",
-          "A lorry you want a daily picture of: 3, 6 or 12 hours.",
-          "A lorry you only want to hear about if it reaches one particular plaza: a slow beat is usually enough, because the plaza is not going anywhere.",
-          "A lorry parked in a yard: paused. Not a slow beat — paused.",
+          "A consignment you are waiting on: 15 or 30 minutes, then pause it when it arrives.",
+          "A truck you want a daily update on: 3, 6 or 12 hours.",
+          "A truck you only need to know about when it reaches one plaza: a longer interval is usually enough.",
+          "A truck parked in a yard: pause it.",
         ],
       },
       {
         kind: "p",
-        text: "The field takes minutes or hours, and the line under it says how many times a day that is before you save. You can change it any time from the lorry's own page without re-adding anything.",
+        text: "The field takes minutes or hours, and the line below it shows how many checks a day that is. You can change it any time from the truck's page.",
       },
-      { kind: "h", text: "More rules do not mean more cost" },
+      { kind: "h", text: "More alerts do not mean more cost" },
       {
         kind: "p",
-        text: "A credit is charged per lorry per check, not per alert. Two alerts due on the same lorry at the same moment share one charge. But two alerts on different beats produce checks at both beats, and the two only coincide sometimes — which is how a lorry ends up looked at more often than you meant. That is why one lorry may carry only one alert of each kind.",
+        text: "Credits are charged per truck per check, not per alert. Two alerts due on the same truck at the same time share one check. Two alerts on different intervals produce checks at both intervals, which can mean more checks than intended. That is why each truck can have only one alert of each type.",
       },
       {
         kind: "note",
         tone: "info",
         title: "Only when it moves is not cheaper",
-        text: "All the alert kinds look just as often. Choosing Only when it moves makes your phone quieter, not your bill smaller. Only a slower beat does that.",
+        text: "All alert types are checked at the same rate. Only when it moves sends fewer messages but does not use fewer credits. Only a longer check interval does that.",
       },
-      { kind: "cta", href: "/portal/activity", label: "See what your beats are actually spending" },
+      { kind: "cta", href: "/portal/activity", label: "See your credit use by truck" },
     ],
     faqs: [
       {
-        q: "What is the fastest beat I can set?",
-        a: "The field accepts short intervals, but nothing is checked more often than the platform's own sweep, and a fast beat is the most expensive thing on the product. Start at an hour and speed it up only for a lorry you are actively waiting on.",
+        q: "What is the shortest check interval?",
+        a: "The field accepts short intervals, but no truck is checked more often than the platform's own schedule allows, and frequent checks use the most credits. Start at an hour and shorten it only for a truck you are waiting on.",
       },
       {
-        q: "If a lorry does not move, do I still pay?",
-        a: "Yes. The credit is spent when the check runs, whatever it finds. That is what the no-movement auto-pause exists to limit.",
+        q: "If a truck does not move, do I still pay?",
+        a: "Yes. Each check uses credits when it runs, whatever it finds. The no-movement auto-pause limits this.",
       },
       {
-        q: "Can I set a different beat for a night run?",
-        a: "Not on a schedule. Change the interval on the lorry's page when you need it, or pause the lorry and take it live again when the run starts.",
+        q: "Can I set a different interval for a night run?",
+        a: "Not on a schedule. Change the interval on the truck's page when needed, or pause the truck and switch it back on when the run starts.",
       },
     ],
   },
@@ -792,7 +796,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "choosing-alert-rules",
     title: "Choosing alert rules",
     summary:
-      "Three kinds of alert, one of each per lorry. What lands on your phone is the difference between them — not what it costs.",
+      "Three alert types, one of each per truck. They differ in what you are notified about, not in cost.",
     category: "alerts",
     minutes: 3,
     keywords: [
@@ -810,25 +814,25 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "An alert is what makes a lorry get checked at all, and it decides what reaches your phone. Add one from the lorry's own page under Alerts on this truck.",
+        text: "A truck is checked only when it has an alert, and the alert decides what you are notified about. Add one from the truck's page under Alerts on this truck.",
       },
       {
         kind: "table",
-        head: ["Alert", "What reaches your phone", "Example message"],
+        head: ["Alert", "What you are notified about", "Example message"],
         rows: [
           [
-            "Every time we look",
-            "A message on every check, saying which plaza the lorry is at, even if it has not moved",
+            "Every check",
+            "A message on every check with the truck's latest plaza, even if unchanged",
             "`GJ02AT8546 is at Nadiad Toll Plaza`",
           ],
           [
             "Only when it moves",
-            "We look just as often, but you only hear when it reaches a different plaza",
+            "Checked just as often, but you are notified only when it reaches a different plaza",
             "`GJ02AT8546 moved to Nadiad Toll Plaza`",
           ],
           [
             "When it reaches a plaza",
-            "Name one plaza. You hear the first time the lorry is recorded there",
+            "Name one plaza. You are notified the first time the truck is recorded there",
             "`GJ02AT8546 reached Nadiad Toll Plaza`",
           ],
         ],
@@ -836,60 +840,60 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "figure",
         name: "alert-rules",
-        caption: "Picking a kind and a beat. The line under the field says how many looks a day that is.",
+        caption: "Choosing an alert type and check interval. The line below the field shows how many checks a day that is.",
       },
       {
         kind: "p",
-        text: "Only when it moves is the sensible default and the one the form lands on. Every time we look is for a lorry you want a running log of, and it will message you a lot.",
+        text: "Only when it moves is the recommended default. Every check suits a truck you want a running log of, and sends many messages.",
       },
       {
         kind: "note",
         tone: "warn",
         title: "All three cost the same",
-        text: "They all look just as often, so they all spend the same. Only when it moves makes your phone quieter, not your bill smaller. The beat is what sets the cost — see [how often we look](/guide/trucks/how-often-we-look).",
+        text: "All types are checked at the same rate, so they use the same credits. Only when it moves sends fewer messages, not fewer checks. The check interval sets the cost — see [check frequency and cost](/guide/trucks/how-often-we-look).",
       },
-      { kind: "h", text: "One alert of each kind per lorry" },
+      { kind: "h", text: "One alert of each type per truck" },
       {
         kind: "p",
-        text: "You may have one switched-on alert of each kind on a lorry, plus one for each named plaza on the plaza rule. That is a money rule, not tidiness: two Only when it moves rules on different beats would look at the same lorry at both beats and charge for both, to answer one question twice.",
+        text: "Each truck can have one switched-on alert of each type, plus one for each named plaza. This avoids extra cost: two Only when it moves alerts on different intervals would check the same truck twice for the same answer.",
       },
-      { kind: "h", text: "The toll-plaza rule, and typing a plaza name" },
+      { kind: "h", text: "The toll plaza alert, and choosing a plaza" },
       {
         kind: "p",
-        text: "When it reaches a plaza needs one plaza named. The picker helps you two ways:",
+        text: "When it reaches a plaza needs one plaza named. The picker helps in two ways:",
       },
       {
         kind: "bullets",
         items: [
-          "It offers plazas ahead of this lorry, worked out from its own last crossing and the direction of its last leg. If it has only one crossing on record there is no direction to work from, so it offers the nearest plazas instead and says so. The distances are straight-line, so they always read shorter than the road.",
-          "If you type instead, a spelling mistake still finds the plaza. Pick the suggestion rather than leaving what you typed: the alert fires on an exact match against the name the toll record produces, so a near miss never fires.",
+          "It suggests plazas ahead of this truck, based on its last crossing and direction of travel. If it has only one recorded crossing, it suggests the nearest plazas instead and says so. Distances are straight-line, so they are shorter than by road.",
+          "If you type instead, small spelling mistakes still find the plaza. Select the suggestion rather than keeping what you typed: the alert needs an exact match with the plaza name in the toll record.",
         ],
       },
       {
         kind: "note",
         tone: "info",
         title: "Two different plazas are two different alerts",
-        text: "Tell me when it reaches Nadiad and tell me when it reaches Malvan are separate questions, so both are allowed on one lorry. Both are still one look at a time when their beats coincide.",
+        text: "Alerts for Nadiad and for Malvan are separate, so both are allowed on one truck. When their checks fall at the same time, they share one check.",
       },
       { kind: "h", text: "Switching an alert off" },
       {
         kind: "p",
-        text: "A switched-off alert makes no check and spends nothing, and it is worth keeping rather than deleting: it holds the beat you chose and the last plaza it reported, which is what stops it messaging you about a crossing you were already told about when you switch it back on.",
+        text: "A switched-off alert runs no checks and uses no credits. It is worth keeping rather than deleting: it keeps your check interval and the last plaza it reported, so you are not alerted again about a crossing you already know about when you switch it back on.",
       },
-      { kind: "cta", href: "/portal/trucks", label: "Open a lorry and add an alert" },
+      { kind: "cta", href: "/portal/trucks", label: "Open a truck and add an alert" },
     ],
     faqs: [
       {
-        q: "Can I get an alert when a lorry leaves a state, or enters a city?",
-        a: "Not as its own rule. The three kinds above are what the app offers. Use When it reaches a plaza on a plaza on that route, or Only when it moves and read the plaza names as they arrive.",
+        q: "Can I get an alert when a truck leaves a state, or enters a city?",
+        a: "Not as a separate alert type. Use When it reaches a plaza for a plaza on that route, or Only when it moves and follow the plaza names as they arrive.",
       },
       {
-        q: "I added a plaza alert and heard nothing when the lorry passed it.",
-        a: "Check the plaza name is one you picked from the suggestions rather than typed freehand. The alert fires on an exact match with the name in the toll record. Also check that the lorry is on the Live tracking tab.",
+        q: "I added a plaza alert and heard nothing when the truck passed it.",
+        a: "Check that the plaza name was selected from the suggestions rather than typed. The alert needs an exact match with the plaza name in the toll record. Also check that the truck is on the Live tracking tab.",
       },
       {
         q: "Why can I not add two Only when it moves rules?",
-        a: "Because they would answer one question twice and charge you for both. Change the beat on the rule you already have instead.",
+        a: "Two would check the same thing twice and charge for both. Change the check interval on your existing alert instead.",
       },
     ],
   },
@@ -921,38 +925,37 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "note",
         tone: "warn",
-        title: "Read this twice",
-        text: "If no Telegram chat id is saved, or one is saved but the switch is off, the alert is recorded in the app and never sent to anybody — and the credit is spent all the same. From the outside it looks like the product is working: rows appear on the bell, the balance goes down, and your phone stays silent. Nothing tells you at the moment it happens. Connect Telegram before you switch any tracking on.",
+        title: "Set up alerts before tracking",
+        text: "If neither phone notifications nor Telegram are set up, alerts are saved in the app but not sent to your phone — and checks still use credits. Set up notifications in Settings and send a test before you start tracking.",
       },
-      { kind: "h", text: "Find your chat id" },
+      { kind: "h", text: "Find your chat ID" },
       {
         kind: "steps",
         items: [
-          `Open [@${ID_BOT_USERNAME}](${ID_BOT_START_URL}) in Telegram and press Start. It replies with a plain number - that is your chat id.`,
-          "Press Start. It replies with an Id, which is a plain number.",
+          `Open [@${ID_BOT_USERNAME}](${ID_BOT_START_URL}) in Telegram and press Start. It replies with a number — that is your chat ID.`,
           "Copy that number.",
         ],
       },
-      { kind: "h", text: "Save it and prove it works" },
+      { kind: "h", text: "Save it and test it" },
       {
         kind: "steps",
         items: [
-          "Paste the number into the Chat id field in [Settings](/portal/settings) and save.",
-          "Turn Send me alerts on Telegram on. A saved id with the switch off sends nothing.",
+          "Paste the number into the Chat ID field in [Settings](/portal/settings) and save.",
+          "Turn on Send me alerts on Telegram. If the switch is off, nothing is sent.",
           "Press Send test. If the test message arrives, alerts will arrive.",
-          `If it does not arrive, open [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) and send it a \`/start\`, then test again. Telegram forbids a bot from messaging anyone who has not started it, so this one step is the difference between a saved chat id and a silent phone.`,
+          `If it does not arrive, open [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) and send it \`/start\`, then test again. Telegram bots can only message people who have started them.`,
         ],
       },
       {
         kind: "figure",
         name: "telegram-setup",
-        caption: "The chat id field, the switch under it, and Send test — all three have to be right.",
+        caption: "The chat ID field, the switch below it, and Send test.",
       },
       {
         kind: "note",
         tone: "info",
         title: "Why two bots",
-        text: "The first bot only tells you your own id. It is a public utility and sends you nothing afterwards. The alerts themselves come from our own bot, which is why that one needs its own `/start`. Send test is the only reliable way to know both halves are done.",
+        text: "The first bot only tells you your chat ID and sends nothing afterwards. Alerts come from our own bot, which is why it needs its own `/start`. Send test confirms that both steps are done.",
       },
       { kind: "h", text: "If Telegram is silent" },
       {
@@ -964,7 +967,7 @@ export const ARTICLES: GuideArticle[] = [
         items: [
           "Telegram is installed and signed in on that phone.",
           "Telegram's own notifications are allowed in the phone's settings. On an iPhone that is Settings, then Notifications, then Telegram.",
-          "The chat id is saved and the switch under it is on.",
+          "The chat ID is saved and the switch under it is on.",
           `You have sent [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) a \`/start\`.`,
           "Send test reports connected.",
         ],
@@ -972,19 +975,19 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "note",
         tone: "info",
-        title: "The bell is not a notification",
-        text: "The bell at the top of the screen is this app's own list of the same alerts. It is there to look at, not to interrupt you — the interrupting is Telegram's job. Adding this app to your home screen opens it full screen; it does not make the icon buzz.",
+        title: "The bell is your alert history",
+        text: "The bell at the top of the screen lists the same alerts inside the app. To be notified on your phone, turn on phone notifications or connect Telegram in Settings.",
       },
-      { kind: "cta", href: "/portal/settings", label: "Set up Telegram now", hint: "Before you take a lorry live" },
+      { kind: "cta", href: "/portal/settings", label: "Set up alerts", hint: "Before you start tracking" },
     ],
     faqs: [
       {
         q: "An alert says it was not delivered. Do I get the credit back?",
-        a: "No. The credit paid for the check, which ran. Delivery is separate and free. The alert is kept in the app with the reason it failed, so nothing is lost except the message.",
+        a: "No. Credits pay for the check, which ran. Delivery is separate and free. The alert is kept in the app with the reason it was not delivered.",
       },
       {
         q: "Can I send alerts to a group or to my team?",
-        a: "You save one chat id. A Telegram group has its own id, so a group chat can be used — get its id the same way and paste that instead.",
+        a: "You can save one chat ID. A Telegram group has its own ID, so you can use a group chat — get its ID the same way and paste that instead.",
       },
       {
         q: "Can I get alerts by SMS or WhatsApp?",
@@ -992,7 +995,7 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         q: "Will my old alerts be sent once I connect Telegram?",
-        a: "No. Alerts raised while it was not connected were recorded and not sent, and they stay that way. They are still readable on the bell and on the lorry's own page.",
+        a: "No. Alerts raised before connecting are saved but not sent. You can still read them in the bell and on the truck's page.",
       },
     ],
   },
@@ -1002,9 +1005,9 @@ export const ARTICLES: GuideArticle[] = [
   /* ======================================================================== */
   {
     slug: "what-spends-a-credit",
-    title: "What spends a credit, and what does not",
+    title: "What uses credits, and what is free",
     summary:
-      "Two things cost credits and both cost one. Everything else on the platform is free, including the alerts themselves.",
+      "Searches and automatic checks use credits. Everything else, including alerts, is free.",
     category: "credits",
     minutes: 2,
     keywords: [
@@ -1023,57 +1026,57 @@ export const ARTICLES: GuideArticle[] = [
         kind: "table",
         head: ["What you do", "What it costs"],
         rows: [
-          ["A search you type on [Search](/portal/search)", "1 credit"],
-          ["Check now on a lorry's own page", "1 credit"],
-          ["One automatic check of a lorry you are watching", "1 credit"],
-          ["An alert being raised", "Free"],
-          ["The Telegram message", "Free"],
-          ["Adding or removing a lorry", "Free"],
+          ["A manual search on [Search](/portal/search)", "1 credit"],
+          ["Check now on a truck's page", "1 credit"],
+          ["One automatic check of a tracked truck", "At your plan's rate (see Pricing)"],
+          ["An alert", "Free"],
+          ["The notification or Telegram message", "Free"],
+          ["Adding or removing a truck", "Free"],
           ["Adding, editing or switching off an alert", "Free"],
           ["Making a group and reading it", "Free"],
-          ["Pausing a lorry", "Free, and it stops the spending"],
+          ["Pausing a truck", "Free, and it uses no credits while paused"],
           ["Opening any screen in the app", "Free"],
         ],
       },
-      { kind: "h", text: "The credit is spent when the check runs" },
+      { kind: "h", text: "Automatic checks are charged when they run" },
       {
         kind: "p",
-        text: "Not when it finds something. The charge does not depend on whether the lorry moved, whether the plaza changed, whether an alert was raised, whether Telegram delivered it, or whether anything was found at all. All four of these cost the same one credit:",
+        text: "The charge does not depend on the result. Each of these is charged the same:",
       },
       {
         kind: "bullets",
         items: [
           "A new crossing was recorded.",
           "Nothing new since last time.",
-          "The portal did not answer.",
+          "The toll records did not respond.",
           "The alert could not be delivered.",
         ],
       },
       {
         kind: "note",
         tone: "warn",
-        title: "An empty result still costs a credit",
-        text: "It is a real answer: nothing has been recorded for that number recently. The asking is what costs, so it is charged like any other look.",
+        title: "An empty result still uses a credit",
+        text: "No crossings means nothing has been recorded for that number recently. It is a valid result and is charged like any other search or check.",
       },
-      { kind: "h", text: "Per lorry per check, not per alert" },
+      { kind: "h", text: "Per truck per check, not per alert" },
       {
         kind: "p",
-        text: "Several alerts due on the same lorry at the same moment share one charge. A faster beat costs more; more rules on the same beat do not.",
+        text: "Several alerts due on the same truck at the same time share one check. A shorter check interval costs more; more alerts on the same interval do not.",
       },
-      { kind: "cta", href: "/portal/activity", label: "See every charge on your account", hint: "Grouped by lorry, with dates" },
+      { kind: "cta", href: "/portal/activity", label: "See every charge on your account", hint: "Grouped by truck, with dates" },
     ],
     faqs: [
       {
-        q: "The portal failed. Why was I charged?",
-        a: "Because the check ran. That is also why a lorry pauses itself after a run of failures — so a wrong number cannot keep buying errors.",
+        q: "A check returned no result. Why was I charged?",
+        a: "Automatic checks are charged when they run. That is why a truck pauses after repeated unsuccessful checks. A manual search that cannot reach the toll records is not charged — the credit is returned.",
       },
       {
-        q: "Does a bigger plan make each look cheaper?",
-        a: "No. A plan decides how many lorries and for how long. The rate for a look is the same on every plan. Bigger top-ups are what give you better value per credit.",
+        q: "Do automatic checks cost the same on every plan?",
+        a: "Not always. Each plan can set its own rate for automatic checks, shown on [Pricing](/pricing). Manual searches cost the same on every plan. Larger top-ups give better value per credit.",
       },
       {
         q: "Where can I see exactly what was charged?",
-        a: "[Activity](/portal/activity) lists every charge and can be narrowed to one lorry. [Credit history](/portal/credits) reconciles the same charges against your balance.",
+        a: "[Activity](/portal/activity) lists every charge and can be filtered to one truck. [Credit history](/portal/credits) shows the same charges against your balance.",
       },
     ],
   },
@@ -1082,7 +1085,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "credit-history-and-running-out",
     title: "Your credit history, and running out",
     summary:
-      "Where to read what came in and what went out, and exactly what stops when the balance reaches nothing.",
+      "Where to see credits added and used, and what stops when the balance reaches zero.",
     category: "credits",
     minutes: 3,
     keywords: [
@@ -1098,22 +1101,22 @@ export const ARTICLES: GuideArticle[] = [
       "recharge",
     ],
     blocks: [
-      { kind: "h", text: "Two screens, two questions" },
+      { kind: "h", text: "Two screens" },
       {
         kind: "bullets",
         items: [
-          "[Credit history](/portal/credits) is the statement: how your balance got to the number it shows. It has two sides, Credits added and Credits used.",
-          "[Activity](/portal/activity) is the spending in detail: every look, what it cost, and which lorry it was for. It can be narrowed to one lorry from that lorry's own page.",
+          "[Credit history](/portal/credits) is your statement: how your balance reached its current figure, under Credits added and Credits used.",
+          "[Activity](/portal/activity) shows credit use in detail: every search and check, its cost, and which truck it was for. You can filter it to one truck from that truck's page.",
         ],
       },
       {
         kind: "figure",
         name: "credit-ledger",
-        caption: "The statement: what came in, what went out, and the balance they add up to.",
+        caption: "The statement: credits added, credits used, and the resulting balance.",
       },
       {
         kind: "p",
-        text: "Spending is shown one row per day, because a day is the unit a balance is read in. Tap a day to open the individual looks inside it.",
+        text: "Credit use is shown one row per day. Tap a day to see the individual searches and checks.",
       },
       { kind: "h", text: "The lines you will see under Credits added" },
       {
@@ -1121,59 +1124,59 @@ export const ARTICLES: GuideArticle[] = [
         items: [
           "Purchased — a top-up you paid for.",
           "Included with plan — the credits a plan brought with it.",
-          "Free trial credits — the trial pot.",
+          "Free trial credits — your trial credits.",
           "Credit code redeemed — a code worth credits.",
-          "Referral reward and Welcome bonus — the two halves of an invite that paid out.",
-          "Added by administrator and Adjusted by administrator — a correction or a grant made by hand, with a note saying why.",
+          "Referral reward and Welcome bonus — credits earned through an invite.",
+          "Added by administrator and Adjusted by administrator — a correction or credit added by our team, with a note explaining why.",
         ],
       },
-      { kind: "h", text: "What stops when the balance reaches nothing" },
+      { kind: "h", text: "What stops when the balance reaches zero" },
       {
         kind: "p",
-        text: "Everything that costs a credit, which is both kinds of look:",
+        text: "Everything that uses credits:",
       },
       {
         kind: "bullets",
         items: [
-          "Searching by hand is refused.",
-          "Automatic checking is refused, and every lorry that was live is paused with the badge No credits left rather than left on the list claiming to be watched.",
+          "Manual searches are refused.",
+          "Automatic checks stop, and every live truck is paused with the badge No credits left.",
         ],
       },
       {
         kind: "note",
         tone: "good",
-        title: "That is the point at which it stops costing you anything",
-        text: "Nothing is checked, nothing is spent, and nothing is lost. The lorries, their alerts and every crossing they recorded are all still there.",
+        title: "Nothing is lost",
+        text: "No checks run and no credits are used. Your trucks, their alerts and every recorded crossing are kept.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "Topping up does not take the lorries live again",
-        text: "Buying credits clears the refusal, so the switch works again as soon as the balance covers a check. But you take each lorry live yourself from [My trucks](/portal/trucks). Switching one on before topping up will not hold — the next check would be refused for the same reason and pause it again.",
+        title: "Topping up does not switch trucks back on",
+        text: "After a top-up, switch each truck back on from [My trucks](/portal/trucks). Switching one on before topping up will not work — it would pause again at its next check.",
       },
       { kind: "h", text: "Before it happens" },
       {
         kind: "p",
-        text: "The app warns you while there is still work left in the balance, measured in searches at today's rate rather than in a bare number. When you see that warning, either top up or pause the lorries you are not actively waiting on.",
+        text: "The app warns you when your balance is running low, shown as the number of searches left. When you see the warning, top up or pause trucks you do not need to track right now.",
       },
       { kind: "cta", href: "/portal/credits", label: "Open your credit history" },
     ],
     faqs: [
       {
         q: "My balance dropped and I did not search anything.",
-        a: "Automatic checks are almost always the bigger number. One lorry on a fifteen-minute beat is 96 checks a day whether or not it moves. Open [Activity](/portal/activity) and look at the spending grouped by lorry.",
+        a: "Automatic checks usually account for most credit use. One truck checked every fifteen minutes is 96 checks a day, whether or not it moves. Open [Activity](/portal/activity) to see credit use by truck.",
       },
       {
         q: "Can my balance go negative?",
-        a: "No. A check that the balance cannot cover is refused rather than charged.",
+        a: "No. A check the balance cannot cover is refused, not charged.",
       },
       {
-        q: "I topped up but a lorry is still paused.",
-        a: "That is expected. Renewing and topping up never switch a lorry back on. Take it live from [My trucks](/portal/trucks).",
+        q: "I topped up but a truck is still paused.",
+        a: "That is expected. Renewing and topping up do not switch trucks back on. Switch it on from [My trucks](/portal/trucks).",
       },
       {
         q: "A top-up is not showing in my history.",
-        a: "Check [Payment history](/portal/payments) first. A payment that has not been confirmed adds nothing until it is. See [my payment did not add credits](/guide/trouble/payment-did-not-add-credits).",
+        a: "Check [Payment history](/portal/payments) first. Credits are added once the payment is confirmed. See [my payment did not add credits](/guide/trouble/payment-did-not-add-credits).",
       },
     ],
   },
@@ -1185,7 +1188,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "the-plans",
     title: "The plans, and what each one allows",
     summary:
-      "A plan is charged once for its whole term. It decides how many lorries you may watch at once, for how long, and how many credits it starts you with.",
+      "A plan is charged once for its whole term. It sets how many trucks you can track at once, for how long, and how many credits are included.",
     category: "plans",
     minutes: 3,
     keywords: [
@@ -1203,41 +1206,41 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "The live prices, terms, included credits and lorry limits are on [the pricing page](/pricing) and on your own [Plan and credits](/portal/plan) page. They are not repeated here, because they change without this page being rewritten.",
+        text: "Current prices, terms, included credits and truck limits are on [the pricing page](/pricing) and your [Plan and credits](/portal/plan) page.",
       },
-      { kind: "h", text: "What a plan decides" },
+      { kind: "h", text: "What a plan sets" },
       {
         kind: "bullets",
         items: [
-          "How many lorries may be watched at once. This is a cap on lorries being checked, not on lorries on your list — a paused lorry uses no slot.",
-          "Until when. The price shown is for the whole plan and is charged once. It is not a monthly price and there is nothing to multiply it by.",
-          "How many credits it starts you with.",
-          "Whether you may buy more credits at all. A top-up needs an active, paid plan.",
+          "How many trucks can be tracked at once. This limits live trucks, not trucks on your list — a paused truck uses no slot.",
+          "For how long. The price shown is for the whole plan and is charged once — not monthly.",
+          "How many credits are included.",
+          "Whether you can buy more credits. A top-up needs an active paid plan.",
         ],
       },
       {
         kind: "figure",
         name: "plan-cards",
-        caption: "Each card shows the whole price, the term, the credits included, and the lorry limit.",
+        caption: "Each card shows the whole price, the term, the credits included, and the truck limit.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "A plan's credits are a start, not a budget for its term",
-        text: "No plan's included credits cover its own term for one lorry on the fastest beat. A lorry checked every fifteen minutes spends 96 credits a day. The plan sets how many lorries and for how long; the credits set how closely you watch them, and topping up is expected. A slower beat makes the same credits go much further.",
+        title: "Included credits and frequent checks",
+        text: "Included credits suit moderate check intervals. For frequent checks, plan to top up. A truck checked every fifteen minutes is checked 96 times a day; a longer interval makes the same credits last much longer.",
       },
       { kind: "h", text: "The free trial as a plan" },
       {
         kind: "p",
-        text: "The trial is a plan too, with three differences: it is free, it is once per account, and it cannot be topped up. Its credits are cleared when it ends. See [claim the free trial](/guide/start/the-free-trial).",
+        text: "The trial works like a plan, with three differences: it is free, it is once per account, and it cannot be topped up. Unused trial credits stay on your balance after it ends. See [claim the free trial](/guide/start/the-free-trial).",
       },
       { kind: "h", text: "Choosing one" },
       {
         kind: "bullets",
         items: [
-          "Count the lorries you need watched at the same time, not the lorries you have. That is the number the plan caps.",
-          "Pick the term you can actually use. A plan is charged once and expires on its end date.",
-          "Assume you will top up. The credits included are what gets you going.",
+          "Count the trucks you need to track at the same time, not the total you have. That is what the plan limits.",
+          "Choose a term that suits your use. A plan is charged once and expires on its end date.",
+          "Plan to top up. Included credits get you started.",
         ],
       },
       { kind: "cta", href: "/portal/plan", label: "See the plans on your account" },
@@ -1245,19 +1248,19 @@ export const ARTICLES: GuideArticle[] = [
     faqs: [
       {
         q: "Is the price monthly?",
-        a: "No. The price shown is for the whole plan, charged once, and the card says how long the plan runs for.",
+        a: "No. The price shown is for the whole plan, charged once. The card shows how long the plan runs.",
       },
       {
-        q: "Can I upgrade part-way through?",
-        a: "Buy the plan you want from [Plan and credits](/portal/plan). Your credits are unaffected either way — they are a separate balance that never expires.",
+        q: "Can I change plan part-way through?",
+        a: "While a paid plan is active, changing plan or renewing early is handled by our team — please [contact us](/contact). Once a plan has ended, you can buy a new one from [Plan and credits](/portal/plan). Your credits are unaffected either way.",
       },
       {
-        q: "Do I lose my lorries if I move to a smaller plan?",
-        a: "Nothing is deleted. But only as many lorries as the new plan allows may be checked at once, so you choose which ones stay live and pause the rest.",
+        q: "Do I lose my trucks if I move to a smaller plan?",
+        a: "Nothing is deleted. Only as many trucks as the new plan allows can be live at once, so choose which to keep live and pause the rest.",
       },
       {
         q: "What happens to unused credits when a plan ends?",
-        a: "Purchased credits stay. They never expire, and they still pay for searching by hand. Only trial credits die with the trial.",
+        a: "They stay on your balance. Credits never expire and can still be used for manual searches.",
       },
     ],
   },
@@ -1266,7 +1269,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "plan-states-and-renewing",
     title: "Active, expired, or no plan — and renewing",
     summary:
-      "The one table nobody guesses right. A lapsed plan is not a dead account, but it does stop automatic tracking and it blocks top-ups.",
+      "What you can do in each plan state. An expired plan keeps your account, but stops automatic tracking and top-ups.",
     category: "plans",
     minutes: 3,
     keywords: [
@@ -1283,69 +1286,69 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "table",
-        head: ["Your account", "Search by hand", "Automatic tracking", "Top up credits"],
+        head: ["Your account", "Manual search", "Automatic tracking", "Top up credits"],
         rows: [
-          ["Paid plan, running", "Yes", "Yes", "Yes"],
-          ["Free trial, running", "Yes", "Yes", "No — a top-up needs a paid plan"],
+          ["Paid plan, active", "Yes", "Yes", "Yes"],
+          ["Free trial, active", "Yes", "Yes", "No — a top-up needs a paid plan"],
           [
             "Plan expired, or never bought one",
             "Yes — credits never expire",
             "No",
             "No — renew first",
           ],
-          ["Free trial finished", "No — its credits went with it", "No", "No — choose a plan"],
+          ["Free trial ended", "Yes — unused credits remain", "No", "No — choose a plan"],
           [
             "No credits left",
             "No",
-            "No — every lorry is paused",
-            "Yes, if a paid plan is running",
+            "No — every truck is paused",
+            "Yes, if a paid plan is active",
           ],
         ],
       },
       {
         kind: "p",
-        text: "The row nobody guesses right is the third. A lapsed plan is not a dead account: the credits are still there and they still search. What a lapsed plan stops is the automatic side — the checking, and the alerts that come out of it — and buying more credits.",
+        text: "Note the third row. An expired plan does not close your account: your credits remain and can be used for manual searches. An expired plan stops automatic checks, the alerts that come from them, and top-ups.",
       },
       { kind: "h", text: "What happens the day a plan ends" },
       {
         kind: "steps",
         items: [
-          "Automatic checking stops that day. Nothing is checked and nothing is spent on checking.",
-          "Your lorries stay on the list for a short renewal window, switched on but not checked, so a renewal in that window carries on exactly where it stopped. Your [Plan and credits](/portal/plan) page counts the days down for you.",
-          "After that window every lorry is switched off and marked Plan ended. Nothing is deleted — the lorries, their alerts and every crossing they recorded are all still there.",
+          "Automatic checks stop that day, and no credits are used on checks.",
+          "Your trucks stay switched on, but not checked, for a short renewal window, so renewing in that window continues where it stopped. Your [Plan and credits](/portal/plan) page shows the days remaining.",
+          "After that window every truck is switched off and marked Plan ended. Nothing is deleted — your trucks, their alerts and every recorded crossing are kept.",
         ],
       },
       {
         kind: "note",
         tone: "warn",
-        title: "Renewing does not switch your lorries back on",
-        text: "Once they have been switched off, a renewal brings automatic checking back but takes nothing live by itself. You go to [My trucks](/portal/trucks) and switch on the ones you still need. Deliberate: an account coming back should not immediately start spending on lorries it may no longer be watching.",
+        title: "Renewing does not switch your trucks back on",
+        text: "Once trucks have been switched off, renewing allows automatic checks again but does not switch them back on. Go to [My trucks](/portal/trucks) and switch on the ones you need. This prevents credits being used on trucks you no longer track.",
       },
       { kind: "h", text: "Renewing" },
       {
         kind: "p",
-        text: "Buy a plan again from [Plan and credits](/portal/plan). It brings its own credits, and you can add a top-up to the same payment. Then take your lorries live.",
+        text: "Buy a plan again from [Plan and credits](/portal/plan). It includes its own credits, and you can add a top-up to the same payment. Then switch your trucks back on.",
       },
       {
         kind: "note",
         tone: "info",
-        title: "A suspended account is a different thing",
-        text: "Suspension stops every lorry at once and only support can lift it. It is not something renewing or topping up fixes — write to us from [the contact page](/contact).",
+        title: "An account on hold is different",
+        text: "When an account is on hold, all its trucks stop, and only our support team can resolve it. Renewing or topping up does not change this — write to us from [the contact page](/contact).",
       },
       { kind: "cta", href: "/portal/plan", label: "Check or renew your plan" },
     ],
     faqs: [
       {
         q: "My plan ended. Can I still search?",
-        a: "Yes, as long as you have credits. That is the point of credits never expiring. Automatic tracking is the part that needs a plan.",
+        a: "Yes, as long as you have credits. Paid credits never expire. Automatic tracking needs an active plan.",
       },
       {
         q: "Can I buy credits instead of renewing, to keep tracking going?",
-        a: "No, twice over. A top-up needs an active, paid plan, so it would be refused — and credits alone would not restore automatic tracking anyway. Renewing is the only thing that brings it back.",
+        a: "No. A top-up needs an active paid plan, and credits alone do not restore automatic tracking. Renew your plan to resume tracking.",
       },
       {
         q: "Will I lose my alerts and settings if I renew late?",
-        a: "No. The lorries, their alerts, their beats and their history are all kept. What you have to do yourself is take each lorry live again.",
+        a: "No. Your trucks, their alerts, check intervals and history are all kept. You only need to switch each truck back on.",
       },
     ],
   },
@@ -1357,7 +1360,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "buying-credits",
     title: "Buying credits, and why a plan is required",
     summary:
-      "Top-ups add credits and change nothing else. They need an active, paid plan — which catches people out on the trial and after a plan ends.",
+      "Top-ups add credits and change nothing else. They need an active paid plan, so they are not available on the trial or after a plan ends.",
     category: "payments",
     minutes: 3,
     keywords: [
@@ -1374,75 +1377,75 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Open [Plan and credits](/portal/plan) and go to the Top up credits panel. Pick a pack, or name your own amount on the open tier. Bigger rungs are better value per credit, and the panel shows the rate for each.",
+        text: "Open [Plan and credits](/portal/plan) and go to the Top up credits panel. Choose a pack, or enter your own amount on the open tier. Larger packs cost less per credit, and the panel shows the rate for each.",
       },
       {
         kind: "p",
-        text: "A top-up adds credits and changes nothing else — not your plan, not its end date, not how many lorries you may watch. Credits you buy never expire.",
+        text: "A top-up adds credits only. It does not change your plan, its end date, or how many trucks you can track. Credits you buy never expire.",
       },
       {
         kind: "figure",
         name: "checkout",
-        caption: "The top-up panel: the packs, what each buys, and the discount code box.",
+        caption: "The top-up panel: the packs, the credits each includes, and the discount code box.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "A top-up needs a paid plan that is running right now",
-        text: "If your plan has expired, if you are on the free trial, or if you have never bought a plan, a top-up is refused. Buy or renew a plan first — and a plan brings credits of its own, so that is often the only purchase you needed. Buying a plan and a top-up together in one payment is fine.",
+        title: "A top-up needs an active paid plan",
+        text: "If your plan has expired, you are on the free trial, or you have never bought a plan, a top-up is not available. Buy or renew a plan first — it includes its own credits. You can also buy a plan and a top-up together in one payment.",
       },
       { kind: "h", text: "Paying" },
       {
         kind: "steps",
         items: [
-          "Choose the pack or type an amount. The panel shows the credits before you pay.",
+          "Choose a pack or enter an amount. The panel shows the credits before you pay.",
           "Add a discount code if you have one, in the Discount code box on the same panel.",
-          "Press the button. A Razorpay window opens with your name and contact details already filled in.",
-          "Pay by whatever method Razorpay offers you. We never see or hold your card or bank details.",
-          "Wait on the page for a few seconds. Credits are added when Razorpay confirms the payment, not when the window closes.",
+          "Press the pay button. A Razorpay window opens with your name and contact details filled in.",
+          "Pay using any method Razorpay offers. We never see or store your card or bank details.",
+          "Stay on the page for a few seconds. Credits are added when Razorpay confirms the payment.",
         ],
       },
-      { kind: "h", text: "Two kinds of code, and they go in different places" },
+      { kind: "h", text: "Credit codes and discount codes" },
       {
         kind: "table",
-        head: ["Kind of code", "Where it goes", "What it does"],
+        head: ["Type of code", "Where to enter it", "What it does"],
         rows: [
           [
             "A code worth credits",
             "Have a credit code? on [Plan and credits](/portal/plan)",
-            "Adds credits on its own. No purchase needed",
+            "Adds credits directly. No purchase needed",
           ],
           [
             "A discount code",
             "The Discount code box on the buying panel",
-            "Takes rupees off the price",
+            "Reduces the price",
           ],
         ],
       },
       {
         kind: "note",
         tone: "info",
-        title: "A discount reduces what you pay, not what you get",
-        text: "The credits are worked out from the price before the discount, so a discount code is the same goods for less money. A credit code is the other way round: it reduces nothing and simply grants credits, so it is refused at a checkout and has its own box.",
+        title: "A discount reduces the price, not the credits",
+        text: "Credits are calculated from the price before the discount, so you get the same credits for less. A credit code adds credits directly, so it has its own box and cannot be used at checkout.",
       },
       { kind: "cta", href: "/portal/plan", label: "Top up credits" },
     ],
     faqs: [
       {
         q: "Why is my top-up being refused?",
-        a: "A top-up needs an active, paid plan. On an expired plan, on the trial, or with no plan ever bought, buy or renew a plan instead — it brings credits with it.",
+        a: "A top-up needs an active paid plan. On an expired plan, on the trial, or with no plan, buy or renew a plan instead — it includes credits.",
       },
       {
         q: "Can I buy a plan and credits in one payment?",
-        a: "Yes. The buying panel lets you attach a top-up to a plan purchase, and it is charged once. Your receipt shows both halves separately.",
+        a: "Yes. The buying panel lets you add a top-up to a plan purchase, charged as one payment. Your receipt shows both separately.",
       },
       {
         q: "Do bought credits expire if I stop using the account?",
-        a: "No. Purchased credits are yours indefinitely and still pay for searching by hand even with no plan.",
+        a: "No. Purchased credits do not expire and can be used for manual searches even without a plan.",
       },
       {
         q: "Is there a minimum on the open tier?",
-        a: "Yes, and the panel shows it. Below the minimum there is nothing to sell, so the amount is refused.",
+        a: "Yes. The panel shows the minimum amount.",
       },
     ],
   },
@@ -1451,7 +1454,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "payments-and-receipts",
     title: "Your payment history and receipts",
     summary:
-      "Every payment, what it bought, what it added to your balance, and the reference to quote if something went wrong.",
+      "Every payment, what it bought, the credits it added, and the reference to quote if you need help.",
     category: "payments",
     minutes: 3,
     keywords: [
@@ -1469,12 +1472,12 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "[Payment history](/portal/payments) lists every payment on the account. Each row carries the date and time, its status, what you bought, the method, the price, what you actually paid after any discount, the credits it added, and a reference.",
+        text: "[Payment history](/portal/payments) lists every payment on the account. Each row shows the date and time, status, what you bought, the payment method, the price, the amount paid after any discount, the credits added, and a reference.",
       },
       {
         kind: "figure",
         name: "payment-history",
-        caption: "The list, and the full receipt for whichever payment you open.",
+        caption: "The payment list, and the full receipt for the payment you open.",
       },
       { kind: "h", text: "The three statuses" },
       {
@@ -1485,46 +1488,46 @@ export const ARTICLES: GuideArticle[] = [
           [
             "Waiting for confirmation",
             "Razorpay has not confirmed it yet, so nothing has been added",
-            "Give it a few seconds and reload the page",
+            "Wait a few seconds and reload the page",
           ],
           [
             "Did not go through",
-            "Razorpay refused it. Nothing was charged and nothing was added",
-            "Try again whenever you like",
+            "The payment was not completed. Nothing was charged and nothing was added",
+            "Try again any time",
           ],
         ],
       },
       {
         kind: "note",
         tone: "warn",
-        title: "If money left your account and the payment is not confirmed",
-        text: "Open the payment on [Payment history](/portal/payments), copy the reference, and write to us from [the contact page](/contact) with it. Do not pay again first.",
+        title: "If money was debited but the payment is not confirmed",
+        text: "Open the payment on [Payment history](/portal/payments), copy the reference, and write to us from [the contact page](/contact). Please do not pay again before we reply.",
       },
       { kind: "h", text: "The receipt" },
       {
         kind: "p",
-        text: "Tap a row to open its full receipt at the top of the page. It shows what was bought, what was paid, any discount, every kind of credit the payment granted, and the references to quote. A payment that bought a plan with a top-up attached lists both halves separately, so you can see which credits were included and which were bought.",
+        text: "Tap a row to open its full receipt at the top of the page. It shows what was bought, the amount paid, any discount, the credits added, and the references. A plan bought with a top-up lists both separately, so you can see which credits were included and which were bought.",
       },
       {
         kind: "note",
         tone: "info",
-        title: "A payment recorded by hand has no gateway reference",
-        text: "If an administrator entered a payment for you, its receipt deliberately shows no order or payment id, because Razorpay never saw it and quoting one would send somebody hunting for a payment that does not exist.",
+        title: "Payments recorded by our team have no gateway reference",
+        text: "If our team recorded a payment for you, its receipt shows no order or payment ID, because it was not processed through Razorpay.",
       },
       { kind: "cta", href: "/portal/payments", label: "Open your payment history" },
     ],
     faqs: [
       {
         q: "Can I get a GST invoice?",
-        a: "The receipt on [Payment history](/portal/payments) is what the app produces. For anything more, write to us from [the contact page](/contact) with the payment reference.",
+        a: "The app provides a receipt on [Payment history](/portal/payments). For a GST invoice, write to us from [the contact page](/contact) with the payment reference.",
       },
       {
         q: "Where do I see what a payment did to my balance?",
-        a: "The receipt states the credits it added, and [Credit history](/portal/credits) shows the same movement in your statement.",
+        a: "The receipt shows the credits it added, and [Credit history](/portal/credits) shows the same entry in your statement.",
       },
       {
-        q: "A payment failed. Was I charged?",
-        a: "No. A refused payment charges nothing and adds nothing. If your bank shows a debit anyway, quote the reference to us.",
+        q: "A payment did not go through. Was I charged?",
+        a: "No. An unsuccessful payment is not charged and adds nothing. If your bank shows a debit, send us the payment reference.",
       },
     ],
   },
@@ -1534,9 +1537,9 @@ export const ARTICLES: GuideArticle[] = [
   /* ======================================================================== */
   {
     slug: "refer-and-earn",
-    title: "Refer and earn",
+    title: "Invite & earn",
     summary:
-      "Share your link. When somebody who joined on it pays for their first plan, and again when they first top up, you both get credits. A sign-up on its own earns nothing.",
+      "Share your link. When someone who signs up with it buys their first plan, and again on their first top-up, you both earn credits. Sign-up alone does not earn a reward.",
     category: "rewards",
     minutes: 3,
     keywords: [
@@ -1554,14 +1557,14 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Your invite link is on [Invite and earn](/portal/referrals), with buttons to copy it and to share it. Anybody who signs up through it is attached to you.",
+        text: "Your invite link is on [Invite & earn](/portal/referrals), with buttons to copy and share it. Anyone who signs up with it is linked to your account.",
       },
       {
         kind: "figure",
         name: "referral-share",
-        caption: "Your link, what it has earned so far, and everybody who has used it.",
+        caption: "Your link, what it has earned so far, and everyone who has used it.",
       },
-      { kind: "h", text: "How it pays" },
+      { kind: "h", text: "How rewards work" },
       {
         kind: "table",
         head: ["Their first payment", "You get", "They get"],
@@ -1580,58 +1583,58 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         kind: "p",
-        text: "The two percentages in force are shown on [Invite and earn](/portal/referrals), which works them into credits for you. They are settings, so they are not printed here.",
+        text: "The current percentages are shown on [Invite & earn](/portal/referrals), converted into credits for you.",
       },
       {
         kind: "note",
         tone: "warn",
-        title: "A sign-up earns nobody anything",
-        text: "The reward is paid when money arrives, not when somebody registers. Two events, each paying once per person ever: their first plan, and their first top-up. After both have paid out, that invite is finished.",
+        title: "Sign-up alone does not earn a reward",
+        text: "Rewards are paid when your invitee makes a payment, not when they sign up. There are two rewards per invitee, each paid once: their first plan and their first top-up.",
       },
       { kind: "h", text: "If they buy a plan and credits in one payment" },
       {
         kind: "p",
-        text: "It pays once, on the whole amount, and closes both events. Buying the two together therefore pays exactly what buying them a fortnight apart would have paid.",
+        text: "The reward is paid once, on the whole amount, and covers both events. Buying both together earns the same as buying them separately.",
       },
       { kind: "h", text: "What the badges on your list mean" },
       {
         kind: "table",
         head: ["Badge", "What it means"],
         rows: [
-          ["Waiting", "Signed up, has not paid — earns you nothing yet"],
-          ["Part paid", "One of the two rewards has landed; the other is still to come"],
-          ["Both paid", "Plan and top-up — everything this invite is worth is yours"],
+          ["Waiting", "Signed up, no payment yet"],
+          ["Part paid", "One of the two rewards has been credited"],
+          ["Both paid", "Both rewards have been credited"],
         ],
       },
       {
         kind: "note",
         tone: "info",
-        title: "The credits are ordinary credits",
-        text: "They land on the same balance as anything you buy, they never expire, and they show up in [your credit history](/portal/credits) as a referral reward or a welcome bonus.",
+        title: "Reward credits work like any other credits",
+        text: "They are added to the same balance, never expire, and appear in [your credit history](/portal/credits) as a referral reward or welcome bonus.",
       },
       { kind: "h", text: "Codes worth credits" },
       {
         kind: "p",
-        text: "If we send you a code that is worth credits, redeem it in the Have a credit code? box on [Plan and credits](/portal/plan). It needs no purchase. A discount code is a different thing and goes in the Discount code box on the buying panel instead — see [buying credits](/guide/payments/buying-credits).",
+        text: "If you receive a credit code, redeem it in the Have a credit code? box on [Plan and credits](/portal/plan). No purchase is needed. Discount codes go in the Discount code box on the buying panel instead — see [buying credits](/guide/payments/buying-credits).",
       },
       { kind: "cta", href: "/portal/referrals", label: "Get your invite link" },
     ],
     faqs: [
       {
         q: "When exactly do the credits arrive?",
-        a: "On the same payment that triggered them, as soon as it is confirmed. If a friend has paid and nothing has landed, check whether their payment is confirmed on their side, then write to us.",
+        a: "As soon as your invitee's payment is confirmed. If they have paid and no reward has arrived, ask them to check that their payment is confirmed, then write to us.",
       },
       {
         q: "Can I invite myself with a second account?",
-        a: "No. The scheme pays on real payments and the checks are on the account, the mailbox and the mobile number. It is not worth the trouble.",
+        a: "No. Rewards are checked against the account, email address and mobile number.",
       },
       {
-        q: "Somebody signed up without my link. Can it be attached now?",
-        a: "Not by you. Write to us with both email addresses and we will look at it.",
+        q: "Someone signed up without my link. Can it be linked now?",
+        a: "Please write to us with both email addresses and we will review it.",
       },
       {
         q: "Is there a bonus for bringing several people?",
-        a: "There is a milestone bonus, and [Invite and earn](/portal/referrals) shows whether it is running and what it takes to reach it.",
+        a: "There is a milestone bonus, and [Invite & earn](/portal/referrals) shows whether it is running and what it takes to reach it.",
       },
     ],
   },
@@ -1643,7 +1646,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "your-account-and-getting-help",
     title: "Your profile, your phone, and getting help",
     summary:
-      "What you can change yourself, what only we can change, how the app behaves on an Android phone, and how to reach a person.",
+      "What you can change yourself, what our team can change for you, using the app on your phone, and how to contact us.",
     category: "account",
     minutes: 3,
     keywords: [
@@ -1663,18 +1666,18 @@ export const ARTICLES: GuideArticle[] = [
       { kind: "h", text: "Your profile" },
       {
         kind: "p",
-        text: "Everything about you is in the My profile panel on [Settings](/portal/settings): your name, your mobile number, and optionally your job title, your company, your city and your state. You can change any of these yourself. The panel also shows your sign-in email, your password and the date you joined.",
+        text: "Your details are in the My profile panel on [Settings](/portal/settings): your name, mobile number, and optionally your job title, company, city and state. You can change any of these yourself. The panel also shows your sign-in email, password and the date you joined.",
       },
       {
         kind: "bullets",
         items: [
-          "Keep the mobile number current. It is how we reach you if a payment goes wrong.",
-          "Your sign-in email is not a field you can edit. Write to us to change it — the address is what your receipts, your password reset and your trial all hang on.",
+          "Keep your mobile number up to date. We use it to contact you about your account.",
+          "Your sign-in email cannot be changed in the app. Write to us to change it — your receipts, password reset and trial are linked to it.",
           "Change your password from the same panel. If you have forgotten it, use [forgot password](/forgot-password) instead.",
           "Sign out from the menu at the top of the screen.",
         ],
       },
-      { kind: "h", text: "Where alerts go, and where the app does not notify you" },
+      { kind: "h", text: "Where alerts are delivered" },
       {
         kind: "p",
         text: "Choose phone notifications or Telegram in [Settings](/portal/settings#alerts). For phone notifications, allow notifications for Rahdari on your device. For Telegram alerts, allow Telegram notifications and verify your chat connection. Use Send test for the channel you want to check.",
@@ -1682,27 +1685,27 @@ export const ARTICLES: GuideArticle[] = [
       { kind: "h", text: "Putting Rahdari on your home screen" },
       {
         kind: "p",
-        text: "Your phone will offer to add Rahdari to your home screen, and it is worth doing: it opens full screen, loads faster on a slow connection, and shows a plain notice instead of a browser error when the signal drops. It does not make the icon buzz — the interrupting is Telegram's job.",
+        text: "Your phone will offer to add Rahdari to your home screen. It then opens full screen, loads faster on a slow connection, and shows a clear notice instead of a browser error when the signal drops. To get alerts on your phone, turn on notifications in Settings.",
       },
-      { kind: "h", text: "Keeping your own copy of the history" },
+      { kind: "h", text: "Keeping your own copy of your history" },
       {
         kind: "p",
-        text: "The Backup to your Google Sheet panel on [Settings](/portal/settings) copies your crossings, your alerts, your searches and a usage summary into a sheet you own. Share the sheet with the address shown on that panel as an Editor, paste the link, and test the connection. A sheet that stops working never stops your tracking.",
+        text: "The Backup to your Google Sheet panel on [Settings](/portal/settings) copies your crossings, your alerts, your searches and a usage summary into a sheet you own. Share the sheet with the address shown on that panel as an Editor, paste the link, and test the connection. If the sheet stops working, tracking continues as normal.",
       },
       { kind: "h", text: "Getting help" },
       {
         kind: "steps",
         items: [
-          "Look at [the support page](/support) first. It answers the questions that come up most.",
-          "Look through this guide — [the help centre](/guide) is organised by what you are trying to do.",
-          "If neither has it, write to us from [the contact page](/contact) with your account email and roughly when the problem happened. A person reads it.",
+          "See [the support page](/support) first. It answers the most common questions.",
+          "Browse [the help centre](/guide), organised by task.",
+          "If you still need help, write to us from [the contact page](/contact) with your account email and when the issue happened. Our team will reply.",
         ],
       },
       {
         kind: "note",
         tone: "info",
         title: "What to include when you write",
-        text: "The registration number if it is about one lorry, the payment reference if it is about money, and the time you noticed it. That is usually enough to answer without a second email.",
+        text: "The vehicle number if it is about a truck, the payment reference if it is about a payment, and when you noticed the issue.",
       },
       { kind: "cta", href: "/portal/settings", label: "Open Settings" },
     ],
@@ -1713,7 +1716,7 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         q: "Can somebody else in my office use my account?",
-        a: "There are no separate logins under one account today. Sharing a sign-in means sharing the balance and the alerts, so use one Telegram chat that you both read.",
+        a: "Separate logins under one account are not available yet. A shared sign-in shares the balance and alerts; a shared Telegram group can deliver alerts to several people.",
       },
       {
         q: "Where can I read the terms and what you do with my data?",
@@ -1727,9 +1730,9 @@ export const ARTICLES: GuideArticle[] = [
   /* ======================================================================== */
   {
     slug: "truck-not-being-checked",
-    title: "My lorry is not being checked",
+    title: "My truck is not being checked",
     summary:
-      "Work down this list in order. Four of the five causes are on the lorry's own page, and the app has already written down which one it was.",
+      "Work through this list in order. Most causes are shown on the truck's page.",
     category: "trouble",
     minutes: 3,
     keywords: [
@@ -1746,77 +1749,77 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "steps",
         items: [
-          "Open the lorry on [My trucks](/portal/trucks). If it is on the Watchlist tab it is not being checked at all — that is what that tab means.",
-          "Look at its badge. If it is paused, the badge says which of the seven stops applied, and the (i) beside it says since when. See [every reason a lorry pauses](/guide/trucks/going-live-and-pausing).",
-          "Check it has an alert switched on. A lorry with no switched-on alert is never checked, whatever the switch says.",
-          "Check your balance on [Credit history](/portal/credits). With nothing in it, nothing is checked and every live lorry is paused.",
-          "Check your plan on [Plan and credits](/portal/plan). Automatic checking needs a plan that is still running. An expired plan searches but does not track.",
-          "Read the last-checked time on the lorry's own page. If it is recent, the checking is working — and what you are missing is a message, not a check. Go to [I got no alert](/guide/trouble/no-alert-arrived).",
+          "Open the truck on [My trucks](/portal/trucks). Trucks on the Watchlist tab are not checked.",
+          "Check its badge. If it is paused, the badge shows why, and the (i) beside it shows since when. See [every reason a truck pauses](/guide/trucks/going-live-and-pausing).",
+          "Check it has an alert switched on. A truck without one is not checked.",
+          "Check your balance on [Credit history](/portal/credits). When it is empty, no checks run and every live truck is paused.",
+          "Check your plan on [Plan and credits](/portal/plan). Automatic checks need an active plan. With an expired plan, manual search still works but tracking does not.",
+          "Check the last-checked time on the truck's page. If it is recent, checks are working and the issue is alert delivery. See [I got no alert](/guide/trouble/no-alert-arrived).",
         ],
       },
-      { kind: "h", text: "The commonest causes, in order" },
+      { kind: "h", text: "The most common causes" },
       {
         kind: "table",
-        head: ["What you see", "What it is", "The fix"],
+        head: ["What you see", "Cause", "What to do"],
         rows: [
           [
-            "No alert on the lorry",
-            "It was added and the alert step was skipped",
-            "Add one alert on the lorry's own page",
+            "No alert on the truck",
+            "It was added without an alert",
+            "Add an alert on the truck's page",
           ],
           [
             "Badge says No credits left",
-            "The balance could not pay for another check",
-            "Top up, then take each lorry live yourself",
+            "The balance ran out",
+            "Top up, then switch each truck back on",
           ],
           [
             "Badge says Plan ended",
-            "The plan lapsed and the renewal window passed",
-            "Renew, then take each lorry live yourself",
+            "The plan ended and the renewal window passed",
+            "Renew, then switch each truck back on",
           ],
           [
             "Badge says No movement detected",
-            "No crossing arrived for as long as this lorry allows. Usually a parked lorry",
-            "Go live when it is back on the road, or lengthen the window in its Settings",
+            "No new crossing for the time set for this truck. Usually a parked truck",
+            "Switch it on when it is back on the road, or lengthen the window in its Settings",
           ],
           [
-            "Badge says Portal not responding",
-            "The portal could not answer for this number enough times in a row",
-            "Check the number for a typo, fix it, then go live again",
+            "Badge says No response for this number",
+            "Repeated checks returned no result for this number",
+            "Check the number is correct, then switch it back on",
           ],
           [
             "Badge says Tracking period ended",
             "The end time you set arrived",
-            "Go live, and set a new end time at the same moment",
+            "Switch it on and set a new end time",
           ],
         ],
       },
       {
         kind: "note",
         tone: "warn",
-        title: "Three of them will not hold if you just flip the switch",
-        text: "An empty balance, a lapsed plan and a suspended account all refuse the very next check, so the lorry would pause again within one beat. Fix the account first.",
+        title: "Some need account action first",
+        text: "With an empty balance, an ended plan or an account on hold, the truck would pause again at its next check. Resolve the account issue first.",
       },
       {
         kind: "note",
         tone: "info",
-        title: "An empty route is not a fault",
-        text: "Only movements are written to the route, so a lorry that has not crossed a plaza shows nothing new however often it is checked. And a lorry off the tolled highways produces nothing at all — that is the data, not the app.",
+        title: "An empty route is not an error",
+        text: "Only new crossings are added to the route, so a truck that has not crossed a plaza shows nothing new. A truck on untolled roads produces no records.",
       },
       { kind: "cta", href: "/portal/trucks", label: "Open My trucks" },
     ],
     faqs: [
       {
         q: "It says it was checked, but there is nothing new.",
-        a: "Then the lorry has not been recorded at a new plaza. The check ran and cost its credit, and there was nothing to report. Nothing found means nothing was recorded.",
+        a: "The truck has not been recorded at a new plaza. The check ran and was charged, but there was nothing new to report.",
       },
       {
         q: "I switched it on and it switched itself off again.",
-        a: "That is the empty balance or the lapsed plan refusing the next check. The badge will say which. Fix that first, then go live.",
+        a: "An empty balance or ended plan paused it at the next check. The badge shows which. Resolve that first, then switch it back on.",
       },
       {
         q: "Can I force a check right now?",
-        a: "Yes. Check now on the lorry's own page does one look immediately for one credit.",
+        a: "Yes. Check now on the truck's page runs an immediate check for one credit.",
       },
     ],
   },
@@ -1825,7 +1828,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "no-alert-arrived",
     title: "I got no alert",
     summary:
-      "If the balance is going down and your phone is silent, this is almost always Telegram. Check it in this order.",
+      "If checks are running but no alerts reach your phone, check your notification settings in this order.",
     category: "trouble",
     minutes: 2,
     keywords: [
@@ -1842,49 +1845,49 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "note",
         tone: "warn",
-        title: "The most expensive mistake on the platform",
-        text: "If no Telegram chat id is saved, or one is saved but the switch is off, alerts are recorded in the app and never sent to anybody — and the credit is spent all the same. Rows appear on the bell, the balance goes down, and the phone stays silent. Nothing tells you at the moment it happens.",
+        title: "Set up alerts before tracking",
+        text: "If neither phone notifications nor Telegram are set up, alerts are saved in the app but not sent to your phone — and checks still use credits.",
       },
       {
         kind: "steps",
         items: [
-          "Open [Settings](/portal/settings). Confirm a chat id is saved and the switch under it is on.",
-          "Press Send test. If the test arrives, alerts will arrive.",
-          `If it does not arrive, open [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) and send it a \`/start\`. Telegram forbids a bot from messaging anyone who has not started it. Then test again.`,
-          "Check Telegram itself is installed, signed in and allowed to notify you on that phone.",
-          "Open the lorry's page and look at Alerts raised. If alerts are listed and marked undelivered, the checking is fine and delivery is the problem.",
+          "Open [Settings](/portal/settings). Confirm that phone notifications are on, or that a Telegram chat ID is saved and its switch is on.",
+          "Press Send test. If the test arrives, alerts will too.",
+          `For Telegram, if the test does not arrive, open [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) and send it \`/start\`, then test again. Telegram bots can only message people who have started them.`,
+          "Check that notifications are allowed for Rahdari (or Telegram) in your phone's settings.",
+          "Open the truck's page and check Alerts raised. If alerts are listed as not delivered, checks are working and the issue is delivery.",
         ],
       },
       { kind: "h", text: "If no alerts are being raised at all" },
       {
         kind: "bullets",
         items: [
-          "On the Only when it moves rule, a lorry that has not reached a different plaza produces no message. That is the rule working, not a fault.",
-          "On a plaza rule, the plaza name has to match the toll record exactly. Pick it from the suggestions rather than typing it freehand.",
-          "A switched-off alert raises nothing. Check the alert itself is on, not just the lorry.",
-          "If the lorry is not being checked at all, start with [my lorry is not being checked](/guide/trouble/truck-not-being-checked) instead.",
+          "With Only when it moves, a truck that has not reached a different plaza sends no alert. This is expected.",
+          "For a plaza alert, the plaza name must match the toll record exactly. Select it from the suggestions rather than typing it.",
+          "A switched-off alert sends nothing. Check that the alert is on, not just the truck.",
+          "If the truck is not being checked at all, start with [my truck is not being checked](/guide/trouble/truck-not-being-checked) instead.",
         ],
       },
       {
         kind: "note",
         tone: "info",
-        title: "The app itself does not notify you",
-        text: "The bell inside the app is a list to look at. Adding Rahdari to your home screen opens it full screen; it does not make the icon buzz. The interrupting is Telegram's job.",
+        title: "The bell is your alert history",
+        text: "The bell inside the app lists your alerts. To be notified on your phone, turn on phone notifications or connect Telegram in Settings.",
       },
-      { kind: "cta", href: "/portal/settings", label: "Check your Telegram setup" },
+      { kind: "cta", href: "/portal/settings", label: "Check your alert settings" },
     ],
     faqs: [
       {
-        q: "Will the alerts I missed be sent now that Telegram is connected?",
-        a: "No. They were recorded and not sent, and they stay that way. You can still read them on the bell and on each lorry's page.",
+        q: "Will missed alerts be sent once notifications are set up?",
+        a: "No. Alerts raised before setup are saved but not sent. You can still read them in the bell and on each truck's page.",
       },
       {
         q: "Do I get the credits back for alerts that were never delivered?",
-        a: "No. The credit paid for the check, which ran. Delivery is free and separate.",
+        a: "No. Credits pay for the check, which ran. Delivery is free and separate.",
       },
       {
         q: "The test message arrives but real alerts do not.",
-        a: "Then delivery works and nothing is being raised. Check the alert is switched on, check the lorry is on the Live tracking tab, and remember that Only when it moves says nothing until the lorry reaches a different plaza.",
+        a: "Delivery is working, so no alerts are being raised. Check the alert is switched on and the truck is on the Live tracking tab. With Only when it moves, no alert is sent until the truck reaches a different plaza.",
       },
     ],
   },
@@ -1893,7 +1896,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "payment-did-not-add-credits",
     title: "My payment did not add credits",
     summary:
-      "Check the status first. A payment adds nothing until Razorpay confirms it, and a refused payment charges nothing.",
+      "Check the payment status first. Credits are added once Razorpay confirms the payment; an unsuccessful payment is not charged.",
     category: "trouble",
     minutes: 2,
     keywords: [
@@ -1911,42 +1914,42 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "steps",
         items: [
-          "Open [Payment history](/portal/payments) and find the payment. Its status is the answer.",
-          "Waiting for confirmation means Razorpay has not confirmed it yet and nothing has been added. Give it a few seconds and reload.",
-          "Did not go through means it was refused. Nothing was charged and nothing was added, and you can try again whenever you like.",
-          "Paid means it landed. Check [Credit history](/portal/credits) for the matching line, and the receipt for what it added.",
+          "Open [Payment history](/portal/payments) and find the payment. Check its status.",
+          "Waiting for confirmation: Razorpay has not confirmed it yet. Wait a few seconds and reload.",
+          "Did not go through: the payment was not completed. Nothing was charged, and you can try again any time.",
+          "Paid: the payment is complete. Check [Credit history](/portal/credits) for the matching entry, and the receipt for the credits added.",
         ],
       },
       {
         kind: "note",
         tone: "warn",
-        title: "If money left your account and the payment is not confirmed",
-        text: "Do not pay again. Open the payment on [Payment history](/portal/payments), copy the reference, and write to us from [the contact page](/contact) with it and the time you paid.",
+        title: "If money was debited but the payment is not confirmed",
+        text: "Please do not pay again. Open the payment on [Payment history](/portal/payments), copy the reference, and write to us from [the contact page](/contact) with the reference and the time you paid.",
       },
       { kind: "h", text: "If the top-up was refused before you paid" },
       {
         kind: "p",
-        text: "That is a different thing. A top-up needs an active, paid plan. On an expired plan, on the free trial, or with no plan ever bought, buying credits is refused — buy or renew a plan instead, and it brings credits with it. See [buying credits](/guide/payments/buying-credits).",
+        text: "A top-up needs an active paid plan. On an expired plan, on the free trial, or with no plan, buy or renew a plan instead — it includes credits. See [buying credits](/guide/payments/buying-credits).",
       },
-      { kind: "h", text: "If the credits landed but nothing is being checked" },
+      { kind: "h", text: "If credits were added but nothing is being checked" },
       {
         kind: "p",
-        text: "Expected. Topping up clears the refusal but never takes a lorry live by itself. Go to [My trucks](/portal/trucks) and switch on the ones you need.",
+        text: "Topping up does not switch trucks back on automatically. Go to [My trucks](/portal/trucks) and switch on the ones you need.",
       },
       { kind: "cta", href: "/portal/payments", label: "Check your payment history" },
     ],
     faqs: [
       {
         q: "I paid for a plan and a top-up together. Only half the credits show.",
-        a: "Open the receipt. A combined payment lists the plan's included credits and the bought credits separately, and the total is what landed on your balance.",
+        a: "Open the receipt. A combined payment lists the plan's included credits and the purchased credits separately; the total was added to your balance.",
       },
       {
         q: "How long should I wait before writing to you?",
-        a: "A confirmation normally takes seconds. If a payment is still unconfirmed after a few minutes and your bank shows a debit, write to us with the reference.",
+        a: "Confirmation usually takes seconds. If a payment is still unconfirmed after a few minutes and your bank shows a debit, write to us with the reference.",
       },
       {
         q: "Can I get a refund?",
-        a: "Write to us from [the contact page](/contact) with the payment reference and what happened. Refunds are not something the app does by itself.",
+        a: "Write to us from [the contact page](/contact) with the payment reference and details. Refunds are handled by our team, not in the app.",
       },
     ],
   },
@@ -1955,7 +1958,7 @@ export const ARTICLES: GuideArticle[] = [
     slug: "cannot-sign-in",
     title: "I cannot sign in, or reset my password",
     summary:
-      "Reset it yourself from the sign-in page. If the mail does not arrive, there are three things to check before writing to us.",
+      "Reset your password from the sign-in page. If the email does not arrive, check these steps before writing to us.",
     category: "trouble",
     minutes: 2,
     keywords: [
@@ -1973,47 +1976,47 @@ export const ARTICLES: GuideArticle[] = [
       {
         kind: "steps",
         items: [
-          "Open [forgot password](/forgot-password) and enter the address you registered with. We send a link to choose a new one.",
-          "Check the spam and promotions folders. This is where the mail usually is.",
-          "Check you are using the address you actually registered with. The mail goes wherever that says, and nowhere else.",
-          "Wait a minute and try once more. A link that has expired needs a fresh send.",
-          "Still nothing? Write to us from [the contact page](/contact), from the address you registered with, and say roughly when you tried.",
+          "Open [forgot password](/forgot-password) and enter your registered email. We will send a link to choose a new password.",
+          "Check your spam and promotions folders.",
+          "Check that you entered the email address you registered with.",
+          "Wait a minute and try again. If a link has expired, request a new one.",
+          "Still nothing? Write to us from [the contact page](/contact) using your registered email, and tell us when you tried.",
         ],
       },
       {
         kind: "note",
         tone: "info",
         title: "Two different emails",
-        text: "A password reset sends a link. Confirming your email address sends a six-digit code, which is a different thing and only needed before the free trial. Buying a plan or credits never asks for a code.",
+        text: "A password reset sends a link. Confirming your email address sends a six-digit code, which is only needed before the free trial. Buying a plan or credits does not need a code.",
       },
-      { kind: "h", text: "If your password works but you are turned away" },
+      { kind: "h", text: "If you can sign in but cannot use the app" },
       {
         kind: "bullets",
         items: [
-          "A suspended account cannot reach the app, and every lorry on it is stopped. Only support can switch it back on — write to us from [the contact page](/contact).",
-          "If you can sign in but nothing is being checked, the account is fine and the problem is the plan, the balance or a paused lorry. Start with [my lorry is not being checked](/guide/trouble/truck-not-being-checked).",
+          "An account on hold cannot use the app, and all its trucks are stopped. Please write to us from [the contact page](/contact) to resolve it.",
+          "If you can sign in but nothing is being checked, the cause is usually the plan, the balance or a paused truck. See [my truck is not being checked](/guide/trouble/truck-not-being-checked).",
         ],
       },
       {
         kind: "note",
         tone: "warn",
         title: "Do not open a second account",
-        text: "The free trial is once per account, mailbox and mobile number, and a new account starts with nothing — no lorries, no history, no credits. Recovering the one you have is always the shorter route.",
+        text: "The free trial is once per account, email address and mobile number, and a new account starts empty — no trucks, history or credits. Recovering your existing account is quicker.",
       },
       { kind: "cta", href: "/login", label: "Go to the sign-in page" },
     ],
     faqs: [
       {
         q: "Can I change the email I sign in with?",
-        a: "Not yourself. Write to us — the address is what your receipts, your reset link and your trial all hang on.",
+        a: "Please write to us. Your receipts, password reset and trial are linked to it.",
       },
       {
         q: "Is my data still there if I have not signed in for months?",
-        a: "Yes. Your lorries, their alerts and your purchased credits are all kept. Automatic checking will need a plan that is still running, and you take each lorry live yourself.",
+        a: "Yes. Your trucks, their alerts and your credits are all kept. Automatic checks need an active plan, and you switch each truck back on yourself.",
       },
       {
         q: "The reset link says it has expired.",
-        a: "Send a fresh one from [forgot password](/forgot-password). Each link can be used once and does not last long.",
+        a: "Request a new one from [forgot password](/forgot-password). Each link works once and expires after an hour.",
       },
     ],
   },

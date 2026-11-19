@@ -33,11 +33,11 @@ export default async function SavedTrucksPage() {
               label="About saved trucks"
               info={
                 <>
-                  <p>Your own list of up to {SAVED_LIMIT} trucks to check by hand.</p>
+                  <p>Your own list of up to {SAVED_LIMIT} trucks to check on demand.</p>
                   <p>
-                    Each check is a normal search: {formatCredits(searchCost)} credit
-                    {searchCost === 1 ? "" : "s"}, returned if it fails. Nothing is checked on its
-                    own — for that, add the truck to tracking.
+                    Each check is a normal search, at {formatCredits(searchCost)} credit
+                    {searchCost === 1 ? "" : "s"}. Saved trucks are not checked automatically; for
+                    that, add the truck to My trucks.
                   </p>
                   <p>No plan needed. Remove trucks you no longer need to keep the list short.</p>
                 </>

@@ -40,7 +40,7 @@ const PAGE_SIZE = 10;
 
 export async function generateMetadata() {
   const { brandName } = await loadSettings(getSupabaseAdmin());
-  return { title: `Refer & earn — ${brandName}` };
+  return { title: `Invite & earn — ${brandName}` };
 }
 
 /**
@@ -140,8 +140,8 @@ export default async function ReferralsPage({
           /* The code comes from a trigger on the profile, so this is close to
              impossible - but a missing link is not something to render blank. */
           <p className="text-sm leading-relaxed text-muted">
-            Your link is still being set up. Please refresh in a minute. If it still does not
-            show, contact us.
+            Your link is still being set up. Please refresh in a minute, or contact support if
+            it does not appear.
           </p>
         )}
       </Panel>
@@ -173,7 +173,7 @@ export default async function ReferralsPage({
             Your friend signs up with your link and makes a payment.
           </Step>
           <Step n={3} icon={<Wallet size={15} />} title={paysInvitee ? "You both get credits" : "You get credits"}>
-            Added to your balance on its own. No form to fill.
+            Added to your balance automatically.
           </Step>
         </ol>
 
@@ -435,18 +435,18 @@ function Rules({
 
   return (
     <ul className="list-disc space-y-1.5 pl-4">
-      <li>You earn only when your friend pays. Just signing up does not count.</li>
-      {you ? <li>You get {you}, as credits.</li> : <li>Invites do not pay anything right now.</li>}
+      <li>You earn only when your friend makes a payment. Signing up alone does not count.</li>
+      {you ? <li>You get {you}, as credits.</li> : <li>Referral rewards are not active right now.</li>}
       {them ? <li>Your friend gets {them}, as credits.</li> : null}
       {paysPlan && paysTopup ? (
         <li>
-          Each friend pays you at most twice: once for their first plan, once for their first
-          top-up. If they buy both in one payment, both rewards come together.
+          You earn at most twice per friend: on their first plan and on their first top-up. If
+          they buy both in one payment, both rewards are added together.
         </li>
       ) : paysPlan || paysTopup ? (
         <li>Each friend earns you a reward only once.</li>
       ) : null}
-      <li>Worked out on what they actually pay, after any discount, rounded to whole credits.</li>
+      <li>Rewards are based on the amount paid after any discount, rounded to whole credits.</li>
       {minPayment > 0 ? (
         <li>
           Payments under {fmtRupees(minPayment)} do not count. A bigger payment later still can.
@@ -467,7 +467,7 @@ function Rules({
       <li>
         See your balance on{" "}
         <Link href="/portal/plan" className="link">
-          Plan &amp; credits
+          Plan and credits
         </Link>
         .
       </li>
@@ -656,8 +656,8 @@ function Milestone({
           <p className={cx("mt-0.5 text-sm leading-relaxed", reached ? "text-good-500" : "text-muted")}>
             {reached
               ? alreadyPaid
-                ? "Unlocked! The bonus is on your balance."
-                : "Unlocked! The bonus is yours."
+                ? "Bonus unlocked and added to your balance."
+                : "Bonus unlocked."
               : `${fmtNumber(togo)} more ${togo === 1 ? "friend needs" : "friends need"} to pay to unlock it.`}
           </p>
         </div>
@@ -695,11 +695,11 @@ function Milestone({
 function SwitchedOff() {
   return (
     <>
-      <PageHeader icon={<Gift size={22} strokeWidth={2} />} title="Refer & earn" />
+      <PageHeader icon={<Gift size={22} strokeWidth={2} />} title="Invite & earn" />
       <Panel>
-        <p className="text-[15px] font-semibold text-strong">Refer &amp; earn is paused right now.</p>
+        <p className="text-[15px] font-semibold text-strong">Invite &amp; earn is paused right now.</p>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          Your credits and account are safe. Please check back later.
+          Please check back later.
         </p>
         <div className="mt-4">
           <LinkButton href="/portal" variant="secondary">

@@ -125,7 +125,7 @@ export default async function PortalLayout({ children }: { children: React.React
     // Messages in the sidebar. In the batch rather than after it: it depends on
     // nothing above, and on its own it was one more wait on every page.
     unreadForCustomer(getSupabaseAdmin(), session.id),
-    // The ★ in the header carries how many trucks are saved (0066).
+    // The ★ in the header is filled when any truck is saved (0066).
     countSavedTrucks(getSupabaseAdmin(), session.id),
   ]);
 
@@ -182,21 +182,16 @@ export default async function PortalLayout({ children }: { children: React.React
               {/* Saved trucks (0066): one tap from anywhere to the daily list. */}
               <Link
                 href="/portal/saved"
-                aria-label={savedCount > 0 ? `Saved trucks, ${savedCount}` : "Saved trucks"}
+                aria-label="Saved trucks"
                 title="Saved trucks"
                 className={cx(
-                  "relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border transition",
+                  "hdr-btn relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border transition",
                   savedCount > 0
                     ? "border-amber-500/40 bg-amber-400/10 text-amber-500 hover:bg-amber-400/20"
                     : "border-line bg-panel text-muted hover:bg-sunken hover:text-ink",
                 )}
               >
                 <Star size={19} className={savedCount > 0 ? "fill-amber-400" : undefined} />
-                {savedCount > 0 ? (
-                  <span className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white tabular-nums">
-                    {savedCount}
-                  </span>
-                ) : null}
               </Link>
               <MessageBell unread={unreadMessages} href="/portal/support" className="support-chat-trigger" />
 

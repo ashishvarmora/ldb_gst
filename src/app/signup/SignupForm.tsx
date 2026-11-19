@@ -55,7 +55,7 @@ export function SignupForm({
         />
       </Field>
 
-      <PhoneField hint="10 digits. We call this number only if there is a problem with your account." />
+      <PhoneField hint="10 digits. Used only to contact you about your account." />
 
       <Field label="Password" name="password">
         <PasswordInput
@@ -73,7 +73,7 @@ export function SignupForm({
           autoComplete="new-password"
           required
           minLength={8}
-          placeholder="Type it once more"
+          placeholder="Re-enter password"
         />
       </Field>
 

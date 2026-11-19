@@ -90,7 +90,7 @@ export default async function GuideArticlePage({
         <article className="min-w-0 lg:max-w-2xl">
           <Crumbs
             trail={[
-              { href: "/guide", label: "Guide" },
+              { href: "/guide", label: "Help centre" },
               { href: `/guide/${category.id}`, label: category.title },
               { label: article.title },
             ]}
@@ -223,7 +223,7 @@ export default async function GuideArticlePage({
           <p className="mt-7 text-xs text-muted">
             Still stuck?{" "}
             <Link href="/support" className="font-medium text-brand-500 hover:underline">
-              Help and support
+              Support
             </Link>{" "}
             ·{" "}
             <Link href="/guide/faq" className="font-medium text-brand-500 hover:underline">

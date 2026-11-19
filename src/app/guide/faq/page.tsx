@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: `Frequently asked questions — ${brandName}`,
     alternates: { canonical: "/guide/faq" },
     openGraph: { title: `Frequently asked questions — ${brandName}`, url: "/guide/faq", images: "/opengraph-image" },
-    description: `${count} straight answers about tracking a lorry, credits, plans, payments and alerts on ${brandName}.`,
+    description: `${count} answers about truck tracking, credits, plans, payments and alerts on ${brandName}.`,
   };
 }
 
@@ -49,7 +49,7 @@ export default async function GuideFaqPage() {
   return (
     <PublicShell action={action} mainClassName="flex-1 px-4 py-6 sm:py-9">
       <div className="mx-auto w-full max-w-3xl">
-        <Crumbs trail={[{ href: "/guide", label: "Guide" }, { label: "All questions" }]} />
+        <Crumbs trail={[{ href: "/guide", label: "Help centre" }, { label: "All questions" }]} />
 
         <header className="mb-6">
           <h1 className="text-xl font-semibold tracking-tight text-strong sm:text-2xl">
@@ -62,7 +62,7 @@ export default async function GuideFaqPage() {
             <GuideSearch
               index={SEARCH_INDEX}
               labels={labels}
-              placeholder="Search all questions — try “refund” or “paused”"
+              placeholder="Search all questions — try “credits” or “paused”"
             />
           </div>
 
@@ -122,7 +122,7 @@ export default async function GuideFaqPage() {
         <p className="mt-8 border-t border-line/70 pt-5 text-xs text-muted">
           Not here?{" "}
           <Link href="/support" className="font-medium text-brand-500 hover:underline">
-            Help and support
+            Support
           </Link>{" "}
           ·{" "}
           <Link href="/contact" className="font-medium text-brand-500 hover:underline">
@@ -130,7 +130,7 @@ export default async function GuideFaqPage() {
           </Link>{" "}
           ·{" "}
           <Link href="/guide" className="font-medium text-brand-500 hover:underline">
-            Back to the guide
+            Back to the help centre
           </Link>
         </p>
       </div>

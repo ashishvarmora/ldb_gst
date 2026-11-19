@@ -62,8 +62,8 @@ export function AddTruckForm({
             required
             info={
               <>
-                The registration number as the toll network has it. Spaces, dashes and lower case
-                are ignored, so GJ 02-at 8546 and GJ02AT8546 are the same lorry to us.
+                The registration number as it appears on the truck. Spaces, dashes and capital
+                letters do not matter.
               </>
             }
           />
@@ -115,10 +115,9 @@ export function AddTruckForm({
             htmlFor="auto_pause_amount"
             info={
               <>
-                Set this if you only need to follow this truck for a while. When the time is up it
-                is paused and you are told, so it stops spending credits at the moment you said it
-                should — even if you have long since forgotten about it. Nothing is deleted, every
-                crossing it recorded stays, and its tracking slot goes back to your plan.
+                Use this if you only need to follow the truck for a while. When the time is up,
+                tracking pauses and you are notified. Its history is kept and its tracking slot is
+                freed.
                 <span className="mt-1.5 block text-faint">
                   Leave it empty to keep checking until you pause it yourself.
                 </span>
@@ -171,19 +170,15 @@ export function AddTruckForm({
             <div className="mt-2 space-y-4">
               <div>
                 <LabelWithInfo
-                  label="Stop checking after this many failures"
+                  label="Pause after this many failed checks"
                   htmlFor="max_consecutive_failures"
                   info={
                     <>
-                      A check fails when the toll network cannot answer for this number - usually a typo,
-                      or a lorry it has stopped reporting. After five failures in a row we message
-                      you. At this many the truck is paused, because a failed check still costs a
-                      credit and retrying a number the portal will not answer just buys errors.
-                      Nothing is deleted and its recorded crossings stay.
+                      If the toll network cannot answer for this number this many times in a row,
+                      tracking pauses. The usual cause is a mistyped number. History is kept.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to use the platform default, currently{" "}
-                        {defaultFailureCutoff} failed checks. Change it here only for a truck you
-                        want more or less patience with.
+                        {defaultFailureCutoff} failed checks.
                       </span>
                     </>
                   }
@@ -215,10 +210,8 @@ export function AddTruckForm({
                   htmlFor="inactive_pause_hours"
                   info={
                     <>
-                      Counted from the last toll crossing that came through. If the lorry is parked
-                      and no new crossing arrives for this long, checking is paused and you are
-                      told — so a vehicle standing in a yard stops quietly spending credits to be
-                      given yesterday&rsquo;s answer.
+                      If no new toll crossing is recorded for this long, tracking pauses and you are
+                      notified, so a parked truck does not keep using credits.
                       <span className="mt-1.5 block text-faint">
                         Leave it empty to use the platform default, currently{" "}
                         {defaultInactiveHours} hours. Set it longer for a truck you expect to be
@@ -245,7 +238,7 @@ export function AddTruckForm({
       </div>
 
       <FormActions>
-        <SubmitButton pendingLabel="Adding...">
+        <SubmitButton pendingLabel="Adding…">
           {templates.length > 0 ? "Add truck and start watching" : "Add truck"}
         </SubmitButton>
       </FormActions>
@@ -290,8 +283,7 @@ function DeliveryRow({ state }: { state: TelegramReadiness }) {
         <Send size={13} aria-hidden className="shrink-0 text-brand-500" />
         <span className="min-w-0">
           Sent to you on <span className="font-medium text-ink">Telegram</span>
-          <span className="text-faint"> · WhatsApp coming soon</span>
-        </span>
+                  </span>
       </p>
 
       {/* Two sentences, not three. Every extra clause here is another line on a
@@ -302,10 +294,10 @@ function DeliveryRow({ state }: { state: TelegramReadiness }) {
           <AlertTriangle size={13} aria-hidden className="mt-0.5 shrink-0" />
           <span className="min-w-0">
             {state === "no-chat-id"
-              ? "No chat id saved, so alerts show in the app but are never sent."
-              : "Telegram is switched off, so alerts show in the app but are never sent."}{" "}
+              ? "No Telegram chat ID is saved, so alerts appear in the app only."
+              : "Telegram is turned off, so alerts appear in the app only."}{" "}
             <Link href="/portal/settings#alerts" className="font-medium underline">
-              {state === "no-chat-id" ? "Add your chat id" : "Turn it back on"}
+              {state === "no-chat-id" ? "Add your chat ID" : "Turn it back on"}
             </Link>
           </span>
         </p>

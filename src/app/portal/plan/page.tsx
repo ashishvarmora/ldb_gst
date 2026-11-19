@@ -125,9 +125,9 @@ export default async function PlanPage() {
    * never blocked by not having one - that is the whole point of the page.
    */
   const payBlocked = !settings.razorpayEnabled
-    ? `Online payment is switched off at the moment. Email ${settings.supportEmail || "support"} and they will set your account up.`
+    ? `Online payment is temporarily unavailable. Email ${settings.supportEmail || "support"} to complete your purchase.`
     : !razorpayConfigured()
-      ? "Online payment is not available yet. Please try again later, or contact support."
+      ? "Online payment is not available right now. Please try again later, or contact support."
       : null;
 
   /*
@@ -225,7 +225,7 @@ export default async function PlanPage() {
         <PageHeader
         icon={<PageIcon size={22} strokeWidth={2} />}
           title={lapsedPaidPlan ? "Your plan has ended" : trialOffered ? "Start with a free trial" : "Choose a plan"}
-          subtitle={lapsedPaidPlan ? "Get in touch and we will put it back on." : undefined}
+          subtitle={lapsedPaidPlan ? "Contact support to renew your plan." : undefined}
         />
 
         {expired ? (
@@ -233,13 +233,13 @@ export default async function PlanPage() {
             {onTrial ? "Your free trial ended" : "Your plan ended"} on {fmtDate(expiresOn)}, so
             automatic checking and alerts have paused.{" "}
             {graceLeft !== null && graceLeft > 0
-              ? `Your trucks are still here - renew within ${graceLeft} ${graceLeft === 1 ? "day" : "days"} and everything carries on exactly where it stopped.`
-              : "Your trucks have been switched off, but nothing has been deleted - renew and switch them back on from My trucks."}{" "}
+              ? `Your trucks are saved. Renew within ${graceLeft} ${graceLeft === 1 ? "day" : "days"} to continue where you left off.`
+              : "Your trucks are paused and nothing has been deleted. Renew, then take them live again from My trucks."}{" "}
             {/* One sentence for every lapse now. The trial used to be the
                 exception - its ending took the credits with it - and 0057
                 removed that, so there is no longer a reader for whom this
                 sentence would be false. */}
-            Manual search still works: your credits never expire.
+            Searches still work, and your credits never expire.
           </Notice>
         ) : null}
 
@@ -251,16 +251,16 @@ export default async function PlanPage() {
             is spendable like any other. */}
         {overview.credits > 0 ? (
           <Notice tone="warn">
-            You still have {formatCredits(overview.credits)}{" "}
-            {Number(overview.credits) === 1 ? "credit" : "credits"} — they never expire, and still
-            buy a search today.
+            You have {formatCredits(overview.credits)}{" "}
+            {Number(overview.credits) === 1 ? "credit" : "credits"}. Credits never expire and can still
+            be used for searches.
           </Notice>
         ) : null}
 
         {lapsedPaidPlan ? (
           <Panel
-            title="Renewing is done by us"
-            description="So that the term and the price are right for how you have actually been using it. Tell us you want it back and we will set it up the same day."
+            title="Renew your plan"
+            description="Contact support and we will renew your plan the same day."
           >
             <SupportPanel support={support} />
           </Panel>
@@ -289,12 +289,12 @@ export default async function PlanPage() {
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Step n={1} title="Pick a plan">
-                It decides how many trucks are watched automatically, for how long, and how many
+                Your plan sets how many trucks are tracked automatically, for how long, and how many
                 automatic checks one credit buys.
               </Step>
               <Step n={2} title="Watching spends credits">
-                Each automatic check uses part of a credit, so a faster alert costs more. Pause a
-                truck to stop it.
+                Each automatic check uses credits at your plan&apos;s rate, so more frequent checks
+                cost more. Pause a truck to stop its checks.
               </Step>
               {/* "with a plan or without one" was the promise the old rule
                   made, and the top-up panel three inches below this one now
@@ -302,7 +302,7 @@ export default async function PlanPage() {
                   the plan is spent on, and the one thing worth saying about
                   credits here is that they outlive it. */}
               <Step n={3} title="Credits pay for both">
-                They never expire, so a top-up carries on past the term you bought it in.
+                Credits never expire, so a top-up stays on your balance after your plan ends.
               </Step>
             </div>
           </>
@@ -404,14 +404,14 @@ export default async function PlanPage() {
                 a panel headed exactly that, on the same screen. What is left
                 is the deadline and the one thing a buyer cannot work out for
                 themselves: the days they have left are not carried over. */}
-            Ends {fmtDate(expiresOn)}, and stops by itself. A paid term starts the day you buy it —
-            the trial&apos;s remaining days are not carried over.
+            Ends {fmtDate(expiresOn)}. A paid plan starts the day you buy it; remaining trial days
+            are not carried over.
           </span>
         </p>
       ) : daysLeft !== null && daysLeft <= 14 ? (
         <Notice tone="warn">
-          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}. Get
-          in touch before then and we will put the next term on.
+          Your plan ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}, on {fmtDate(expiresOn)}. You
+          can renew it here once it ends, or contact support to arrange the next term in advance.
         </Notice>
       ) : null}
 
@@ -509,13 +509,13 @@ export default async function PlanPage() {
               way back is different: top up, or renew. "Until you top up" was in
               the opening sentence and in both branches; it is in one now. */}
           {overview.plan_active
-            ? "Your balance is too low: searching is refused, and your trucks have stopped being checked. Both start again the moment you top up."
-            : "Your balance is too low to search, and your plan has ended, so nothing is being checked either. Top up to search, renew to start the checking."}
+            ? "Your balance is too low. Searches and automatic checks are paused until you top up."
+            : "Your balance is too low to search, and your plan has ended. Top up to search, and renew your plan to restart automatic checks."}
         </Notice>
       ) : standing === "low" ? (
         <Notice tone="warn">
-          Running low - about {searchesLeftLabel(searchesLeft(overview.credits, searchCost))} left at
-          today&apos;s rate, and the trucks you are watching are spending from the same balance.
+          Running low: {searchesLeftLabel(searchesLeft(overview.credits, searchCost))} left at
+          today&apos;s rate. Automatic checks use the same balance.
         </Notice>
       ) : null}
 
@@ -561,12 +561,12 @@ export default async function PlanPage() {
           <Panel title="Move to a paid plan">
             <div className="mb-4 grid gap-2 sm:grid-cols-2">
               <Difference icon={<Wallet size={13} />} title="Topping up credits">
-                Adds credits and does nothing else. Your trial still ends on{" "}
+                Adds credits only. Your trial still ends on{" "}
                 {fmtDate(expiresOn)}.
               </Difference>
               <Difference icon={<Truck size={13} />} title="Buying a plan" highlight>
-                Raises the truck limit straight away and starts a paid term from today. The
-                plan&apos;s included credits are added on top of the balance you already have.
+                Raises the truck limit immediately and starts a paid term today. The plan&apos;s
+                included credits are added to your current balance.
               </Difference>
             </div>
 
@@ -585,7 +585,7 @@ export default async function PlanPage() {
         ) : (
           <Disclosure
             title="Changing your plan"
-            hint="A different plan, more trucks, or the next term — all of it goes through us."
+            hint="To change plan, add trucks or extend your term, contact support."
             badge={
               outOfSlots ? (
                 <Badge tone="warn">Every slot in use</Badge>
@@ -604,14 +604,14 @@ export default async function PlanPage() {
                 What is left is the answer to the question most people open
                 this fold with, in one line rather than three. */}
             <p className="mb-3 text-xs leading-relaxed text-muted">
-              Credits you can change yourself, above, without touching the plan. A different truck
-              limit or another term is a conversation — tell us what you need.
+              You can top up credits yourself above without changing your plan. For a different plan,
+              truck limit or term, contact support.
             </p>
 
             {overview.has_overrides ? (
               <p className="mb-3 text-xs leading-relaxed text-warn-500">
-                Your limits have been adjusted by hand for this account, so they may not match the
-                plan as listed. Mention that when you get in touch.
+                Your account has custom limits, so they may differ from the plan as listed. Mention
+                this when you contact support.
               </p>
             ) : null}
 
@@ -728,23 +728,22 @@ function TrialCard({
             would set an expectation the trial cannot meet. The honest framing
             is that this is one small pot for both. */}
         <TrialPoint icon={<Wallet size={13} />}>
-          {formatCredits(plan.included_credits)} credits — for searches you type or checks of the
-          truck you watch
+          {formatCredits(plan.included_credits)} credits for searches and automatic checks
         </TrialPoint>
         <TrialPoint icon={<Truck size={13} />}>
           {trucks} watched automatically
           {autoCheckRateLabel(plan) ? ` — ${autoCheckRateLabel(plan)}` : ""}
         </TrialPoint>
         <TrialPoint icon={<CalendarDays size={13} />}>
-          Ends by itself after {days} day{days === 1 ? "" : "s"} — and the credits end with it
+          Ends automatically after {days} day{days === 1 ? "" : "s"}; unused credits stay on your balance
         </TrialPoint>
       </ul>
 
       {/* One trial per customer, said before the button rather than after it
           comes back refused. */}
       <p className="mt-3 text-[11px] leading-relaxed text-faint">
-        One trial per customer. You can move to a paid plan at any time, during the trial or after
-        it has ended.
+        One trial per customer. You can move to a paid plan at any time, during or after the
+        trial.
       </p>
 
       {/*
@@ -759,13 +758,12 @@ function TrialCard({
       */}
       {emailVerified ? (
         <ActionForm action={startFreeTrial} closeOnSuccess={false} className="mt-3">
-          <SubmitButton pendingLabel="Starting...">Start the free trial</SubmitButton>
+          <SubmitButton pendingLabel="Starting…">Start the free trial</SubmitButton>
         </ActionForm>
       ) : (
         <div className="mt-3">
           <p className="mb-2 text-xs leading-relaxed text-muted">
-            One step first: the trial needs a verified email address. We will send a six-digit code
-            — it takes a minute.
+            The trial needs a verified email address. We will email you a six-digit code.
           </p>
           <Link href="/portal/verify-email" className={buttonClass("primary", "md")}>
             <Mail size={14} />
@@ -856,7 +854,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 
 function Rates({ rates }: { rates: CreditRate[] }) {
   if (rates.length === 0) {
-    return <p className="text-sm text-muted">No rates are set yet. Contact support to find out what an action costs.</p>;
+    return <p className="text-sm text-muted">Pricing is not available right now. Contact support for current rates.</p>;
   }
   return (
     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

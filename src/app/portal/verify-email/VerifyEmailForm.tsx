@@ -98,7 +98,7 @@ export function VerifyEmailForm() {
       /*
        * The action itself no longer throws, so this is the network: a phone
        * that lost signal between here and the mail app. Without it the button
-       * kept "Sending..." and stayed disabled for ever, because the finally
+       * kept "Sending…" and stayed disabled for ever, because the finally
        * below never ran - a dead screen whose only exit was a reload nobody
        * had been told to try.
        */
@@ -127,7 +127,7 @@ export function VerifyEmailForm() {
           ) : (
             <Send size={15} aria-hidden />
           )}
-          {cooldown > 0 ? `Send again in ${cooldown}s` : sending ? "Sending..." : "Email me a code"}
+          {cooldown > 0 ? `Send again in ${cooldown}s` : sending ? "Sending…" : "Email me a code"}
         </button>
 
         {sendState ? (
@@ -216,7 +216,7 @@ function SubmitCode({ disabled }: { disabled: boolean }) {
       className={cx(buttonClass("primary", "md"), "disabled:opacity-60")}
     >
       {pending ? <Loader2 size={15} className="animate-spin" /> : null}
-      {pending ? "Checking..." : "Verify"}
+      {pending ? "Checking…" : "Verify"}
     </button>
   );
 }

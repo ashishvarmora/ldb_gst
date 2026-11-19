@@ -151,7 +151,7 @@ export function Receipt({
         : "Credits added"
       : "Payment receipt"
     : row.status === "failed"
-      ? "That payment did not go through"
+      ? "This payment was not completed"
       : waiting
         ? "Waiting for confirmation"
         : "This payment has not been confirmed";
@@ -216,18 +216,18 @@ export function Receipt({
               )
             ) : row.status === "failed" ? (
               <>
-                {row.failure_reason ?? "Razorpay refused it."} Nothing was charged, and nothing was
-                added to your balance — you can try again whenever you like.
+                {row.failure_reason ?? "The payment was declined."} Nothing was charged and nothing was
+                added to your balance. You can try again at any time.
               </>
             ) : waiting ? (
               <>
-                Razorpay has not confirmed this one yet, so nothing has been added to your balance.
-                It usually takes a few seconds, and this page will say so as soon as it lands.
+                Razorpay has not confirmed this payment yet, so nothing has been added to your balance.
+                This usually takes a few seconds; this page will update automatically.
               </>
             ) : (
               <>
-                We have had no confirmation from Razorpay, so nothing has been added to your
-                balance. If money has left your account, quote the reference below{" "}
+                Razorpay has not confirmed this payment, so nothing has been added to your
+                balance. If money was debited from your account, send the reference below{" "}
                 {supportEmail ? (
                   <>to {supportEmail}</>
                 ) : (
@@ -238,7 +238,7 @@ export function Receipt({
                     to support
                   </Link>
                 )}{" "}
-                and it will be sorted out.
+                and we will resolve it.
               </>
             )}
           </p>
@@ -380,8 +380,7 @@ export function Receipt({
         </div>
       ) : (
         <p className="mt-3 text-xs leading-relaxed text-muted">
-          Recorded by hand{row.note ? `: ${row.note}` : ""}. There is no gateway reference for this
-          one.
+          Recorded by our team{row.note ? `: ${row.note}` : ""}.
         </p>
       )}
 

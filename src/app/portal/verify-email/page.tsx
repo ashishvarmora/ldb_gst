@@ -91,9 +91,9 @@ export default async function VerifyEmailPage() {
             <p className="text-xs text-faint">
               Wrong address?{" "}
               <Link href="/portal/profile/edit" className="text-brand-500 hover:underline">
-                Change it on your profile
+                See your profile
               </Link>{" "}
-              first — the code goes wherever that says.
+              for how to change it. The code is sent to your profile email.
             </p>
 
             <VerifyEmailForm />

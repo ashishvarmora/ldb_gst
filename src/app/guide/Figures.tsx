@@ -387,13 +387,13 @@ function PortalHome() {
             tone="brand"
             icon={<Wallet size={14} />}
           />
-          <StatCard label="Lorries live" value="4" sub="2 paused" tone="good" />
+          <StatCard label="Trucks live" value="4" sub="2 paused" tone="good" />
         </div>
       </Mark>
 
       <Mark n={2}>
         <Panel title="Your plan" description="Standard — ends 14 Oct 2026" bodyClassName="px-4 py-3">
-          <QuotaBar used={4} limit={10} label="Lorries watched at once" />
+          <QuotaBar used={4} limit={10} label="Trucks tracked at once" />
         </Panel>
       </Mark>
 
@@ -421,7 +421,7 @@ function PortalHome() {
 /** Adding a lorry: three fields, and the one that decides the bill. */
 function AddTruck() {
   return (
-    <Panel title="Add a lorry" bodyClassName="space-y-3 px-4 py-4">
+    <Panel title="Add a truck" bodyClassName="space-y-3 px-4 py-4">
       <Mark n={1}>
         <StillField
           label="Registration number"
@@ -436,11 +436,11 @@ function AddTruck() {
         <StillField
           label="Stop checking after"
           value="6 hours"
-          hint="Leave it and this lorry runs until something stops it."
+          hint="Leave blank to keep tracking until you pause it."
         />
       </Mark>
       <div className="flex gap-2 pt-1">
-        <StillButton label="Add lorry" />
+        <StillButton label="Add truck" />
         <StillButton label="Cancel" tone="secondary" />
       </div>
     </Panel>
@@ -545,7 +545,7 @@ function TruckDetail() {
               {SAMPLE.plaza} · 3 h ago
             </DescRow>
             <DescRow label="Checked every">15 minutes</DescRow>
-            <DescRow label="Spent on this lorry">96 credits today</DescRow>
+            <DescRow label="Credits used on this truck">96 credits today</DescRow>
           </dl>
         </Panel>
       </Mark>
@@ -581,7 +581,7 @@ async function AlertRules() {
     return (
       <Panel bodyClassName="px-4 py-3.5">
         <p className="text-sm text-muted">
-          No alert kinds are published on this deployment at the moment.
+          No alert types are available right now.
         </p>
       </Panel>
     );
@@ -648,7 +648,7 @@ async function CreditLedger() {
       <Mark n={1}>
         <div className="grid grid-cols-2 gap-2">
           <StatCard label="Balance" value="1,240" tone="brand" />
-          <StatCard label="Spent this month" value="2,880" sub="1 lorry, every 15 min" />
+          <StatCard label="Spent this month" value="2,880" sub="1 truck, every 15 min" />
         </div>
       </Mark>
 
@@ -707,7 +707,7 @@ async function PlanCards() {
   if (plans.length === 0) {
     return (
       <Panel bodyClassName="px-4 py-3.5">
-        <p className="text-sm text-muted">No plans are on sale on this deployment right now.</p>
+        <p className="text-sm text-muted">No plans are available right now.</p>
       </Panel>
     );
   }
@@ -747,7 +747,7 @@ async function PlanCards() {
             <DescRow label="Credits">{formatCredits(first.included_credits)}</DescRow>
           </Mark>
           <Mark n={4}>
-            <DescRow label="Lorries">
+            <DescRow label="Trucks">
               {first.truck_limit === -1 ? "unlimited" : first.truck_limit}
             </DescRow>
           </Mark>
@@ -766,7 +766,7 @@ async function PlanCards() {
           <p className="text-xs text-faint">{planTermLabel(second)}, charged once</p>
           <dl className="mt-2">
             <DescRow label="Credits">{formatCredits(second.included_credits)}</DescRow>
-            <DescRow label="Lorries">
+            <DescRow label="Trucks">
               {second.truck_limit === -1 ? "unlimited" : second.truck_limit}
             </DescRow>
           </dl>
@@ -787,7 +787,7 @@ async function Checkout() {
         <Panel title="Top up credits" bodyClassName="space-y-2 px-4 py-3.5">
           {packs.length === 0 ? (
             <p className="text-sm text-muted">
-              No credit packs are on sale on this deployment right now.
+              No credit packs are available right now.
             </p>
           ) : (
             packs.slice(0, 3).map((candidate, index) => (
@@ -939,8 +939,8 @@ async function PauseBadges() {
     { reason: "schedule" },
     { reason: "inactive", extra: `after ${intervalLabel(inactivePauseHours * 60)} with no crossing` },
     { reason: "repeated_failures", extra: "usually a typo in the number" },
-    { reason: "no_credits", extra: "every lorry at once" },
-    { reason: "plan_expired", extra: "every lorry at once" },
+    { reason: "no_credits", extra: "every truck at once" },
+    { reason: "plan_expired", extra: "every truck at once" },
   ];
 
   return (
@@ -976,7 +976,7 @@ function TelegramSettings() {
     <Panel title="Telegram alerts" bodyClassName="space-y-3 px-4 py-4">
       <Mark n={1}>
         <StillField
-          label="Telegram chat id"
+          label="Telegram chat ID"
           value="512340987"
           hint="A plain number. The id bot inside Telegram tells you yours."
         />
@@ -1014,35 +1014,35 @@ const SPECS: Record<FigureName, FigureSpec> = {
   "portal-home": {
     alt: "The portal's first screen",
     notes: [
-      "What is left in the wallet, and roughly how many checks that buys.",
-      "The plan: how many lorries may be watched at once, and until when.",
-      "Every lorry you have added. The count is live, paused and silent together.",
-      "Everything that has been sent to you, newest first.",
+      "Your credit balance, and roughly how many checks it covers.",
+      "Your plan: how many trucks you can track at once, and until when.",
+      "Every truck you have added, whether live, paused or without an alert.",
+      "Every alert sent to you, newest first.",
     ],
     body: <PortalHome />,
   },
   "add-truck": {
-    alt: "Adding a lorry",
+    alt: "Adding a truck",
     notes: [
-      "The registration number. Spaces and case do not matter; a wrong character does.",
-      "Your own note — a driver, a consignment, a case number. Only you see it.",
-      "When to stop by itself. This is the field that stops a forgotten lorry spending for a fortnight.",
+      "The vehicle number. Spaces and case do not matter; a wrong character does.",
+      "Your own note — a driver, a consignment or a reference. Only you see it.",
+      "When tracking should stop automatically, so a forgotten truck does not keep using credits.",
     ],
     body: <AddTruck />,
   },
   "truck-row": {
     alt: "Three rows of My trucks",
     notes: [
-      "A live lorry: green rail, where it was last recorded, and when it stops by itself.",
-      "One the platform stopped: the badge says why, and the switch is off.",
-      "One with no alert yet. It is switched on, it is never checked, and nothing will reach you.",
+      "A live truck: green rail, its last recorded crossing, and when tracking ends.",
+      "A truck paused automatically: the badge shows why, and the switch is off.",
+      "A truck with no alert yet. It is switched on but not checked, so no alerts are sent.",
     ],
     body: <TruckRow />,
   },
   "truck-detail": {
-    alt: "One lorry's own page",
+    alt: "A truck's detail page",
     notes: [
-      "The facts: where it was last recorded, how often it is checked, what it has cost.",
+      "Key details: last recorded crossing, check interval and credits used.",
       "The journey — every crossing kept, newest first.",
     ],
     body: <TruckDetail />,
@@ -1050,29 +1050,29 @@ const SPECS: Record<FigureName, FigureSpec> = {
   "alert-rules": {
     alt: "The kinds of alert",
     notes: [
-      "The kind, with its suggested beat beside it. The kind decides when you are messaged; the beat decides what it costs.",
-      "What that kind actually watches for.",
-      "The message you would receive, word for word.",
+      "The alert type, with its suggested check interval. The type decides when you are notified; the interval decides the cost.",
+      "What that alert type looks for.",
+      "The exact message you would receive.",
     ],
     after:
-      "Every kind is looked up just as often, so a quieter phone is not a cheaper lorry. Only a slower beat is cheaper.",
+      "Every alert type is checked at the same rate, so fewer alerts do not mean lower cost. Only a longer check interval costs less.",
     body: <AlertRules />,
   },
   "credit-ledger": {
     alt: "The credit ledger",
     notes: [
-      "The balance, and what this month has gone on.",
-      "Every line, including the check that found nothing — it costs the same as the one that did.",
+      "Your balance, and what was used this month.",
+      "Every entry, including automatic checks that found nothing new — they cost the same as those that did.",
     ],
     body: <CreditLedger />,
   },
   "plan-cards": {
     alt: "A plan card, line by line",
     notes: [
-      "The price. For the whole term and charged once — not a monthly figure, and there is nothing to multiply it by.",
-      "The term. Automatic checking stops at the end of it unless the plan is renewed.",
-      "Credits included. They arrive when the plan starts, and topping up is expected.",
-      "Lorries: how many may be watched at the same time, not how many you may add to the list.",
+      "The price, charged once for the whole term — not a monthly figure.",
+      "The term. Automatic checks stop at the end of it unless the plan is renewed.",
+      "Credits included. They are added when the plan starts; you can top up any time.",
+      "Trucks: how many can be tracked at the same time, not how many you can add to the list.",
     ],
     after: "Every plan on sale, with today's prices, is on [the pricing page](/pricing).",
     body: <PlanCards />,
@@ -1080,17 +1080,17 @@ const SPECS: Record<FigureName, FigureSpec> = {
   checkout: {
     alt: "Topping up credits",
     notes: [
-      "The rungs. Bigger ones are better value per credit.",
-      "A top-up changes the balance and nothing else — not the plan, not its end date.",
+      "The credit packs. Larger packs cost less per credit.",
+      "A top-up adds to your balance only. It does not change your plan or its end date.",
     ],
     body: <Checkout />,
   },
   "telegram-setup": {
     alt: "The Telegram section of Settings",
     notes: [
-      "The chat id. One number, and it is the only field that decides whether anything reaches your phone.",
-      "The switch under it. A saved id with this off sends nothing at all.",
-      "Send test. The only proof that both halves are done — if the test arrives, alerts will arrive.",
+      "Your Telegram chat ID. Alerts reach Telegram only when this is set.",
+      "The switch below it. If it is off, nothing is sent to Telegram.",
+      "Send test. If the test message arrives, alerts will arrive too.",
     ],
     after:
       `The two steps before this one happen inside Telegram itself, not here: get your id from [@${ID_BOT_USERNAME}](${ID_BOT_START_URL}), and send [@${ALERT_BOT_USERNAME}](${ALERT_BOT_START_URL}) a \`/start\`. [Get Telegram](https://telegram.org/apps)`,
@@ -1099,27 +1099,27 @@ const SPECS: Record<FigureName, FigureSpec> = {
   "referral-share": {
     alt: "Your invite link",
     notes: [
-      "Your own link. Anyone who registers on it is attached to you.",
-      "What has come of it so far. Nothing is paid until they pay.",
+      "Your invite link. Anyone who signs up with it is linked to your account.",
+      "Your referrals so far. Rewards are credited only after they make a payment.",
     ],
     body: <ReferralShare />,
   },
   "payment-history": {
     alt: "Payments",
     notes: [
-      "Every attempt is listed, including the ones that failed — a failed payment takes no money and adds no credits, so a duplicate line is normal.",
+      "Every payment attempt is listed, including unsuccessful ones. An unsuccessful payment is not charged and adds no credits.",
     ],
     body: <PaymentHistory />,
   },
   "pause-badges": {
-    alt: "Why a lorry stopped",
+    alt: "Why a truck paused",
     notes: [
-      "You paused it. Nothing to fix.",
+      "You paused it.",
       "The end time you set arrived.",
-      "No crossing for long enough that checking again was paying for yesterday's answer.",
-      "The portal would not answer for this number often enough to stop trying.",
-      "The balance could not pay for a check, so everything stopped at once.",
-      "The plan ended and the days to renew ran out.",
+      "No new crossing for the time you allowed, so tracking paused to save credits.",
+      "Repeated checks returned no result for this number.",
+      "The balance ran out, so all trucks paused.",
+      "The plan ended and was not renewed in time.",
     ],
     body: <PauseBadges />,
   },

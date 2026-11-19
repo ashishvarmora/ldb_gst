@@ -13,7 +13,7 @@ import { updateMyProfile } from "../../settings/actions";
 export const metadata = { title: "Edit profile — Rahdari" };
 export default async function EditProfilePage() {
  const [{profile,email},{supportEmail}] = await Promise.all([requirePortalSession(),publicSettings()]);
- return <div className="account-workspace edit-profile-workspace"><Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17}/>Profile</Link><PageHeader icon={<UserRound size={22}/>} title="Edit profile" subtitle="Your details, just the way you want them."/>
+ return <div className="account-workspace edit-profile-workspace"><Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17}/>Profile</Link><PageHeader icon={<UserRound size={22}/>} title="Edit profile" subtitle="Your name and contact details."/>
         <Panel id="profile" title="My profile" className="scroll-mt-20">
           <ActionForm action={updateMyProfile} closeOnSuccess={false}>
             <div className="space-y-4">
@@ -35,7 +35,7 @@ export default async function EditProfilePage() {
               <Disclosure
                 title="Company and location"
 
-                hint="Optional. Used when you call us."
+                hint="Optional. Helps us identify you when you contact support."
                 className="border-line/70 bg-raised/40 [box-shadow:none]"
                 bodyClassName="border-t border-divider px-3 py-3.5"
               >
@@ -96,11 +96,11 @@ export default async function EditProfilePage() {
               label="changing your sign-in email"
               info={
                 <p>
-                  Your email is how you sign in, so it is not changed from here.
+                  Your email is your sign-in, so it cannot be changed here.
                   {supportEmail ? (
                     <>
                       {" "}
-                      Write to{" "}
+                      Email{" "}
                       <a href={`mailto:${supportEmail}`} className="text-brand-500 hover:underline">
                         {supportEmail}
                       </a>{" "}

@@ -349,8 +349,7 @@ export function PaymentList({
                     the <dl> because it is a sentence, not a field. */}
                 {hasGatewayReference(row) ? null : (
                   <p className="mt-2 text-xs leading-relaxed text-faint">
-                    Recorded by hand{row.note ? `: ${row.note}` : ""}. There is no gateway
-                    reference for this one.
+                    Recorded by our team{row.note ? `: ${row.note}` : ""}.
                   </p>
                 )}
 

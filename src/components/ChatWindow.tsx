@@ -276,7 +276,7 @@ export function ChatWindow({
     } catch {
       setMessages((current) => current.filter((m) => m.id !== optimistic.id));
       setDraft(body);
-      setError("That message did not send. Check your connection and try again.");
+      setError("Your message could not be sent. Check your connection and try again.");
     } finally {
       setSending(false);
       boxRef.current?.focus();

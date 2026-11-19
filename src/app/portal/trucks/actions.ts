@@ -76,7 +76,7 @@ async function loadTemplate(templateId: string): Promise<AlertRuleTemplate | nul
 
 function alertAddedMessage(template: AlertRuleTemplate, minutes: number, clampedFrom: number | null): string {
   return clampedFrom !== null
-    ? `${template.name} added. The fastest this alert may run is every ${intervalLabel(template.min_interval_minutes)}, so that is what was set.`
+    ? `${template.name} added, checking every ${intervalLabel(template.min_interval_minutes)} (the fastest this alert allows).`
     : `${template.name} added, checking every ${intervalLabel(minutes)}.`;
 }
 
@@ -132,8 +132,8 @@ function sameQuestion(alerts: ExistingAlert[], identity: string): ExistingAlert 
  */
 function alreadyWatchedMessage(existing: ExistingAlert, name: string): string {
   return existing.is_enabled
-    ? `You already watch this: ${name}, every ${intervalLabel(existing.interval_minutes)}. Change how often on that alert instead of adding a second one.`
-    : `${name} is already on this truck, switched off. Turn it back on instead of adding a second one.`;
+    ? `${name} is already on this truck, checking every ${intervalLabel(existing.interval_minutes)}. Change how often on that alert instead of adding another.`
+    : `${name} is already on this truck but switched off. Turn it back on instead of adding another.`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -284,7 +284,7 @@ async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<P
 
   const typed = str(fd, "plaza");
   if (!typed) {
-    return { ok: false, error: `"${template.name}" watches one toll plaza. Type which plaza to watch.` };
+    return { ok: false, error: `"${template.name}" needs a toll plaza. Enter the plaza to watch.` };
   }
 
   const { data, error } = await getSupabaseAdmin().rpc("match_plazas", {
@@ -397,13 +397,13 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 
   const truckNumber = normalizeTruck(raw);
   if (!looksLikeTruckNumber(truckNumber)) {
-    return fail(`"${truckNumber}" does not look like a registration number. Example: GJ02AT8546`);
+    return fail(`"${truckNumber}" is not a valid registration number. Example: GJ02AT8546.`);
   }
 
   const overview = await loadOverview(session.id);
-  if (!overview) return fail("Could not read your account. Sign in again.");
+  if (!overview) return fail("Could not load your account. Please sign in again.");
   if (!overview.plan_id) {
-    return fail("No plan is assigned to your account yet. Ask your administrator to assign one.");
+    return fail("Choose a plan to start tracking trucks.");
   }
 
   const { data: existing } = await admin
@@ -414,7 +414,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     .maybeSingle();
 
   if (existing?.is_active) {
-    return fail(`${truckNumber} is already under tracking.`);
+    return fail(`${truckNumber} is already being tracked.`);
   }
 
   /*
@@ -429,7 +429,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 
   if (truckSlotsLeft(overview) <= 0) {
     return fail(
-      `Your plan allows ${overview.truck_limit} tracked truck${overview.truck_limit === 1 ? "" : "s"}. Pause or remove one first, or ask your administrator for more.`,
+      `Your plan allows ${overview.truck_limit} tracked truck${overview.truck_limit === 1 ? "" : "s"}. Pause or remove one first, or see Plan and credits for a higher limit.`,
     );
   }
 
@@ -567,7 +567,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
-  if (!truckId) return fail("Missing truck id.");
+  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { data: truck } = await admin
     .from("tracked_trucks")
@@ -590,7 +590,7 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
     }
     if (overview && truckSlotsLeft(overview) <= 0) {
       return fail(
-        `Resuming this truck would exceed your limit of ${overview.truck_limit}. Pause another one first.`,
+        `Taking this truck live would exceed your plan’s limit of ${overview.truck_limit}. Pause another truck first.`,
       );
     }
   }
@@ -710,7 +710,7 @@ export async function addTruckAlert(
 
   const truckId = str(fd, "truck_id");
   const templateId = str(fd, "template_id");
-  if (!truckId) return fail("Missing truck id.");
+  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
   if (!templateId) return fail("Choose an alert first.");
 
   const { data: truck } = await admin
@@ -784,7 +784,7 @@ export async function updateTruckAlert(
   const admin = getSupabaseAdmin();
 
   const alertId = str(fd, "alert_id");
-  if (!alertId) return fail("Missing alert id.");
+  if (!alertId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { data: alert } = await admin
     .from("truck_alerts")
@@ -814,7 +814,7 @@ export async function updateTruckAlert(
 
   return done(
     interval.clampedFrom !== null
-      ? `This alert may run every ${intervalLabel(alert.template.min_interval_minutes)} at the fastest, so that is what was set.`
+      ? `Now checking every ${intervalLabel(alert.template.min_interval_minutes)}, the fastest this alert allows.`
       : `Now checking every ${intervalLabel(interval.minutes)}.`,
   );
 }
@@ -828,7 +828,7 @@ export async function setTruckAlertEnabled(
 
   const alertId = str(fd, "alert_id");
   const enabled = fd.get("is_enabled") === "true";
-  if (!alertId) return fail("Missing alert id.");
+  if (!alertId) return fail("Something went wrong. Refresh the page and try again.");
 
   /*
    * Switching one back on can collide with a live alert asking the same
@@ -888,7 +888,7 @@ export async function deleteTruckAlert(
   const admin = getSupabaseAdmin();
 
   const alertId = str(fd, "alert_id");
-  if (!alertId) return fail("Missing alert id.");
+  if (!alertId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { data: alert, error } = await admin
     .from("truck_alerts")
@@ -923,7 +923,7 @@ export async function setTruckPaused(
 
   const truckId = str(fd, "truck_id");
   const active = fd.get("is_active") === "true";
-  if (!truckId) return fail("Missing truck id.");
+  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
   if (active) {
     const overview = await loadOverview(session.id);
@@ -947,7 +947,7 @@ export async function setTruckPaused(
     }
     if (overview && truckSlotsLeft(overview) <= 0) {
       return fail(
-        `Resuming would exceed your limit of ${overview.truck_limit} tracked trucks. Pause another one first.`,
+        `Taking this truck live would exceed your plan’s limit of ${overview.truck_limit} tracked trucks. Pause another truck first.`,
       );
     }
   }
@@ -1004,7 +1004,7 @@ export async function setTruckPaused(
   return done(
     active
       ? "This truck is live again."
-      : "Tracking paused. It spends no credits until you take it live again.",
+      : "Tracking paused. It uses no credits until you take it live again.",
   );
 }
 
@@ -1017,7 +1017,7 @@ export async function checkTruckNow(
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
-  if (!truckId) return fail("Missing truck id.");
+  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { data: truck } = await admin
     .from("tracked_trucks")
@@ -1040,7 +1040,7 @@ export async function checkTruckNow(
   return done(
     result.newCount > 0
       ? `${result.newCount} new crossing${result.newCount === 1 ? "" : "s"} found.`
-      : `No new crossings. The portal is showing ${result.found} recent crossing${result.found === 1 ? "" : "s"}.`,
+      : `No new crossings. ${result.found} recent crossing${result.found === 1 ? "" : "s"} on record.`,
   );
 }
 
@@ -1053,7 +1053,7 @@ export async function removeTruck(_prev: ActionResult | null, fd: FormData): Pro
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
-  if (!truckId) return fail("Missing truck id.");
+  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
   const { error } = await admin
     .from("tracked_trucks")

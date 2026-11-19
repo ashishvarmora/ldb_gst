@@ -28,7 +28,7 @@ export function ForgotPasswordForm() {
         />
       </Field>
 
-      <SubmitButton className="w-full" pendingLabel="Sending...">
+      <SubmitButton className="w-full" pendingLabel="Sending…">
         Send reset link
       </SubmitButton>
     </ActionForm>

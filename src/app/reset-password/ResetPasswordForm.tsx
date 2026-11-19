@@ -40,7 +40,7 @@ function SaveButton() {
   return (
     <button type="submit" disabled={pending} className={buttonClass("primary", "md", "w-full")}>
       {pending ? <Loader2 size={15} className="animate-spin" /> : null}
-      {pending ? "Saving..." : "Save new password"}
+      {pending ? "Saving…" : "Save new password"}
     </button>
   );
 }
@@ -83,8 +83,8 @@ export function ResetPasswordForm({
           <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
           <span>
             {state.message === "unchanged"
-              ? "That is already your password, so nothing needed changing. You are signed in and can use it from now on."
-              : "Your password has been changed, and you are signed in."}
+              ? "That is already your password. You are signed in."
+              : "Your password has been changed. You are signed in."}
           </span>
         </p>
         <LinkButton href="/" variant="primary" className="w-full">
@@ -97,9 +97,8 @@ export function ResetPasswordForm({
   if (linkBroken) {
     return (
       <NeedsNewLink>
-        That link came through incomplete — some email apps cut long links short.
-        Request another and open it by tapping the button in the email rather than
-        copying the address.
+        This link is incomplete. Request a new one and open it by tapping the button in
+        the email.
       </NeedsNewLink>
     );
   }
@@ -107,8 +106,7 @@ export function ResetPasswordForm({
   if (!hasToken || state?.error === "link_expired") {
     return (
       <NeedsNewLink>
-        This link has expired or has already been used. Reset links last an hour
-        and work once — if yours is newer than that, open it again from the email.
+        This link has expired or was already used. Request a new one.
       </NeedsNewLink>
     );
   }
@@ -116,7 +114,7 @@ export function ResetPasswordForm({
   return (
     <form action={formAction} className="space-y-4">
       <p className="text-sm leading-relaxed text-muted">
-        Pick something you have not used here before.
+        Choose a password you have not used before.
       </p>
 
       <Field label="New password" name="password">
@@ -135,7 +133,7 @@ export function ResetPasswordForm({
           autoComplete="new-password"
           required
           minLength={8}
-          placeholder="Type it once more"
+          placeholder="Re-enter password"
         />
       </Field>
 

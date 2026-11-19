@@ -23,14 +23,14 @@ const RULES: Rule[] = [
   {
     match: /abort|timed? ?out|etimedout|econnreset|network|fetch failed|socket hang up/i,
     message:
-      "The toll portal did not respond in time. It is usually busy rather than down - try again in a minute.",
+      "Toll records are taking longer than usual. Please try again in a minute.",
   },
   {
     match: /50[0234]|bad gateway|service unavailable|gateway timeout/i,
-    message: "The toll portal is not responding right now. Please try again shortly.",
+    message: "Toll records are temporarily unavailable. Please try again shortly.",
   },
   { match: /429|rate ?limit|too many requests/i,
-    message: "Too many lookups at once. Wait a minute and try again." },
+    message: "Too many requests at once. Please wait a minute and try again." },
   {
     match: /\b40[13]\b|forbidden|unauthorized|not authorised|not authorized/i,
     message: "You do not have access to that.",
@@ -55,13 +55,13 @@ const RULES: Rule[] = [
      own, so it must not be answered by the sentence below. */
   {
     match: /bot was blocked/i,
-    message: `Our alerts bot is blocked on your Telegram. Open t.me/${ALERT_BOT_USERNAME}, unblock it, press Start, then send another test.`,
+    message: `Our alerts bot is blocked in your Telegram. Open t.me/${ALERT_BOT_USERNAME}, unblock it, press Start, then send a test again.`,
   },
   {
     match: /chat not found|bot can'?t initiate conversation/i,
-    message: `Telegram has no conversation with our bot yet, so it refused the message. Open t.me/${ALERT_BOT_USERNAME}, press Start, then send another test.`,
+    message: `Open t.me/${ALERT_BOT_USERNAME}, press Start, then send a test again.`,
   },
-  { match: /\b404\b|not found/i, message: "That is no longer here. It may have been removed." },
+  { match: /\b404\b|not found/i, message: "This item could not be found." },
 
   // Database shapes that should never reach a person.
   {

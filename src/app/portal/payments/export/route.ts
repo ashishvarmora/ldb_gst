@@ -22,7 +22,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 export async function GET(request: NextRequest) {
   const session = await getSessionUser();
   if (!session || session.profile.status !== "active") {
-    return new NextResponse("Forbidden", { status: 403 });
+    return new NextResponse("Please sign in to download this file.", { status: 403 });
   }
 
   const params = request.nextUrl.searchParams;

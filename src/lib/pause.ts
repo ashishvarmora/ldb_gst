@@ -178,7 +178,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "neutral",
     line: "Paused by you — not being checked",
     detail:
-      "You paused this truck, so it is not being checked and it is not spending credits. Its recorded crossings are all still here, and its tracking slot is free for another lorry. Go live again whenever it is back on the road.",
+      "You paused this truck, so it is not checked and uses no credits. Its history is kept and its tracking slot is free. Take it live again when you need it.",
     resumable: true,
     automatic: false,
   },
@@ -187,7 +187,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "brand",
     line: "Stopped automatically — the tracking period you set has ended",
     detail:
-      "You set this truck to stop being checked automatically, and that time has passed — so it stopped spending credits at the moment you said it should, whether or not you were watching. Everything it recorded is still here and its tracking slot is free for another lorry. Go live to carry on, and set a new end time at the same moment.",
+      "The end time you set for this truck has passed, so tracking paused. Its history is kept and its tracking slot is free. Go live to continue, and set a new end time if needed.",
     resumable: true,
     automatic: true,
   },
@@ -196,16 +196,16 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "warn",
     line: "Stopped automatically — no toll crossing for a long time",
     detail:
-      "No new toll crossing has arrived for long enough that every further check would have cost a credit to be told the same thing again, so checking was paused. That usually means the lorry is parked. Nothing is deleted, and its tracking slot is free for another lorry meanwhile. Go live when it is back on the road.",
+      "No new toll crossing was recorded for the time you allow, so tracking paused. The truck is probably parked. Its history is kept. Go live when it is back on the road.",
     resumable: true,
     automatic: true,
   },
   repeated_failures: {
-    badge: "Portal not responding",
+    badge: "No response for this number",
     tone: "bad",
-    line: "Stopped automatically — the failure limit was reached on this number",
+    line: "Stopped automatically — too many failed checks for this number",
     detail:
-      "The portal could not answer for this registration number often enough in a row to reach this truck's failure limit, so checking was paused rather than left paying a credit per error. The usual cause is a typo in the number, or a lorry the portal has stopped reporting. Check the number before going live again — nothing will have changed if the number is wrong, and each failed check still costs a credit.",
+      "The toll network could not answer for this registration number too many times in a row, so tracking paused. The usual cause is a mistyped number. Check the number before taking the truck live again.",
     /*
      * RESUMABLE, unlike no_credits, and the difference is whether the officer
      * can see the blocking condition clear.
@@ -240,7 +240,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "bad",
     line: "Stopped — this account is suspended",
     detail:
-      "Automatic checking is stopped for every truck on this account while it is suspended, so nothing is being checked and no credits are being spent. Nothing has been lost. Contact support to have the account switched back on; going live before that will not hold.",
+      "Tracking is stopped for every truck while this account is suspended, and no credits are being used. Nothing has been lost. Contact support to restore the account.",
     resumable: false,
     automatic: true,
   },
@@ -260,9 +260,9 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
   plan_expired: {
     badge: "Plan ended",
     tone: "bad",
-    line: "Stopped — the plan ended and the renewal window has passed",
+    line: "Stopped — the plan ended and the renewal period has passed",
     detail:
-      "Your plan ran out and the days to renew in have passed, so automatic checking was switched off on every truck. It is spending nothing. Nothing has been deleted — the trucks, their alerts and every crossing they recorded are all still here, and so are your credits, which never expire and still pay for manual searches. Renew the plan, then take the trucks live again from My trucks.",
+      "Your plan ended and the renewal period has passed, so tracking was turned off on every truck. Your trucks, alerts, history and credits are all kept. Renew the plan, then take the trucks live again from My trucks.",
     resumable: false,
     automatic: true,
   },
@@ -296,7 +296,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
     tone: "bad",
     line: "Stopped automatically — there are no credits left to check with",
     detail:
-      "Your balance could not cover another check, so every truck that was live has been paused rather than left on the list claiming to be watched. That is the point at which tracking stops costing you anything: nothing is checked, nothing is spent, and nothing is lost — the trucks, their alerts and every crossing they recorded are all still here. Top up, then take the ones you still need live again. Going live before topping up will not hold, because the next check would be refused for the same reason.",
+      "Your balance could not cover another check, so every live truck was paused. Your trucks, alerts and history are kept. Top up, then take the trucks you need live again.",
     resumable: false,
     automatic: true,
   },
@@ -310,7 +310,7 @@ export const PAUSE_COPY: Record<PausedReason, PauseCopy> = {
  * the version of it that drifts is the one that stops being true.
  */
 export const PAUSE_HELP_LINE =
-  "Paused trucks keep their history but do not consume tracking credits. Resume anytime when tracking is needed again.";
+  "Paused trucks keep their history and use no credits. Take a truck live again whenever you need it.";
 
 /**
  * The situations that stop a truck by itself, as the officer meets them.
@@ -337,23 +337,23 @@ export const PAUSE_HELP_LINE =
 export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
   {
     label: "Paused by you",
-    body: "Track a lorry for the day, pause it tonight, go live again whenever you need it. Nothing is re-added and no history is lost.",
+    body: "Pause a truck when you do not need it and take it live again later. No history is lost.",
   },
   {
     label: "Tracking period ended",
-    body: "Set an end time when you add a truck — checking stops there even if you forget about it, so a forgotten lorry cannot quietly spend a fortnight of credits.",
+    body: "Tracking stops at the end time you set when adding or editing a truck.",
   },
   {
     label: "No movement detected",
-    body: "A parked lorry answers every check with yesterday's crossing. Once no crossing has arrived for the hours you allow, checking pauses instead of paying for the same answer.",
+    body: "Tracking pauses when no new crossing is recorded for the hours you allow.",
   },
   {
-    label: "Portal not responding",
-    body: "If the portal cannot answer for a number enough times in a row, checking pauses rather than paying a credit per error. Usually a typo in the number.",
+    label: "No response for this number",
+    body: "Tracking pauses after repeated failed checks for a number, usually because it is mistyped.",
   },
   {
     label: "No credits left",
-    body: "An empty balance cannot pay for a check, so every truck that was live is paused at once rather than left on the list looking watched. Top up, then take the ones you still need live again.",
+    body: "When the balance runs out, every live truck pauses. Top up, then take the trucks you need live again.",
   },
 ];
 
@@ -410,12 +410,12 @@ export function pauseWhy(
             : `${hours} hour${hours === 1 ? "" : "s"}`;
       return truck.last_event_at
         ? `Paused because no toll crossing was recorded for ${window}.`
-        : `Paused because no toll crossing was ever recorded for it, for ${window}.`;
+        : `Paused because no toll crossing has been recorded for it in ${window}.`;
     }
     case "repeated_failures":
       return truck.consecutive_errors > 0
         ? `Paused because ${truck.consecutive_errors} checks in a row could not be answered for this number.`
-        : "Paused because the portal could not answer for this number often enough in a row to reach its failure limit.";
+        : "Paused after repeated failed checks for this number.";
     case "schedule":
       return "Paused because the end time you set for it has passed.";
     case "account_suspended":
@@ -426,9 +426,9 @@ export function pauseWhy(
        officer reads a per-truck fault into an account-wide one and starts
        checking the registration number. */
     case "no_credits":
-      return "Paused because the balance ran out — every truck that was live stopped at the same moment, and none of them is spending anything now.";
+      return "Paused because the balance ran out. Every live truck was paused at the same time.";
     case "plan_expired":
-      return "Paused because the plan ended and the days to renew in have passed — every truck on the account was switched off together.";
+      return "Paused because the plan ended and the renewal period has passed. Every truck on the account was paused.";
     default:
       return null;
   }

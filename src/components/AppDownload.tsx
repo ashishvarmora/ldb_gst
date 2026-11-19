@@ -50,7 +50,7 @@ export async function AppDownload({
     : [
         "Create an account and buy your plan here on the website.",
         "Download the app and open the file to install it. If Android asks, allow installing apps from your browser.",
-        "Sign in with the same email. The plan you bought is already on it - nothing to pay again in the app.",
+        "Sign in with the same email. Your plan is already active there, so there is nothing to pay again in the app.",
       ];
 
   return (

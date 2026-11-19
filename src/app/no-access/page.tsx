@@ -33,8 +33,8 @@ export default async function NoAccessPage({
 
           <p className="mt-2 text-sm leading-relaxed text-muted">
             {suspended
-              ? "Searching and tracking are switched off on this account for now. Get in touch and we will look into it."
-              : "We could not find the details that go with this account, so there is nothing to show you yet. Get in touch and we will sort it out."}
+              ? "Searching and tracking are paused on this account. Please contact us."
+              : "Your account setup is incomplete. Please contact us to finish it."}
           </p>
 
           {supportEmail ? (

@@ -64,7 +64,7 @@ export async function startFreeTrial(
     if (!verdict.ok) {
       switch (verdict.reason) {
         case "has_plan":
-          return fail("You already have a plan running. Nothing more to do.");
+          return fail("You already have an active plan.");
         case "email_unverified":
           /*
            * The one refusal that names its own remedy, and the only one that
@@ -83,7 +83,7 @@ export async function startFreeTrial(
            * names the one thing that is certain to produce the link.
            */
           return fail(
-            "Verify your email address first — we will send a six-digit code. Reload this page and the trial card will show a Verify your email button.",
+            "Verify your email address to start the free trial. Reload this page and tap Verify your email.",
           );
         case "already_claimed":
         case "had_plan":
@@ -98,14 +98,14 @@ export async function startFreeTrial(
            * administrator can grant credits by hand if there is a real reason.
            */
           return fail(
-            "This account has already had its free trial. Choose a plan below, or contact us if you think that is wrong.",
+            "This account has already used its free trial. Choose a plan below, or contact support if you think this is a mistake.",
           );
         case "account_suspended":
-          return fail("This account is suspended. Contact support and they will look into it.");
+          return fail("This account is suspended. Please contact support.");
         case "no_trial":
           return fail("There is no free trial at the moment. Choose a plan below to get started.");
         default:
-          return fail("The free trial could not be started. Choose a plan below, or contact us.");
+          return fail("The free trial could not be started. Choose a plan below, or contact support.");
       }
     }
 
@@ -115,9 +115,9 @@ export async function startFreeTrial(
     revalidatePath("/portal/plan");
 
     return done(
-      `Your free trial is running for ${verdict.trial_days} day${
+      `Your free trial has started: ${verdict.trial_days} day${
         verdict.trial_days === 1 ? "" : "s"
-      }, with ${formatCredits(verdict.credits)} credits to spend.`,
+      }, with ${formatCredits(verdict.credits)} credits.`,
     );
   } catch (error) {
     return fail(reportError("startFreeTrial crashed", error));

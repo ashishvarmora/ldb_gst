@@ -25,7 +25,7 @@ export function RedeemBonusCode({ className }: { className?: string }) {
     <Panel
       className={className}
       title="Have a credit code?"
-      description="Codes that are worth credits go here. A discount code goes on the payment screen instead."
+      description="Enter a credit code here. Discount codes are entered at checkout."
     >
       <ActionForm action={redeemBonusCode} closeOnSuccess={false}>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -39,7 +39,7 @@ export function RedeemBonusCode({ className }: { className?: string }) {
             aria-label="Credit code"
             className="font-mono placeholder:font-sans placeholder:tracking-normal placeholder:normal-case sm:flex-1"
           />
-          <SubmitButton variant="secondary" pendingLabel="Checking...">
+          <SubmitButton variant="secondary" pendingLabel="Checking…">
             <Gift size={14} />
             Redeem
           </SubmitButton>

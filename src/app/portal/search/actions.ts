@@ -37,9 +37,9 @@ export async function manualSearch(
   if (!raw) return fail("Enter a truck number.");
 
   const truckNumber = normalizeTruck(raw);
-  if (truckNumber.length < 6) return fail("That truck number looks too short.");
+  if (truckNumber.length < 6) return fail("Enter the full registration number, e.g. MH12AB1234.");
   if (!looksLikeTruckNumber(truckNumber)) {
-    return fail(`"${truckNumber}" does not look like a registration number. Example: MH12AB1234`);
+    return fail(`"${truckNumber}" is not a valid registration number. Example: MH12AB1234.`);
   }
 
   const result = await runManualLookup({ userId: session.id, truckNumber });
@@ -66,12 +66,12 @@ export async function searchAgain(
   if (!throttle.allowed) return fail(rateLimitMessage(throttle, SEARCH_SUBJECT));
 
   const raw = str(fd, "truck_number");
-  if (!raw) return fail("Missing truck number.");
+  if (!raw) return fail("Something went wrong. Refresh the page and try again.");
   const truckNumber = normalizeTruck(raw);
   // The same check as the search box: a posted form must not be able to send
   // junk to the toll portal (and, since failures are refunded, for free).
   if (!looksLikeTruckNumber(truckNumber)) {
-    return fail(`"${truckNumber}" does not look like a registration number. Example: MH12AB1234`);
+    return fail(`"${truckNumber}" is not a valid registration number. Example: MH12AB1234.`);
   }
 
   const result = await runManualLookup({ userId: session.id, truckNumber });
@@ -87,6 +87,6 @@ export async function searchAgain(
     message:
       result.newCount > 0
         ? `${result.newCount} new crossing${result.newCount === 1 ? "" : "s"} found.`
-        : `No new crossings. The toll network is showing ${result.found} recent crossing${result.found === 1 ? "" : "s"}.`,
+        : `No new crossings. ${result.found} recent crossing${result.found === 1 ? "" : "s"} on record.`,
   };
 }

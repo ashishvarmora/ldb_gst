@@ -115,7 +115,7 @@ export function ShareLink({
           className={buttonClass("primary", "md", "w-full")}
         >
           {copied === "link" ? <Check size={17} /> : <Copy size={17} />}
-          {copied === "link" ? "Copied!" : "Copy link"}
+          {copied === "link" ? "Copied" : "Copy link"}
         </button>
 
         <a
@@ -162,7 +162,7 @@ export function ShareLink({
           className={buttonClass("ghost", "sm")}
         >
           {copied === "code" ? <Check size={14} /> : <Copy size={14} />}
-          {copied === "code" ? "Copied!" : "Copy code"}
+          {copied === "code" ? "Copied" : "Copy code"}
         </button>
       </div>
 

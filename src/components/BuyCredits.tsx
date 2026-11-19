@@ -151,7 +151,7 @@ function loadCheckoutScript(): Promise<void> {
 
   const pending = new Promise<void>((resolve, reject) => {
     const failed = () =>
-      reject(new Error("The payment window could not be loaded. Check your connection."));
+      reject(new Error("The payment window could not be loaded. Check your internet connection and try again."));
 
     // A tag from an earlier attempt that is still in flight: wait on it instead
     // of adding a second one.
@@ -298,7 +298,7 @@ function bestRefusal(verdicts: Record<string, CouponVerdict>): string | null {
  * the same code being posted directly. The fix belongs in validate_coupon.
  */
 const BONUS_CODE_MESSAGE =
-  'That is a credit code, not a discount. Enter it under "Have a credit code?" on this page and the credits go straight to your balance.';
+  'This is a credit code, not a discount code. Enter it under "Have a credit code?" on this page to add the credits to your balance.';
 
 function isBonusCode(verdicts: Record<string, CouponVerdict>): boolean {
   return Object.values(verdicts).some((verdict) => verdict.ok && verdict.kind === "credit_bonus");
@@ -543,7 +543,7 @@ function CouponField({ coupon, className }: { coupon: CouponBox; className?: str
             {coupon.applied}
           </Badge>
           <span className="text-xs text-muted">
-            {coupon.checking ? "Working out the new total..." : "applied to the prices below"}
+            {coupon.checking ? "Calculating the new total…" : "applied to the prices below"}
           </span>
           <button
             type="button"
@@ -587,7 +587,7 @@ function CouponField({ coupon, className }: { coupon: CouponBox; className?: str
             className={buttonClass("secondary", "md", "w-full sm:w-auto")}
           >
             {coupon.checking ? <Loader2 size={14} className="animate-spin" /> : null}
-            {coupon.checking ? "Checking..." : "Apply"}
+            {coupon.checking ? "Checking…" : "Apply"}
           </button>
         </div>
       )}
@@ -866,11 +866,11 @@ function PayPanel({
         className={buttonClass("primary", "md", "mt-3 w-full")}
       >
         {working ? <Loader2 size={14} className="animate-spin" /> : null}
-        {working ? "Opening payment..." : `Pay ${fmtRupees(payable)}`}
+        {working ? "Opening payment…" : `Pay ${fmtRupees(payable)}`}
       </button>
 
       <p className="mt-2 text-[11px] leading-relaxed text-faint">
-        Paid through Razorpay. Nothing is charged until you finish there.
+        Secure payment through Razorpay. You are charged only when you complete the payment.
       </p>
     </div>
   );
@@ -1024,7 +1024,7 @@ function useCheckout(brandName: string, onPaid?: () => void) {
          */
         const reason = failureReason(payload);
         setError(
-          `${reason ? asSentence(reason) : "That payment did not go through."} You can try again. If money was taken from your account, it will be added here automatically within a few minutes.`,
+          `${reason ? asSentence(reason) : "The payment was not completed."} You can try again. If money was debited from your account, your balance will update automatically within a few minutes.`,
         );
 
         const fd = new FormData();
@@ -1262,7 +1262,7 @@ function TopupAddon({
           </Field>
           <p className="mt-1 text-[11px] tabular-nums leading-relaxed text-faint">
             {openCredits === null
-              ? `Minimum ${fmtRupees(open.price_inr)}. Type that or more.`
+              ? `Minimum ${fmtRupees(open.price_inr)}. Enter that amount or more.`
               : `Buys ${formatCredits(openCredits)} credits.`}
           </p>
         </div>
@@ -1344,7 +1344,7 @@ export function BuyPlans({
       : null;
   const addonBlocked =
     addonPack && !addon
-      ? `The open top-up starts at ${fmtRupees(addonPack.price_inr)}. Type that or more, or tap it off.`
+      ? `The open top-up starts at ${fmtRupees(addonPack.price_inr)}. Enter that amount or more, or remove it.`
       : null;
 
   function toggleAddon(packId: string) {
@@ -1804,7 +1804,7 @@ export function BuyCredits({
                 </p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
                   {tooLittle
-                    ? `Minimum ${minimum}. Type that or more.`
+                    ? `Minimum ${minimum}. Enter that amount or more.`
                     : `Minimum ${minimum}${
                         credits > 0 ? ` · Rs ${(amount / credits).toFixed(2)} each` : ""
                       }`}

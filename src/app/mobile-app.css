@@ -216,3 +216,18 @@ html, body { overflow-x: clip; }
 @media (prefers-reduced-motion:reduce) {
   .portal-shell *, .portal-shell *::before, .portal-shell *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Phone and tablet header: standard app-bar proportions - a 58px bar, 36px
+   icon buttons with 18px icons, a 26px mark and an 18px wordmark. */
+@media (max-width: 1023px) {
+  .portal-header > div { min-height: 58px; padding-block: 8px; }
+  .portal-header > div > a { gap: 7px; }
+  .portal-header > div > a > img { height: 25px; width: auto; }
+  .portal-header > div > a > span { font-size: 18px; }
+  .portal-header > div > div { gap: 6px; }
+  .portal-header .hdr-btn { width: 36px; height: 36px; min-width: 36px; min-height: 36px; border-radius: 10px; }
+  .portal-header .hdr-btn svg { width: 18px; height: 18px; }
+  .portal-header .hdr-btn > span.absolute { top: -3px; right: -3px; height: 16px; min-width: 16px; font-size: 9.5px; }
+  .portal-header .support-chat-trigger { width: auto; padding-inline: 9px; gap: 5px; border-radius: 10px; }
+  .portal-header .support-chat-label { font-size: 11.5px; }
+}

@@ -83,7 +83,7 @@ export function SavedList({
 
   async function checkAll() {
     const cost = rows.length * searchCost;
-    if (!window.confirm(`Check all ${rows.length} trucks now? This uses up to ${cost} credit${cost === 1 ? "" : "s"} (failed checks are refunded).`)) return;
+    if (!window.confirm(`Check all ${rows.length} trucks now? This uses up to ${cost} credit${cost === 1 ? "" : "s"}.`)) return;
     setRunning({ done: 0, total: rows.length });
     for (const [index, row] of rows.entries()) {
       await check(row.truck_number);
@@ -102,7 +102,7 @@ export function SavedList({
   }
 
   function rename(truck: string, current: string | null) {
-    const next = window.prompt("Name this truck (optional, e.g. driver or route)", current ?? "");
+    const next = window.prompt("Name this truck (optional), e.g. driver or route", current ?? "");
     if (next === null) return;
     setRows((list) => list.map((row) => (row.truck_number === truck ? { ...row, label: next.trim() || null } : row)));
     startTransition(async () => {
@@ -133,7 +133,7 @@ export function SavedList({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
           <span className="font-semibold text-strong">{rows.length}</span> of {limit} saved
-          {rows.length >= limit ? " — full, remove one to save another" : ""}
+          {rows.length >= limit ? " — list full" : ""}
         </p>
         <button
           type="button"
@@ -179,10 +179,10 @@ export function SavedList({
                       <>
                         {failed ? <XCircle size={12} /> : <CheckCircle2 size={12} className="text-good-500" />}
                         Checked {ago(row.last_checked_at)} ({when(row.last_checked_at)})
-                        {failed ? " — failed, credit returned" : row.last_new ? ` · ${row.last_new} new` : ""}
+                        {failed ? " — not completed" : row.last_new ? ` · ${row.last_new} new` : ""}
                       </>
                     ) : (
-                      "Tap Check now to look it up"
+                      "Tap Check now to search it"
                     )}
                   </span>
                 </Link>

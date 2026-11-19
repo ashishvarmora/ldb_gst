@@ -187,14 +187,14 @@ export default async function SearchResultPage({
             trackState === "live" ? (
               <p>
                 This truck is tracked. It is checked whenever one of its alerts is due, and every
-                crossing found lands here.
+                crossing found appears here.
               </p>
             ) : trackState === "paused" ? (
               <p>Tracking is paused, so nothing is checked in the background.</p>
             ) : (
               <p>
-                This was a one-off lookup. Nothing is checked in the background — tap Check again
-                any time, or Track automatically and we check it for you.
+                One-time lookup. Tap Check again to refresh, or Track automatically to have it
+                checked for you.
               </p>
             )
           }
@@ -245,7 +245,7 @@ export default async function SearchResultPage({
             title={`Track ${truckNumber}`}
             description={
               slots === Number.POSITIVE_INFINITY
-                ? "Adds the truck to your list so you can put alerts on it."
+                ? "Adds the truck to My trucks so you can set alerts on it."
                 : `${slots} tracking slot${slots === 1 ? "" : "s"} free on your plan.`
             }
             width="sm"
@@ -256,11 +256,11 @@ export default async function SearchResultPage({
                 <Input name="label" placeholder="e.g. Supplier vehicle — north route" />
               </Field>
               <p className="mt-4 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-                Adding it on its own checks nothing. A truck is only checked once it has an alert,
-                so open it afterwards and add the alert you want.
+                Checking starts once the truck has an alert. After adding it, open the truck and
+                choose an alert.
               </p>
               <FormActions>
-                <SubmitButton pendingLabel="Adding...">Start tracking</SubmitButton>
+                <SubmitButton pendingLabel="Adding…">Start tracking</SubmitButton>
               </FormActions>
             </ActionForm>
           </Modal>
@@ -339,9 +339,9 @@ export default async function SearchResultPage({
                 label="About these times"
                 info={
                   <p>
-                    Times are when the truck crossed the plaza, in IST, newest first. Rahdari saves
-                    each crossing when a lookup finds it, so the toll network&apos;s roughly
-                    one-week window does not erase older ones.
+                    Times are when the truck crossed the plaza, in IST, newest first. Rahdari keeps
+                    every crossing it finds, including ones older than the toll network&apos;s
+                    one-week window.
                   </p>
                 }
               >
@@ -458,12 +458,12 @@ function NothingYet({ error }: { error: string | null }) {
         <p className="text-[15px] font-semibold text-strong">No crossings on record yet</p>
         <p className="max-w-md text-sm text-muted">
           {error ??
-            "The toll network only shares about the last week, so a truck that has not passed a plaza lately shows nothing."}
+            "The toll network shares about the last week of crossings, so a truck that has not passed a plaza recently shows nothing."}
         </p>
         <ul className="mt-3 w-full max-w-sm space-y-2 text-left text-sm text-muted">
-          <Tip>Check the number is typed right.</Tip>
+          <Tip>Check that the number is correct.</Tip>
           <Tip>Save it, then check again later.</Tip>
-          <Tip>Track it automatically and we check it for you.</Tip>
+          <Tip>Track it to have it checked automatically.</Tip>
         </ul>
       </div>
     </Panel>

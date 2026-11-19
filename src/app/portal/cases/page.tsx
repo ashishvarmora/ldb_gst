@@ -97,7 +97,7 @@ export default async function CasesPage({
                 <Field
                   label="Truck numbers"
                   name="truck_numbers"
-                  hint="Optional. Commas, spaces or new lines — anything else is ignored."
+                  hint="Optional. Separate numbers with commas, spaces or new lines."
                 >
                   <Textarea
                     name="truck_numbers"
@@ -108,7 +108,7 @@ export default async function CasesPage({
                 </Field>
               </div>
               <FormActions>
-                <SubmitButton pendingLabel="Creating...">Create group</SubmitButton>
+                <SubmitButton pendingLabel="Creating…">Create group</SubmitButton>
               </FormActions>
             </ActionForm>
           </Modal>
@@ -122,7 +122,7 @@ export default async function CasesPage({
             description={
               page > 1
                 ? "There are no groups this far back."
-                : "A group is just a named list of trucks. Open one and you see every crossing across the whole group on a single timeline."
+                : "A group is a named list of trucks. Open one to see every crossing across the group on a single timeline."
             }
             action={
               page > 1 ? <LinkButton href="/portal/cases">Back to the first page</LinkButton> : null

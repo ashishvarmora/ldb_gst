@@ -37,7 +37,7 @@ function csvCell(value: unknown): string {
 export async function GET(request: NextRequest) {
   const session = await getSessionUser();
   if (!session || session.profile.status !== "active") {
-    return new NextResponse("Forbidden", { status: 403 });
+    return new NextResponse("Please sign in to download this file.", { status: 403 });
   }
 
   const params = request.nextUrl.searchParams;
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await query;
   if (error) {
     console.error("records export failed:", error.message);
-    return new NextResponse("Sorry — the export could not be prepared just now. Please try again in a minute.", {
+    return new NextResponse("The export could not be prepared. Please try again in a minute.", {
       status: 500,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });

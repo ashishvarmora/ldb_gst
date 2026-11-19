@@ -52,16 +52,16 @@ export function SettlementWatch({ supportEmail }: { supportEmail: string }) {
         aria-live="polite"
       >
         <Loader2 size={13} className="shrink-0 animate-spin" />
-        Checking again every few seconds. You can leave this page — nothing will be lost.
+        Checking every few seconds. You can leave this page; your balance will update automatically.
       </p>
     );
   }
 
   return (
     <p className="mt-2 text-xs leading-relaxed text-warn-500" role="status">
-      Still no confirmation. If money has left your account it will be credited once Razorpay
-      confirms it{supportEmail ? <> — quote the reference above to {supportEmail}</> : null}. Nothing
-      has been added to your balance yet.
+      Still no confirmation, so nothing has been added to your balance yet. If money was
+      debited, it will be credited once Razorpay confirms the payment
+      {supportEmail ? <>. For help, send the reference above to {supportEmail}</> : null}.
     </p>
   );
 }

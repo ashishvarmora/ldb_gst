@@ -248,13 +248,13 @@ export function passwordResetEmail(brand: string, url: string) {
       brand,
       "Reset your password",
       [
-        "Someone asked to reset the password on this account. If that was you, use the button below.",
+        "We received a request to reset the password for this account. If this was you, use the button below.",
         "The link works once and expires in an hour.",
-        "If it was not you, ignore this email — nothing has changed.",
+        "If you did not request this, you can ignore this email.",
       ],
       { label: "Choose a new password", url },
     ),
-    text: `Reset your ${brand} password\n\nSomeone asked to reset the password on this account. If that was you, open this link:\n\n${url}\n\nThe link works once and expires in an hour. If it was not you, ignore this email - nothing has changed.`,
+    text: `Reset your ${brand} password\n\nWe received a request to reset the password for this account. If this was you, open this link:\n\n${url}\n\nThe link works once and expires in an hour. If you did not request this, you can ignore this email.`,
   };
 }
 
@@ -266,11 +266,11 @@ export function welcomeEmail(brand: string, url: string) {
       "Your account is ready",
       [
         "You can sign in now. Verify your email to start your free trial, then search any truck number to see its recorded toll crossings.",
-        "To watch a truck automatically, add it, give it an alert, and you will be told when it moves.",
+        "To track a truck automatically, add it and give it an alert. You will get an alert each time it crosses a toll plaza.",
       ],
       { label: "Sign in", url },
     ),
-    text: `Welcome to ${brand}\n\nYour account is ready - sign in at ${url}\n\nVerify your email to start your free trial, then search any truck number to see its recorded toll crossings. To watch a truck automatically, add it, give it an alert, and you will be told when it moves.`,
+    text: `Welcome to ${brand}\n\nYour account is ready — sign in at ${url}\n\nVerify your email to start your free trial, then search any truck number to see its recorded toll crossings. To track a truck automatically, add it and give it an alert. You will get an alert each time it crosses a toll plaza.`,
   };
 }
 
@@ -305,7 +305,7 @@ export function verifyEmailCode(brand: string, code: string, minutes: number) {
     html: shell(brand, "Verify your email address", [
       `Your code is <strong style="font-size:22px;letter-spacing:3px">${esc(code)}</strong>`,
       `It expires in ${minutes} minutes and can be used once.`,
-      "If you did not ask for this, ignore it - nothing has changed and no trial has started.",
+      "If you did not request this, you can ignore this email.",
     ]),
     text: [
       `Verify your ${brand} email address`,
@@ -313,7 +313,7 @@ export function verifyEmailCode(brand: string, code: string, minutes: number) {
       `Your code is ${code}`,
       "",
       `It expires in ${minutes} minutes and can be used once. ` +
-        "If you did not ask for this, ignore it - nothing has changed and no trial has started.",
+        "If you did not request this, you can ignore this email.",
     ].join("\n"),
   };
 }

@@ -72,25 +72,24 @@ export function TelegramChatIdInfo() {
       <Step n={1}>
         Open <BotLink username={ID_BOT_USERNAME} href={ID_BOT_START_URL} /> and press{" "}
         <strong className="text-ink">Start</strong>. It replies with an{" "}
-        <strong className="text-ink">Id</strong> — a plain number.
+        <strong className="text-ink">Id</strong>, which is a number.
         <span className="mt-0.5 block text-faint">
-          That number is your chat id. This bot only reads it back to you.
+          That number is your chat ID. This bot only shows it to you.
         </span>
       </Step>
       <Step n={2}>
         Open <BotLink username={ALERT_BOT_USERNAME} href={ALERT_BOT_START_URL} /> and press{" "}
         <strong className="text-ink">Start</strong> as well.
         <span className="mt-0.5 block text-faint">
-          This is the bot your alerts come from. Telegram will not let it message you until you
-          have sent it a <Mono className="text-[11px]">/start</Mono>, so skipping this is why a
-          correct chat id still delivers nothing.
+          This is the bot that sends your alerts. Telegram only lets it message you after you send
+          it <Mono className="text-[11px]">/start</Mono>.
         </span>
       </Step>
       <Step n={3}>
         Paste the number here and save.
         <span className="mt-0.5 block text-faint">
-          Both steps above are needed: the first gives you the number, the second gives us
-          permission to use it.
+          Both steps above are needed: the first gives you the number, and the second allows the
+          bot to message you.
         </span>
       </Step>
     </ol>
@@ -113,7 +112,7 @@ export function TelegramChatIdInfo() {
  */
 export function TelegramChatIdHelp({ className }: { className?: string }) {
   return (
-    <HelpNote title="How do I get my chat id?" className={className}>
+    <HelpNote title="How do I get my chat ID?" className={className}>
       <TelegramChatIdInfo />
     </HelpNote>
   );

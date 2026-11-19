@@ -47,7 +47,7 @@ const monoFace = DM_Mono({
 
 /** What the product is, in one line, wherever a link to it is unfurled. */
 const DESCRIPTION =
-  "Look up a lorry by its registration number, see the toll plazas it has passed, and get a Telegram message when it moves.";
+  "Check which toll plazas a truck crossed by its vehicle number, track your fleet, and get alerts on every crossing.";
 
 /** The brand is admin-configurable, so the document title has to be read, not written. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,11 +58,11 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(env.siteUrl),
     // What search results and shared links show for the home page; every
     // other page sets its own title.
-    title: `${brandName} — truck location by vehicle number, FASTag toll crossings`,
+    title: `${brandName} — truck tracking by vehicle number from FASTag toll crossings`,
     description: DESCRIPTION,
     applicationName: brandName,
     openGraph: {
-      title: `${brandName} — where is your truck? Check by vehicle number`,
+      title: `${brandName} — check your truck's toll crossings by vehicle number`,
       description: DESCRIPTION,
       siteName: brandName,
       type: "website",

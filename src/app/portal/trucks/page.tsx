@@ -47,8 +47,8 @@ const FILTER_LABEL: Record<Filter, string> = {
 
 /** What each tab means, for the empty state and the tab's own title. */
 const FILTER_NOTE: Record<Filter, string> = {
-  live: "Being checked automatically, and spending credits",
-  watchlist: "On your list, not being checked and not spending credits",
+  live: "Checked automatically and using credits",
+  watchlist: "On your list, not checked and not using credits",
 };
 
 /**
@@ -62,8 +62,8 @@ const FILTER_NOTE: Record<Filter, string> = {
  * ones costing money and that they can stop themselves.
  */
 const FILTER_LEAD: Record<Filter, string> = {
-  live: "Each of these is being checked and charged a credit a check.",
-  watchlist: "Paused trucks keep their history but do not consume tracking credits.",
+  live: "These trucks are checked automatically, and each check uses credits.",
+  watchlist: "Paused trucks keep their history and use no credits.",
 };
 
 /*
@@ -236,13 +236,13 @@ export default async function TrucksPage({
       />
 
       <section className="fleet-overview" aria-label="Fleet summary"><div><span>Total trucks</span><strong>{all.length}</strong></div><div><span>Tracking enabled</span><strong>{counts.live}</strong></div><div><span>Paused</span><strong>{counts.watchlist}</strong></div></section>
-      <div className="fleet-tools">{overview.plan_name ? <p><ShieldCheck size={16}/>{overview.plan_name}</p> : <Link href="/portal/plan"><ShieldCheck size={16}/>Choose a plan to add trucks →</Link>}<Link href="/portal/cases"><Layers size={16}/>Truck groups</Link></div>
+      <div className="fleet-tools">{overview.plan_name ? <p><ShieldCheck size={16}/>{overview.plan_name}</p> : <Link href="/portal/plan"><ShieldCheck size={16}/>Choose a plan to add trucks →</Link>}<Link href="/portal/cases"><Layers size={16}/>Groups</Link></div>
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
             icon={<PageIcon size={28}/>}
             title="No trucks yet"
-            description="Tap Add truck above, enter its registration and choose an alert. Its recorded crossings will stay together here."
+            description="Tap Add truck above, enter the registration number and choose an alert. Its recorded crossings will appear here."
           />
         </Panel>
       ) : (
@@ -314,7 +314,7 @@ export default async function TrucksPage({
                     href={hrefFor("watchlist", 1)}
                     className="font-medium text-brand-500 hover:underline"
                   >
-                    See your watchlist
+                    See paused trucks
                   </Link>
                   {/* Where the two per-truck limits actually live. There is no
                       account-wide page for them - they are set on the truck, or
@@ -353,8 +353,8 @@ export default async function TrucksPage({
             <p className="flex items-center gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
               <BellOff size={13} className="shrink-0" />
               <span className="min-w-0">
-                {silentCount === 1 ? "1 truck has" : `${silentCount} trucks have`} no alert, so
-                nothing is checked. Open one to add an alert.
+                {silentCount === 1 ? "1 truck has" : `${silentCount} trucks have`} no alert and will
+                not be checked. Open a truck to add one.
               </span>
             </p>
           ) : null}
@@ -362,11 +362,11 @@ export default async function TrucksPage({
           {shown.length === 0 ? (
             <Panel bodyClassName="p-0">
               <EmptyState
-                title={filter === "live" ? "Nothing is being tracked" : "Your watchlist is empty"}
+                title={filter === "live" ? "Nothing is being tracked" : "No paused trucks"}
                 description={
                   filter === "live"
-                    ? "Every truck on your list is paused, so nothing is being checked and no credits are going out. Take one live to start checking it."
-                    : "Every truck on your list is being checked. Pause any that are parked — a checked lorry costs a credit a check."
+                    ? "Every truck on your list is paused, so no credits are being used. Take a truck live to start checking it."
+                    : "Every truck on your list is being checked. Pause parked trucks to save credits."
                 }
               />
             </Panel>

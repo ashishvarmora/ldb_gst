@@ -45,7 +45,7 @@ export default async function Home() {
         plans={plans.map(plan => ({
           id: plan.id, name: plan.name, description: plan.description,
           price: fmtRupees(planChargeInr(plan)), term: planTermSuffix(plan),
-          trucks: plan.truck_limit === -1 ? "Unlimited trucks" : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} to watch`,
+          trucks: plan.truck_limit === -1 ? "Unlimited trucks" : `${plan.truck_limit} truck${plan.truck_limit === 1 ? "" : "s"} to track`,
           credits: formatCredits(plan.included_credits),
         }))}
         alertRules={alertRules}

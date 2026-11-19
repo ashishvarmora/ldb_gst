@@ -69,8 +69,8 @@ export function lastCheckedLabel(
   const paused = pauseCopyFor(truck);
   if (paused) return paused.line;
   if (truck.last_polled_at) return `Last checked ${fmtRelative(truck.last_polled_at)}`;
-  if (alerts.length === 0) return "Never checked — it has no alert yet";
-  if (!isWatching(alerts)) return "Every alert is off — nothing is checked";
+  if (alerts.length === 0) return "Not checked — no alert set";
+  if (!isWatching(alerts)) return "Not checked — every alert is off";
   return "Waiting for the first check";
 }
 
@@ -270,9 +270,9 @@ export function TruckCard({
                   <p>
                     {PAUSE_HELP_LINE}{" "}
                     {truck.paused_reason === "no_credits"
-                      ? "Top up on the Plan and credits page, then take the trucks you still need live again."
+                      ? "Top up on Plan and credits, then take the trucks you need live again."
                       : truck.paused_reason === "plan_expired"
-                        ? "Renew the plan, then take the trucks you still need live again."
+                        ? "Renew your plan, then take the trucks you need live again."
                         : "Open the truck to change when it stops by itself."}
                   </p>
                 </>
