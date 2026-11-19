@@ -195,10 +195,21 @@ export async function testMyTelegram(
 /* WhatsApp (0067)                                                             */
 /* -------------------------------------------------------------------------- */
 
+/** The profile's mobile - the one number for every contact, WhatsApp included. */
+async function profileWhatsApp(userId: string): Promise<string | null> {
+  const { data } = await getSupabaseAdmin()
+    .from("profiles")
+    .select("phone")
+    .eq("id", userId)
+    .maybeSingle<{ phone: string | null }>();
+  return toWhatsAppNumber(data?.phone);
+}
+
 /**
- * Saves the number alerts go to on WhatsApp. WhatsApp's business policy needs
- * the customer's explicit opt-in before we message them, so the box must be
- * ticked; unticking it switches WhatsApp alerts off and keeps the number.
+ * WhatsApp alerts on or off. The number is always the profile's mobile, so
+ * there is nothing to type here - only the opt-in WhatsApp's business policy
+ * requires before we message anyone. WhatsApp is for alerts only; sign-in and
+ * password resets stay on email.
  */
 export async function saveMyWhatsApp(
   _prev: ActionResult | null,
@@ -209,7 +220,6 @@ export async function saveMyWhatsApp(
   const admin = getSupabaseAdmin();
 
   const optIn = bool(fd, "opt_in");
-  const number = toWhatsAppNumber(str(fd, "whatsapp_phone"));
 
   if (!optIn) {
     const { error } = await admin
@@ -221,17 +231,19 @@ export async function saveMyWhatsApp(
     return done("WhatsApp alerts are off.");
   }
 
-  if (!number) return fail(PHONE_ERROR);
+  if (!(await profileWhatsApp(session.id))) {
+    return fail("Add your mobile number in Profile first. WhatsApp alerts go to that number.");
+  }
 
   const now = new Date().toISOString();
   const { error } = await admin.from("whatsapp_configs").upsert(
-    { user_id: session.id, phone: number, is_enabled: true, opted_in_at: now, last_error: null, updated_at: now },
+    { user_id: session.id, is_enabled: true, opted_in_at: now, last_error: null, updated_at: now },
     { onConflict: "user_id" },
   );
   if (error) return fail(reportError("saving whatsapp settings", error, "Could not save those settings."));
 
   revalidatePath("/portal/settings");
-  return done("Saved. Send a test message to confirm it works.");
+  return done("WhatsApp alerts are on. Send a test message to confirm it works.");
 }
 
 export async function testMyWhatsApp(
@@ -242,15 +254,19 @@ export async function testMyWhatsApp(
   if (!whatsappConfigured()) return fail("WhatsApp alerts are not available right now.");
   const admin = getSupabaseAdmin();
 
-  const { data: config } = await admin
-    .from("whatsapp_configs")
-    .select("phone, is_enabled")
-    .eq("user_id", session.id)
-    .maybeSingle<{ phone: string; is_enabled: boolean }>();
-  if (!config?.phone || !config.is_enabled) return fail("Save your WhatsApp number and opt in first.");
+  const [{ data: config }, number] = await Promise.all([
+    admin
+      .from("whatsapp_configs")
+      .select("is_enabled")
+      .eq("user_id", session.id)
+      .maybeSingle<{ is_enabled: boolean }>(),
+    profileWhatsApp(session.id),
+  ]);
+  if (!config?.is_enabled) return fail("Turn on WhatsApp alerts first.");
+  if (!number) return fail("Add your mobile number in Profile first.");
 
   const result = await sendWhatsAppTemplate({
-    to: config.phone,
+    to: number,
     template: env.whatsappTripTemplate,
     bodyParams: ["test", "connected to WhatsApp alerts", whatsappTime()],
     purpose: "test",

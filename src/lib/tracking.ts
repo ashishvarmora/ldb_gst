@@ -244,23 +244,26 @@ async function loadOfficerContext(admin: Admin, userId: string): Promise<Officer
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId),
-    // Before migration 0067 is applied this errors, `data` is null and
-    // WhatsApp is simply not a channel for anybody - nothing else breaks.
+    // The opt-in lives in whatsapp_configs; the number is the profile's own
+    // mobile (one source of truth for every contact). An error here leaves
+    // `data` null and WhatsApp off for this account - nothing else breaks.
     whatsappConfigured()
       ? admin
           .from("whatsapp_configs")
-          .select("phone, is_enabled")
+          .select("is_enabled, profile:profiles(phone)")
           .eq("user_id", userId)
-          .maybeSingle<{ phone: string; is_enabled: boolean }>()
+          .maybeSingle<{ is_enabled: boolean; profile: { phone: string | null } | null }>()
       : Promise.resolve({ data: null }),
   ]);
+
+  const waPhone = whatsapp?.profile?.phone ?? null;
 
   return {
     userId,
     limits: limits ?? null,
     telegram: telegram ?? null,
     pushDevices: pushDevices ?? 0,
-    whatsapp: whatsapp ?? null,
+    whatsapp: whatsapp && waPhone ? { phone: waPhone, is_enabled: whatsapp.is_enabled } : null,
   };
 }
 

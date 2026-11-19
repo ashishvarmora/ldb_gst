@@ -31,7 +31,6 @@ import { formatIndianMobile } from "@/lib/phone";
 import { whatsappConfigured } from "@/lib/whatsapp";
 
 type WhatsAppConfig = {
-  phone: string;
   is_enabled: boolean;
   verified_at: string | null;
   last_error: string | null;
@@ -70,15 +69,16 @@ export default async function PortalSettingsPage() {
       waReady
         ? admin
             .from("whatsapp_configs")
-            .select("phone, is_enabled, verified_at, last_error")
+            .select("is_enabled, verified_at, last_error")
             .eq("user_id", overview.id)
             .maybeSingle<WhatsAppConfig>()
         : Promise.resolve({ data: null }),
       admin.from("profiles").select("phone").eq("id", overview.id).maybeSingle<{ phone: string | null }>(),
     ]);
 
-  const waOn = Boolean(whatsapp?.phone) && (whatsapp?.is_enabled ?? false);
-  const waNumber = whatsapp?.phone ?? me?.phone ?? "";
+  // One number for every contact: the profile's mobile.
+  const waNumber = me?.phone ?? "";
+  const waOn = Boolean(waNumber) && (whatsapp?.is_enabled ?? false);
 
   const connected = Boolean(telegram?.chat_id) && (telegram?.is_enabled ?? false);
 
@@ -277,15 +277,19 @@ export default async function PortalSettingsPage() {
               </div>
               <ActionForm action={saveMyWhatsApp} closeOnSuccess={false}>
                 <div className="space-y-3">
-                  <Field label="WhatsApp number" name="whatsapp_phone">
-                    <Input
-                      name="whatsapp_phone"
-                      defaultValue={waNumber ? formatIndianMobile(waNumber) : ""}
-                      inputMode="tel"
-                      autoComplete="tel"
-                      placeholder="e.g. 98765 43210"
-                    />
-                  </Field>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">
+                    <span className="min-w-0 text-sm">
+                      <span className="block text-xs text-muted">Alerts go to your profile number</span>
+                      {waNumber ? (
+                        <span className="font-mono font-semibold text-ink">{formatIndianMobile(waNumber)}</span>
+                      ) : (
+                        <span className="text-warn-500">No mobile number in your profile yet</span>
+                      )}
+                    </span>
+                    <Link href="/portal/profile/edit" className="shrink-0 text-xs font-semibold text-brand-500 underline-offset-2 hover:underline">
+                      {waNumber ? "Change in Profile" : "Add in Profile"}
+                    </Link>
+                  </div>
                   <Checkbox
                     name="opt_in"
                     label="Send my truck alerts on WhatsApp"
