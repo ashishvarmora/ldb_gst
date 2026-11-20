@@ -16,7 +16,6 @@ import "./auth-public.css";
 import "./screens-polish.css";
 import "./admin-theme.css";
 import "./opening-splash.css";
-import "./loading-truck.css";
 
 /*
  * The customer app's three faces: Plus Jakarta Sans

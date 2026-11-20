@@ -1,4 +1,3 @@
-import { LoadingTruck } from "@/components/LoadingTruck";
 import { headers } from "next/headers";
 import { after } from "next/server";
 
@@ -136,7 +135,6 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <div className="theme-light portal-shell flex min-h-screen">
       <NavProgress />
-      <LoadingTruck />
 
       <PushAutoOn platformReady={integrationHealth().webPush} appReady={integrationHealth().fcm} />
 

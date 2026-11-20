@@ -143,6 +143,7 @@ export async function saveMyTelegram(
   }
 
   revalidatePath("/portal/settings");
+  revalidatePath("/portal/notifications");
   return done(chatId ? "Saved. Send a test message to confirm it works." : "Chat ID cleared.");
 }
 
@@ -179,6 +180,7 @@ export async function testMyTelegram(
     .eq("user_id", session.id);
 
   revalidatePath("/portal/settings");
+  revalidatePath("/portal/notifications");
 
   return result.ok
     ? done("Test message sent. Check Telegram.")
@@ -228,6 +230,7 @@ export async function saveMyWhatsApp(
       .eq("user_id", session.id);
     if (error) return fail(reportError("turning off whatsapp", error, "Could not save that."));
     revalidatePath("/portal/settings");
+  revalidatePath("/portal/notifications");
     return done("WhatsApp alerts are off.");
   }
 
@@ -243,6 +246,7 @@ export async function saveMyWhatsApp(
   if (error) return fail(reportError("saving whatsapp settings", error, "Could not save those settings."));
 
   revalidatePath("/portal/settings");
+  revalidatePath("/portal/notifications");
   return done("WhatsApp alerts are on. Send a test message to confirm it works.");
 }
 
@@ -283,6 +287,7 @@ export async function testMyWhatsApp(
     .eq("user_id", session.id);
 
   revalidatePath("/portal/settings");
+  revalidatePath("/portal/notifications");
   return result.ok ? done("Test message sent. Check WhatsApp.") : fail(result.error);
 }
 
@@ -460,7 +465,7 @@ export async function testMyPush(): Promise<ActionResult> {
     title: `${brandName} is connected`,
     body: "This is a test. Alerts for your tracked trucks will arrive like this.",
     tag: "test",
-    url: "/portal/settings#alerts",
+    url: "/portal/notifications",
   });
 
   if (result.ok) {
@@ -483,6 +488,11 @@ export async function testMyPush(): Promise<ActionResult> {
       "The test notification could not be delivered. Check that notifications are allowed for this app in your phone settings.",
     ),
   );
+}
+
+/** testMyPush in the (state, formData) shape a form button needs. */
+export async function testMyPushAction(_prev: ActionResult | null, _fd: FormData): Promise<ActionResult> {
+  return testMyPush();
 }
 
 /* -------------------------------------------------------------------------- */

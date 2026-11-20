@@ -978,7 +978,7 @@ export const ARTICLES: GuideArticle[] = [
         title: "The bell is your alert history",
         text: "The bell at the top of the screen lists the same alerts inside the app. To be notified on your phone, turn on phone notifications or connect Telegram in Settings.",
       },
-      { kind: "cta", href: "/portal/settings", label: "Set up alerts", hint: "Before you start tracking" },
+      { kind: "cta", href: "/portal/notifications", label: "Set up alerts", hint: "Before you start tracking" },
     ],
     faqs: [
       {
@@ -1680,7 +1680,7 @@ export const ARTICLES: GuideArticle[] = [
       { kind: "h", text: "Where alerts are delivered" },
       {
         kind: "p",
-        text: "Choose phone notifications or Telegram in [Settings](/portal/settings#alerts). For phone notifications, allow notifications for Rahdari on your device. For Telegram alerts, allow Telegram notifications and verify your chat connection. Use Send test for the channel you want to check.",
+        text: "Choose phone notifications or Telegram in [Notifications](/portal/notifications). For phone notifications, allow notifications for Rahdari on your device. For Telegram alerts, allow Telegram notifications and verify your chat connection. Use Send test for the channel you want to check.",
       },
       { kind: "h", text: "Putting Rahdari on your home screen" },
       {
@@ -1874,7 +1874,7 @@ export const ARTICLES: GuideArticle[] = [
         title: "The bell is your alert history",
         text: "The bell inside the app lists your alerts. To be notified on your phone, turn on phone notifications or connect Telegram in Settings.",
       },
-      { kind: "cta", href: "/portal/settings", label: "Check your alert settings" },
+      { kind: "cta", href: "/portal/notifications", label: "Check your alert settings" },
     ],
     faqs: [
       {

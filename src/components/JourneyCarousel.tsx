@@ -7,7 +7,7 @@ import { ArrowRight, BellRing, ChevronLeft, ChevronRight, Pause, Play, Route, Se
 const slides = [
   { title: "Find any truck\nby its number.", body: "See the toll plazas it crossed, and when.", action: "Find a truck", href: "/portal/search", icon: Search, image: true, tone: "road" },
   { title: "Your trucks\nin one list.", body: "Add a truck and see all its crossings.", action: "View my trucks", href: "/portal/trucks", icon: Route, image: false, tone: "fleet" },
-  { title: "Get an alert\nat every toll.", body: "We message you when your truck crosses a toll.", action: "Set up alerts", href: "/portal/settings#alerts", icon: BellRing, image: false, tone: "alerts" },
+  { title: "Get an alert\nat every toll.", body: "We message you when your truck crosses a toll.", action: "Set up alerts", href: "/portal/notifications", icon: BellRing, image: false, tone: "alerts" },
 ];
 
 /** Native scroll-snap supports touch, trackpads and keyboard without a motion library. */

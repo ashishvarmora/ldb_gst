@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, KeyRound, UserRound } from "lucide-react";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Disclosure } from "@/components/Disclosure";
 import { Field, FormActions, FormGrid, Input } from "@/components/form";
 import { PhoneField } from "@/components/PhoneInput";
 import { InfoTip } from "@/components/InfoTip";
@@ -10,11 +9,11 @@ import { requirePortalSession } from "@/lib/officer";
 import { publicSettings } from "@/components/SiteFooter";
 import { fmtDate } from "@/lib/format";
 import { updateMyProfile } from "../../settings/actions";
-export const metadata = { title: "Edit profile — Rahdari" };
+export const metadata = { title: "Profile details — Rahdari" };
 export default async function EditProfilePage() {
  const [{profile,email},{supportEmail}] = await Promise.all([requirePortalSession(),publicSettings()]);
- return <div className="account-workspace edit-profile-workspace"><Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17}/>Profile</Link><PageHeader icon={<UserRound size={22}/>} title="Edit profile" subtitle="Your name and contact details."/>
-        <Panel id="profile" title="My profile" className="scroll-mt-20">
+ return <div className="account-workspace edit-profile-workspace"><Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17}/>Profile</Link><PageHeader icon={<UserRound size={22}/>} title="Profile details" subtitle="Your name, mobile, company and sign-in."/>
+        <Panel id="profile" title="Your details" className="scroll-mt-20">
           <ActionForm action={updateMyProfile} closeOnSuccess={false}>
             <div className="space-y-4">
               <Field label="Full name" name="full_name">
@@ -29,16 +28,11 @@ export default async function EditProfilePage() {
               </Field>
 
 
-              <PhoneField label="Mobile number" value={profile.phone} />
+              <PhoneField label="Mobile number" value={profile.phone} hint="10 digits. Also used for WhatsApp alerts." />
 
 
-              <Disclosure
-                title="Company and location"
-
-                hint="Optional. Helps us identify you when you contact support."
-                className="border-line/70 bg-raised/40 [box-shadow:none]"
-                bodyClassName="border-t border-divider px-3 py-3.5"
-              >
+              <div className="space-y-4 border-t border-divider pt-4">
+                <p className="text-xs font-semibold text-muted">Company and location <span className="font-normal text-faint">· optional</span></p>
                 <div className="space-y-4">
                   <FormGrid cols={2}>
                     <Field label="Job title" name="designation">
@@ -81,7 +75,7 @@ export default async function EditProfilePage() {
                     </Field>
                   </FormGrid>
                 </div>
-              </Disclosure>
+              </div>
             </div>
 
             <FormActions>

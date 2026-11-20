@@ -19,9 +19,9 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
       ...(m.referralsEnabled ? [{ href: "/portal/referrals", title: "Invite & earn", detail: "Earn credits when a friend pays", icon: Gift, tone: "orange" }] : []),
     ] },
     { title: "Profile and settings", items: [
-      { href: "/portal/profile/edit", title: "Edit profile", detail: "Your name and contact details", icon: UserRound, tone: "blue" },
-      { href: "/portal/settings#alerts", title: "Notifications & alerts", detail: "Where your truck alerts are sent", icon: BellRing, tone: "violet" },
-      { href: "/portal/settings", title: "Settings", detail: "Connections and saved history", icon: Settings, tone: "mint" },
+      { href: "/portal/profile/edit", title: "Profile details", detail: "Name, mobile, company and sign-in", icon: UserRound, tone: "blue" },
+      { href: "/portal/notifications", title: "Notifications", detail: "App, WhatsApp and Telegram alerts", icon: BellRing, tone: "violet" },
+      { href: "/portal/settings", title: "Settings", detail: "App download and history backup", icon: Settings, tone: "mint" },
     ] },
     { title: "Help and support", items: [
       { href: "/portal/support", title: "Help & support", detail: "Talk to our team", icon: Headset, tone: "mint" },

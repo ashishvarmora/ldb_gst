@@ -126,7 +126,7 @@ export function AlertDeliveryBanner({
 
   return (
     <Link
-      href="/portal/settings#alerts"
+      href="/portal/notifications"
       title={detail}
       className="flex min-h-9 items-center gap-2 border-b border-warn-500/30 bg-warn-500/12 px-4 text-xs text-warn-500 transition hover:bg-warn-500/20"
     >

@@ -296,7 +296,7 @@ function DeliveryRow({ state }: { state: TelegramReadiness }) {
             {state === "no-chat-id"
               ? "No Telegram chat ID is saved, so alerts appear in the app only."
               : "Telegram is turned off, so alerts appear in the app only."}{" "}
-            <Link href="/portal/settings#alerts" className="font-medium underline">
+            <Link href="/portal/notifications" className="font-medium underline">
               {state === "no-chat-id" ? "Add your chat ID" : "Turn it back on"}
             </Link>
           </span>

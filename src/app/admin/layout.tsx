@@ -3,7 +3,6 @@ import { LayoutDashboard } from "lucide-react";
 
 import { MessageBell } from "@/components/MessageBell";
 import { AdminMobileNav, AdminSidebar } from "@/components/AdminNav";
-import { LoadingTruck } from "@/components/LoadingTruck";
 import { NavProgress } from "@/components/NavProgress";
 import { PushAutoOn } from "@/components/PushAutoOn";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -43,7 +42,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
        * route change never makes it blink.
        */}
       <NavProgress />
-      <LoadingTruck />
       {/* Admins' phones start on too - sign-ups, payments and messages. */}
       <PushAutoOn platformReady={integrationHealth().webPush} appReady={integrationHealth().fcm} />
 

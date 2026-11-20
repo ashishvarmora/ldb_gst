@@ -8,7 +8,7 @@ export function GuideHomeView({ signedIn = false }: { signedIn?: boolean }) {
   const steps = [
     { title: "Find a truck", body: "Enter its registration number. Read the toll crossings and recorded times.", icon: Search, href: signedIn ? "/portal/search" : "/guide/trucks", tone: "blue" },
     { title: "Keep it on your list", body: "Choose a plan, then add the truck you want to follow.", icon: Truck, href: signedIn ? "/portal/trucks" : "/guide/plans", tone: "mint" },
-    { title: "Get movement updates", body: "Choose an alert and connect your phone or Telegram notifications.", icon: BellRing, href: signedIn ? "/portal/settings#alerts" : "/guide/alerts", tone: "orange" },
+    { title: "Get movement updates", body: "Choose an alert and connect your phone or Telegram notifications.", icon: BellRing, href: signedIn ? "/portal/notifications" : "/guide/alerts", tone: "orange" },
   ];
   return <div className="guide-workspace account-workspace">
     {signedIn && <Link href="/portal/profile" className="app-back-link"><ArrowLeft size={17}/>Profile</Link>}
