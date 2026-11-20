@@ -85,6 +85,17 @@ export const env = {
   get whatsappTripTemplate() {
     return process.env.WA_TEMPLATE_TRIP_UPDATE ?? "rahdari_trip_update";
   },
+  /** Tried in order when the main template is not approved yet (comma-separated). */
+  get whatsappTemplateFallbacks(): string[] {
+    return (process.env.WA_TEMPLATE_FALLBACKS ?? "rahdari_trip_alert")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  },
+  /** The Rahdari WhatsApp number customers can message (digits, with 91). */
+  get whatsappPublicNumber() {
+    return process.env.WHATSAPP_PUBLIC_NUMBER ?? "919213434855";
+  },
   get whatsappTemplateLang() {
     return process.env.WA_TEMPLATE_LANG ?? "en";
   },

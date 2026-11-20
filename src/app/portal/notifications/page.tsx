@@ -121,6 +121,16 @@ export default async function NotificationsPage() {
                 <SubmitButton size="sm">Save</SubmitButton>
               </ActionForm>
             ) : null}
+            {/* Messaging us opens WhatsApp's 24-hour window: alerts then arrive as full messages. */}
+            <a
+              href={`https://wa.me/${env.whatsappPublicNumber}?text=Hi`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="notify-wa-link"
+            >
+              <MessageCircle size={14} />
+              Message Rahdari on WhatsApp
+            </a>
           </Channel>
         ) : null}
 

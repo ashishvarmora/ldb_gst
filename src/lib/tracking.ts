@@ -18,7 +18,7 @@ import { formatPushAlert, sendPushToUser } from "@/lib/push";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
-import { noticeParams, sendWhatsAppTemplate, tripUpdateParams, whatsappConfigured } from "@/lib/whatsapp";
+import { formatWhatsAppText, noticeParams, sendWhatsAppAlert, tripUpdateParams, whatsappConfigured } from "@/lib/whatsapp";
 import { fmtDateTime } from "@/lib/format";
 import { canEmailCustomers, esc, sendEmail, shell } from "@/lib/email";
 import { env } from "@/lib/env";
@@ -301,8 +301,8 @@ async function deliverAlert({
   context: OfficerContext;
   telegramText: string;
   push: { title: string; body: string; tag: string; url: string };
-  /** The trip-update template's three parameters: truck, what happened, when. */
-  whatsapp: string[];
+  /** Template parameters (truck, what happened, when) and the plain-text version for the 24-hour window. */
+  whatsapp: { params: string[]; text: string };
 }): Promise<Delivery> {
   const telegramAllowed =
     (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
@@ -328,10 +328,10 @@ async function deliverAlert({
       : null,
     pushAllowed ? sendPushToUser(context.userId, push) : null,
     whatsappAllowed
-      ? sendWhatsAppTemplate({
+      ? sendWhatsAppAlert({
           to: context.whatsapp!.phone,
-          template: env.whatsappTripTemplate,
-          bodyParams: whatsapp,
+          text: whatsapp.text,
+          params: whatsapp.params,
           purpose: "alert",
           userId: context.userId,
         })
@@ -413,7 +413,7 @@ async function dispatchAlerts({
         tag: `${truckId}:${draft.kind}`,
         url: `/portal/trucks/${truckId}`,
       },
-      whatsapp: tripUpdateParams(position),
+      whatsapp: { params: tripUpdateParams(position), text: formatWhatsAppText(position) },
     });
 
     if (sent) delivered += 1;
@@ -480,7 +480,10 @@ async function sendSystemAlert({
        */
       url: "/portal/notifications",
     },
-    whatsapp: noticeParams(truckNumber, title),
+    whatsapp: {
+      params: noticeParams(truckNumber, title),
+      text: [`*${title}*`, ...(truckNumber ? [`🚚 ${truckNumber}`] : []), "", message, "", "— Rahdari"].join("\n"),
+    },
   });
 
   const { error } = await admin.from("alert_logs").insert({

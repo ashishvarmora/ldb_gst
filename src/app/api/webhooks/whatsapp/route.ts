@@ -62,16 +62,42 @@ export async function POST(request: NextRequest) {
   }
 
   const statuses: StatusEvent[] = [];
-  let incoming = 0;
+  // wa_id -> newest inbound time (epoch seconds), for the 24-hour reply window.
+  const inbound = new Map<string, { at: number; n: number }>();
   for (const entry of payload?.entry ?? []) {
     for (const change of entry.changes ?? []) {
       statuses.push(...(change.value?.statuses ?? []));
-      incoming += change.value?.messages?.length ?? 0;
+      for (const m of (change.value?.messages ?? []) as { from?: string; timestamp?: string }[]) {
+        if (!m.from || !/^\d{8,15}$/.test(m.from)) continue;
+        const at = Number(m.timestamp) || Math.floor(Date.now() / 1000);
+        const prev = inbound.get(m.from);
+        inbound.set(m.from, { at: Math.max(at, prev?.at ?? 0), n: (prev?.n ?? 0) + 1 });
+      }
     }
   }
-  if (incoming) console.info(`[whatsapp] ${incoming} incoming message(s) received`);
 
   const admin = getSupabaseAdmin();
+
+  // Record when each number last wrote to us - never what it wrote.
+  for (const [waId, { at, n }] of inbound) {
+    const when = new Date(at * 1000).toISOString();
+    const { data: row } = await admin
+      .from("whatsapp_inbound")
+      .select("last_inbound_at, message_count")
+      .eq("wa_id", waId)
+      .maybeSingle<{ last_inbound_at: string; message_count: number }>();
+    const { error } = await admin.from("whatsapp_inbound").upsert(
+      {
+        wa_id: waId,
+        last_inbound_at: row && row.last_inbound_at > when ? row.last_inbound_at : when,
+        message_count: (row?.message_count ?? 0) + n,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "wa_id" },
+    );
+    if (error) console.error("[whatsapp] inbound upsert failed:", error.message);
+  }
+  if (inbound.size) console.info(`[whatsapp] inbound from ${inbound.size} number(s)`);
   for (const event of statuses) {
     if (!event.id || !event.status || !(event.status in ORDER)) continue;
     const { data: row } = await admin

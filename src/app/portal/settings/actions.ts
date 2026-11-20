@@ -13,7 +13,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/types";
 import { env } from "@/lib/env";
-import { sendWhatsAppTemplate, toWhatsAppNumber, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
+import { sendWhatsAppAlert, toWhatsAppNumber, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
 
 /* -------------------------------------------------------------------------- */
 /* the customer's own details                                                  */
@@ -269,10 +269,10 @@ export async function testMyWhatsApp(
   if (!config?.is_enabled) return fail("Turn on WhatsApp alerts first.");
   if (!number) return fail("Add your mobile number in Profile first.");
 
-  const result = await sendWhatsAppTemplate({
+  const result = await sendWhatsAppAlert({
     to: number,
-    template: env.whatsappTripTemplate,
-    bodyParams: ["test", "connected to WhatsApp alerts", whatsappTime()],
+    text: ["*Rahdari is connected*", "", "This is a test. Your truck alerts will arrive here on WhatsApp.", "", "— Rahdari"].join("\n"),
+    params: ["test", "connected to WhatsApp alerts", whatsappTime()],
     purpose: "test",
     userId: session.id,
   });
