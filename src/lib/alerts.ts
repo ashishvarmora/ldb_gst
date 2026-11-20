@@ -32,6 +32,7 @@ export const ALERT_KIND_LABEL: Record<AlertRuleKind, string> = {
   periodic_location: "Every check",
   location_change: "Only when it moves",
   plaza_crossing: "When it reaches a plaza",
+  halt: "When the truck halts",
 };
 
 export const ALERT_KIND_HINT: Record<AlertRuleKind, string> = {
@@ -41,6 +42,8 @@ export const ALERT_KIND_HINT: Record<AlertRuleKind, string> = {
     "Checked just as often, but you are notified only when the truck reaches a different toll plaza.",
   plaza_crossing:
     "Name one toll plaza. You are notified the first time the truck is recorded there.",
+  halt:
+    "Notified when no toll crossing is recorded for the hours you set, then every 1 hour until it moves.",
 };
 
 /** A sample of the message itself. Shorter than any explanation of it. */
@@ -48,7 +51,43 @@ export const ALERT_KIND_EXAMPLE: Record<AlertRuleKind, string> = {
   periodic_location: "GJ02AT8546 is at Nadiad Toll Plaza",
   location_change: "GJ02AT8546 moved to Nadiad Toll Plaza",
   plaza_crossing: "GJ02AT8546 reached Nadiad Toll Plaza",
+  halt: "GJ02AT8546 has halted: no toll crossing for 4 hours",
 };
+
+/** The halt alert's reminder cadence, fixed by the owner (20 Nov 2026). */
+export const HALT_REMINDER_MINUTES = 60;
+
+/** "1 hour", "4 hours" - units always spelled out. */
+export function hoursLabel(hours: number): string {
+  const h = Math.round(hours * 10) / 10;
+  return `${h} ${h === 1 ? "hour" : "hours"}`;
+}
+
+/** The halt alert's two hour fields: bounds shared by the form and the server. */
+export const HALT_AFTER_MAX_HOURS = 72;
+export const HALT_PAUSE_MAX_HOURS = 168;
+export const HALT_PAUSE_ORDER_ERROR = "Pause time must be longer than the alert time.";
+
+/** What an alert's row shows under the alert name - fully worded units. */
+export function alertCadence(alert: {
+  kind: AlertRuleKind;
+  intervalMinutes: number;
+  plaza?: string | null;
+  haltAfterHours?: number | null;
+  pauseAfterHours?: number | null;
+}): string {
+  if (alert.kind === "halt") {
+    return [
+      alert.haltAfterHours ? `after ${hoursLabel(alert.haltAfterHours)}` : null,
+      alert.pauseAfterHours ? `pause after ${hoursLabel(alert.pauseAfterHours)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return [`every ${intervalLabel(alert.intervalMinutes)}`, alert.plaza ?? null]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /** Only this kind needs a plaza named, so only this kind shows the search box. */
 export function needsPlaza(kind: AlertRuleKind): boolean {
@@ -118,6 +157,8 @@ export function alertSentence(
       return `${beat}; you get a message only when the truck reaches a different toll plaza.`;
     case "plaza_crossing":
       return `${beat}; you get a message when the truck reaches ${plaza?.trim() || "the toll plaza you name"}.`;
+    case "halt":
+      return "Checked every 1 hour; you get a message when the truck halts, every 1 hour while it stays halted, and when it moves again.";
     default:
       return `${beat}.`;
   }
@@ -152,6 +193,9 @@ export type AlertStateUpdate = {
    * and 15:00 Malvan are two crossings with one name.
    */
   last_event_at?: string | null;
+  /** Halt alert only. */
+  halt_active?: boolean;
+  halt_notified_at?: string | null;
 };
 
 export type AlertOutcome = { draft: AlertDraft | null; stateUpdate: AlertStateUpdate };
@@ -394,6 +438,84 @@ export function evaluateAlert({
     }
 
     /* -------------------------------------------------------------------- */
+    case "halt": {
+      // Halted = no new toll crossing for halt_after_hours, measured from the
+      // latest crossing on record. Nothing on record means nothing to judge.
+      const haltHours = alert.halt_after_hours ?? null;
+      const seenAt = position.eventTime;
+      if (!haltHours || !seenAt) return { draft: null, stateUpdate };
+      const seenMs = new Date(seenAt).getTime();
+      if (Number.isNaN(seenMs)) return { draft: null, stateUpdate };
+
+      const wasHalted = alert.halt_active ?? false;
+      const reportedAt = alert.last_event_at ? new Date(alert.last_event_at).getTime() : null;
+      const idleHours = (now.getTime() - seenMs) / 3_600_000;
+
+      // 1. Halted earlier and a newer crossing has arrived: moving again.
+      if (wasHalted && reportedAt !== null && seenMs > reportedAt) {
+        stateUpdate.halt_active = false;
+        stateUpdate.halt_notified_at = null;
+        stateUpdate.last_event_at = seenAt;
+        stateUpdate.last_location = position.locName;
+        return {
+          draft: {
+            alertId: alert.id,
+            kind: "halt",
+            title: `${truckNumber} is moving again`,
+            message: `Crossed ${place(position)}${heading(position)}.`,
+            position,
+          },
+          stateUpdate,
+        };
+      }
+
+      // 2. Not halted (yet): keep the latest crossing as the baseline.
+      if (idleHours < haltHours) {
+        if (wasHalted) {
+          stateUpdate.halt_active = false;
+          stateUpdate.halt_notified_at = null;
+        }
+        stateUpdate.last_event_at = seenAt;
+        stateUpdate.last_location = position.locName;
+        return { draft: null, stateUpdate };
+      }
+
+      // 3. Halted: the first alert, then a reminder every HALT_REMINDER_MINUTES.
+      const idleText = hoursLabel(Math.floor(idleHours));
+      const lastSeen = `Last seen at ${place(position)}${heading(position)}.`;
+      if (!wasHalted) {
+        stateUpdate.halt_active = true;
+        stateUpdate.halt_notified_at = stamp;
+        stateUpdate.last_event_at = seenAt;
+        stateUpdate.last_location = position.locName;
+        return {
+          draft: {
+            alertId: alert.id,
+            kind: "halt",
+            title: `${truckNumber} has halted`,
+            message: `No toll crossing for ${idleText}. ${lastSeen}`,
+            position,
+          },
+          stateUpdate,
+        };
+      }
+      if (intervalElapsed(alert.halt_notified_at ?? null, HALT_REMINDER_MINUTES, now)) {
+        stateUpdate.halt_notified_at = stamp;
+        return {
+          draft: {
+            alertId: alert.id,
+            kind: "halt",
+            title: `${truckNumber} is still halted`,
+            message: `No toll crossing for ${idleText}. ${lastSeen}`,
+            position,
+          },
+          stateUpdate,
+        };
+      }
+      return { draft: null, stateUpdate };
+    }
+
+    /* -------------------------------------------------------------------- */
     default:
       return { draft: null, stateUpdate };
   }
@@ -401,6 +523,15 @@ export function evaluateAlert({
 
 /** One line describing an alert in a list: "Only when it moves · every 30m". */
 export function describeAlert(alert: TruckAlertWithTemplate): string {
+  if (alert.template.kind === "halt") {
+    return [
+      alert.template.name,
+      alert.halt_after_hours ? `after ${hoursLabel(alert.halt_after_hours)}` : null,
+      alert.pause_after_hours ? `pause after ${hoursLabel(alert.pause_after_hours)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
   const parts = [alert.template.name, `every ${intervalShort(alert.interval_minutes)}`];
   if (alert.plaza) parts.push(alert.plaza);
   return parts.join(" · ");

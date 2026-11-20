@@ -1,13 +1,14 @@
 import Link from "next/link";
-import { ArrowLeft, BellRing, CheckCircle2, MessageCircle, Send, Smartphone } from "lucide-react";
+import { ArrowLeft, BellRing, ChevronDown, MessageCircle, Send, Smartphone } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { saveMyTelegram, saveMyWhatsApp, testMyPushAction, testMyTelegram, testMyWhatsApp } from "../settings/actions";
 import { ActionForm, InlineActionForm, SubmitButton } from "@/components/ActionForm";
 import { Checkbox, Field, Input } from "@/components/form";
+import { InfoTip } from "@/components/InfoTip";
 import { publicSettings } from "@/components/SiteFooter";
 import { TelegramChatIdHelp } from "@/components/TelegramChatIdInfo";
-import { Badge, PageHeader } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { env } from "@/lib/env";
 import { friendlyError } from "@/lib/errors";
 import { fmtRelative } from "@/lib/format";
@@ -23,12 +24,18 @@ export async function generateMetadata() {
 }
 
 type WhatsAppConfig = { is_enabled: boolean; verified_at: string | null; last_error: string | null };
+type State = "on" | "off" | "issue";
 
 /**
- * Where truck alerts arrive - one compact page, one row per channel:
- *   App notifications  always on (PushAutoOn subscribes each device); test only
- *   WhatsApp           off by default; opt-in; goes to the profile's mobile
- *   Telegram           on once a chat ID is saved; the chat-ID guide as before
+ * Where truck alerts arrive. One compact row per channel - the same pattern for
+ * every channel, today and later (email, SMS…):
+ *
+ *   [icon] Name                          ● status   ˅
+ *          one short line: where / how many
+ *
+ * The status reads at a glance (green dot + green edge = on, grey = off, red =
+ * needs attention). Tapping the row opens its settings, Test and (i) help.
+ * App notifications are always on, so that row has no settings - just Test.
  */
 export default async function NotificationsPage() {
   const { overview } = await requirePortalSession();
@@ -52,6 +59,8 @@ export default async function NotificationsPage() {
   const phone = me?.phone ?? "";
   const waOn = Boolean(phone) && (whatsapp?.is_enabled ?? false);
   const tgOn = Boolean(telegram?.chat_id) && (telegram?.is_enabled ?? false);
+  const waState: State = waOn ? (whatsapp?.last_error ? "issue" : "on") : "off";
+  const tgState: State = tgOn ? (telegram?.last_error ? "issue" : "on") : "off";
 
   return (
     <div className="account-workspace notify-workspace">
@@ -61,108 +70,110 @@ export default async function NotificationsPage() {
       </Link>
       <PageHeader icon={<BellRing size={22} />} title="Notifications" subtitle="Where your truck alerts arrive." />
 
-      <div className="notify-list">
-        {/* App notifications: always on, nothing to set */}
-        <Channel
-          icon={<Smartphone size={18} />}
-          tone="blue"
-          title="App notifications"
-          status={<Badge tone="good"><CheckCircle2 size={10} />always on</Badge>}
-          detail={
-            devices > 0
-              ? `On ${devices === 1 ? "1 device" : `${devices} devices`}.`
-              : "Allow notifications when your phone or browser asks."
-          }
-          action={
-            <InlineActionForm action={testMyPushAction}>
+      <div className="nrow-list">
+        {/* App notifications: always on - nothing to set, only a test. */}
+        <section className="nrow is-on">
+          <div className="nrow-head">
+            <span className="nrow-icon app-tone-blue"><Smartphone size={18} /></span>
+            <span className="nrow-text">
+              <span className="nrow-title">App notifications</span>
+              <span className="nrow-sub">
+                Always on{devices > 0 ? ` · ${devices === 1 ? "1 device" : `${devices} devices`}` : " · allow when asked"}
+              </span>
+            </span>
+            <InlineActionForm action={testMyPushAction} className="nrow-test">
               <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
-                <Send size={13} />
                 Test
               </SubmitButton>
             </InlineActionForm>
-          }
-        />
+          </div>
+        </section>
 
-        {/* WhatsApp: off by default, alerts only, to the profile number */}
         {waReady ? (
           <Channel
             icon={<MessageCircle size={18} />}
             tone="mint"
             title="WhatsApp"
-            status={waOn ? <Badge tone="good"><CheckCircle2 size={10} />on</Badge> : <Badge tone="neutral">off</Badge>}
-            detail={
-              whatsapp?.last_error && waOn ? (
-                <span className="text-bad-500">{whatsapp.last_error}</span>
-              ) : phone ? (
-                <>
-                  To <span className="font-mono text-ink">{formatIndianMobile(phone)}</span> ·{" "}
-                  <Link href="/portal/profile/edit" className="text-brand-500 hover:underline">change</Link>
-                </>
-              ) : (
-                <>
-                  <Link href="/portal/profile/edit" className="text-brand-500 hover:underline">Add your mobile number</Link> to use WhatsApp.
-                </>
-              )
+            state={waState}
+            sub={
+              waState === "issue"
+                ? "Needs attention"
+                : waOn
+                  ? formatIndianMobile(phone)
+                  : phone
+                    ? "Off · tap to turn on"
+                    : "Add your mobile number first"
             }
-            action={
-              waOn ? (
+          >
+            {whatsapp?.last_error && waOn ? <p className="nrow-error">{whatsapp.last_error}</p> : null}
+            {phone ? (
+              <>
+                <p className="nrow-line">
+                  Alerts go to <strong className="font-mono">{formatIndianMobile(phone)}</strong>
+                  {" · "}
+                  <Link href="/portal/profile/edit" className="nrow-link">Change</Link>
+                </p>
+                <ActionForm action={saveMyWhatsApp} closeOnSuccess={false} className="nrow-form">
+                  <Checkbox name="opt_in" label="Send my truck alerts on WhatsApp" defaultChecked={waOn} />
+                  <SubmitButton size="sm">Save</SubmitButton>
+                </ActionForm>
+              </>
+            ) : (
+              <p className="nrow-line">
+                <Link href="/portal/profile/edit" className="nrow-link">Add your mobile number</Link> to use WhatsApp.
+              </p>
+            )}
+            <div className="nrow-actions">
+              {waOn ? (
                 <InlineActionForm action={testMyWhatsApp}>
                   <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
                     <Send size={13} />
-                    Test
+                    Send test
                   </SubmitButton>
                 </InlineActionForm>
-              ) : null
-            }
-          >
-            {phone ? (
-              <ActionForm action={saveMyWhatsApp} closeOnSuccess={false} className="notify-inline-form">
-                <Checkbox name="opt_in" label="Send my truck alerts on WhatsApp" defaultChecked={waOn} />
-                <SubmitButton size="sm">Save</SubmitButton>
-              </ActionForm>
-            ) : null}
-            {/* Messaging us opens WhatsApp's 24-hour window: alerts then arrive as full messages. */}
-            <a
-              href={`https://wa.me/${env.whatsappPublicNumber}?text=Hi`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="notify-wa-link"
-            >
-              <MessageCircle size={14} />
-              Message Rahdari on WhatsApp
-            </a>
+              ) : null}
+              <a
+                href={`https://wa.me/${env.whatsappPublicNumber}?text=Hi`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="notify-wa-link"
+              >
+                <MessageCircle size={14} />
+                Message Rahdari
+              </a>
+              <InfoTip
+                label="about WhatsApp alerts"
+                info={
+                  <>
+                    <p>Alerts come from Rahdari, +91 92134 34855, to the mobile number in your profile.</p>
+                    <p>Message Rahdari once on WhatsApp so your phone saves the number and alerts are never filtered.</p>
+                    {whatsapp?.verified_at ? <p>Last test delivered {fmtRelative(whatsapp.verified_at)}.</p> : null}
+                  </>
+                }
+              >
+                <span className="nrow-help">Help</span>
+              </InfoTip>
+            </div>
           </Channel>
         ) : null}
 
-        {/* Telegram: a chat ID turns it on */}
         <Channel
           icon={<Send size={18} />}
           tone="violet"
           title="Telegram"
-          status={tgOn ? <Badge tone="good"><CheckCircle2 size={10} />on</Badge> : <Badge tone="neutral">off</Badge>}
-          detail={
-            telegram?.last_error ? (
-              <span className="text-bad-500">{friendlyError(telegram.last_error)}</span>
-            ) : telegram?.verified_at ? (
-              `Last verified ${fmtRelative(telegram.verified_at)}.`
-            ) : !env.telegramBotToken ? (
-              "Telegram alerts are temporarily unavailable."
-            ) : (
-              "Add your chat ID to turn it on."
-            )
-          }
-          action={
-            tgOn ? (
-              <InlineActionForm action={testMyTelegram}>
-                <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
-                  <Send size={13} />
-                  Test
-                </SubmitButton>
-              </InlineActionForm>
-            ) : null
+          state={tgState}
+          sub={
+            tgState === "issue"
+              ? "Needs attention"
+              : tgOn
+                ? `Chat ID ${telegram?.chat_id}`
+                : !env.telegramBotToken
+                  ? "Unavailable right now"
+                  : "Off · add your chat ID"
           }
         >
-          <ActionForm action={saveMyTelegram} closeOnSuccess={false} className="notify-inline-form">
+          {telegram?.last_error ? <p className="nrow-error">{friendlyError(telegram.last_error)}</p> : null}
+          <ActionForm action={saveMyTelegram} closeOnSuccess={false} className="nrow-form">
             <Field label="Chat ID" name="chat_id">
               <Input
                 name="chat_id"
@@ -174,6 +185,19 @@ export default async function NotificationsPage() {
             </Field>
             <SubmitButton size="sm">Save</SubmitButton>
           </ActionForm>
+          <div className="nrow-actions">
+            {tgOn ? (
+              <InlineActionForm action={testMyTelegram}>
+                <SubmitButton variant="secondary" size="sm" pendingLabel="Sending…">
+                  <Send size={13} />
+                  Send test
+                </SubmitButton>
+              </InlineActionForm>
+            ) : null}
+            {telegram?.verified_at ? (
+              <span className="nrow-meta">Last test delivered {fmtRelative(telegram.verified_at)}</span>
+            ) : null}
+          </div>
           <TelegramChatIdHelp className="mt-2" />
         </Channel>
       </div>
@@ -181,37 +205,39 @@ export default async function NotificationsPage() {
   );
 }
 
+const STATE_LABEL: Record<State, string> = { on: "On", off: "Off", issue: "Check" };
+
+/** One channel: a one-line summary that opens to its settings. */
 function Channel({
   icon,
   tone,
   title,
-  status,
-  detail,
-  action,
+  state,
+  sub,
   children,
 }: {
   icon: ReactNode;
   tone: "blue" | "mint" | "violet";
   title: string;
-  status: ReactNode;
-  detail: ReactNode;
-  action?: ReactNode;
-  children?: ReactNode;
+  state: State;
+  sub: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <section className="notify-channel">
-      <div className="notify-head">
-        <span className={`app-menu-icon app-tone-${tone}`}>{icon}</span>
-        <div className="notify-text">
-          <p className="notify-title">
-            {title}
-            {status}
-          </p>
-          <p className="notify-detail">{detail}</p>
-        </div>
-        {action ? <div className="notify-action">{action}</div> : null}
-      </div>
-      {children ? <div className="notify-body">{children}</div> : null}
-    </section>
+    <details className={`nrow is-${state}`}>
+      <summary className="nrow-head">
+        <span className={`nrow-icon app-tone-${tone}`}>{icon}</span>
+        <span className="nrow-text">
+          <span className="nrow-title">{title}</span>
+          <span className="nrow-sub">{sub}</span>
+        </span>
+        <span className={`nrow-state is-${state}`}>
+          <i aria-hidden />
+          {STATE_LABEL[state]}
+        </span>
+        <ChevronDown size={18} className="nrow-chev" aria-hidden />
+      </summary>
+      <div className="nrow-body">{children}</div>
+    </details>
   );
 }

@@ -20,12 +20,8 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
   const [kind, setKind] = useState<AlertRuleKind>(rule?.kind ?? kinds[0]);
   // Held as text so clearing the box does not snap the value to zero mid-edit.
   const [min, setMin] = useState(String(rule?.min_interval_minutes ?? 15));
-  const [preset, setPreset] = useState(String(rule?.default_interval_minutes ?? 60));
 
   const minNumber = Number(min);
-  const presetNumber = Number(preset);
-  const tooFast =
-    Number.isFinite(minNumber) && Number.isFinite(presetNumber) && presetNumber < minNumber;
 
   return (
     <div className="space-y-5">
@@ -81,6 +77,9 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
         <p className="mb-3 text-xs font-semibold tracking-wider text-muted uppercase">
           How often it may run
         </p>
+        {/* No "suggested interval" any more (owner, 20 Nov 2026): customers
+            type their own interval every time, so a preset had nothing to
+            pre-fill. The column stays in the database, untouched by edits. */}
         <FormGrid cols={2}>
           <Field
             label="Fastest repeat (minutes)"
@@ -97,34 +96,11 @@ export function RuleFields({ rule }: { rule?: AlertRuleTemplate }) {
               onChange={(e) => setMin(e.target.value)}
             />
           </Field>
-
-          <Field
-            label="Suggested interval (minutes)"
-            name="default_interval_minutes"
-            hint={`Pre-filled when this rule is added to a truck. Currently ${intervalLabel(presetNumber)}.`}
-          >
-            <Input
-              name="default_interval_minutes"
-              type="number"
-              required
-              min={MIN_INTERVAL_MINUTES}
-              max={MAX_INTERVAL_MINUTES}
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-            />
-          </Field>
         </FormGrid>
 
-        {tooFast ? (
-          <p className="mt-3 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
-            The suggested interval is faster than the floor, so anyone adding this rule would be
-            refused. Raise it to {minNumber} minutes or more.
-          </p>
-        ) : (
-          <p className="mt-3 text-xs text-faint">
-            Every check costs the account credits, so a fast floor is an expensive rule.
-          </p>
-        )}
+        <p className="mt-3 text-xs text-faint">
+          Every check costs the account credits, so a fast floor is an expensive rule.
+        </p>
       </div>
 
       <FormGrid cols={2}>

@@ -89,6 +89,59 @@ export function fmtRelative(value: string | Date | null | undefined): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
+/**
+ * "5 min ago", "4 hr ago", "1 day ago" - fmtRelative with the unit spelled out
+ * (owner, 20 Nov 2026: never a bare number, and "4h" reads as a code).
+ */
+export function fmtAgo(value: string | Date | null | undefined, now: Date = new Date()): string {
+  if (!value) return "never";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "never";
+
+  const minutes = Math.floor((now.getTime() - d.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * "10:42 am, 19 Nov" in IST - time first, because on a tracking screen the
+ * minute is what tells one check from the next. The year is added only when it
+ * is not this year.
+ */
+export function fmtWhen(value: string | Date | null | undefined, now: Date = new Date()): string {
+  if (!value) return "--";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "--";
+  const time = d
+    .toLocaleTimeString("en-IN", { timeZone: IST, hour: "numeric", minute: "2-digit", hour12: true })
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const sameYear =
+    d.toLocaleDateString("en-CA", { timeZone: IST }).slice(0, 4) ===
+    now.toLocaleDateString("en-CA", { timeZone: IST }).slice(0, 4);
+  const day = d.toLocaleDateString("en-IN", {
+    timeZone: IST,
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${time}, ${day}`;
+}
+
+/** "10:42 am, 19 Nov (1 day ago)" */
+export function fmtWhenAgo(value: string | Date | null | undefined, now: Date = new Date()): string {
+  if (!value) return "--";
+  return `${fmtWhen(value, now)} (${fmtAgo(value, now)})`;
+}
+
 export function fmtNumber(value: number | null | undefined): string {
   if (value === null || value === undefined) return "--";
   return value.toLocaleString("en-IN");

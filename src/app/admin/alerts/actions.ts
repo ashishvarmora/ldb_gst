@@ -30,7 +30,6 @@ type RuleDraft = {
   kind: AlertRuleKind;
   description: string | null;
   min_interval_minutes: number;
-  default_interval_minutes: number;
   sort_order: number;
   is_active: boolean;
 };
@@ -53,29 +52,17 @@ function readRule(fd: FormData): { rule: RuleDraft } | { error: string } {
     };
   }
 
-  const preset = int(fd, "default_interval_minutes", {
-    min: MIN_INTERVAL_MINUTES,
-    max: MAX_INTERVAL_MINUTES,
-  });
-  if (preset === null) {
-    return {
-      error: `Suggested interval must be between ${MIN_INTERVAL_MINUTES} and ${MAX_INTERVAL_MINUTES} minutes.`,
-    };
-  }
-
-  // A new alert starts on the suggested interval, so a suggestion below the
-  // floor would be refused the moment it was saved.
-  if (preset < min) {
-    return { error: "The suggested interval cannot be faster than the fastest repeat." };
-  }
-
+  /*
+   * No suggested interval is read any more (owner, 20 Nov 2026): customers
+   * type their own. The default_interval_minutes column is left alone on edit;
+   * a new rule gets its floor there, only because the column is not nullable.
+   */
   return {
     rule: {
       name,
       kind,
       description: str(fd, "description"),
       min_interval_minutes: min,
-      default_interval_minutes: preset,
       sort_order: int(fd, "sort_order", { min: 0, max: 9999 }) ?? 100,
       is_active: bool(fd, "is_active"),
     },
@@ -94,7 +81,7 @@ export async function createAlertRule(
 
   const { data, error } = await admin
     .from("alert_rule_templates")
-    .insert(parsed.rule)
+    .insert({ ...parsed.rule, default_interval_minutes: parsed.rule.min_interval_minutes })
     .select("id")
     .single();
   if (error) return fail(error.message);

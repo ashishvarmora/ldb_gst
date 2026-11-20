@@ -20,6 +20,7 @@ import { loadAnnouncementsFor } from "@/lib/announcements";
 import { unreadForCustomer } from "@/lib/chat";
 import { integrationHealth } from "@/lib/env";
 import { formatLimit } from "@/lib/limits";
+import { getSignedInUser } from "@/lib/auth";
 import { requirePortalSession } from "@/lib/officer";
 import { countSavedTrucks } from "@/lib/saved-trucks";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -71,6 +72,43 @@ function PlanPill({ name }: { name: string | null }) {
 }
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+  /*
+   * SPEED (20 Nov 2026). The user id is known as soon as the cookie is
+   * verified (locally, no network), so every read below that needs only the
+   * id starts now, beside the gate's own profile and overview reads, instead
+   * of after them. That takes one database round trip off every portal page.
+   * Nothing is rendered until requirePortalSession() has passed (it redirects
+   * a signed-out or suspended account), so starting early shows nothing early.
+   */
+  const user = await getSignedInUser();
+  if (!user) await requirePortalSession(); // redirects to /login
+  const userId = user!.id;
+  const admin = getSupabaseAdmin();
+
+  const early = Promise.all([
+    publicSettings(),
+    // Loaded here rather than inside the bell so the panel opens with no wait.
+    admin
+      .from("alert_logs")
+      .select("id,title,truck_number,delivered,read_at,created_at")
+      .eq("user_id", userId)
+      // Cleared rows are kept in the table for the admin log and the account's
+      // own history; the bell is the one surface that stops listing them.
+      .is("cleared_at", null)
+      .order("created_at", { ascending: false })
+      .limit(BELL_LIMIT),
+    /* Whether an alert would actually reach this account (cached; the trucks
+       page asks the same). Only shown once the account has a truck. */
+    loadAlertDelivery(userId),
+    // Replies from the desk this customer has not opened (Messages badge).
+    unreadForCustomer(admin, userId),
+    // The ★ in the header is filled when any truck is saved (0066).
+    countSavedTrucks(admin, userId),
+  ]);
+  /* If the gate below redirects, nobody awaits `early`; keep a late failure
+     from surfacing as an unhandled rejection. Awaiting it later still throws. */
+  early.catch(() => undefined);
+
   const session = await requirePortalSession();
   const { overview } = session;
 
@@ -89,44 +127,19 @@ export default async function PortalLayout({ children }: { children: React.React
   });
 
   const [
-    { brandName, referralEnabled },
-    { data: alertRows },
-    delivery,
+    [{ brandName, referralEnabled }, { data: alertRows }, deliveryRead, unreadMessages, savedCount],
     announcements,
-    unreadMessages,
-    savedCount,
   ] = await Promise.all([
-    publicSettings(),
-    // Loaded here rather than inside the bell so the panel opens with no wait.
-    getSupabaseAdmin()
-      .from("alert_logs")
-      .select("id,title,truck_number,delivered,read_at,created_at")
-      .eq("user_id", overview.id)
-      // Cleared rows are kept in the table for the admin log and the account's
-      // own history; the bell is the one surface that stops listing them.
-      .is("cleared_at", null)
-      .order("created_at", { ascending: false })
-      .limit(BELL_LIMIT),
-    /* Whether an alert would actually reach this account, for the strip at the
-       top of the header. Skipped entirely for an account with no truck yet, because
-       that is the one case where the answer cannot change what is shown - see
-       AlertDeliveryBanner, which needs a truck before it says anything. A
-       round trip to Tokyo is worth avoiding on every page of a fresh account. */
-    overview.total_trucks > 0 ? loadAlertDelivery(overview.id) : Promise.resolve("ready" as const),
-    /* What the desk is telling this customer (/admin/announcements). Never
-       throws - a fault there renders no banner, never a broken portal. */
+    early,
+    /* What the desk is telling this customer (/admin/announcements). Needs the
+       plan from the overview. Never throws. */
     loadAnnouncementsFor({
       id: overview.id,
       plan_id: overview.plan_id,
       plan_active: overview.plan_active,
     }),
-    // Replies from the desk this customer has not opened. Drives the badge on
-    // Messages in the sidebar. In the batch rather than after it: it depends on
-    // nothing above, and on its own it was one more wait on every page.
-    unreadForCustomer(getSupabaseAdmin(), session.id),
-    // The ★ in the header is filled when any truck is saved (0066).
-    countSavedTrucks(getSupabaseAdmin(), session.id),
   ]);
+  const delivery = overview.total_trucks > 0 ? deliveryRead : ("ready" as const);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
 

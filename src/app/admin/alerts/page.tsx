@@ -323,12 +323,6 @@ function RuleCard({
             </dd>
           </div>
           <div>
-            <dt className="text-[11px] tracking-wide text-muted uppercase">Suggested</dt>
-            <dd className="text-sm tabular-nums text-ink">
-              {intervalLabel(rule.default_interval_minutes)}
-            </dd>
-          </div>
-          <div>
             <dt className="text-[11px] tracking-wide text-muted uppercase">In use</dt>
             <dd className="text-sm tabular-nums text-ink">
               {usage.total === 0 ? (

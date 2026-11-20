@@ -17,11 +17,14 @@ export function resolveInactiveWindow(
   truck: Pick<TrackedTruck, "inactive_pause_hours">,
   settings: Pick<AppSettings, "inactivePauseHours">,
 ): number | null {
+  // Owner, 20 Nov 2026: a truck pauses for standing still only when its halt
+  // alert says so (the halt alert mirrors its "pause after" hours here). There
+  // is no platform default any more: blank means never.
+  void settings;
   if (truck.inactive_pause_hours !== null && truck.inactive_pause_hours !== undefined) {
     return truck.inactive_pause_hours >= 1 ? truck.inactive_pause_hours : null;
   }
-  const hours = settings.inactivePauseHours;
-  return Number.isFinite(hours) && hours >= 1 ? hours : null;
+  return null;
 }
 
 /**
@@ -345,7 +348,7 @@ export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
   },
   {
     label: "No movement detected",
-    body: "Tracking pauses when no new crossing is recorded for the hours you allow.",
+    body: "Tracking pauses when no new crossing is recorded for the hours set in the truck's halt alert.",
   },
   {
     label: "No response for this number",
@@ -356,6 +359,64 @@ export const AUTO_PAUSE_RULES: { label: string; body: string }[] = [
     body: "When the balance runs out, every live truck pauses. Top up, then take the trucks you need live again.",
   },
 ];
+
+/**
+ * The confirmation for Delete truck, wherever it is pressed from. It says
+ * exactly what removeTruck() does: the tracked_trucks row goes and its alerts
+ * with it (on delete cascade), the slot is freed; crossings (truck_events, id
+ * set null), alerts already sent (alert_logs), charges (credit_transactions),
+ * group membership and the activity history are kept, keyed by the number.
+ */
+export function deleteTruckMessage(truckNumber: string): string {
+  return (
+    `Delete ${truckNumber}?\n\n` +
+    "Its alerts and settings are deleted and its tracking slot is freed. " +
+    "Its toll crossings, past alerts and credit history are kept.\n\n" +
+    "This cannot be undone. You can add the number again later."
+  );
+}
+
+/**
+ * The words after "Paused ·" on a status chip - short enough to sit beside a
+ * registration number on a 375px phone.
+ */
+const PAUSE_CHIP: Record<PausedReason, string> = {
+  manual: "Paused by you",
+  schedule: "Paused · end time",
+  inactive: "Paused · no movement",
+  repeated_failures: "Paused · failed checks",
+  account_suspended: "Paused · account suspended",
+  plan_expired: "Paused · plan ended",
+  no_credits: "Paused · no credits",
+};
+
+export type TruckChip = { label: string; tone: BadgeTone };
+
+/**
+ * THE status chip for a truck - one function, used by the My trucks rows and
+ * the truck's own page, so the two can never disagree again (a paused truck's
+ * row said "No movement detected" while its page said "Paused").
+ *
+ *   Paused · <reason>   tracking is off (tone from PAUSE_COPY)
+ *   Halted              live, and an enabled halt alert has reported a halt
+ *   Live · no alert     live, but no enabled alert, so it is never checked
+ *   Live                otherwise
+ */
+export function truckChip(
+  truck: Pick<TrackedTruck, "is_active" | "paused_reason">,
+  alerts: { is_enabled: boolean; halt_active?: boolean | null; template_kind?: string | null }[],
+): TruckChip {
+  const paused = pauseCopyFor(truck);
+  if (paused) {
+    return { label: PAUSE_CHIP[truck.paused_reason ?? "manual"] ?? "Paused", tone: paused.tone };
+  }
+  const enabled = alerts.filter((alert) => alert.is_enabled);
+  if (enabled.some((alert) => alert.template_kind === "halt" && alert.halt_active)) {
+    return { label: "Halted", tone: "warn" };
+  }
+  if (enabled.length === 0) return { label: "Live · no alert", tone: "warn" };
+  return { label: "Live", tone: "good" };
+}
 
 /** The copy for a truck, or null while it is running. */
 export function pauseCopyFor(

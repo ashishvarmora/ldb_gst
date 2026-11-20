@@ -16,6 +16,7 @@ import { PLAN_GRACE_DAYS } from "@/lib/officer";
 import { dueForAutoPause } from "@/lib/pause";
 import { formatPushAlert, sendPushToUser } from "@/lib/push";
 import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
+import { recordTruckActivity } from "@/lib/truck-activity";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
 import { formatWhatsAppText, noticeParams, sendWhatsAppAlert, tripUpdateParams, whatsappConfigured } from "@/lib/whatsapp";
@@ -600,13 +601,26 @@ async function pauseAccountForNoCredits(
     // reason. It also makes the statement idempotent, so two overlapping
     // sweeps do not both claim to have stopped the same fleet.
     .eq("is_active", true)
-    .select("id");
+    .select("id, truck_number");
 
   if (error) {
     console.error(`no-credit pause failed for account ${userId}`, error.message);
     return { ok: false, stopped: 0 };
   }
-  return { ok: true, stopped: (data ?? []).length };
+  const stopped = (data ?? []) as { id: string; truck_number: string }[];
+  /* One history line per truck that actually stopped (0072). */
+  await recordTruckActivity(
+    stopped.map((row) => ({
+      userId,
+      truckId: row.id,
+      truckNumber: row.truck_number,
+      kind: "auto_paused" as const,
+      detail: { reason: "no_credits" as const },
+      at: now.toISOString(),
+    })),
+    admin,
+  );
+  return { ok: true, stopped: stopped.length };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -664,6 +678,17 @@ export async function checkTruck({
           paused_at: now.toISOString(),
         })
         .eq("id", truck.id);
+      await recordTruckActivity(
+        {
+          userId: truck.user_id,
+          truckId: truck.id,
+          truckNumber: truck.truck_number,
+          kind: "auto_paused",
+          detail: { reason: "account_suspended" },
+          at: now.toISOString(),
+        },
+        admin,
+      );
       return { ...outcome, reason: verdict.reason };
     }
 
@@ -778,6 +803,17 @@ export async function checkTruck({
       .eq("id", truck.id);
 
     if (exhausted) {
+      await recordTruckActivity(
+        {
+          userId: truck.user_id,
+          truckId: truck.id,
+          truckNumber: truck.truck_number,
+          kind: "auto_paused",
+          detail: { reason: "repeated_failures", failures: errors },
+          at: now.toISOString(),
+        },
+        admin,
+      );
       await sendSystemAlert({
         admin,
         context,
@@ -1106,6 +1142,18 @@ async function applyAutoPauses(
     paused.add(truck.id);
     counts[verdict.reason] += 1;
 
+    await recordTruckActivity(
+      {
+        userId: truck.user_id,
+        truckId: truck.id,
+        truckNumber: truck.truck_number,
+        kind: "auto_paused",
+        detail: { reason: verdict.reason, ...(verdict.hours ? { hours: verdict.hours } : {}) },
+        at: now.toISOString(),
+      },
+      admin,
+    );
+
     const copy = AUTO_PAUSE_MESSAGE[verdict.reason];
     let context = contexts.get(truck.user_id);
     if (!context) {
@@ -1120,7 +1168,7 @@ async function applyAutoPauses(
       title: copy.title,
       message:
         verdict.reason === "inactive" && verdict.hours
-          ? copy.body.replace("for a while", `for ${describeHours(verdict.hours)}`)
+          ? copy.body.replace("within the set time", `for ${describeHours(verdict.hours)}`)
           : copy.body,
     });
   }
@@ -1210,6 +1258,18 @@ async function applyPlanExpiryTeardown(
     }
     if (!stopped) continue;
     trucks += 1;
+
+    await recordTruckActivity(
+      {
+        userId: row.user_id,
+        truckId: row.id,
+        truckNumber: row.truck_number,
+        kind: "auto_paused",
+        detail: { reason: "plan_expired" },
+        at: now.toISOString(),
+      },
+      admin,
+    );
 
     /*
      * Once per ACCOUNT, not once per truck. A lapsed fleet of forty stops in

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, Check, Loader2, MapPin, Navigation, Plus, Search } from "lucide-react";
 
 import { addTruckAlert, findPlazas, plazasAhead } from "@/app/portal/trucks/actions";
@@ -11,6 +11,10 @@ import { cx } from "@/components/ui";
 import {
   ALERT_KIND_EXAMPLE,
   ALERT_KIND_HINT,
+  ALERT_KIND_LABEL,
+  HALT_AFTER_MAX_HOURS,
+  HALT_PAUSE_MAX_HOURS,
+  HALT_PAUSE_ORDER_ERROR,
   alertIdentity,
   needsPlaza,
   normaliseLocation,
@@ -19,7 +23,6 @@ import {
   MAX_INTERVAL_MINUTES,
   describeCadence,
   intervalLabel,
-  intervalShort,
   splitInterval,
   toMinutes,
   type IntervalUnit,
@@ -82,6 +85,8 @@ export type TakenAlert = {
   /** The plaza as it is stored, for the kinds that name one. */
   plaza: string | null;
   intervalMinutes: number;
+  /** "every 15 minutes", or "after 4 hours · pause after 12 hours" - see alertCadence(). */
+  summary: string;
   isEnabled: boolean;
   /** Where to go to change it instead - the row's own anchor on the truck page. */
   href: string;
@@ -139,10 +144,6 @@ export function AlertChooser({
 
   const first = preferredTemplate(offered);
   const [templateId, setTemplateId] = useState(first?.id ?? "");
-  const [interval, setInterval] = useState<{ value: string; unit: IntervalUnit }>(() => {
-    const split = splitInterval(first?.default_interval_minutes ?? 60);
-    return { value: String(split.value), unit: split.unit };
-  });
   const [plaza, setPlaza] = useState("");
 
   const chosen = offered.find((template) => template.id === templateId) ?? null;
@@ -160,11 +161,6 @@ export function AlertChooser({
     );
   }
 
-  const typed = Number(interval.value);
-  const minutes = Number.isInteger(typed) ? toMinutes(typed, interval.unit) : null;
-  const floor = chosen.min_interval_minutes;
-  const tooFast = minutes !== null && minutes < floor;
-  const effective = minutes === null ? floor : Math.max(minutes, floor);
   const wantsPlaza = needsPlaza(chosen.kind);
 
   /* The plaza kinds cannot be filtered out of the picker, because a second
@@ -175,13 +171,11 @@ export function AlertChooser({
     ? (taken.find((row) => row.identity === alertIdentity(chosen.kind, plaza)) ?? null)
     : null;
 
-  /* Switching rules loads that rule's own suggested interval - leaving the
-     previous rule's number behind is how people ended up on a beat they never
-     chose. */
+  /* Owner, 20 Nov 2026: nothing is prefilled from the admin's suggested
+     interval any more - the customer types how often, every time. The fields
+     below are keyed on the rule, so switching rules starts them empty. */
   function pickTemplate(template: AlertRuleTemplate) {
     setTemplateId(template.id);
-    const split = splitInterval(template.default_interval_minutes);
-    setInterval({ value: String(split.value), unit: split.unit });
   }
 
   return (
@@ -230,72 +224,18 @@ export function AlertChooser({
         >
           {offered.map((template) => (
             <option key={template.id} value={template.id}>
-              {template.name}
+              {/* The halt rule is offered by what it does, in the owner's words. */}
+              {template.kind === "halt" ? ALERT_KIND_LABEL.halt : template.name}
             </option>
           ))}
         </Select>
       </div>
 
-      <div>
-        {/* describeCadence() lives in here now rather than as a line under the
-            field. It is the one genuinely live number on this form - change the
-            interval and the checks-a-day changes with it - but it was a
-            permanent third row on a form the owner asked to shorten, and it
-            only means anything next to the credit arithmetic that was already
-            behind this (i). Reading it needs one tap; the cost is stated in the
-            same breath rather than two rows apart. */}
-        <LabelWithInfo
-          label="Check every"
-          htmlFor="interval_value"
-          required
-          info={
-            <>
-              <strong className="font-medium text-ink">
-                {minutes === null ? "Enter a whole number." : describeCadence(effective)}
-              </strong>{" "}
-              More frequent checks mean faster alerts and higher credit use: each automatic check
-              uses credits at your plan's rate, and a 15-minute interval is about 96 checks a
-              day. Slower checks still record every crossing, just later. Fastest allowed:{" "}
-              {intervalLabel(floor)}.
-            </>
-          }
-        />
-        <div className="mt-1.5 flex gap-2">
-          <Input
-            id="interval_value"
-            name="interval_value"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={interval.unit === "hours" ? HOURS_MAX : MAX_INTERVAL_MINUTES}
-            step={1}
-            required
-            value={interval.value}
-            onChange={(event) => setInterval({ ...interval, value: event.target.value })}
-            className="flex-1"
-          />
-          <Select
-            name="interval_unit"
-            aria-label="Minutes or hours"
-            value={interval.unit}
-            onChange={(event) =>
-              setInterval({ ...interval, unit: event.target.value as IntervalUnit })
-            }
-            className="w-28 shrink-0"
-          >
-            <option value="minutes">minutes</option>
-            <option value="hours">hours</option>
-          </Select>
-        </div>
-        {/* Stays. Not a hint - it only appears when the number typed cannot be
-            honoured, and it says what will happen instead. */}
-        {tooFast ? (
-          <p className="mt-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
-            The fastest this alert allows is every {intervalLabel(floor)}, so it will check every{" "}
-            {intervalLabel(floor)}.
-          </p>
-        ) : null}
-      </div>
+      {chosen.kind === "halt" ? (
+        <HaltFields key={chosen.id} />
+      ) : (
+        <IntervalFields key={chosen.id} floorMinutes={chosen.min_interval_minutes} />
+      )}
 
       {wantsPlaza ? (
         <div>
@@ -311,7 +251,7 @@ export function AlertChooser({
                   typo, quoted at them as though it were our record. */}
               You already watch {heldPlaza.plaza ?? plaza.trim()} on this truck.{" "}
               <a href={heldPlaza.href} className="font-medium underline">
-                Change how often
+                Edit that alert
               </a>{" "}
               instead, or enter a different plaza.
             </p>
@@ -330,6 +270,260 @@ export function AlertChooser({
         type the numbers a moment ago and a sentence is genuinely the shortest
         way to say what the rule now amounts to.
       */}
+    </div>
+  );
+}
+
+/**
+ * "Check every" - a number and a minutes/hours picker.
+ *
+ * REQUIRED and EMPTY by default (owner, 20 Nov 2026): never prefilled from the
+ * admin's suggested interval. On the edit form it starts on the alert's own
+ * saved value, which is the customer's earlier answer rather than a default.
+ * A value faster than the rule's floor is refused here and by the server with
+ * the same words ("Choose at least 15 minutes."); the input's own `min` makes
+ * the browser hold the submit too.
+ */
+export function IntervalFields({
+  floorMinutes,
+  defaultMinutes,
+  compact = false,
+}: {
+  floorMinutes: number;
+  defaultMinutes?: number;
+  /** The edit form inside an alert row: no (i), a smaller label. */
+  compact?: boolean;
+}) {
+  const id = useId();
+  const [interval, setInterval] = useState<{ value: string; unit: IntervalUnit }>(() => {
+    if (!defaultMinutes) return { value: "", unit: "minutes" };
+    const split = splitInterval(defaultMinutes);
+    return { value: String(split.value), unit: split.unit };
+  });
+
+  const typed = Number(interval.value);
+  const minutes =
+    interval.value.trim() !== "" && Number.isInteger(typed) ? toMinutes(typed, interval.unit) : null;
+  const tooFast = minutes !== null && minutes < floorMinutes;
+  const minInUnit = interval.unit === "hours" ? Math.max(1, Math.ceil(floorMinutes / 60)) : floorMinutes;
+
+  return (
+    <div>
+      {compact ? (
+        <label className="field-label" htmlFor={id}>
+          Check every<span className="ml-0.5 text-bad-500">*</span>
+        </label>
+      ) : (
+        <LabelWithInfo
+          label="Check every"
+          htmlFor={id}
+          required
+          info={
+            <>
+              {minutes !== null && !tooFast ? (
+                <strong className="font-medium text-ink">{describeCadence(minutes)} </strong>
+              ) : null}
+              More frequent checks mean faster alerts and higher credit use: each automatic check
+              uses credits at your plan&apos;s rate, and a 15-minute interval is about 96 checks a
+              day. Fastest allowed: {intervalLabel(floorMinutes)}.
+            </>
+          }
+        />
+      )}
+      <div className="mt-1.5 flex gap-2">
+        <Input
+          id={id}
+          name="interval_value"
+          type="number"
+          inputMode="numeric"
+          min={minInUnit}
+          max={interval.unit === "hours" ? HOURS_MAX : MAX_INTERVAL_MINUTES}
+          step={1}
+          required
+          placeholder="e.g. 15"
+          aria-invalid={tooFast || undefined}
+          value={interval.value}
+          onChange={(event) => setInterval({ ...interval, value: event.target.value })}
+          className="min-w-0 flex-1"
+        />
+        <Select
+          id={`${id}-unit`}
+          name="interval_unit"
+          aria-label="Minutes or hours"
+          value={interval.unit}
+          onChange={(event) =>
+            setInterval({ ...interval, unit: event.target.value as IntervalUnit })
+          }
+          className="w-28 shrink-0"
+        >
+          <option value="minutes">minutes</option>
+          <option value="hours">hours</option>
+        </Select>
+      </div>
+      {tooFast ? (
+        <p role="alert" className="field-error-inline">
+          Choose at least {intervalLabel(floorMinutes)}.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "Pause after this many failed checks" - REQUIRED on add and edit (owner,
+ * 20 Nov 2026), 1 to 50, no admin default offered. Shared by the add-truck
+ * form and the truck page's Settings tab so the two read the same.
+ */
+export function FailureLimitField({ defaultValue }: { defaultValue?: number | null }) {
+  const id = useId();
+  return (
+    <div>
+      <LabelWithInfo
+        label="Pause after this many failed checks"
+        htmlFor={id}
+        required
+        info={
+          <>
+            If the toll network cannot answer for this number this many times in a row, tracking
+            pauses. The usual cause is a mistyped number. History is kept.
+          </>
+        }
+      />
+      <div className="unit-input mt-1.5">
+        <Input
+          id={id}
+          name="max_consecutive_failures"
+          type="number"
+          inputMode="numeric"
+          required
+          min={1}
+          max={50}
+          step={1}
+          placeholder="e.g. 10"
+          defaultValue={defaultValue ?? ""}
+        />
+        <span className="unit-input-suffix" aria-hidden>
+          failed checks
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** A whole-number box with a fixed unit word after it. */
+function UnitNumber({
+  id,
+  name,
+  label,
+  unit,
+  min,
+  max,
+  placeholder,
+  value,
+  onChange,
+  invalid,
+}: {
+  id: string;
+  name: string;
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+  placeholder: string;
+  value: string;
+  onChange: (next: string) => void;
+  invalid?: boolean;
+}) {
+  return (
+    <div>
+      <label className="field-label" htmlFor={id}>
+        {label}
+        <span className="ml-0.5 text-bad-500">*</span>
+      </label>
+      <div className="unit-input">
+        <Input
+          id={id}
+          name={name}
+          type="number"
+          inputMode="numeric"
+          required
+          min={min}
+          max={max}
+          step={1}
+          placeholder={placeholder}
+          aria-invalid={invalid || undefined}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span className="unit-input-suffix" aria-hidden>
+          {unit}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The halt alert's two required hour fields (owner, 20 Nov 2026).
+ *
+ * No defaults and no "check every": the alert always checks hourly, which is
+ * also the reminder beat, so the server sets interval_minutes itself. The pause
+ * must come after the alert - refused here and in the server action with the
+ * same sentence.
+ */
+export function HaltFields({
+  defaultHaltHours,
+  defaultPauseHours,
+}: {
+  defaultHaltHours?: number | null;
+  defaultPauseHours?: number | null;
+}) {
+  const id = useId();
+  const [halt, setHalt] = useState(defaultHaltHours ? String(defaultHaltHours) : "");
+  const [pause, setPause] = useState(defaultPauseHours ? String(defaultPauseHours) : "");
+
+  const haltNumber = Number(halt);
+  const pauseNumber = Number(pause);
+  const haltValid = halt.trim() !== "" && Number.isInteger(haltNumber) && haltNumber >= 1;
+  const pauseValid = pause.trim() !== "" && Number.isInteger(pauseNumber);
+  const outOfOrder = haltValid && pauseValid && pauseNumber <= haltNumber;
+
+  return (
+    <div className="space-y-3">
+      <UnitNumber
+        id={`${id}-halt`}
+        name="halt_after_hours"
+        label="Alert after no toll crossing for"
+        unit="hours"
+        min={1}
+        max={HALT_AFTER_MAX_HOURS}
+        placeholder="e.g. 4"
+        value={halt}
+        onChange={setHalt}
+      />
+      <div>
+        <UnitNumber
+          id={`${id}-pause`}
+          name="pause_after_hours"
+          label="Pause tracking after no toll crossing for"
+          unit="hours"
+          min={haltValid ? Math.min(haltNumber + 1, HALT_PAUSE_MAX_HOURS) : 2}
+          max={HALT_PAUSE_MAX_HOURS}
+          placeholder="e.g. 12"
+          value={pause}
+          onChange={setPause}
+          invalid={outOfOrder}
+        />
+        {outOfOrder ? (
+          <p role="alert" className="field-error-inline">
+            {HALT_PAUSE_ORDER_ERROR}
+          </p>
+        ) : null}
+      </div>
+      <ul className="halt-notes">
+        <li>Reminders every 1 hour until it moves.</li>
+        <li>You&apos;ll also be told when it moves again.</li>
+      </ul>
     </div>
   );
 }
@@ -355,9 +549,9 @@ function AlreadyOn({ rows }: { rows: TakenAlert[] }) {
           <Check size={13} aria-hidden className="mt-0.5 shrink-0 text-good-500" />
           <span className="min-w-0">
             <span className="font-medium text-ink">{row.name}</span> is already on this truck
-            {row.isEnabled ? `, every ${intervalShort(row.intervalMinutes)}` : ", switched off"}.{" "}
+            {row.isEnabled ? `, ${row.summary}` : ", switched off"}.{" "}
             <a href={row.href} className="font-medium text-brand-500 hover:underline">
-              {row.isEnabled ? "Change how often" : "Turn it on"}
+              {row.isEnabled ? "Edit it" : "Turn it on"}
             </a>
           </span>
         </li>

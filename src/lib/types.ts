@@ -336,7 +336,7 @@ export type CreditVerdict = {
  */
 import type { PlazaMatchMode } from "@/lib/plaza-match";
 
-export type AlertRuleKind = "periodic_location" | "location_change" | "plaza_crossing";
+export type AlertRuleKind = "periodic_location" | "location_change" | "plaza_crossing" | "halt";
 
 /** A rule in the admin's catalogue. Officers choose from these; they never write one. */
 export type AlertRuleTemplate = {
@@ -387,6 +387,14 @@ export type TruckAlert = {
    * a day, so the plaza name alone cannot say whether something is new.
    */
   last_event_at: string | null;
+  /** Halt alert (0070): hours without a crossing before the first alert. */
+  halt_after_hours?: number | null;
+  /** Halt alert (0070): hours without a crossing before tracking pauses. */
+  pause_after_hours?: number | null;
+  /** Halt alert (0070): the truck is currently reported as halted. */
+  halt_active?: boolean;
+  /** Halt alert (0070): when the last halt alert or reminder went out. */
+  halt_notified_at?: string | null;
   created_at: string;
   updated_at: string;
 };

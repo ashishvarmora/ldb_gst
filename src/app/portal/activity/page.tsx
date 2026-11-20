@@ -1,8 +1,11 @@
-import { History as PageIcon } from "lucide-react";
+import { History as PageIcon, Trash2 } from "lucide-react";
 import { HelpNote } from "@/components/Disclosure";
 import { CreditLedger, CreditSummary, type LedgerQuery } from "@/components/CreditLedger";
 import { publicSettings } from "@/components/SiteFooter";
-import { PageHeader } from "@/components/ui";
+import { Mono, PageHeader, Panel } from "@/components/ui";
+import { fmtWhenAgo } from "@/lib/format";
+import { loadRemovedTrucks } from "@/lib/truck-activity";
+import { getSignedInUser } from "@/lib/auth";
 import { creditStanding } from "@/lib/credits";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { LedgerLinks } from "../credits/LedgerNav";
@@ -40,11 +43,16 @@ export default async function ActivityPage({
 }: {
   searchParams: Promise<LedgerQuery>;
 }) {
-  const [{ overview }, searchCost, query] = await Promise.all([
+  const user = await getSignedInUser();
+  if (!user) await requirePortalSession(); // redirects to /login
+  const [{ overview }, searchCost, query, removed] = await Promise.all([
     requirePortalSession(),
     // Cached for the request - the header pill has already read it.
     loadSearchCost(),
     searchParams,
+    /* Account-level truck history: trucks deleted from My trucks (0072).
+       Empty, and the panel hidden, until the migration is applied. */
+    loadRemovedTrucks(user!.id, 10),
   ]);
 
   return (
@@ -118,6 +126,26 @@ export default async function ActivityPage({
           title="Credits used"
           only="used"
         />
+
+        {removed.length > 0 ? (
+          <Panel title="Trucks deleted" bodyClassName="p-0">
+            <ul className="divide-y divide-divider">
+              {removed.map((row) => (
+                <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <Trash2 size={14} aria-hidden className="shrink-0 text-faint" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-ink">
+                      <Mono className="font-semibold">{row.truck_number}</Mono> deleted from My trucks
+                    </p>
+                    <p className="text-[11.5px] text-muted">
+                      {fmtWhenAgo(row.created_at)} · its crossings and charges are kept
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        ) : null}
       </div>
     </>
   );

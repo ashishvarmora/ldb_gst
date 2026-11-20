@@ -4,13 +4,24 @@ import type { PlazaMatchMode } from "@/lib/plaza-match";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { alertIdentity, alertIdentityOf, needsPlaza, type AlertKindMirror } from "@/lib/alerts";
+import {
+  HALT_AFTER_MAX_HOURS,
+  HALT_PAUSE_MAX_HOURS,
+  HALT_PAUSE_ORDER_ERROR,
+  HALT_REMINDER_MINUTES,
+  alertIdentity,
+  alertIdentityOf,
+  hoursLabel,
+  needsPlaza,
+  type AlertKindMirror,
+} from "@/lib/alerts";
 import { reportError } from "@/lib/errors";
 import { bool, done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { intervalLabel, toMinutes, type IntervalUnit } from "@/lib/intervals";
 import { runManualLookup } from "@/lib/manual-search";
 import {
   assertPortalUser,
+  graceDaysLeft,
   liveBlockedByCredits,
   loadAutoCheckCost,
   loadOverview,
@@ -29,7 +40,8 @@ import {
   type PlazasAhead,
 } from "@/lib/plazas";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ActionResult, AlertRuleTemplate, TrackedTruck } from "@/lib/types";
+import { recordTruckActivity } from "@/lib/truck-activity";
+import type { ActionResult, AlertRuleTemplate, PausedReason, TrackedTruck } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
 /* shared bits of the alert forms                                              */
@@ -43,25 +55,71 @@ type IntervalRead =
  * Reads the number + minutes/hours pair the forms post, and holds it to the
  * rule's floor.
  *
- * Clamping rather than refusing: someone who asks for every 5 minutes on a
- * 15-minute rule wants "as often as possible", and being told the alert was
- * not created at all is a worse answer than being told it runs every 15.
+ * Owner, 20 Nov 2026: REQUIRED, with no admin default to fall back on, and a
+ * value under the rule's floor is refused in words ("Choose at least 15
+ * minutes.") rather than silently raised - the form shows the same message.
  */
 function readInterval(fd: FormData, template: AlertRuleTemplate): IntervalRead {
   const raw = str(fd, "interval_value");
   const unit: IntervalUnit = fd.get("interval_unit") === "hours" ? "hours" : "minutes";
 
-  let requested: number | null = null;
-  if (raw !== null) {
-    const value = Number(raw);
-    requested = Number.isInteger(value) ? toMinutes(value, unit) : null;
-    if (requested === null) {
-      return { ok: false, error: "Enter how often to check as a whole number of minutes or hours." };
-    }
-  }
+  if (raw === null) return { ok: false, error: "Enter how often to check." };
 
-  const minutes = Math.max(requested ?? template.default_interval_minutes, template.min_interval_minutes);
-  return { ok: true, minutes, clampedFrom: requested !== null && minutes > requested ? requested : null };
+  const value = Number(raw);
+  const requested = Number.isInteger(value) ? toMinutes(value, unit) : null;
+  if (requested === null) {
+    return { ok: false, error: "Enter how often to check as a whole number of minutes or hours." };
+  }
+  if (requested < template.min_interval_minutes) {
+    return { ok: false, error: `Choose at least ${intervalLabel(template.min_interval_minutes)}.` };
+  }
+  return { ok: true, minutes: requested, clampedFrom: null };
+}
+
+type HaltRead =
+  | { ok: true; haltAfterHours: number; pauseAfterHours: number }
+  | { ok: false; error: string };
+
+/**
+ * The halt alert's two required hour fields. No defaults: both must be typed,
+ * and the pause must come after the alert (the database checks the ranges,
+ * this says it in words first).
+ */
+function readHalt(fd: FormData): HaltRead {
+  const haltRaw = str(fd, "halt_after_hours");
+  const pauseRaw = str(fd, "pause_after_hours");
+  const halt = haltRaw === null ? Number.NaN : Number(haltRaw);
+  const pause = pauseRaw === null ? Number.NaN : Number(pauseRaw);
+
+  if (!Number.isInteger(halt) || halt < 1 || halt > HALT_AFTER_MAX_HOURS) {
+    return {
+      ok: false,
+      error: `Alert after how many hours? Enter a whole number from 1 to ${HALT_AFTER_MAX_HOURS} hours.`,
+    };
+  }
+  if (!Number.isInteger(pause) || pause < 1 || pause > HALT_PAUSE_MAX_HOURS) {
+    return {
+      ok: false,
+      error: `Pause after how many hours? Enter a whole number up to ${HALT_PAUSE_MAX_HOURS} hours.`,
+    };
+  }
+  if (pause <= halt) return { ok: false, error: HALT_PAUSE_ORDER_ERROR };
+  return { ok: true, haltAfterHours: halt, pauseAfterHours: pause };
+}
+
+/**
+ * The halt alert owns the truck's "pause when it stops moving" window: its
+ * pause_after_hours is mirrored onto tracked_trucks.inactive_pause_hours, which
+ * the existing auto-pause reads. null switches that pause off (halt alert
+ * deleted or turned off).
+ */
+async function mirrorHaltPause(truckId: string, userId: string, hours: number | null) {
+  const { error } = await getSupabaseAdmin()
+    .from("tracked_trucks")
+    .update({ inactive_pause_hours: hours })
+    .eq("id", truckId)
+    .eq("user_id", userId);
+  if (error) reportError("mirroring the halt alert's pause time", error);
 }
 
 /** The rule the person picked, or a reason it cannot be used. */
@@ -74,10 +132,44 @@ async function loadTemplate(templateId: string): Promise<AlertRuleTemplate | nul
   return data?.is_active ? data : null;
 }
 
-function alertAddedMessage(template: AlertRuleTemplate, minutes: number, clampedFrom: number | null): string {
+function alertAddedMessage(
+  template: AlertRuleTemplate,
+  minutes: number,
+  clampedFrom: number | null,
+  halt?: { haltAfterHours: number; pauseAfterHours: number } | null,
+): string {
+  if (template.kind === "halt" && halt) {
+    return `${template.name} added: alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}.`;
+  }
   return clampedFrom !== null
     ? `${template.name} added, checking every ${intervalLabel(template.min_interval_minutes)} (the fastest this alert allows).`
     : `${template.name} added, checking every ${intervalLabel(minutes)}.`;
+}
+
+/** Reads the cadence half of an alert form: hours for a halt alert, an interval otherwise. */
+type CadenceRead =
+  | {
+      ok: true;
+      minutes: number;
+      clampedFrom: number | null;
+      halt: { haltAfterHours: number; pauseAfterHours: number } | null;
+    }
+  | { ok: false; error: string };
+
+function readCadence(fd: FormData, template: AlertRuleTemplate): CadenceRead {
+  if (template.kind === "halt") {
+    const halt = readHalt(fd);
+    if (!halt.ok) return halt;
+    return {
+      ok: true,
+      minutes: HALT_REMINDER_MINUTES,
+      clampedFrom: null,
+      halt: { haltAfterHours: halt.haltAfterHours, pauseAfterHours: halt.pauseAfterHours },
+    };
+  }
+  const interval = readInterval(fd, template);
+  if (!interval.ok) return interval;
+  return { ...interval, halt: null };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -132,7 +224,9 @@ function sameQuestion(alerts: ExistingAlert[], identity: string): ExistingAlert 
  */
 function alreadyWatchedMessage(existing: ExistingAlert, name: string): string {
   return existing.is_enabled
-    ? `${name} is already on this truck, checking every ${intervalLabel(existing.interval_minutes)}. Change how often on that alert instead of adding another.`
+    ? existing.template_kind === "halt"
+      ? `${name} is already on this truck. Edit that alert instead of adding another.`
+      : `${name} is already on this truck, checking every ${intervalLabel(existing.interval_minutes)}. Edit that alert instead of adding another.`
     : `${name} is already on this truck but switched off. Turn it back on instead of adding another.`;
 }
 
@@ -364,24 +458,42 @@ function readAutoPauseAt(fd: FormData): Date | null | undefined | { error: strin
   return new Date(Date.now() + hours * 3_600_000);
 }
 
-/**
- * The per-truck "pause once it has stopped moving for this long", in hours.
- *
- * Blank is null, meaning the platform setting applies - never a number copied
- * in from today's default, which would quietly opt this truck out of every
- * future change to it. Same rule as the failure budget above.
+/*
+ * The per-truck "pause once it has stopped moving" window is no longer read
+ * from the truck forms (owner, 20 Nov 2026). It lives in the halt alert, which
+ * mirrors its pause_after_hours onto tracked_trucks.inactive_pause_hours - see
+ * mirrorHaltPause(). The truck forms neither read nor write that column.
  */
-function readInactiveHours(fd: FormData): number | null | { error: string } {
-  const raw = str(fd, "inactive_pause_hours");
-  if (raw === null) return null;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_AUTO_PAUSE_HOURS) {
+
+/** The largest "pause after this many failed checks" a customer may set. */
+const MAX_FAILURE_LIMIT = 50;
+
+/**
+ * "Pause after this many failed checks" - REQUIRED on add and edit since
+ * 20 Nov 2026, with no fallback written from the admin default.
+ */
+function readFailureLimit(fd: FormData): number | { error: string } {
+  const raw = str(fd, "max_consecutive_failures");
+  const parsed = raw === null ? Number.NaN : Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_FAILURE_LIMIT) {
     return {
-      error:
-        "Pause after how many hours without movement? Enter a whole number from 1 to 8760, or leave it empty.",
+      error: `Pause after how many failed checks? Enter a whole number from 1 to ${MAX_FAILURE_LIMIT} failed checks.`,
     };
   }
   return parsed;
+}
+
+/** An alert's cadence in words, for the activity history. */
+function cadenceWords(
+  template: AlertRuleTemplate,
+  minutes: number,
+  plaza: string | null,
+  halt: { haltAfterHours: number; pauseAfterHours: number } | null,
+): string {
+  if (template.kind === "halt" && halt) {
+    return `alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}`;
+  }
+  return plaza ? `${plaza}, every ${intervalLabel(minutes)}` : `every ${intervalLabel(minutes)}`;
 }
 
 function isError(value: unknown): value is { error: string } {
@@ -443,6 +555,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   let plazaMatch: PlazaMatchMode | null = null;
   let minutes = 0;
   let clampedFrom: number | null = null;
+  let halt: { haltAfterHours: number; pauseAfterHours: number } | null = null;
 
   if (template) {
     const decided = await decidePlaza(fd, template);
@@ -450,33 +563,19 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     plaza = decided.plaza;
     plazaMatch = decided.match;
 
-    const interval = readInterval(fd, template);
-    if (!interval.ok) return fail(interval.error);
-    minutes = interval.minutes;
-    clampedFrom = interval.clampedFrom;
+    const cadence = readCadence(fd, template);
+    if (!cadence.ok) return fail(cadence.error);
+    minutes = cadence.minutes;
+    clampedFrom = cadence.clampedFrom;
+    halt = cadence.halt;
   }
 
-  /*
-   * Blank means "work it out from the check interval", which is null in the
-   * column - not zero, and not a number picked here. A typed value is bounded
-   * to the same range the database checks, so a bad one is refused in words
-   * rather than as a constraint violation.
-   */
-  const failuresRaw = str(fd, "max_consecutive_failures");
-  let maxFailures: number | null = null;
-  if (failuresRaw) {
-    const parsed = Number(failuresRaw);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
-      return fail("Stop after how many failures? Enter a whole number from 1 to 1000, or leave it empty.");
-    }
-    maxFailures = parsed;
-  }
+  /* Required, 1-50, no admin fallback written (owner, 20 Nov 2026). */
+  const maxFailures = readFailureLimit(fd);
+  if (isError(maxFailures)) return fail(maxFailures.error);
 
   const autoPauseAt = readAutoPauseAt(fd);
   if (isError(autoPauseAt)) return fail(autoPauseAt.error);
-
-  const inactiveHours = readInactiveHours(fd);
-  if (isError(inactiveHours)) return fail(inactiveHours.error);
 
   const payload = {
     user_id: session.id,
@@ -485,7 +584,9 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     is_active: true,
     max_consecutive_failures: maxFailures,
     auto_pause_at: autoPauseAt instanceof Date ? autoPauseAt.toISOString() : null,
-    inactive_pause_hours: inactiveHours,
+    /* Only a halt alert sets the stopped-moving pause; otherwise the column is
+       left as it is (null on a new truck). */
+    ...(halt ? { inactive_pause_hours: halt.pauseAfterHours } : {}),
     /* Re-adding a paused truck is a fresh start: the old failure run and the
        reason it stopped must not follow it back onto the list. */
     consecutive_errors: 0,
@@ -525,10 +626,14 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
       ? sameQuestion(await loadTruckAlerts(truckId, session.id), alertIdentity(template.kind, plaza))
       : null;
 
+    const haltFields = halt
+      ? { halt_after_hours: halt.haltAfterHours, pause_after_hours: halt.pauseAfterHours }
+      : {};
+
     const { error: alertError } = existingAlert
       ? await admin
           .from("truck_alerts")
-          .update({ is_enabled: true, interval_minutes: minutes })
+          .update({ is_enabled: true, interval_minutes: minutes, ...haltFields })
           .eq("id", existingAlert.id)
           .eq("user_id", session.id)
       : await admin.from("truck_alerts").insert({
@@ -539,11 +644,34 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
           interval_minutes: minutes,
           plaza,
           plaza_match: plazaMatch,
+          ...(halt ? { ...haltFields, halt_active: false, halt_notified_at: null } : {}),
         });
 
     // The truck is already saved, so a failed alert is not worth throwing the
     // whole form away for. Its page says plainly that nothing is watching it.
     if (alertError) reportError("adding the first alert", alertError);
+  }
+
+  if (truckId) {
+    await recordTruckActivity([
+      {
+        userId: session.id,
+        truckId,
+        truckNumber,
+        kind: existing ? "readded" : "added",
+      },
+      ...(template
+        ? [
+            {
+              userId: session.id,
+              truckId,
+              truckNumber,
+              kind: "alert_added" as const,
+              detail: { alert: template.name, summary: cadenceWords(template, minutes, plaza, halt) },
+            },
+          ]
+        : []),
+    ]);
   }
 
   revalidatePath("/portal");
@@ -557,7 +685,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 
   return done(
     template
-      ? `${truckNumber} added. ${alertAddedMessage(template, minutes, clampedFrom)}`
+      ? `${truckNumber} added. ${alertAddedMessage(template, minutes, clampedFrom, halt)}`
       : `${truckNumber} added. Open it and add an alert to start checking it.`,
   );
 }
@@ -571,105 +699,64 @@ export async function updateTruck(_prev: ActionResult | null, fd: FormData): Pro
 
   const { data: truck } = await admin
     .from("tracked_trucks")
-    .select("is_active")
+    .select("id, truck_number, label, max_consecutive_failures, auto_pause_at")
     .eq("id", truckId)
     .eq("user_id", session.id)
-    .maybeSingle<Pick<TrackedTruck, "is_active">>();
+    .maybeSingle<
+      Pick<TrackedTruck, "id" | "truck_number" | "label" | "max_consecutive_failures" | "auto_pause_at">
+    >();
 
   if (!truck) return fail("That truck is not on your list.");
 
-  const activating = bool(fd, "is_active");
-  if (activating && !truck.is_active) {
-    const overview = await loadOverview(session.id);
-    /* Refused here as well as on the Pause/Resume button, because both save a
-       truck live and the officer cannot tell which one they used - the same
-       argument that put the failure-counter clear in both. */
-    if (overview) {
-      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
-      if (noCredits) return fail(noCredits);
-    }
-    if (overview && truckSlotsLeft(overview) <= 0) {
-      return fail(
-        `Taking this truck live would exceed your plan’s limit of ${overview.truck_limit}. Pause another truck first.`,
-      );
-    }
-  }
-
   /*
-   * Same rule as adding: blank means "use the admin's number", which is null in
-   * the column rather than a figure copied in here. Storing today's default
-   * would quietly opt this truck out of every future change to it.
+   * Settings only (owner, 20 Nov 2026). This form no longer carries a
+   * "Tracking active" box - Go live / Pause at the top of the truck page do
+   * that through setTruckPaused() - so is_active, and everything a resume
+   * clears, is not touched here. Nor is inactive_pause_hours, which belongs to
+   * the halt alert now.
    */
-  const failuresRaw = str(fd, "max_consecutive_failures");
-  let maxFailures: number | null = null;
-  if (failuresRaw) {
-    const parsed = Number(failuresRaw);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
-      return fail("Stop after how many failures? Enter a whole number from 1 to 1000, or leave it empty.");
-    }
-    maxFailures = parsed;
-  }
-
-  /*
-   * Switching a truck back on by hand is a fresh start, exactly as re-adding
-   * one is. Without this, a truck paused at its budget would resume with the
-   * counter still at the limit and be paused again by its very next failure -
-   * and the officer would have no way to clear it from any screen.
-   */
-  const resuming = activating && !truck.is_active;
+  const maxFailures = readFailureLimit(fd);
+  if (isError(maxFailures)) return fail(maxFailures.error);
 
   const autoPauseAt = readAutoPauseAt(fd);
   if (isError(autoPauseAt)) return fail(autoPauseAt.error);
-
-  const inactiveHours = readInactiveHours(fd);
-  if (isError(inactiveHours)) return fail(inactiveHours.error);
 
   const { error } = await admin
     .from("tracked_trucks")
     .update({
       label: str(fd, "label"),
-      is_active: activating,
       max_consecutive_failures: maxFailures,
-      inactive_pause_hours: inactiveHours,
       /*
-       * Resuming clears the deadline that stopped the truck. Without this, a
-       * truck paused because its auto-pause time arrived still carries that
-       * time, and the very next sweep sees a deadline already in the past and
-       * stops it again - with nothing on any screen explaining why Resume
-       * appeared to do nothing.
-       */
-      ...(resuming
-        ? {
-            consecutive_errors: 0,
-            failure_warned_at: null,
-            paused_reason: null,
-            paused_at: null,
-            auto_pause_at: null,
-            /* Going live restarts the no-movement window. */
-            tracking_started_at: new Date().toISOString(),
-          }
-        : {}),
-      /*
-       * The form's own answer, applied AFTER the resume clear so that resuming
-       * and setting a fresh schedule in the same save keeps the schedule. The
-       * order of these two spreads is the whole behaviour: the other way round,
-       * an officer who switched a truck back on and asked for another six hours
-       * would silently get no timer at all.
-       *
        * A schedule is a countdown from when it was set, so re-saving with "6
-       * hours" still in the box restarts it - which is what somebody editing a
-       * truck and pressing save expects. undefined means the form never carried
-       * the field, so whatever is stored is left alone.
+       * hours" still in the box restarts it. undefined means the form never
+       * carried the field, so whatever is stored is left alone.
        */
       ...(autoPauseAt === undefined
         ? {}
         : { auto_pause_at: autoPauseAt === null ? null : autoPauseAt.toISOString() }),
-      ...(activating ? {} : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
     })
     .eq("id", truckId)
     .eq("user_id", session.id);
 
   if (error) return fail(reportError("saving a truck", error, "Could not save those changes."));
+
+  const label = str(fd, "label");
+  const changes: string[] = [];
+  if ((truck.label ?? null) !== label) changes.push(label ? `label set to "${label}"` : "label removed");
+  if (truck.max_consecutive_failures !== maxFailures) {
+    changes.push(`pause after ${maxFailures} failed check${maxFailures === 1 ? "" : "s"}`);
+  }
+  if (autoPauseAt instanceof Date) changes.push("end time set");
+  else if (autoPauseAt === null && truck.auto_pause_at) changes.push("end time removed");
+  if (changes.length > 0) {
+    await recordTruckActivity({
+      userId: session.id,
+      truckId,
+      truckNumber: truck.truck_number,
+      kind: "settings_changed",
+      detail: { changes },
+    });
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -715,10 +802,10 @@ export async function addTruckAlert(
 
   const { data: truck } = await admin
     .from("tracked_trucks")
-    .select("id")
+    .select("id, truck_number")
     .eq("id", truckId)
     .eq("user_id", session.id)
-    .maybeSingle();
+    .maybeSingle<{ id: string; truck_number: string }>();
 
   if (!truck) return fail("That truck is not on your list.");
 
@@ -730,8 +817,9 @@ export async function addTruckAlert(
   const plaza = decided.plaza;
   const plazaMatch = decided.match;
 
-  const interval = readInterval(fd, template);
-  if (!interval.ok) return fail(interval.error);
+  const cadence = readCadence(fd, template);
+  if (!cadence.ok) return fail(cadence.error);
+  const halt = cadence.halt;
 
   /* The identity is computed from the CANONICAL plaza, which is what will be
      stored - so the duplicate this refuses is the duplicate the index would.
@@ -748,12 +836,30 @@ export async function addTruckAlert(
     tracked_truck_id: truckId,
     template_id: template.id,
     is_enabled: true,
-    interval_minutes: interval.minutes,
+    interval_minutes: cadence.minutes,
     plaza,
     plaza_match: plazaMatch,
+    ...(halt
+      ? {
+          halt_after_hours: halt.haltAfterHours,
+          pause_after_hours: halt.pauseAfterHours,
+          halt_active: false,
+          halt_notified_at: null,
+        }
+      : {}),
   });
 
   if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));
+
+  if (halt) await mirrorHaltPause(truckId, session.id, halt.pauseAfterHours);
+
+  await recordTruckActivity({
+    userId: session.id,
+    truckId,
+    truckNumber: truck.truck_number,
+    kind: "alert_added",
+    detail: { alert: template.name, summary: cadenceWords(template, cadence.minutes, plaza, halt) },
+  });
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -761,7 +867,7 @@ export async function addTruckAlert(
   revalidatePath("/portal/trucks");
   revalidatePath(`/portal/trucks/${truckId}`);
 
-  return done(alertAddedMessage(template, interval.minutes, interval.clampedFrom));
+  return done(alertAddedMessage(template, cadence.minutes, cadence.clampedFrom, halt));
 }
 
 /**
@@ -788,23 +894,56 @@ export async function updateTruckAlert(
 
   const { data: alert } = await admin
     .from("truck_alerts")
-    .select("id, tracked_truck_id, template:alert_rule_templates(*)")
+    .select(
+      "id, tracked_truck_id, is_enabled, plaza, template:alert_rule_templates(*), truck:tracked_trucks(truck_number)",
+    )
     .eq("id", alertId)
     .eq("user_id", session.id)
-    .maybeSingle<{ id: string; tracked_truck_id: string; template: AlertRuleTemplate | null }>();
+    .maybeSingle<{
+      id: string;
+      tracked_truck_id: string;
+      is_enabled: boolean;
+      plaza: string | null;
+      template: AlertRuleTemplate | null;
+      truck: { truck_number: string } | null;
+    }>();
 
   if (!alert?.template) return fail("That alert is not on your list.");
 
-  const interval = readInterval(fd, alert.template);
-  if (!interval.ok) return fail(interval.error);
+  const cadence = readCadence(fd, alert.template);
+  if (!cadence.ok) return fail(cadence.error);
+  const halt = cadence.halt;
 
   const { error } = await admin
     .from("truck_alerts")
-    .update({ interval_minutes: interval.minutes })
+    .update({
+      interval_minutes: cadence.minutes,
+      ...(halt
+        ? { halt_after_hours: halt.haltAfterHours, pause_after_hours: halt.pauseAfterHours }
+        : {}),
+    })
     .eq("id", alertId)
     .eq("user_id", session.id);
 
   if (error) return fail(reportError("changing an alert", error, "Could not change that alert."));
+
+  /* A switched-off halt alert keeps the truck's stopped-moving pause off. */
+  if (halt && alert.is_enabled) {
+    await mirrorHaltPause(alert.tracked_truck_id, session.id, halt.pauseAfterHours);
+  }
+
+  if (alert.truck) {
+    await recordTruckActivity({
+      userId: session.id,
+      truckId: alert.tracked_truck_id,
+      truckNumber: alert.truck.truck_number,
+      kind: "alert_edited",
+      detail: {
+        alert: alert.template.name,
+        summary: cadenceWords(alert.template, cadence.minutes, alert.plaza, halt),
+      },
+    });
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -813,9 +952,9 @@ export async function updateTruckAlert(
   revalidatePath(`/portal/trucks/${alert.tracked_truck_id}`);
 
   return done(
-    interval.clampedFrom !== null
-      ? `Now checking every ${intervalLabel(alert.template.min_interval_minutes)}, the fastest this alert allows.`
-      : `Now checking every ${intervalLabel(interval.minutes)}.`,
+    halt
+      ? `Saved: alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}.`
+      : `Now checking every ${intervalLabel(cadence.minutes)}.`,
   );
 }
 
@@ -865,11 +1004,39 @@ export async function setTruckAlertEnabled(
     .update({ is_enabled: enabled })
     .eq("id", alertId)
     .eq("user_id", session.id)
-    .select("tracked_truck_id")
-    .maybeSingle();
+    .select(
+      "tracked_truck_id, template_kind, pause_after_hours, template:alert_rule_templates(name), truck:tracked_trucks(truck_number)",
+    )
+    .maybeSingle<{
+      tracked_truck_id: string;
+      template_kind: string;
+      pause_after_hours: number | null;
+      template: { name: string } | null;
+      truck: { truck_number: string } | null;
+    }>();
 
   if (error) return fail(reportError("switching an alert", error, "Could not change that alert."));
   if (!alert) return fail("That alert is not on your list.");
+
+  /* The halt alert carries the truck's stopped-moving pause: off with it, and
+     back to its own hours when it is switched on again. */
+  if (alert.template_kind === "halt") {
+    await mirrorHaltPause(
+      alert.tracked_truck_id,
+      session.id,
+      enabled ? (alert.pause_after_hours ?? null) : null,
+    );
+  }
+
+  if (alert.truck) {
+    await recordTruckActivity({
+      userId: session.id,
+      truckId: alert.tracked_truck_id,
+      truckNumber: alert.truck.truck_number,
+      kind: enabled ? "alert_on" : "alert_off",
+      detail: { alert: alert.template?.name ?? "Alert" },
+    });
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -895,11 +1062,33 @@ export async function deleteTruckAlert(
     .delete()
     .eq("id", alertId)
     .eq("user_id", session.id)
-    .select("tracked_truck_id")
-    .maybeSingle();
+    .select(
+      "tracked_truck_id, template_kind, template:alert_rule_templates(name), truck:tracked_trucks(truck_number)",
+    )
+    .maybeSingle<{
+      tracked_truck_id: string;
+      template_kind: string;
+      template: { name: string } | null;
+      truck: { truck_number: string } | null;
+    }>();
 
   if (error) return fail(reportError("removing an alert", error, "Could not remove that alert."));
   if (!alert) return fail("That alert is not on your list.");
+
+  /* No halt alert, no stopped-moving pause. */
+  if (alert.template_kind === "halt") {
+    await mirrorHaltPause(alert.tracked_truck_id, session.id, null);
+  }
+
+  if (alert.truck) {
+    await recordTruckActivity({
+      userId: session.id,
+      truckId: alert.tracked_truck_id,
+      truckNumber: alert.truck.truck_number,
+      kind: "alert_removed",
+      detail: { alert: alert.template?.name ?? "Alert" },
+    });
+  }
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -914,6 +1103,33 @@ export async function deleteTruckAlert(
 /* the truck itself                                                            */
 /* -------------------------------------------------------------------------- */
 
+
+/** Every screen that shows a truck's state, so a change is on all of them at once. */
+function revalidateTruckScreens(truckId?: string) {
+  revalidatePath("/portal");
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/profile");
+  revalidatePath("/portal/trucks");
+  if (truckId) revalidatePath(`/portal/trucks/${truckId}`);
+}
+
+/**
+ * Pause a truck, or take it live again - the switch and the ⋯ menu on My
+ * trucks, and the Go live / Pause buttons on the truck's own page.
+ *
+ * Every state is handled (verified 20 Nov 2026):
+ *   live   -> pause      paused_reason 'manual', paused_at now
+ *   paused -> live       any reason, including the automatic ones: clears the
+ *                        reason, the failure run, a passed end time, and
+ *                        restarts the no-movement window
+ *   already in the asked-for state (a second tab, a double tap) -> no write,
+ *                        a plain answer, and no slot or credit refusal for a
+ *                        truck that is already live
+ *   not this account's truck -> refused
+ * Going live is refused, in words, when it would not hold: no plan, a plan
+ * past its renewal period, a balance that cannot pay for one check, or no free
+ * tracking slot.
+ */
 export async function setTruckPaused(
   _prev: ActionResult | null,
   fd: FormData,
@@ -925,86 +1141,98 @@ export async function setTruckPaused(
   const active = fd.get("is_active") === "true";
   if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
+  const { data: truck } = await admin
+    .from("tracked_trucks")
+    .select("id, truck_number, is_active, paused_reason")
+    .eq("id", truckId)
+    .eq("user_id", session.id)
+    .maybeSingle<{
+      id: string;
+      truck_number: string;
+      is_active: boolean;
+      paused_reason: PausedReason | null;
+    }>();
+
+  if (!truck) return fail("That truck is not on your list.");
+
+  if (truck.is_active === active) {
+    revalidateTruckScreens(truckId);
+    return done(active ? `${truck.truck_number} is already live.` : `${truck.truck_number} is already paused.`);
+  }
+
   if (active) {
     const overview = await loadOverview(session.id);
+    if (!overview) return fail("Could not load your account. Please sign in again.");
     /*
-     * WHY THE SWITCH REFUSES INSTEAD OF MOVING
-     *
-     * PAUSE_COPY marks 'no_credits' not resumable, which takes the switch off
-     * the card and puts "Open to fix" there instead - but the truck's own page
-     * still carries a Go live button, and this action is reachable from any
-     * form. Without this test the button would work, the row would say live,
-     * and the next sweep would refuse the check and pause the truck again. A
-     * switch that undoes itself a quarter of an hour later is the thing this
-     * whole feature exists to stop, so the honest answer is now, in words.
-     *
-     * Topping up lifts it with no further step: the moment the balance covers
-     * one check this returns null and Go live works again.
+     * A plan past its renewal period: the worker's candidate query filters on
+     * plan_expires_on, so a truck taken live now would never be checked. Inside
+     * the renewal period trucks stay live (and resume when the plan is renewed),
+     * so only the lapsed state is refused.
      */
-    if (overview) {
-      const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
-      if (noCredits) return fail(noCredits);
+    if (!overview.plan_id) return fail("Choose a plan to start tracking trucks.");
+    if (graceDaysLeft(overview) === 0) {
+      return fail("Your plan has ended. Renew it on Plan and credits, then take the truck live again.");
     }
-    if (overview && truckSlotsLeft(overview) <= 0) {
+    /*
+     * An empty balance: the worker asks spend_credits() before every check, so
+     * a truck switched on with nothing in the wallet would be refused and
+     * paused again at its next check. Topping up lifts this at once.
+     */
+    const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
+    if (noCredits) return fail(noCredits);
+    if (truckSlotsLeft(overview) <= 0) {
       return fail(
         `Taking this truck live would exceed your plan’s limit of ${overview.truck_limit} tracked trucks. Pause another truck first.`,
       );
     }
   }
 
-  /*
-   * This is the Pause/Resume button on the truck page - the one an officer
-   * actually presses. updateTruck already cleared the failure run on resume;
-   * this did not, so a truck the worker had paused at its budget came straight
-   * back with the counter still at the limit and was paused again by its very
-   * next failure. Both paths have to agree, because the officer cannot tell
-   * which one they used.
-   */
-  const { error } = await admin
+  const now = new Date().toISOString();
+  const { data: changed, error } = await admin
     .from("tracked_trucks")
     .update({
       is_active: active,
       ...(active
         ? {
+            /* Both resume paths clear the failure run, the reason and a passed
+               end time, and restart the no-movement window - otherwise the
+               very next sweep stops the truck again. */
             consecutive_errors: 0,
             failure_warned_at: null,
             paused_reason: null,
             paused_at: null,
-            /*
-             * And the schedule, for the same reason. A truck that stopped
-             * because its auto-pause time arrived still has that time on the
-             * row; resuming without clearing it would let the very next sweep
-             * see a deadline already in the past and stop the truck again,
-             * with nothing on any screen explaining why Resume did nothing.
-             */
             auto_pause_at: null,
-            /* And the no-movement window, which counts from here. A lorry
-               resumed after standing still for a day must not pause again on
-               the very next sweep for the standing still it did while off. */
-            tracking_started_at: new Date().toISOString(),
+            tracking_started_at: now,
           }
-        : { paused_reason: "manual" as const, paused_at: new Date().toISOString() }),
+        : { paused_reason: "manual" as const, paused_at: now }),
     })
     .eq("id", truckId)
-    .eq("user_id", session.id);
+    .eq("user_id", session.id)
+    /* Guarded on the state just read, so a sweep pausing it in the same second
+       keeps its own reason instead of being overwritten. */
+    .eq("is_active", !active)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return fail(reportError("pausing a truck", error, "Could not change tracking on that truck."));
   }
 
-  revalidatePath("/portal");
-  revalidatePath("/portal/dashboard");
-  revalidatePath("/portal/profile");
-  revalidatePath("/portal/trucks");
-  revalidatePath(`/portal/trucks/${truckId}`);
-  /* The saving is the point, so the confirmation says it. An automatic check
-     costs a credit and the beat is fifteen minutes, so this one tap is worth
-     about 96 credits a day - and "Tracking paused." on its own gave the officer
-     no reason to do it to the other nine parked lorries on the list. */
+  if (changed) {
+    await recordTruckActivity({
+      userId: session.id,
+      truckId,
+      truckNumber: truck.truck_number,
+      kind: active ? "live" : "paused",
+      detail: active ? { reason: truck.paused_reason ?? "manual" } : {},
+    });
+  }
+
+  revalidateTruckScreens(truckId);
   return done(
     active
-      ? "This truck is live again."
-      : "Tracking paused. It uses no credits until you take it live again.",
+      ? `${truck.truck_number} is live again.`
+      : `${truck.truck_number} paused. It uses no credits until you take it live again.`,
   );
 }
 
@@ -1031,11 +1259,15 @@ export async function checkTruckNow(
   const result = await runManualLookup({ userId: session.id, truckNumber: truck.truck_number });
   if (!result.ok) return fail(result.error);
 
-  revalidatePath("/portal");
-  revalidatePath("/portal/dashboard");
-  revalidatePath("/portal/profile");
-  revalidatePath("/portal/trucks");
-  revalidatePath(`/portal/trucks/${truckId}`);
+  await recordTruckActivity({
+    userId: session.id,
+    truckId,
+    truckNumber: truck.truck_number,
+    kind: "manual_check",
+    detail: { found: result.found, newCrossings: result.newCount },
+  });
+
+  revalidateTruckScreens(truckId);
 
   return done(
     result.newCount > 0
@@ -1045,8 +1277,14 @@ export async function checkTruckNow(
 }
 
 /**
- * Removes the truck and its alerts, and keeps the toll crossings. The history
- * is the case record; the truck row is only the instruction to keep checking.
+ * Deletes the truck. Exactly this, and the confirmation (deleteTruckMessage in
+ * src/lib/pause.ts) says the same:
+ *   deleted   the tracked_trucks row, its alerts (truck_alerts cascade), its
+ *             settings; the tracking slot is freed
+ *   kept      toll crossings (truck_events, tracked_truck_id set null), alerts
+ *             already sent (alert_logs), charges (credit_transactions), group
+ *             membership and the activity history - all keyed by the number
+ * Works the same for a live or a paused truck. Lands on My trucks.
  */
 export async function removeTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const session = await assertPortalUser();
@@ -1055,17 +1293,26 @@ export async function removeTruck(_prev: ActionResult | null, fd: FormData): Pro
   const truckId = str(fd, "truck_id");
   if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
-  const { error } = await admin
+  const { data: removed, error } = await admin
     .from("tracked_trucks")
     .delete()
     .eq("id", truckId)
-    .eq("user_id", session.id);
+    .eq("user_id", session.id)
+    .select("truck_number, is_active, label")
+    .maybeSingle<{ truck_number: string; is_active: boolean; label: string | null }>();
 
   if (error) return fail(reportError("removing a truck", error, "Could not remove that truck."));
+  if (!removed) return fail("That truck is not on your list any more. Refresh the page.");
 
-  revalidatePath("/portal");
-  revalidatePath("/portal/dashboard");
-  revalidatePath("/portal/profile");
-  revalidatePath("/portal/trucks");
+  await recordTruckActivity({
+    userId: session.id,
+    truckId: null,
+    truckNumber: removed.truck_number,
+    kind: "deleted",
+    detail: { wasLive: removed.is_active, ...(removed.label ? { summary: removed.label } : {}) },
+  });
+
+  revalidateTruckScreens();
+  revalidatePath("/portal/activity");
   redirect("/portal/trucks");
 }

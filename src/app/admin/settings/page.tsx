@@ -632,21 +632,6 @@ export default async function SettingsPage({
                 </Field>
 
                 <Field
-                  label="Pause a truck after this long without movement (hours)"
-                  name="inactive_pause_hours"
-                  hint="A parked lorry answers every check with the same crossing it gave yesterday, so the checks cost credits and tell nobody anything. Counted from the last crossing that came through: past this, the truck is paused and its owner is told it stopped moving. This is the fallback - an officer who set their own number for a truck keeps it. Generous by default, because the cost of setting it too low is a customer whose lorry quietly stopped being watched over a long weekend."
-                >
-                  <Input
-                    name="inactive_pause_hours"
-                    type="number"
-                    min={1}
-                    max={8760}
-                    defaultValue={num(settings, "inactive_pause_hours", 72)}
-                    className="max-w-40"
-                  />
-                </Field>
-
-                <Field
                   label="Same plaza counts as the same crossing for (minutes)"
                   name="revisit_minutes"
                   hint="A toll plaza reports one crossing several times over. Inside this window a repeat is ignored; past it, the truck has come back and that is a new crossing worth alerting on. Raise it if return trips are being reported twice; lower it if a same-day round trip is being missed."
@@ -1248,9 +1233,6 @@ export default async function SettingsPage({
                 </Badge>
               </DescRow>
               <DescRow label="No-activity">{num(settings, "no_activity_hours", 6)} h</DescRow>
-              <DescRow label="Pause when still for">
-                {num(settings, "inactive_pause_hours", 72)} h
-              </DescRow>
               <DescRow label="Pause after">
                 {num(settings, "tracking_failure_cutoff", 10)} failed checks
               </DescRow>

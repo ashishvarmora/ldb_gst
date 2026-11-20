@@ -1,160 +1,145 @@
-import { Truck as PageIcon } from "lucide-react";
 import Link from "next/link";
-import { BellOff, Download, Plus, Layers, ShieldCheck } from "lucide-react";
+import { BellOff, Download, Layers, Plus, ShieldCheck, Truck as PageIcon } from "lucide-react";
 
 import { AddTruckForm } from "./AddTruckForm";
 import { loadAlertDelivery } from "@/components/AlertDeliveryBanner";
+import { FleetToolbar, type FleetSort } from "@/components/FleetToolbar";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { TruckCard, isWatching } from "@/components/TruckCard";
+import { MoreMenu } from "@/components/MoreMenu";
+import { TruckCard, type TruckRowAlert, type TruckRowTruck } from "@/components/TruckCard";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
-import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE } from "@/lib/pause";
+import { getSignedInUser } from "@/lib/auth";
+import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE, truckChip } from "@/lib/pause";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
-import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type {
-  AlertRuleTemplate,
-  TrackedTruck,
-  TruckAlertWithTemplate,
-} from "@/lib/types";
+import type { AlertRuleTemplate } from "@/lib/types";
 
 export const metadata = { title: "My trucks — Rahdari" };
 
-/** Enough to fill a phone screen a few times over without scrolling for ever. */
-const PAGE_SIZE = 12;
+/** Rows per page - a few phone screens of 64px rows. */
+const PAGE_SIZE = 20;
+
+/** The search box appears once the list is longer than this. */
+const SEARCH_FROM = 5;
 
 /**
- * A truck is being tracked, or it is on the list waiting. Two places, no third.
- *
- * There were three tabs and the first was All - which is not a state a truck
- * can be in, it is the absence of a question. It also meant the default view
- * mixed live lorries with parked ones, so the number an officer actually wants
- * ("how many am I paying to watch right now") was never on screen and the list
- * they scanned was always the longest one.
- *
- * The names are the officer's words rather than the column's. is_active is a
- * boolean about a database row; "Live tracking" and "Watchlist" say what the
- * platform is doing about the lorry - the second deliberately not "Paused",
- * because a paused truck has not been removed and its history is intact. It is
- * still on the list, just not costing anything.
+ * Two places a truck can be: Tracking (checked automatically, using credits)
+ * or Paused (on the list, history kept, no credits). ?filter=paused and the
+ * older ?filter=watchlist both land on Paused.
  */
 type Filter = "live" | "watchlist";
 
-const FILTER_LABEL: Record<Filter, string> = {
-  live: "Tracking",
-  watchlist: "Paused",
-};
+const FILTER_LABEL: Record<Filter, string> = { live: "Tracking", watchlist: "Paused" };
 
-/** What each tab means, for the empty state and the tab's own title. */
-const FILTER_NOTE: Record<Filter, string> = {
-  live: "Checked automatically and using credits",
-  watchlist: "On your list, not checked and not using credits",
-};
-
-/**
- * The one line under the tabs, and the only place on this screen where what
- * pausing is FOR gets any words at all.
- *
- * One line per tab rather than a paragraph, because the rest of the answer is
- * behind the (i) beside it. An officer arriving on the watchlist is asking "have
- * I lost anything by pausing these?" and the answer is the owner's own sentence;
- * an officer on the live tab is being told, once, that these lorries are the
- * ones costing money and that they can stop themselves.
- */
-const FILTER_LEAD: Record<Filter, string> = {
-  live: "These trucks are checked automatically, and each check uses credits.",
-  watchlist: "Paused trucks keep their history and use no credits.",
-};
-
-/*
- * Live is the default, and ?filter=paused still lands somewhere sensible.
- * Links to this page exist in alert messages and in the admin console, and a
- * stale one that silently showed the wrong tab would be worse than a 404.
- */
 function parseFilter(raw: string | undefined): Filter {
-  if (raw === "watchlist" || raw === "paused") return "watchlist";
-  return "live";
+  return raw === "watchlist" || raw === "paused" ? "watchlist" : "live";
 }
 
+function parseSort(raw: string | undefined): FleetSort {
+  return raw === "number" ? "number" : "crossing";
+}
 
-function hrefFor(filter: Filter, page: number): string {
+/** Upper-case, no spaces or dashes - how numbers are stored. */
+function squash(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function hrefFor(filter: Filter, page: number, q: string, sort: FleetSort): string {
   const params = new URLSearchParams();
-  if (filter !== "live") params.set("filter", filter);
+  if (filter !== "live") params.set("filter", "paused");
+  if (q) params.set("q", q);
+  if (sort !== "crossing") params.set("sort", sort);
   if (page > 1) params.set("page", String(page));
   const query = params.toString();
   return query ? `/portal/trucks?${query}` : "/portal/trucks";
 }
 
+/**
+ * My trucks (owner, 20 Nov 2026).
+ *
+ * FIRST VIEW, before any tap:
+ *   heading            "My trucks"   [+ Add truck] [⋯ CSV · Groups]
+ *   one summary line   12 trucks · 2 halted · Growth, 9 of 25 slots used (i)
+ *   primary filter     [ Tracking 9 | Paused 3 ]
+ *   tools (>5 trucks)  [search number or label] [sort]
+ *   rows               plate + status chip / last crossing, switch, ⋯
+ *
+ * AFTER A TAP: the ⋯ menus (Pause / Go live, Delete; CSV, Groups), the (i)
+ * with the auto-pause rules, and the truck page for everything else.
+ *
+ * SPEED: every read here starts as soon as the signed-in user id is known
+ * (verified locally from the cookie), in parallel with the profile and
+ * overview reads the portal gate does - so the page is one database round
+ * trip deep instead of two. Columns are narrowed to what a row shows.
+ */
 export default async function TrucksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string; page?: string }>;
+  searchParams: Promise<{ filter?: string; page?: string; q?: string; sort?: string }>;
 }) {
-  const { overview } = await requirePortalSession();
-  const params = await searchParams;
+  const user = await getSignedInUser();
+  if (!user) await requirePortalSession(); // redirects to /login
+  const userId = user!.id;
   const admin = getSupabaseAdmin();
 
-  const filter = parseFilter(params.filter);
-
-  const [{ data: trucks }, { data: alerts }, { data: templates }, settings, telegram] =
+  const [{ overview }, params, { data: trucks }, { data: alerts }, { data: templates }, telegram] =
     await Promise.all([
+      requirePortalSession(),
+      searchParams,
       admin
         .from("tracked_trucks")
-        .select("*")
-        .eq("user_id", overview.id)
+        .select("id,truck_number,label,is_active,paused_reason,last_event_at,last_location")
+        .eq("user_id", userId)
         .order("last_event_at", { ascending: false, nullsFirst: false }),
       admin
         .from("truck_alerts")
-        .select("*, template:alert_rule_templates(*)")
-        .eq("user_id", overview.id),
+        .select("tracked_truck_id,is_enabled,halt_active,template_kind")
+        .eq("user_id", userId),
       admin
         .from("alert_rule_templates")
         .select("*")
         .eq("is_active", true)
         .order("sort_order", { ascending: true }),
-      loadSettings(admin),
-      /*
-       * The same read the layout's delivery banner does, and deliberately the
-       * same function: loadAlertDelivery is cache()d, so this shares the
-       * layout's round trip rather than adding one. It used to be a second
-       * query here with its own local helper - identical state names, computed
-       * two ways - which is two places for one rule to drift.
-       */
-      loadAlertDelivery(overview.id),
+      /* Cached with the layout's own read of the same thing - no extra trip. */
+      loadAlertDelivery(userId),
     ]);
 
-  const all = (trucks ?? []) as TrackedTruck[];
+  const filter = parseFilter(params.filter);
+  const sort = parseSort(params.sort);
+  const q = (params.q ?? "").trim().slice(0, 40);
+
+  const all = (trucks ?? []) as TruckRowTruck[];
   const templateList = (templates ?? []) as AlertRuleTemplate[];
 
-  const byTruck = new Map<string, TruckAlertWithTemplate[]>();
-  for (const alert of (alerts ?? []) as TruckAlertWithTemplate[]) {
+  const byTruck = new Map<string, TruckRowAlert[]>();
+  for (const alert of (alerts ?? []) as TruckRowAlert[]) {
     const list = byTruck.get(alert.tracked_truck_id) ?? [];
     list.push(alert);
     byTruck.set(alert.tracked_truck_id, list);
   }
 
-  /* Both reads are capped by the plan's truck limit, so counting and paging in
-     memory keeps the tallies honest without a second round of queries. Swap
-     the pager below for src/components/Pager.tsx once that lands. */
-  const watching = new Set(
-    all
-      .filter((truck) => truck.is_active && isWatching(byTruck.get(truck.id) ?? []))
-      .map((truck) => truck.id),
-  );
-
+  const chips = new Map(all.map((truck) => [truck.id, truckChip(truck, byTruck.get(truck.id) ?? [])]));
   const counts: Record<Filter, number> = {
     live: all.filter((truck) => truck.is_active).length,
     watchlist: all.filter((truck) => !truck.is_active).length,
   };
+  const halted = all.filter((truck) => chips.get(truck.id)?.label === "Halted").length;
+  const silent = all.filter((truck) => chips.get(truck.id)?.label === "Live · no alert").length;
 
-  const matching = all.filter((truck) =>
-    filter === "live" ? truck.is_active : !truck.is_active,
-  );
-
-  /* A live truck with no enabled alert is never checked. That used to be its
-     own tab; it is a line under the tabs now, so it is seen without going
-     looking for it. */
-  const silentCount = all.filter((truck) => truck.is_active && !watching.has(truck.id)).length;
+  const needle = squash(q);
+  const lowered = q.toLowerCase();
+  let matching = all.filter((truck) => (filter === "live" ? truck.is_active : !truck.is_active));
+  if (q) {
+    matching = matching.filter(
+      (truck) =>
+        (needle && truck.truck_number.includes(needle)) ||
+        (truck.label ?? "").toLowerCase().includes(lowered),
+    );
+  }
+  if (sort === "number") {
+    matching = [...matching].sort((a, b) => a.truck_number.localeCompare(b.truck_number));
+  }
 
   const pageCount = Math.max(Math.ceil(matching.length / PAGE_SIZE), 1);
   const page = Math.min(Math.max(Number(params.page) || 1, 1), pageCount);
@@ -162,54 +147,15 @@ export default async function TrucksPage({
 
   const slots = truckSlotsLeft(overview);
   const canAdd = slots > 0 && Boolean(overview.plan_id);
+  const limit = overview.truck_limit;
 
   return (
     <div className="fleet-workspace">
       <PageHeader
         icon={<PageIcon size={22} strokeWidth={2} />}
         title="My trucks"
-        subtitle="All your trucks, and which ones are being tracked."
-        /* No subtitle. It said "what you are watching, and what each one will
-           tell you", which the two tabs and the rows below now say better -
-           and on a phone it pushed the first truck below the fold. */
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {/*
-              The account-wide crossings export. It lost its only button when
-              the Records screen went, and the route survived that deletion on
-              purpose: it is the ONLY on-demand crossings CSV a customer has.
-              The Sheets backup is not a substitute - it copies only rows the
-              retention purge is about to delete, and needs an integration that
-              is switched off.
-
-              Only offered once there is something to export: a download that
-              hands back an empty file is worse than no button.
-            */}
-            {all.length > 0 ? (
-              <a
-                href="/portal/records/export?range=all"
-                className={buttonClass("secondary", "md")}
-                download
-              >
-                <Download size={15} />
-                {/*
-                  "Crossings" only where the row has room for the word.
-
-                  Both buttons at full length are 274px of the 358px a 390px
-                  phone gives this row, and PageHeader lets its title column
-                  shrink to whatever is left - 72px, where "My trucks" needs 88.
-                  That is the heading the owner reported splitting across two
-                  lines; the ten characters this hides are what it needed.
-
-                  sr-only rather than hidden below sm, so the button is still
-                  called "Crossings CSV" to a screen reader on the size where
-                  the word is off. The short form is not a new name either: the
-                  credit ledger's own export is a Download icon and the word
-                  CSV, on every screen.
-                */}
-                <span className="max-sm:sr-only">Crossings </span>CSV
-              </a>
-            ) : null}
+          <div className="fleet-actions">
             <Modal
               triggerLabel="Add truck"
               openHash="add-truck"
@@ -219,169 +165,162 @@ export default async function TrucksPage({
                 canAdd
                   ? slots === Number.POSITIVE_INFINITY
                     ? "Unlimited tracking slots on your plan."
-                    : `${slots} slot${slots === 1 ? "" : "s"} free on your plan.`
-                  : "No slots free — pause or remove a truck first."
+                    : `${slots} tracking slot${slots === 1 ? "" : "s"} free on your plan.`
+                  : "No tracking slots free — pause or delete a truck first."
               }
               width="md"
             >
-              <AddTruckForm
-                templates={templateList}
-                defaultFailureCutoff={settings.trackingFailureCutoff}
-                defaultInactiveHours={settings.inactivePauseHours}
-                telegram={telegram}
-              />
+              <AddTruckForm templates={templateList} telegram={telegram} />
             </Modal>
+            {/* Secondary tools, one tap further. The crossings CSV is the only
+                on-demand export of every crossing, so it stays reachable. */}
+            <MoreMenu label="More on My trucks" buttonClassName="fleet-more">
+              {all.length > 0 ? (
+                <a role="menuitem" href="/portal/records/export?range=all" download className="more-menu-item">
+                  <Download size={15} aria-hidden />
+                  Crossings CSV
+                </a>
+              ) : null}
+              <Link role="menuitem" href="/portal/cases" className="more-menu-item">
+                <Layers size={15} aria-hidden />
+                Groups
+              </Link>
+              <Link role="menuitem" href="/portal/plan" className="more-menu-item">
+                <ShieldCheck size={15} aria-hidden />
+                Plan and credits
+              </Link>
+            </MoreMenu>
           </div>
         }
       />
 
-      <section className="fleet-overview" aria-label="Fleet summary"><div><span>Total trucks</span><strong>{all.length}</strong></div><div><span>Tracking enabled</span><strong>{counts.live}</strong></div><div><span>Paused</span><strong>{counts.watchlist}</strong></div></section>
-      <div className="fleet-tools">{overview.plan_name ? <p><ShieldCheck size={16}/>{overview.plan_name}</p> : <Link href="/portal/plan"><ShieldCheck size={16}/>Choose a plan to add trucks →</Link>}<Link href="/portal/cases"><Layers size={16}/>Groups</Link></div>
+      {/* One calm summary line; the rules behind it are one tap away. */}
+      <InfoTip
+        label="auto-pause rules"
+        className="fleet-summary"
+        rowClassName="gap-x-1.5 flex-nowrap"
+        info={
+          <>
+            <p className="font-medium text-ink">When tracking stops by itself</p>
+            <p>
+              Each automatic check uses credits, so checking stops by itself in these cases:
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {AUTO_PAUSE_RULES.map((rule) => (
+                <li key={rule.label}>
+                  <span className="font-medium text-ink">{rule.label}.</span> {rule.body}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2">{PAUSE_HELP_LINE}</p>
+            <p>
+              <Link href="/support#watching" className="font-medium text-brand-500 hover:underline">
+                More on pausing
+              </Link>
+            </p>
+          </>
+        }
+      >
+        <p className="fleet-summary-line">
+          <span>
+            {all.length} truck{all.length === 1 ? "" : "s"}
+          </span>
+          {halted > 0 ? <span className="is-warn">{halted} halted</span> : null}
+          {overview.plan_name ? (
+            <span>
+              {overview.plan_name}
+              {limit === -1 ? "" : `, ${counts.live} of ${limit} slots used`}
+            </span>
+          ) : (
+            <Link href="/portal/plan" className="is-link">
+              Choose a plan to add trucks
+            </Link>
+          )}
+        </p>
+      </InfoTip>
+
       {all.length === 0 ? (
         <Panel bodyClassName="p-0">
           <EmptyState
-            icon={<PageIcon size={28}/>}
+            icon={<PageIcon size={28} />}
             title="No trucks yet"
-            description="Tap Add truck above, enter the registration number and choose an alert. Its recorded crossings will appear here."
+            description="Tap Add truck, enter the registration number and choose an alert. Its toll crossings will appear here."
           />
         </Panel>
       ) : (
-        <div className="space-y-4">
-          {/* One tap to the only question this page really answers: which of
-              my trucks will actually tell me something? */}
-          <div className="fleet-filter-tabs flex flex-wrap gap-2">
+        <div className="fleet-list-wrap">
+          <nav className="fleet-filter-tabs" aria-label="Show trucks">
             {(Object.keys(FILTER_LABEL) as Filter[]).map((value) => (
               <Link
                 key={value}
-                href={hrefFor(value, 1)}
-                title={FILTER_NOTE[value]}
+                href={hrefFor(value, 1, q, sort)}
                 aria-current={value === filter ? "page" : undefined}
-                className={cx(
-                  "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition",
-                  value === filter
-                    ? "border-brand-500 bg-brand-500/10 text-brand-500"
-                    : "border-line bg-panel text-muted hover:border-line-strong hover:text-ink",
-                )}
+                className={cx(value === filter && "is-active")}
               >
                 {FILTER_LABEL[value]}
-                <span className="tabular-nums opacity-70">{counts[value]}</span>
-                <span className="sr-only"> — {FILTER_NOTE[value]}</span>
+                <span className="fleet-filter-count">{counts[value]}</span>
               </Link>
             ))}
-          </div>
+          </nav>
 
-          {/*
-            One line, and the whole of the auto-pause explanation behind the (i)
-            beside it.
+          <FleetToolbar
+            basePath="/portal/trucks"
+            params={filter === "live" ? {} : { filter: "paused" }}
+            query={q}
+            sort={sort}
+            showSearch={all.length > SEARCH_FROM || q !== ""}
+          />
 
-            The rules used to be nowhere on this screen, which meant the first
-            time an officer met one was a truck that had gone quiet on its own.
-            Putting them on the page would cost a paragraph on the screen that
-            is scanned more than any other, and the owner has asked repeatedly
-            for this list to stay short - so the rules, the links and the
-            arithmetic live in the panel, and the row keeps one sentence.
-
-            No count in the sentence below, deliberately. It said "four" here,
-            "Four things" on the truck's own page and "one of four limits" on
-            the support page, all written by hand off the same array - so
-            adding the empty-balance rule made three screens wrong at once.
-            What the rules are FOR does not change when one is added.
-          */}
-          <InfoTip
-            label="auto-pause"
-            rowClassName="gap-x-1.5"
-            info={
-              <>
-                <p className="font-medium text-ink">Auto-pause rules</p>
-                <p>
-                  A tracked truck is checked as often as its alert asks, and each check costs a credit
-                  — a truck on a 15-minute alert uses about 96 a day. Pausing one is the largest thing you can
-                  do about that, and checking also stops by itself in these situations, each of
-                  them there to keep credits from going on an answer you already have:
-                </p>
-                <ul className="mt-2 space-y-1.5">
-                  {AUTO_PAUSE_RULES.map((rule) => (
-                    <li key={rule.label}>
-                      <span className="font-medium text-ink">{rule.label}.</span> {rule.body}
-                    </li>
-                  ))}
-                </ul>
-                {/* mt-2 by hand: InfoTip's panel spaces p+p for itself, and the
-                    list above this one breaks that adjacency. */}
-                <p className="mt-2">{PAUSE_HELP_LINE}</p>
-                <p className="flex flex-wrap gap-x-3 gap-y-1">
-                  <Link
-                    href={hrefFor("watchlist", 1)}
-                    className="font-medium text-brand-500 hover:underline"
-                  >
-                    See paused trucks
-                  </Link>
-                  {/* Where the two per-truck limits actually live. There is no
-                      account-wide page for them - they are set on the truck, or
-                      left to follow the platform default - so this points at
-                      the truck itself rather than inventing a settings URL. */}
-                  <span className="text-faint">
-                    Open any truck to set its own limits under Settings.
-                  </span>
-                  <Link
-                    href="/support#watching"
-                    className="font-medium text-brand-500 hover:underline"
-                  >
-                    More on pausing
-                  </Link>
-                </p>
-              </>
-            }
-          >
-            {/* flex-1 min-w-0 so the note wraps under itself and the (i) stays
-                on the first line beside it. A plain <p> here is a flex item as
-                wide as its text, which on a phone filled the row and left the
-                icon stranded alone on a third line. */}
-            <p className="min-w-0 flex-1 text-xs text-muted">{FILTER_LEAD[filter]}</p>
-          </InfoTip>
-
-          {/*
-            The rule that surprises people, and the only place it still gets
-            screen space: a truck is checked because an alert came due, so one
-            with no alert is watched in name only. It used to be a folded
-            HelpNote at the top of the page that everybody read once and then
-            scrolled past for ever. Now it appears only when it is true of this
-            officer's list, says how many, and the rows themselves carry a "no
-            alert" mark so there is something to look for.
-          */}
-          {filter === "live" && silentCount > 0 ? (
-            <p className="flex items-center gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
-              <BellOff size={13} className="shrink-0" />
-              <span className="min-w-0">
-                {silentCount === 1 ? "1 truck has" : `${silentCount} trucks have`} no alert and will
-                not be checked. Open a truck to add one.
+          {/* A live truck with no enabled alert is never checked: the one
+              surprise worth a line, and only when it is true. */}
+          {filter === "live" && silent > 0 ? (
+            <p className="fleet-warn">
+              <BellOff size={13} aria-hidden className="shrink-0" />
+              <span>
+                {silent === 1 ? "1 live truck has" : `${silent} live trucks have`} no alert, so{" "}
+                {silent === 1 ? "it is" : "they are"} not checked.
               </span>
             </p>
           ) : null}
 
           {shown.length === 0 ? (
             <Panel bodyClassName="p-0">
-              <EmptyState
-                title={filter === "live" ? "Nothing is being tracked" : "No paused trucks"}
-                description={
-                  filter === "live"
-                    ? "Every truck on your list is paused, so no credits are being used. Take a truck live to start checking it."
-                    : "Every truck on your list is being checked. Pause parked trucks to save credits."
-                }
-              />
+              {q ? (
+                <EmptyState
+                  title={`No ${filter === "live" ? "tracked" : "paused"} truck matches “${q}”`}
+                  description="Check the number or label, or look in the other list."
+                  action={
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Link
+                        href={hrefFor(filter === "live" ? "watchlist" : "live", 1, q, sort)}
+                        className={buttonClass("secondary", "sm", "whitespace-nowrap")}
+                      >
+                        Search {filter === "live" ? "paused" : "tracked"} trucks
+                      </Link>
+                      <Link
+                        href={hrefFor(filter, 1, "", sort)}
+                        className={buttonClass("ghost", "sm", "whitespace-nowrap")}
+                      >
+                        Clear search
+                      </Link>
+                    </div>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title={filter === "live" ? "Nothing is being tracked" : "No paused trucks"}
+                  description={
+                    filter === "live"
+                      ? "Every truck is paused, so no credits are being used. Open Paused and take a truck live to start checking it."
+                      : "Every truck is being tracked. Pause a parked truck to save credits."
+                  }
+                />
+              )}
             </Panel>
           ) : (
-            /* One column, always. These are rows now rather than cards, and
-               two columns of rows on a wide screen means the eye has to
-               scan two places for the number it is looking for. */
-            <div className="fleet-card-grid stagger">
+            <div className="fleet-rows">
               {shown.map((truck) => (
-                <TruckCard
-                  key={truck.id}
-                  truck={truck}
-                  alerts={byTruck.get(truck.id) ?? []}
-                  settings={settings}
-                />
+                <TruckCard key={truck.id} truck={truck} alerts={byTruck.get(truck.id) ?? []} />
               ))}
             </div>
           )}
@@ -389,7 +328,7 @@ export default async function TrucksPage({
           {pageCount > 1 ? (
             <div className="flex items-center justify-between gap-3 pt-1">
               {page > 1 ? (
-                <Link href={hrefFor(filter, page - 1)} className={buttonClass("secondary", "sm")}>
+                <Link href={hrefFor(filter, page - 1, q, sort)} className={buttonClass("secondary", "sm")}>
                   Previous
                 </Link>
               ) : (
@@ -399,7 +338,7 @@ export default async function TrucksPage({
                 Page {page} of {pageCount}
               </span>
               {page < pageCount ? (
-                <Link href={hrefFor(filter, page + 1)} className={buttonClass("secondary", "sm")}>
+                <Link href={hrefFor(filter, page + 1, q, sort)} className={buttonClass("secondary", "sm")}>
                   Next
                 </Link>
               ) : (

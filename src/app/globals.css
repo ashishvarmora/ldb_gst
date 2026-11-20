@@ -887,3 +887,10 @@ main:has(.home-hero) { background-image: none; }
   .portal-header > div > div { gap: 6px; }
   .portal-header .credit-pill { padding-inline: 8px; font-size: 11px; gap: 4px; }
 }
+
+/* iPhone Home Screen app (standalone): no rubber-band bounce, so the sticky
+   header and the bottom nav stay put - the same rule the Android app gets. */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior-y: none; }
+  body { background-attachment: scroll; }
+}

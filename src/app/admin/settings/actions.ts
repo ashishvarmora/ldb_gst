@@ -55,21 +55,10 @@ const ENGINE_SPECS: SettingSpec[] = [
     max: 1000,
   },
   /*
-   * The fallback for the other automatic stop. An officer who set their own
-   * number for a truck keeps it; this is what every other truck follows.
-   *
-   * The ceiling is a year rather than a week because "never stop this one" is
-   * a legitimate answer for a lorry that spends months on a site, and the
-   * floor is an hour because the sweep does not run more often than that -
-   * anything shorter would pause a truck before it had been checked once.
+   * inactive_pause_hours is gone from this list (owner, 20 Nov 2026): a truck
+   * pauses for standing still only through its own halt alert, so there is no
+   * platform fallback to edit. The stored row is left as it is.
    */
-  {
-    key: "inactive_pause_hours",
-    label: "Pause a truck after this long without movement",
-    kind: "int",
-    min: 1,
-    max: 8760,
-  },
 ];
 
 /*

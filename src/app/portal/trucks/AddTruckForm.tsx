@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Send } from "lucide-react";
 
@@ -8,7 +7,7 @@ import { addTruck } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { Field, FormActions, Input, Select } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
-import { AlertChooser } from "@/components/TruckAlertForm";
+import { AlertChooser, FailureLimitField } from "@/components/TruckAlertForm";
 import type { AlertRuleTemplate } from "@/lib/types";
 
 /**
@@ -34,15 +33,9 @@ import type { AlertRuleTemplate } from "@/lib/types";
  */
 export function AddTruckForm({
   templates,
-  defaultFailureCutoff,
-  defaultInactiveHours,
   telegram,
 }: {
   templates: AlertRuleTemplate[];
-  /** The admin's number, used for any truck the officer leaves blank. */
-  defaultFailureCutoff: number;
-  /** The admin's "stopped moving for this long" fallback, in hours. */
-  defaultInactiveHours: number;
   /**
    * Whether an alert from this truck would actually be delivered anywhere.
    * Worked out by the page, because the answer is a row in telegram_configs
@@ -50,8 +43,6 @@ export function AddTruckForm({
    */
   telegram: TelegramReadiness;
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
   return (
     <ActionForm action={addTruck} closeOnSuccess={false}>
       <div className="space-y-4">
@@ -144,96 +135,14 @@ export function AddTruckForm({
         </div>
 
         {/*
-          One toggle, not a second form. What is behind it is a safety valve
-          most people never touch, and putting it on the first screen would
-          make adding a truck look like configuring one.
-
-          Two fields and nothing else now. It used to open on a folded note
-          titled "How automatic pausing protects your credits" - four lines of
-          arithmetic and two links, standing between the toggle and the boxes it
-          was meant to introduce. The same account of the auto-pause rules is on
-          the trucks list itself, behind the (i) beside "auto-pause", which is
-          the screen where an officer wonders why a lorry went quiet; a person
-          opening More settings has already decided to change a number.
+          REQUIRED since 20 Nov 2026, so it is on the face of the form rather
+          than behind "More settings" (a field that is not rendered cannot be
+          required). No platform default is offered or written. The
+          stopped-moving pause that used to sit beside it now lives in the
+          halt alert above.
         */}
-        <div className="border-t border-divider pt-3">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            aria-expanded={showAdvanced}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg text-xs font-medium text-muted transition hover:text-ink"
-          >
-            {showAdvanced ? "Hide" : "More settings"}
-          </button>
-
-          {showAdvanced ? (
-            <div className="mt-2 space-y-4">
-              <div>
-                <LabelWithInfo
-                  label="Pause after this many failed checks"
-                  htmlFor="max_consecutive_failures"
-                  info={
-                    <>
-                      If the toll network cannot answer for this number this many times in a row,
-                      tracking pauses. The usual cause is a mistyped number. History is kept.
-                      <span className="mt-1.5 block text-faint">
-                        Leave it empty to use the platform default, currently{" "}
-                        {defaultFailureCutoff} failed checks.
-                      </span>
-                    </>
-                  }
-                />
-                <Input
-                  id="max_consecutive_failures"
-                  name="max_consecutive_failures"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={1000}
-                  step={1}
-                  placeholder={`Default (${defaultFailureCutoff})`}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/*
-                The third stop, and the one nobody thinks to ask for. A lorry
-                parked in a yard answers every check with the same crossing it
-                answered with yesterday, so the checks cost credits and tell
-                nobody anything. This is a per-truck number for the same reason
-                the failure budget is: only the officer knows whether this
-                particular vehicle is expected to sit still for a week.
-              */}
-              <div>
-                <LabelWithInfo
-                  label="Pause if it stops moving for"
-                  htmlFor="inactive_pause_hours"
-                  info={
-                    <>
-                      If no new toll crossing is recorded for this long, tracking pauses and you are
-                      notified, so a parked truck does not keep using credits.
-                      <span className="mt-1.5 block text-faint">
-                        Leave it empty to use the platform default, currently{" "}
-                        {defaultInactiveHours} hours. Set it longer for a truck you expect to be
-                        parked.
-                      </span>
-                    </>
-                  }
-                />
-                <Input
-                  id="inactive_pause_hours"
-                  name="inactive_pause_hours"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={8760}
-                  step={1}
-                  placeholder={`Default (${defaultInactiveHours} hours)`}
-                  className="mt-1.5"
-                />
-              </div>
-            </div>
-          ) : null}
+        <div className="border-t border-divider pt-4">
+          <FailureLimitField />
         </div>
       </div>
 
