@@ -25,14 +25,19 @@ export function keyToBytes(base64Url: string): BufferSource {
   return bytes;
 }
 
-/** Flattens the browser's object into the four strings the action takes. */
-export function storeSubscription(subscription: PushSubscription) {
+/**
+ * Flattens the browser's object into the four strings the action takes.
+ * `quiet` is for background re-saves that must not re-render the page (see
+ * SubscriptionInput.quiet in the action).
+ */
+export function storeSubscription(subscription: PushSubscription, options?: { quiet?: boolean }) {
   const json = subscription.toJSON();
   return savePushSubscription({
     endpoint: subscription.endpoint,
     p256dh: json.keys?.p256dh ?? "",
     auth: json.keys?.auth ?? "",
     userAgent: navigator.userAgent,
+    quiet: options?.quiet,
   });
 }
 

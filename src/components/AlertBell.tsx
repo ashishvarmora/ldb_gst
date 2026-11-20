@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bell, CheckCheck, MessageSquare } from "lucide-react";
 
@@ -59,7 +58,6 @@ export function AlertBell({
   unreadMessages?: number;
   messagesHref?: string;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(false);
   /**
@@ -122,9 +120,14 @@ export function AlertBell({
       // sitting on top of the alerts being read. If the write fails the count
       // simply comes back on the next page load.
       setSeen(true);
-      markAlertsRead()
-        .then(() => router.refresh())
-        .catch(() => setSeen(false));
+      /*
+       * No router.refresh() after it (20 Nov 2026). markAlertsRead calls
+       * revalidatePath("/portal", "layout"), so its own response already
+       * carries the re-rendered layout; refreshing on top rendered the whole
+       * portal on the server a second time, and that refresh queued behind
+       * any other action - a tab tapped right after opening the bell waited.
+       */
+      markAlertsRead().catch(() => setSeen(false));
     }
   }
 
@@ -171,9 +174,8 @@ export function AlertBell({
                 type="button"
                 onClick={() => {
                   setCleared(true);
-                  clearAlerts()
-                    .then(() => router.refresh())
-                    .catch(() => setCleared(false));
+                  // Revalidates the layout itself - see markAlertsRead above.
+                  clearAlerts().catch(() => setCleared(false));
                 }}
                 className="-mr-1.5 inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 text-[11px] font-medium text-muted transition hover:bg-sunken hover:text-ink"
               >

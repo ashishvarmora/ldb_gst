@@ -54,36 +54,98 @@ export type PaymentsResult = {
   error: string | null;
 };
 
+/** The status filter on the list. "pending" is a checkout started and never paid. */
+export type StatusFilter = "all" | "paid" | "failed" | "pending";
+export type PaymentSort = "newest" | "oldest" | "amount_desc" | "amount_asc";
+
+export const STATUS_FILTER_DB: Record<Exclude<StatusFilter, "all">, PaymentStatus> = {
+  paid: "paid",
+  failed: "failed",
+  pending: "created",
+};
+
+export function parseStatusFilter(raw: string | undefined): StatusFilter {
+  return raw === "paid" || raw === "failed" || raw === "pending" ? raw : "all";
+}
+
+export function parsePaymentSort(raw: string | undefined): PaymentSort {
+  return raw === "oldest" || raw === "amount_desc" || raw === "amount_asc" ? raw : "newest";
+}
+
+export type PaymentFilter = {
+  status: StatusFilter;
+  /** Inclusive IST days, or null for all time. */
+  from: string | null;
+  to: string | null;
+  sort: PaymentSort;
+};
+
 /**
- * One account's payments inside an IST date window.
+ * One account's payments, filtered, sorted and paged IN THE DATABASE, so the
+ * status filter, the sort and the pager always describe the same result set.
  *
  * WINDOWED ON created_at, not on paid_at. Every row has a created_at - it is
  * written before the payment window even opens - whereas paid_at is null on
  * anything that was started and never paid, which is exactly the row a
- * customer rings up about. Filtering on the settled date would drop those rows
- * out of every range and answer "I paid you on Tuesday" with an empty screen.
+ * customer rings up about.
  */
 export async function loadPayments(
   admin: Admin,
   userId: string,
-  range: { from: string; to: string },
-): Promise<PaymentsResult> {
-  const { data, error } = await admin
-    .from("payments")
-    .select(SELECT)
-    .eq("user_id", userId)
-    .gte("created_at", `${range.from}T00:00:00+05:30`)
-    .lte("created_at", `${range.to}T23:59:59.999+05:30`)
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
+  filter: PaymentFilter,
+  page: { offset: number; limit: number } = { offset: 0, limit: MAX_ROWS },
+): Promise<PaymentsResult & { total: number }> {
+  let query = admin.from("payments").select(SELECT, { count: "exact" }).eq("user_id", userId);
+  if (filter.status !== "all") query = query.eq("status", STATUS_FILTER_DB[filter.status]);
+  if (filter.from) query = query.gte("created_at", `${filter.from}T00:00:00+05:30`);
+  if (filter.to) query = query.lte("created_at", `${filter.to}T23:59:59.999+05:30`);
+
+  if (filter.sort === "oldest") query = query.order("created_at", { ascending: true });
+  else if (filter.sort === "amount_desc") query = query.order("amount_inr", { ascending: false }).order("created_at", { ascending: false });
+  else if (filter.sort === "amount_asc") query = query.order("amount_inr", { ascending: true }).order("created_at", { ascending: false });
+  else query = query.order("created_at", { ascending: false });
+
+  const { data, error, count } = await query
+    .order("id", { ascending: true })
+    .range(page.offset, page.offset + Math.min(page.limit, MAX_ROWS) - 1);
 
   if (error) {
     console.error("portal payments: list failed", error.message);
-    return { rows: [], capped: false, error: error.message };
+    return { rows: [], capped: false, error: error.message, total: 0 };
   }
 
   const rows = (data ?? []) as unknown as PaymentRow[];
-  return { rows, capped: rows.length >= MAX_ROWS, error: null };
+  return { rows, capped: (count ?? 0) > page.offset + rows.length && page.limit >= MAX_ROWS, error: null, total: count ?? 0 };
+}
+
+export type PaymentSummary = { paidInr: number; paid: number; failed: number; pending: number; all: number };
+
+/**
+ * The strip above the list and the counts on the status filter: every payment
+ * in the date window whatever the status filter says, so switching to
+ * "Failed" does not make "Total paid" read zero.
+ */
+export async function loadPaymentSummary(
+  admin: Admin,
+  userId: string,
+  range: { from: string | null; to: string | null },
+): Promise<PaymentSummary> {
+  let query = admin.from("payments").select("status,amount_inr").eq("user_id", userId);
+  if (range.from) query = query.gte("created_at", `${range.from}T00:00:00+05:30`);
+  if (range.to) query = query.lte("created_at", `${range.to}T23:59:59.999+05:30`);
+  const { data } = await query.limit(5000);
+
+  const summary: PaymentSummary = { paidInr: 0, paid: 0, failed: 0, pending: 0, all: 0 };
+  for (const row of (data ?? []) as { status: PaymentStatus; amount_inr: number }[]) {
+    summary.all += 1;
+    if (row.status === "paid") {
+      summary.paid += 1;
+      summary.paidInr += Number(row.amount_inr) || 0;
+    } else if (row.status === "failed") summary.failed += 1;
+    else summary.pending += 1;
+  }
+  summary.paidInr = Math.round(summary.paidInr * 100) / 100;
+  return summary;
 }
 
 /**

@@ -2,6 +2,7 @@ import { adminRecipients } from "@/lib/chat";
 import { formatCredits } from "@/lib/credits";
 import { notifyAdminsOfPaymentEvent } from "@/lib/email";
 import { sendPushToUser, type PushPayload } from "@/lib/push";
+import { sendWhatsAppAlert, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
 import { loadSettings } from "@/lib/settings";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -55,10 +56,40 @@ export async function pushAdmins(
   try {
     if (!(await wanted(admin, event))) return;
     const desk = await adminRecipients(admin);
-    await Promise.allSettled(desk.map((id) => sendPushToUser(id, payload)));
+    await Promise.allSettled([
+      ...desk.map((id) => sendPushToUser(id, payload)),
+      whatsappAdmins(admin, desk, payload),
+    ]);
   } catch (error) {
     console.error(`[admin-push] ${event} crashed:`, (error as Error).message);
   }
+}
+
+/**
+ * The same admin alert on WhatsApp, to each admin's profile mobile, when
+ * switched on (admin_whatsapp). Inside the 24-hour window (the admin messaged
+ * Rahdari recently) it goes as free plain text; otherwise as the approved
+ * template, which Meta charges per message.
+ */
+async function whatsappAdmins(admin: Admin, ids: string[], payload: PushPayload): Promise<void> {
+  if (!whatsappConfigured() || ids.length === 0) return;
+  const settings = await loadSettings(admin);
+  if (!settings.adminWhatsapp) return;
+  const { data } = await admin.from("profiles").select("id, phone").in("id", ids);
+  const text = [`*${payload.title}*`, payload.body, "", "— Rahdari admin"].join(String.fromCharCode(10));
+  await Promise.allSettled(
+    (data ?? [])
+      .filter((p: { phone: string | null }) => p.phone)
+      .map((p: { id: string; phone: string | null }) =>
+        sendWhatsAppAlert({
+          to: p.phone as string,
+          text,
+          params: ["admin update", payload.title.slice(0, 120), whatsappTime()],
+          purpose: "alert",
+          userId: p.id,
+        }),
+      ),
+  );
 }
 
 function rupees(amount: number): string {

@@ -547,6 +547,12 @@ export default async function SettingsPage({
                     label="A customer sends a message"
                     defaultChecked={site.adminPushChat}
                   />
+                  <Checkbox
+                    name="admin_whatsapp"
+                    label="Also send these on WhatsApp"
+                    hint="To each admin's profile mobile. Free while you have messaged Rahdari on WhatsApp in the last 24 hours; otherwise each message is charged by Meta."
+                    defaultChecked={site.adminWhatsapp}
+                  />
                 </div>
                 <FormActions>
                   <SubmitButton>Save phone alerts</SubmitButton>

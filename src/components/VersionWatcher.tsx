@@ -160,13 +160,32 @@ export function VersionWatcher({ current }: { current: string }) {
     if (current === "dev") return;
 
     let cancelled = false;
+    /*
+     * ONE CHECK AT A TIME, AND NOT TWICE IN A FEW SECONDS (20 Nov 2026).
+     * Coming back to the app fires visibilitychange AND focus (and sometimes
+     * online) in the same instant, and each one called check(): the logs show
+     * /api/version arriving three times in the same millisecond on every
+     * resume, from one device. Harmless alone, but it is three function
+     * invocations racing the page's own first request on a phone that has
+     * just woken up. Resume checks are now collapsed into one.
+     */
+    let inFlight = false;
+    let lastCheckAt = 0;
+    const MIN_GAP_MS = 15_000;
 
     const check = async () => {
       if (cancelled || staleRef.current || document.visibilityState !== "visible") return;
+      if (inFlight || Date.now() - lastCheckAt < MIN_GAP_MS) return;
+      inFlight = true;
+      lastCheckAt = Date.now();
       try {
         const response = await fetch("/api/version", {
           cache: "no-store",
           headers: { accept: "application/json" },
+          // Bounded, so a request stalled on bad mobile data cannot hold
+          // `inFlight` and silence every later check. Older Safari lacks
+          // AbortSignal.timeout; it simply goes unbounded there.
+          signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10_000) : undefined,
         });
         if (!response.ok) return;
         const body = (await response.json()) as { id?: string };
@@ -179,6 +198,8 @@ export function VersionWatcher({ current }: { current: string }) {
         /* Offline, or the check was cut off by a navigation. Either way the
            next foreground is soon enough - this must never surface an error
            of its own. */
+      } finally {
+        inFlight = false;
       }
     };
 

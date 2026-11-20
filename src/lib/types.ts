@@ -632,6 +632,8 @@ export type AppSettings = {
   adminPushPayment: boolean;
   adminPushPaymentFailed: boolean;
   adminPushChat: boolean;
+  /** Also send the admin alerts above on WhatsApp, to each admin's profile mobile. */
+  adminWhatsapp: boolean;
   /**
    * The Android app offered for download. Blank means the APK bundled with the
    * site (public/rahdari.apk). Set from Admin → Settings → Mobile app, either by

@@ -30,7 +30,7 @@ const shortcuts = [
   { label: "My trucks", detail: "Manage tracking", href: "/portal/trucks", icon: Truck, tone: "blue" },
   { label: "Groups", detail: "Organise your trucks", href: "/portal/cases", icon: Layers, tone: "purple" },
   { label: "Payments", detail: "View transactions", href: "/portal/payments", icon: CreditCard, tone: "green" },
-  { label: "Credit history", detail: "Review your balance", href: "/portal/credits", icon: Coins, tone: "amber" },
+  { label: "Credits", detail: "Review your balance", href: "/portal/credits", icon: Coins, tone: "amber" },
 ];
 
 /** A phone-first home. Links use the existing authenticated application routes. */
@@ -58,7 +58,7 @@ export function PortalHomeView({ model: m }: { model: DashboardHomeModel }) {
       )}
 
       <section className="dash-wallet dash-card" aria-labelledby="dash-balance-title">
-        <div className="dash-wallet-top"><h2 id="dash-balance-title"><Wallet size={17} />Available credits</h2><Link className="dash-history-link" href="/portal/credits" aria-label="View credit history"><ArrowDownLeft size={18} /></Link></div>
+        <div className="dash-wallet-top"><h2 id="dash-balance-title"><Wallet size={17} />Available credits</h2><Link className="dash-history-link" href="/portal/credits" aria-label="View credits"><ArrowDownLeft size={18} /></Link></div>
         <div className="dash-wallet-balance"><div><p className="dash-balance-number">{m.credits}</p></div><Link href={TOPUP_HREF} className="dash-topup"><Plus size={16} />Top up<LinkPending /></Link></div>
         {m.planState !== "new" && m.standing !== "ok" && <p className={`dash-balance-warning dash-warning-${m.standing}`} role={m.standing === "empty" ? "alert" : undefined}>{m.balanceHint}</p>}
         <dl className="dash-wallet-usage"><div><dt>Used today</dt><dd>{m.spentToday}<span> credits</span></dd></div><div><dt>This month</dt><dd>{m.spentMonth}<span> credits</span></dd></div></dl>

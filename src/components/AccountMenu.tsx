@@ -102,7 +102,7 @@ function itemGroups({
     },
     {
       href: "/portal/credits",
-      label: "Credit history",
+      label: "Credits",
       icon: ReceiptText,
       hint: "Credits added, and what was used each day",
     },

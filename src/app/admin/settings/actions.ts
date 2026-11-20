@@ -111,6 +111,7 @@ const ADMIN_PUSH_SPECS: SettingSpec[] = [
   { key: "admin_push_payment", label: "Payment succeeded", kind: "bool" },
   { key: "admin_push_payment_failed", label: "Payment failed", kind: "bool" },
   { key: "admin_push_chat", label: "Customer message", kind: "bool" },
+  { key: "admin_whatsapp", label: "Also on WhatsApp", kind: "bool" },
 ];
 
 const SITE_SPECS: SettingSpec[] = [

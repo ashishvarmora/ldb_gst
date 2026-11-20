@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
+import { REFUND_REASON, loadFailedSearches } from "@/lib/credit-history";
 import { rateLimit } from "@/lib/ratelimit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -126,7 +127,7 @@ export async function GET(request: NextRequest) {
 
   let query = getSupabaseAdmin()
     .from("credit_transactions")
-    .select("created_at,user_id,reason,delta,balance_after,truck_number,note")
+    .select("id,created_at,user_id,reason,delta,balance_after,truck_number,note")
     .order("created_at", { ascending: false })
     .limit(MAX_ROWS);
 
@@ -145,7 +146,8 @@ export async function GET(request: NextRequest) {
     return new Response("Could not read the ledger.", { status: 500 });
   }
 
-  const rows = (data ?? []) as {
+  let rows = (data ?? []) as {
+    id: number;
     created_at: string;
     user_id: string;
     reason: string;
@@ -154,6 +156,25 @@ export async function GET(request: NextRequest) {
     truck_number: string | null;
     note: string | null;
   }[];
+
+  /*
+   * A CUSTOMER'S OWN EXPORT MATCHES THE CREDITS PAGE: a failed manual search
+   * is not in it. Its charge and its 'search_refund' are both dropped (paired
+   * exactly as on screen, see src/lib/credit-history.ts), so the file's
+   * "used" total is credits successfully consumed and no refund reads as
+   * credits added. The admin's export is untouched - it is the raw ledger.
+   */
+  if (!isAdmin && userId) {
+    const failed = await loadFailedSearches(getSupabaseAdmin(), userId, {
+      fromIso: from ? istStart(from) : null,
+      toIso: to ? new Date(Date.parse(istStart(to)) + 86_400_000).toISOString() : null,
+    });
+    if (failed.error) {
+      console.error("credit export: failed-search pairing", failed.error);
+      return new Response("Could not read the ledger.", { status: 500 });
+    }
+    rows = rows.filter((row) => row.reason !== REFUND_REASON && !failed.chargeIds.has(row.id));
+  }
 
   /* Named, so a downloaded file is identifiable a month later without opening
      it. Only accounts that actually appear are looked up. */

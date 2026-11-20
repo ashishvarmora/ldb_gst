@@ -217,7 +217,9 @@ export function PushAutoOn({
         applicationServerKey: keyToBytes(PUBLIC_KEY),
       }));
     if (cancelled.current) return false;
-    const result = await storeSubscription(subscription);
+    // quiet: runs on every portal open; a revalidating action here re-rendered
+    // the page and threw away every prefetched tab (20 Nov 2026).
+    const result = await storeSubscription(subscription, { quiet: true });
     // A subscription the server does not hold would leave the device looking
     // set up for ever - the same rule PushSetup keeps.
     if (!result.ok) {
@@ -312,7 +314,7 @@ export function PushAutoOn({
         const result = await registerNativePush(app);
         if (cancelled.current) return;
         const saved = result.ok
-          ? await saveNativePushToken({ token: result.token, userAgent: navigator.userAgent }).catch(
+          ? await saveNativePushToken({ token: result.token, userAgent: navigator.userAgent, quiet: true }).catch(
               () => null,
             )
           : null;

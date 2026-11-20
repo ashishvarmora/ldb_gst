@@ -4,6 +4,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { cx } from "@/components/ui";
+import { isFileDownloadHref } from "@/lib/download-href";
 
 /**
  * A bar across the top of the window for as long as ANY navigation is in
@@ -96,6 +97,14 @@ function startsANavigation(event: MouseEvent): boolean {
   if (target.pathname === window.location.pathname && target.search === window.location.search) {
     return false;
   }
+
+  /*
+   * A file download (20 Nov 2026). The CSV exports are plain anchors without
+   * a `download` attribute, so the check above let them through: the browser
+   * saved the file, the URL never changed, and the bar pulsed for the full
+   * 20-second cap - one of the "loading indicator stuck/looping" reports.
+   */
+  if (isFileDownloadHref(target.pathname)) return false;
 
   return true;
 }

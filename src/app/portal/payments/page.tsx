@@ -1,78 +1,69 @@
-import { CreditCard as PageIcon } from "lucide-react";
+import { ArrowDownUp, CreditCard as PageIcon, Download, Wallet } from "lucide-react";
 import Link from "next/link";
-import { Download, Wallet } from "lucide-react";
 
-import { PAYMENT_COLUMNS } from "./columns";
 import { PaymentList } from "./PaymentList";
 import { Receipt } from "./Receipt";
 import {
-  MAX_ROWS,
   countAllPayments,
   loadPaymentByOrder,
+  loadPaymentSummary,
   loadPayments,
-  totalPayments,
+  parsePaymentSort,
+  parseStatusFilter,
+  type StatusFilter,
 } from "./payments";
-import { DataTable, sortRows } from "@/components/charts";
-import { DateRangeBar } from "@/components/DateRangeBar";
+import { RangeControl, UrlSelect } from "@/components/HistoryControls";
+import { Figure, Segmented, SummaryLine, plural } from "@/components/HistoryUi";
 import { LedgerLinks } from "../credits/LedgerNav";
-import { HelpNote } from "@/components/Disclosure";
-import { Pager, pageCount, pageFromParam, pageSlice } from "@/components/Pager";
-import { parseSort, queryString, sortHrefFor } from "@/components/report";
+import { Pager, pageCount, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
-import { EmptyState, LinkButton, PageHeader, Panel, StatCard } from "@/components/ui";
-import { rangeParams, resolveRange } from "@/lib/analytics";
-import { formatCredits } from "@/lib/credits";
-import { fmtNumber, fmtRupees } from "@/lib/format";
+import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { fmtRupees } from "@/lib/format";
+import { parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
- * Payments, in the one place they live.
+ * Payments: only payments, every one of them - paid, failed and started but
+ * never paid.
  *
- * This used to be a folded section at the bottom of /portal/plan, six rows at a
- * time, showing an amount, a date and a badge - and nothing else. Support was
- * being asked "you took my money and I got nothing", and the screen the
- * customer was looking at could not tell them the order reference, the payment
- * id, the method, what the list price had been before a code, or whether the
- * checkout they half-remembered had ever completed at all. Every one of those
- * is on this page.
+ *   one summary line   Total paid · N payments · failed (only if any), (i)
+ *   filters            status segmented, one date control, a sort select
+ *   rows               PaymentList (tap a row for ids, times, credits)
+ *   receipt            ?ref=<order id> renders the printable receipt on top
  *
- * It is also where the checkout window lands. `?ref=` is a Razorpay order id,
- * and the panel at the top says what became of that payment - see Receipt.tsx,
- * which is careful never to congratulate anyone for money that has not settled.
- * The owner asked for a congratulations page "with history too", and this is
- * both, in that order, rather than two screens that each hold half of it.
+ * Filters live in the URL and are applied in the database (payments.ts), so
+ * status, date, sort and pager always describe one result set. Any filter
+ * change drops the page number.
+ *
+ * Also where the checkout window lands: ?ref= is a Razorpay order id, and the
+ * receipt panel says what became of that payment (Receipt.tsx).
  */
 
-/**
- * Long enough to scan on a phone without a pager on every visit.
- *
- * Twenty, while a phone row was a 284px card, was already 5,700px - close to
- * eight screens for one page of a list. Since the rows fold (see PaymentList) a
- * row is about 64px, so fifty of them is four and a half screens and a customer
- * with a hundred payments turns one page instead of four. The ceiling is MAX_ROWS,
- * not this: sorting and totalling both describe the whole window rather than
- * the page, so the window is in memory either way and a bigger page costs
- * nothing but markup. Fifty is what the other long lists here use.
- */
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
+const BASE = "/portal/payments";
 
 type PaymentsQuery = {
-  /** The shared date range: see resolveRange. */
   range?: string;
   from?: string;
   to?: string;
-  bucket?: string;
+  status?: string;
   sort?: string;
-  dir?: string;
   page?: string;
   /** A Razorpay order id, and the whole of the confirmation screen's state. */
   ref?: string;
 };
 
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "amount_desc", label: "Amount: high to low" },
+  { value: "amount_asc", label: "Amount: low to high" },
+];
+
 export async function generateMetadata() {
   const { brandName } = await publicSettings();
-  return { title: `Payment history — ${brandName}` };
+  return { title: `Payments — ${brandName}` };
 }
 
 export default async function PaymentsPage({
@@ -83,38 +74,51 @@ export default async function PaymentsPage({
   const [{ overview }, params] = await Promise.all([requirePortalSession(), searchParams]);
   const admin = getSupabaseAdmin();
 
-  /**
-   * All time by default, and that is not the same choice the admin reports
-   * make.
-   *
-   * resolveRange falls back to the last 30 days, which is right for a console
-   * watching a business. A customer buys a plan two or three times a year: on
-   * their own history a 30-day default shows an empty table to somebody who
-   * has definitely paid us, which reads as their payments having been lost.
-   */
-  const range = resolveRange({ ...params, range: params.range ?? "all" });
-  const sort = parseSort(params, { key: "when", desc: true });
+  /* All time by default: a customer pays two or three times a year, and a
+     30-day default shows an empty list to somebody who has definitely paid. */
+  const range = parseHistoryRange(params, { fallback: "all", allowAll: true });
+  const status = parseStatusFilter(params.status);
+  const sort = parsePaymentSort(params.sort);
 
-  const [{ rows, capped, error }, receipt, everPaid, settings] = await Promise.all([
-    loadPayments(admin, overview.id, range),
-    loadPaymentByOrder(admin, overview.id, params.ref),
+  /* The query every link on this page carries, minus the page number. */
+  const filters: Record<string, string> = {
+    ...rangeQuery(range, "all"),
+    ...(status !== "all" ? { status } : {}),
+    ...(sort !== "newest" ? { sort } : {}),
+  };
+  const withoutRange: Record<string, string> = {
+    ...(status !== "all" ? { status } : {}),
+    ...(sort !== "newest" ? { sort } : {}),
+  };
+  const qs = (extra: Record<string, string | undefined> = {}) => {
+    const search = new URLSearchParams(filters);
+    for (const [key, value] of Object.entries(extra)) {
+      if (value) search.set(key, value);
+      else search.delete(key);
+    }
+    const out = search.toString();
+    return out ? `${BASE}?${out}` : BASE;
+  };
+
+  const [summary, everPaid, receipt, settings] = await Promise.all([
+    loadPaymentSummary(admin, overview.id, range),
     countAllPayments(admin, overview.id),
+    loadPaymentByOrder(admin, overview.id, params.ref),
     publicSettings(),
   ]);
 
-  const totals = totalPayments(rows);
+  const matching =
+    status === "all" ? summary.all : status === "paid" ? summary.paid : status === "failed" ? summary.failed : summary.pending;
+  const pages = pageCount(matching, PAGE_SIZE);
+  const page = pageFromParam(params.page, pages);
+  const list = await loadPayments(
+    admin,
+    overview.id,
+    { status, from: range.from, to: range.to, sort },
+    { offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE },
+  );
 
-  /*
-   * What the receipt's payment did to the balance, read only when there is a
-   * receipt to render. Its own round trip rather than part of the batch above,
-   * because it needs the payment's id, which comes out of that batch - and a
-   * page with no ?ref= must not pay for a query it will not use.
-   *
-   * Scoped to this customer's own id as well as the payment's. The view is
-   * security_invoker and the service-role client bypasses RLS, so the only
-   * thing stopping ?ref= reading a stranger's payment is that both reads are
-   * filtered by the session's own user.
-   */
+  /* What the receipt's payment did to the balance, only when there is one. */
   const effect = receipt
     ? ((
         await admin
@@ -126,83 +130,26 @@ export default async function PaymentsPage({
       ).data ?? null)
     : null;
 
-  /* The range, the receipt and the sort all have to survive a click on
-     anything else on this page. Paging is dropped by sortHrefFor itself: a
-     re-sorted list is a new result set, and page three of the old one meant
-     something else. */
-  const carried = { ...rangeParams(range), ref: params.ref };
-  const sortHref = sortHrefFor("/portal/payments", carried, sort, { hash: "list" });
-
-  const ordered = sortRows(rows, PAYMENT_COLUMNS, sort);
-  const pages = pageCount(ordered.length, PAGE_SIZE);
-  const page = pageFromParam(params.page, pages);
-  /* Sliced once and handed to both renderings. The table and the phone list
-     must be looking at the same fifty rows: two calls to pageSlice would be
-     two chances for the pager underneath to describe one of them. */
-  const visible = pageSlice(ordered, page, PAGE_SIZE);
-
-  /**
-   * Where a folded row's "Full receipt" goes.
-   *
-   * Only the phone list uses it. The table puts both ids in its last column,
-   * but a row is not a link - the ids inside it are select-all text, so tapping
-   * one has to highlight it rather than navigate - which leaves the receipt
-   * needing a link of its own, and the receipt is where the copy buttons and
-   * the balance either side of the payment live.
-   *
-   * The range, the sort and the page all come along so that closing the
-   * receipt with the browser's back button lands on the list as it was. The
-   * hash is not decoration: the receipt renders at the very top of the page,
-   * and a reader who opened a row twelve down would otherwise see the query
-   * string change and nothing move.
-   */
-  const rowReceiptHref = (row: (typeof visible)[number]) =>
-    `/portal/payments?${queryString({
-      ...carried,
-      ref: row.razorpay_order_id,
-      sort: sort.key,
-      dir: sort.desc ? "desc" : "asc",
-      page: page > 1 ? String(page) : undefined,
-    })}#receipt`;
-
   const header = (
-    /* No subtitle. It said "every payment, what it bought, and the reference to
-       quote" - which is three of the table's own column headings, in longer
-       words, directly above the table. */
     <PageHeader
-        icon={<PageIcon size={22} strokeWidth={2} />}
-      title="Payment history"
-      subtitle="Every payment, its reference, and what it bought."
+      icon={<PageIcon size={20} strokeWidth={2} />}
+      title="Payments"
       actions={
-        rows.length > 0 ? (
-          <LinkButton
-            href={`/portal/payments/export?${queryString(rangeParams(range))}`}
-            variant="secondary"
-            size="sm"
-          >
+        list.total > 0 ? (
+          <LinkButton href={`${BASE}/export?${new URLSearchParams(filters).toString()}`} variant="secondary" size="sm">
             <Download size={14} />
-            Download CSV
+            CSV
           </LinkButton>
         ) : null
       }
     />
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* nothing has ever been bought                                            */
-  /* ---------------------------------------------------------------------- */
-  /*
-   * A date filter, three zeroes and an empty table is a broken-looking answer
-   * to "I have never bought anything", so a brand new account gets one
-   * sentence and the way to change that instead.
-   */
   if (everPaid === 0 && !receipt) {
     return (
-      <>
+      <div className="ledger-page">
         {header}
-        <Panel bodyClassName="p-0">
-          {/* No description. It listed what a payment row contains, to a reader
-              who has no rows - the button is the only useful thing here. */}
+        <div className="panel">
           <EmptyState
             title="No payments yet"
             action={
@@ -212,215 +159,124 @@ export default async function PaymentsPage({
               </LinkButton>
             }
           />
-        </Panel>
-      </>
+        </div>
+        <LedgerLinks current="payments" />
+      </div>
     );
   }
 
+  const statusItems: { key: StatusFilter; label: string; count: number; tone?: "bad" | "warn" }[] = [
+    { key: "all", label: "All", count: 0 },
+    { key: "paid", label: "Paid", count: summary.paid },
+    { key: "failed", label: "Failed", count: summary.failed, tone: "bad" },
+    { key: "pending", label: "Pending", count: summary.pending, tone: "warn" },
+  ];
+
   return (
-    <>
+    <div className="ledger-page">
       {header}
 
       {receipt ? (
-        <Receipt
-          row={receipt}
-          overview={overview}
-          supportEmail={settings.supportEmail}
-          effect={effect}
-        />
+        <Receipt row={receipt} overview={overview} supportEmail={settings.supportEmail} effect={effect} />
       ) : null}
 
-      {/* showBucket is off: nothing on this page is grouped into periods, so a
-          daily/weekly/monthly toggle would change a number nobody can see. */}
-      <DateRangeBar range={range} showBucket={false} />
+      <SummaryLine
+        parts={[
+          <>
+            Total paid <Figure value={fmtRupees(summary.paidInr)} />
+          </>,
+          plural(summary.paid, "payment"),
+          summary.failed > 0 ? (
+            <span className="is-bad">{plural(summary.failed, "failed", "failed")}</span>
+          ) : null,
+          <span className="hist-summary-range">{rangeLabel(range)}</span>,
+        ]}
+        infoLabel="payment totals"
+        info={
+          <>
+            <p>Total paid counts completed payments only. Failed and pending payments charged nothing and added no credits.</p>
+            <p>
+              Pending means a checkout was started but not completed. If money left your account and a payment still
+              shows pending after an hour, <Link href="/contact" className="link">contact us</Link>
+              {settings.supportEmail ? ` (${settings.supportEmail})` : ""} with its payment ID.
+            </p>
+            <p>All times are IST.</p>
+          </>
+        }
+      />
 
-      {/* Two across on a phone, the money on its own row above, so the list
-          starts on the first screen instead of after three stacked cards. */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
-        {/*
-          Settled money only, on both figures.
-
-          This is the number the old summary got wrong for months: it counted
-          every payment row, so an abandoned checkout inflated what a customer
-          believed they had spent with us, and no arithmetic on the page could
-          reconcile it against their bank statement.
-        */}
-        <StatCard
-          label="Total paid"
-          value={fmtRupees(totals.paidInr)}
-          sub={
-            <>
-              {fmtNumber(totals.settled)} settled payment{totals.settled === 1 ? "" : "s"}
-              {totals.discountInr > 0 ? ` · ${fmtRupees(totals.discountInr)} off with codes` : ""}
-            </>
-          }
+      <div className="hist-filters">
+        <Segmented
+          label="Payment status"
+          current={status}
+          items={statusItems.map((item) => ({
+            key: item.key,
+            label: item.label,
+            count: item.count || null,
+            tone: item.tone,
+            href: (() => {
+              const search = new URLSearchParams(filters);
+              if (item.key === "all") search.delete("status");
+              else search.set("status", item.key);
+              const out = search.toString();
+              return out ? `${BASE}?${out}` : BASE;
+            })(),
+          }))}
         />
-        {/*
-          The whole grant, and how it splits.
-
-          This read totals.credits, which summed each payment's `credits`
-          column - the plan's included allowance on a plan row - so a range
-          containing one combined purchase reported fewer credits than the
-          balance had actually gained. The sub-line is the split rather than a
-          sentence saying what the card obviously is: the two kinds of credit
-          cost different money and a customer reconciling a top-up needs to see
-          which figure was theirs to choose.
-        */}
-        <StatCard
-          label="Credits added"
-          value={formatCredits(totals.credits)}
-          tone="brand"
-          sub={
-            totals.planCredits > 0 && totals.topupCredits > 0
-              ? `${formatCredits(totals.planCredits)} with plans · ${formatCredits(totals.topupCredits)} topped up`
-              : null
-          }
-        />
-        <StatCard
-          label="Payments"
-          value={fmtNumber(totals.rows)}
-          sub={countLine(totals.settled, totals.unfinished, totals.failed)}
-        />
+        <div className="hist-toolbar">
+          <RangeControl
+            basePath={BASE}
+            params={withoutRange}
+            current={range.key}
+            from={range.from}
+            to={range.to}
+            fallback="all"
+            options={["all", "7d", "30d", "90d", "custom"]}
+          />
+          <UrlSelect
+            basePath={BASE}
+            params={filters}
+            name="sort"
+            value={sort}
+            fallback="newest"
+            label="Sort payments"
+            icon={<ArrowDownUp size={14} aria-hidden />}
+            options={SORT_OPTIONS}
+            className="hist-sort"
+          />
+        </div>
       </div>
 
-      <Panel
-        id="list"
-        title="Every payment in this range"
-        /*
-          A description only when there is something the rows cannot say for
-          themselves, which is the cap.
-
-          It used to carry two sentences on every visit. "Tap a column heading
-          to reorder" describes an affordance the headings have, and was hidden
-          on a phone anyway because there are no headings down there; "only
-          settled payments count towards the totals" is already said by the
-          totals - "N settled payments" under the money, "Settled total" on the
-          footer - and by every unsettled row printing a dash where its figure
-          would go.
-        */
-        description={
-          capped
-            ? `Only the most recent ${fmtNumber(MAX_ROWS)} are shown, and the figures above cover those. Narrow the dates to see the rest.`
-            : undefined
-        }
-        className="scroll-mt-20"
-        bodyClassName="p-0"
-      >
-        {error ? (
-          /* Kept, unlike the other two descriptions on this screen: a blank
-             payments list is read as money having gone missing, and this is the
-             one state where the screen has to say the failure is its own. */
+      {list.error ? (
+        <div className="panel">
+          <EmptyState title="Could not read your payments" description="Your purchases are not affected. Please try again in a moment." />
+        </div>
+      ) : list.rows.length === 0 ? (
+        <div className="panel">
           <EmptyState
-            title="Could not read your payments"
-            description="Your purchases are not affected. Please try again in a moment."
-          />
-        ) : ordered.length === 0 ? (
-          <EmptyState
-            title="No payments in this range"
+            title={status === "all" ? "No payments in this period" : `No ${status} payments in this period`}
             action={
-              <LinkButton href="/portal/payments?range=all" variant="secondary" size="sm">
-                Show every payment
+              <LinkButton href={BASE} variant="secondary" size="sm">
+                Show all payments
               </LinkButton>
             }
           />
-        ) : (
-          <>
-            {/*
-              TWO RENDERINGS OF ONE PAGE OF ROWS, and the breakpoint is md
-              rather than sm. Eight columns need about 700px before the cells
-              stop being one word wide; a 640px tablet in portrait would have
-              got a table it still had to drag sideways, which is the thing the
-              phone list exists to avoid. Both read the same `visible` slice and
-              both take every figure from payments.ts, so neither can drift.
+        </div>
+      ) : (
+        <>
+          <PaymentList rows={list.rows} receiptHref={(row) => `${qs({ ref: row.razorpay_order_id, page: page > 1 ? String(page) : undefined })}#receipt`} />
+          <Pager
+            page={page}
+            total={list.total}
+            pageSize={PAGE_SIZE}
+            noun="payments"
+            href={(next) => qs({ page: next > 1 ? String(next) : undefined })}
+            className="hist-pager"
+          />
+        </>
+      )}
 
-              The table is deliberately NOT given the folding treatment. Eight
-              columns and a footer that totals the window is the right shape for
-              a screen wide enough to hold it: every field is already visible
-              without a tap, the headings sort, and folding a table row would
-              hide the columns that make it a table. The fold exists because a
-              390px screen cannot show eight columns at once, not because the
-              fields are unwanted.
-            */}
-            <PaymentList rows={visible} receiptHref={rowReceiptHref} />
-
-            <div className="hidden md:block">
-              <DataTable
-                rows={visible}
-                columns={PAYMENT_COLUMNS}
-                sort={sort}
-                sortHref={sortHref}
-                rowKey={(row) => row.id}
-                /* The whole filtered set, not the page: a footer that quietly
-                   totalled the twenty rows on screen is how a list comes to
-                   disagree with the figures above it. */
-                totalsOver={ordered}
-                totalsLabel="Settled total"
-              />
-            </div>
-
-            <div className="border-t border-divider px-4 py-3">
-              <Pager
-                page={page}
-                total={ordered.length}
-                pageSize={PAGE_SIZE}
-                noun="payments"
-                href={(next) =>
-                  `/portal/payments?${queryString({
-                    ...carried,
-                    sort: sort.key,
-                    dir: sort.desc ? "desc" : "asc",
-                    page: next > 1 ? String(next) : undefined,
-                  })}#list`
-                }
-                className="mt-0"
-              />
-            </div>
-          </>
-        )}
-      </Panel>
-
-      <div className="mt-3 space-y-2">
-        {/*
-          ONE FOLD, not two.
-
-          This was two notes - what "started, not paid" means, and what to do
-          when credits have not arrived - and they are the same conversation:
-          the second is what somebody does about the state the first describes.
-          Split in two they repeated the state's meaning in both, and the
-          sentence about the totals in the first is now said by the totals
-          themselves. Merged and cut to the two things support cannot see for
-          the customer: nothing was charged, and here is what to send us.
-        */}
-        <HelpNote title='A payment that says "started, not paid"'>
-          <strong>Started, not paid</strong> means the payment was not completed, so nothing
-          was charged and nothing was added to your balance. Credits are added once Razorpay
-          confirms a payment, usually within seconds. If a row still shows started, not paid
-          after an hour and money was debited from your account, contact support
-          {settings.supportEmail ? ` at ${settings.supportEmail}` : ""} with its reference.{" "}
-          {/* The address in app_settings is blank on this platform as it
-              stands, so a sentence that only names an email is a dead end.
-              /contact is always there and says whatever the owner has set. */}
-          <Link href="/contact" className="link">
-            How to reach us
-          </Link>
-          .
-        </HelpNote>
-
-        {/* The same sibling row the other two history pages carry, rather than
-            one hand-written link: three pages that cross-reference each other
-            differently is how a reader loses track of which one they are on. */}
-        <LedgerLinks current="payments" />
-
-        <p className="text-xs text-faint">All dates and times are IST.</p>
-      </div>
-    </>
+      <LedgerLinks current="payments" />
+    </div>
   );
-}
-
-/** "2 paid · 1 started, not paid" - zero counts are left out rather than shown. */
-function countLine(settled: number, unfinished: number, failed: number): string {
-  const parts = [`${fmtNumber(settled)} paid`];
-  if (unfinished > 0) parts.push(`${fmtNumber(unfinished)} started, not paid`);
-  if (failed > 0) parts.push(`${fmtNumber(failed)} failed`);
-  return parts.join(" · ");
 }

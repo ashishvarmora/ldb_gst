@@ -308,6 +308,16 @@ export type SubscriptionInput = {
   p256dh: string;
   auth: string;
   userAgent?: string | null;
+  /**
+   * The silent re-save PushAutoOn makes on every portal open (20 Nov 2026).
+   * It changes nothing any screen shows, so it must not revalidate: a
+   * revalidating Server Action makes Next re-render the whole current page in
+   * its response AND empty the client's prefetch cache, so every link in view
+   * is fetched again - on every app open, right when the customer starts
+   * tapping. The logs showed exactly that: POST /portal ~1-3 s after each
+   * portal load, then the same tabs prefetched a second time.
+   */
+  quiet?: boolean;
 };
 
 /**
@@ -362,7 +372,8 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
     return fail(reportError("saving push subscription", error, "Could not switch notifications on."));
   }
 
-  revalidatePath("/portal/settings");
+  // Skipped for the background re-save - see `quiet` on SubscriptionInput.
+  if (!input.quiet) revalidatePath("/portal/settings");
   return done("Notifications are on for this device. Send a test notification to confirm.");
 }
 
@@ -381,6 +392,8 @@ export async function savePushSubscription(input: SubscriptionInput): Promise<Ac
 export async function saveNativePushToken(input: {
   token: string;
   userAgent?: string | null;
+  /** The background re-save from PushAutoOn: no revalidation (see SubscriptionInput). */
+  quiet?: boolean;
 }): Promise<ActionResult> {
   const session = await assertPortalUser();
 
@@ -407,7 +420,8 @@ export async function saveNativePushToken(input: {
     return fail(reportError("saving app push token", error, "Could not switch notifications on."));
   }
 
-  revalidatePath("/portal/settings");
+  // Skipped for the background re-save - see `quiet` on SubscriptionInput.
+  if (!input.quiet) revalidatePath("/portal/settings");
   return done("Notifications are on for this phone. Send a test notification to confirm.");
 }
 

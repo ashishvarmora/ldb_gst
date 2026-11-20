@@ -1,4 +1,5 @@
 import { LinkPending } from "@/components/NavPending";
+import { isFileDownloadHref } from "@/lib/download-href";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronRight, Inbox, Loader2 } from "lucide-react";
@@ -239,6 +240,20 @@ export function LinkButton({
   size?: keyof typeof BUTTON_SIZES;
   className?: string;
 }) {
+  /*
+   * A file, not a page (20 Nov 2026): a plain <a download>, never a next/link.
+   * A Link to a CSV route prefetched the whole export on every view and, when
+   * tapped, left the router suspended after the download - the "stuck
+   * loading" on /portal/payments. See src/lib/download-href.ts.
+   */
+  if (isFileDownloadHref(href)) {
+    return (
+      <a href={href} download className={buttonClass(variant, size, className)}>
+        {children}
+      </a>
+    );
+  }
+
   return (
     /*
      * `relative` and a childless LinkPending on every shared link primitive.

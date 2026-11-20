@@ -1,13 +1,27 @@
-import { History as PageIcon, Trash2 } from "lucide-react";
-import { HelpNote } from "@/components/Disclosure";
-import { CreditLedger, CreditSummary, type LedgerQuery } from "@/components/CreditLedger";
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { ChevronDown, History as PageIcon, Search, Truck } from "lucide-react";
+
+import { ActivityTimeline } from "@/components/ActivityTimeline";
+import { RangeControl, UrlSelect } from "@/components/HistoryControls";
+import { Figure, Segmented, SummaryLine, plural } from "@/components/HistoryUi";
+import { Pager, pageCount, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
-import { Mono, PageHeader, Panel } from "@/components/ui";
-import { fmtWhenAgo } from "@/lib/format";
-import { loadRemovedTrucks } from "@/lib/truck-activity";
-import { getSignedInUser } from "@/lib/auth";
-import { creditStanding } from "@/lib/credits";
-import { loadSearchCost, requirePortalSession } from "@/lib/officer";
+import { EmptyState, PageHeader, cx } from "@/components/ui";
+import {
+  SEARCHES_KEY,
+  loadActivity,
+  loadSearchDayEvents,
+  loadTruckDayEvents,
+  type ActivityMode,
+  type Cell,
+  type DayEvent,
+} from "@/lib/credit-history";
+import { formatCredits } from "@/lib/credits";
+import { fmtTime } from "@/lib/format";
+import { dayLabel, isIsoDay, parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
+import { requirePortalSession } from "@/lib/officer";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { LedgerLinks } from "../credits/LedgerNav";
 
 export async function generateMetadata() {
@@ -16,137 +30,418 @@ export async function generateMetadata() {
 }
 
 /**
- * Where the credits went - the only page that answers it, and now only that.
+ * Activity: what was checked, and what it found. Complements Credits (which
+ * owns additions and the per-day statement); no credit additions here.
  *
- * This was 450 lines reading a my_activity view that unioned search_logs with
- * credit_transactions, while the plan page showed the same history again from a
- * different view that had rolled the truck away. Two screens, two queries, two
- * sets of totals, and one of them could not reconcile to a balance because
- * search_logs is only written when a check finds something.
+ *   By day (default)  a header per day (auto/manual checks, credits used,
+ *                     crossings found), one row per truck inside it; tap a
+ *                     truck -> its events that day (checks, crossings found,
+ *                     alerts sent, paused / live / auto-paused).
+ *   By truck          one row per truck with range totals; tap -> its days;
+ *                     tap a day -> that day's events.
  *
- * All of that is now one component over one view, mounted here for the account
- * holder and again in the admin console for a named customer. The page itself
- * is deliberately this short: it decides whose ledger to show and nothing else.
+ * MANUAL SEARCHES of numbers you do not track are one pseudo-truck,
+ * "Manual searches", in both views (its sub-line counts the numbers); opening
+ * it lists each search with its number, time and result. A "Check now" on a
+ * tracked truck is that truck's manual check, not part of this group.
  *
- * SPEND ONLY, since the credit history page took the other half. The grants
- * were never analysed here - nobody groups a coupon by truck - and keeping them
- * meant a Show pill whose two useful settings were on different pages and whose
- * third mixed them. What is left is one question asked properly: what did the
- * spending go on. Reasons narrow to the two spending ones, and the totals strip
- * has dropped the column that would read zero for ever.
- *
- * The grouping, the drill-down and the filters are untouched - that is the part
- * the owner asked us to keep.
+ * Failed manual searches are excluded everywhere (credit-history.ts). All
+ * filters are in the URL; totals are summed by the database
+ * (credit_ledger_daily) and only one day's events are ever read at a time.
  */
-export default async function ActivityPage({
-  searchParams,
-}: {
-  searchParams: Promise<LedgerQuery>;
-}) {
-  const user = await getSignedInUser();
-  if (!user) await requirePortalSession(); // redirects to /login
-  const [{ overview }, searchCost, query, removed] = await Promise.all([
-    requirePortalSession(),
-    // Cached for the request - the header pill has already read it.
-    loadSearchCost(),
-    searchParams,
-    /* Account-level truck history: trucks deleted from My trucks (0072).
-       Empty, and the panel hidden, until the migration is applied. */
-    loadRemovedTrucks(user!.id, 10),
-  ]);
+
+const BASE = "/portal/activity";
+const DAYS_PAGE = 10;
+const TRUCKS_PAGE = 25;
+
+type Query = {
+  view?: string;
+  type?: string;
+  truck?: string;
+  range?: string;
+  from?: string;
+  to?: string;
+  page?: string;
+  /** By day: "<day>~<truck key>" of the open row. */
+  open?: string;
+  /** By truck: the open truck key, and the open day inside it. */
+  t?: string;
+  d?: string;
+};
+
+type Totals = { auto: number; manual: number; credits: number; crossings: number; numbers: Set<string> };
+/** What a row prints: a cell, or a cell's sum over the range. */
+type Figures = { key: string; auto: number; manual: number; credits: number; crossings: number; numbers: { size: number } };
+
+function sum(cells: Cell[]): Totals {
+  const out: Totals = { auto: 0, manual: 0, credits: 0, crossings: 0, numbers: new Set() };
+  for (const cell of cells) {
+    out.auto += cell.auto;
+    out.manual += cell.manual;
+    out.credits += cell.credits;
+    out.crossings += cell.crossings;
+    for (const number of cell.numbers.keys()) out.numbers.add(number);
+  }
+  out.credits = Math.round(out.credits * 100) / 100;
+  return out;
+}
+
+/** "96 auto · 1 manual · 4 crossings" - zero parts left out. */
+function countParts(t: Omit<Figures, "key">, isSearches: boolean): string[] {
+  const parts: string[] = [];
+  if (isSearches) {
+    if (t.numbers.size > 0) parts.push(plural(t.numbers.size, "number"));
+    if (t.manual > 0) parts.push(plural(t.manual, "search", "searches"));
+  } else {
+    if (t.auto > 0) parts.push(`${t.auto.toLocaleString("en-IN")} auto`);
+    if (t.manual > 0) parts.push(`${t.manual.toLocaleString("en-IN")} manual`);
+  }
+  if (t.crossings > 0) parts.push(plural(t.crossings, "crossing"));
+  return parts;
+}
+
+export default async function ActivityPage({ searchParams }: { searchParams: Promise<Query> }) {
+  const [{ overview }, params] = await Promise.all([requirePortalSession(), searchParams]);
+  const admin = getSupabaseAdmin();
+
+  const view: "day" | "truck" = params.view === "truck" ? "truck" : "day";
+  const mode: ActivityMode = params.type === "auto" || params.type === "manual" ? params.type : "all";
+  const range = parseHistoryRange(params, { fallback: "7d", allowAll: false, maxDays: 366 });
+  const from = range.from!;
+  const to = range.to!;
+  const truck = params.truck?.trim() || null;
+
+  const data = await loadActivity(admin, overview.id, { from, to, mode, truck });
+  const truckSet = new Set(data.trucks.map((row) => row.number));
+  const labelOf = new Map(data.trucks.map((row) => [row.number, row.label]));
+
+  /* Every link keeps the filters; the page and the open rows are per link. */
+  const filters: Record<string, string> = {
+    ...(view === "truck" ? { view } : {}),
+    ...(mode !== "all" ? { type: mode } : {}),
+    ...(truck ? { truck } : {}),
+    ...rangeQuery(range, "7d"),
+  };
+  const href = (patch: Record<string, string | null | undefined>) => {
+    const search = new URLSearchParams(filters);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value) search.set(key, value);
+      else search.delete(key);
+    }
+    const out = search.toString();
+    return out ? `${BASE}?${out}` : BASE;
+  };
+  const without = (...keys: string[]) => {
+    const copy = { ...filters };
+    for (const key of keys) delete copy[key];
+    return copy;
+  };
+
+  const totals = sum(data.cells);
+  const hasSearches = data.cells.some((cell) => cell.key === SEARCHES_KEY);
+
+  /* ---------------------------------------------------------------- events */
+  async function eventsFor(key: string, day: string, cell: Cell | undefined) {
+    const events: DayEvent[] =
+      key === SEARCHES_KEY
+        ? await loadSearchDayEvents(admin, overview.id, day, truckSet)
+        : await loadTruckDayEvents(admin, overview.id, key, day, mode);
+    const summary =
+      key !== SEARCHES_KEY && cell && (cell.auto > 0 || cell.manual > 0)
+        ? {
+            title: [
+              cell.auto > 0 ? plural(cell.auto, "auto check") : null,
+              cell.manual > 0 ? plural(cell.manual, "manual check") : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            sub: [
+              `${formatCredits(cell.credits)} credits used`,
+              cell.firstAt && cell.lastAt ? `${fmtTime(cell.firstAt)} – ${fmtTime(cell.lastAt)}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }
+        : null;
+    return <ActivityTimeline summary={summary} events={events} />;
+  }
+
+  function rowTitle(key: string) {
+    if (key === SEARCHES_KEY) {
+      return (
+        <span className="hrow-title">
+          <Search size={13} aria-hidden className="hrow-title-icon" />
+          Manual searches
+        </span>
+      );
+    }
+    const label = labelOf.get(key);
+    return (
+      <span className="hrow-title">
+        <span className="hrow-plate">{key}</span>
+        {label ? <span className="hrow-title-note"> · {label}</span> : null}
+      </span>
+    );
+  }
+
+  function TruckRow({ cell, open, link, children }: { cell: Figures; open: boolean; link: string; children?: ReactNode }) {
+    const parts = countParts(cell, cell.key === SEARCHES_KEY);
+    return (
+      <li className={cx("hrow", open && "is-open")}>
+        <Link href={link} scroll={false} className="hrow-head" aria-expanded={open}>
+          <span className="hrow-text">
+            {rowTitle(cell.key)}
+            <span className="hrow-sub">
+              {parts.length > 0 ? parts.map((part) => <span key={part}>{part}</span>) : <span>No checks</span>}
+            </span>
+          </span>
+          <span className="hrow-end">
+            <span className="hrow-amount">{formatCredits(cell.credits)}</span>
+            <span className="hrow-unit">credits</span>
+          </span>
+          <ChevronDown size={16} aria-hidden className="hrow-chev" />
+        </Link>
+        {open ? children : null}
+      </li>
+    );
+  }
+
+  /* --------------------------------------------------------------- by day */
+  let body: ReactNode = null;
+  let pager: ReactNode = null;
+
+  const order = (a: Figures, b: Figures) =>
+    a.key === SEARCHES_KEY ? 1 : b.key === SEARCHES_KEY ? -1 : b.credits - a.credits || a.key.localeCompare(b.key);
+
+  if (data.cells.length === 0) {
+    body = (
+      <div className="panel">
+        <EmptyState title="No activity in this period" description={rangeLabel(range)} />
+      </div>
+    );
+  } else if (view === "day") {
+    const days = [...new Set(data.cells.map((cell) => cell.day))].sort((a, b) => (a < b ? 1 : -1));
+    const pages = pageCount(days.length, DAYS_PAGE);
+    const page = pageFromParam(params.page, pages);
+    const visible = days.slice((page - 1) * DAYS_PAGE, page * DAYS_PAGE);
+    const [openDay, openKey] = (params.open ?? "").split("~");
+
+    const sections = await Promise.all(
+      visible.map(async (day) => {
+        const cells = data.cells.filter((cell) => cell.day === day).sort(order);
+        const t = sum(cells);
+        const rows = await Promise.all(
+          cells.map(async (cell) => {
+            const open = openDay === day && openKey === cell.key;
+            return (
+              <TruckRow
+                key={cell.key}
+                cell={cell}
+                open={open}
+                link={href({ page: page > 1 ? String(page) : null, open: open ? null : `${day}~${cell.key}` })}
+              >
+                {open ? await eventsFor(cell.key, day, cell) : null}
+              </TruckRow>
+            );
+          }),
+        );
+        return (
+          <section key={day} className="aday">
+            <header className="aday-head">
+              <span className="aday-text">
+                <span className="aday-title">{dayLabel(day)}</span>
+                <span className="aday-sub">
+                  {[
+                    t.auto > 0 ? `${t.auto.toLocaleString("en-IN")} auto` : null,
+                    t.manual > 0 ? `${t.manual.toLocaleString("en-IN")} manual` : null,
+                    t.crossings > 0 ? plural(t.crossings, "crossing") : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </span>
+              <span className="aday-credits">
+                <strong>{formatCredits(t.credits)}</strong> credits
+              </span>
+            </header>
+            <ul className="hrow-list is-inset">{rows}</ul>
+          </section>
+        );
+      }),
+    );
+    body = <div className="aday-list">{sections}</div>;
+    pager = (
+      <Pager page={page} total={days.length} pageSize={DAYS_PAGE} noun="days" href={(next) => href({ page: next > 1 ? String(next) : null })} className="hist-pager" />
+    );
+  } else {
+    /* ------------------------------------------------------------ by truck */
+    const keys = [...new Set(data.cells.map((cell) => cell.key))];
+    const rows = keys.map((key) => ({ key, ...sum(data.cells.filter((cell) => cell.key === key)) })).sort(order);
+    const pages = pageCount(rows.length, TRUCKS_PAGE);
+    const page = pageFromParam(params.page, pages);
+    const visible = rows.slice((page - 1) * TRUCKS_PAGE, page * TRUCKS_PAGE);
+    const openKey = params.t ?? (truck && rows.length === 1 ? rows[0].key : null);
+    const openDay = isIsoDay(params.d) ? params.d : null;
+
+    const items = await Promise.all(
+      visible.map(async (row) => {
+        const open = openKey === row.key;
+        let inner: ReactNode = null;
+        if (open) {
+          const days = data.cells.filter((cell) => cell.key === row.key).sort((a, b) => (a.day < b.day ? 1 : -1));
+          const dayRows = await Promise.all(
+            days.map(async (cell) => {
+              const dayOpen = openDay === cell.day;
+              const parts = countParts(cell, row.key === SEARCHES_KEY);
+              return (
+                <li key={cell.day} className={cx("hrow", dayOpen && "is-open")}>
+                  <Link
+                    href={href({ t: row.key, d: dayOpen ? null : cell.day, page: page > 1 ? String(page) : null })}
+                    scroll={false}
+                    className="hrow-head"
+                    aria-expanded={dayOpen}
+                  >
+                    <span className="hrow-text">
+                      <span className="hrow-title">{dayLabel(cell.day)}</span>
+                      <span className="hrow-sub">
+                        {parts.map((part) => (
+                          <span key={part}>{part}</span>
+                        ))}
+                      </span>
+                    </span>
+                    <span className="hrow-end">
+                      <span className="hrow-amount">{formatCredits(cell.credits)}</span>
+                      <span className="hrow-unit">credits</span>
+                    </span>
+                    <ChevronDown size={16} aria-hidden className="hrow-chev" />
+                  </Link>
+                  {dayOpen ? await eventsFor(row.key, cell.day, cell) : null}
+                </li>
+              );
+            }),
+          );
+          inner = <ul className="hrow-list is-inset is-nested">{dayRows}</ul>;
+        }
+        return (
+          <TruckRow
+            key={row.key}
+            cell={row}
+            open={open}
+            link={href({ t: open ? null : row.key, d: null, page: page > 1 ? String(page) : null })}
+          >
+            {inner}
+          </TruckRow>
+        );
+      }),
+    );
+    body = <ul className="hrow-list">{items}</ul>;
+    pager = (
+      <Pager page={page} total={rows.length} pageSize={TRUCKS_PAGE} noun="trucks" href={(next) => href({ page: next > 1 ? String(next) : null })} className="hist-pager" />
+    );
+  }
+
+  /* ------------------------------------------------------------- picker */
+  const pickerOptions = [
+    { value: "", label: "All trucks" },
+    ...data.trucks.map((row) => ({ value: row.number, label: row.label ? `${row.number} · ${row.label}` : row.number })),
+    ...(hasSearches || truck === SEARCHES_KEY ? [{ value: SEARCHES_KEY, label: "Manual searches" }] : []),
+  ];
+  const showPicker = data.trucks.length > 1 || Boolean(truck);
 
   return (
-    <>
-      {/* No subtitle. "By day, by truck, and charge by charge" was the three
-          Group by toggles read out in a sentence, a few inches above the
-          toggles themselves. */}
-      <PageHeader
-        icon={<PageIcon size={22} strokeWidth={2} />}
-        title="Activity"
-        subtitle="Every charge your credits paid for, by day and by truck."
+    <div className="ledger-page">
+      <PageHeader icon={<PageIcon size={20} strokeWidth={2} />} title="Activity" />
+
+      <SummaryLine
+        parts={[
+          <>
+            <Figure value={(totals.auto + totals.manual).toLocaleString("en-IN")} /> checks
+          </>,
+          <>
+            <Figure value={formatCredits(totals.credits)} /> credits
+          </>,
+          <>
+            <Figure value={totals.crossings.toLocaleString("en-IN")} /> crossings
+          </>,
+          <span className="hist-summary-range">{rangeLabel(range)}</span>,
+        ]}
+        infoLabel="activity figures"
+        info={
+          <>
+            <p>
+              {totals.auto.toLocaleString("en-IN")} automatic checks and {totals.manual.toLocaleString("en-IN")} manual
+              searches or checks in this period.
+            </p>
+            <p>
+              Automatic checks run on your trucks&apos; alerts at your plan&apos;s rate. Manual searches of numbers you
+              do not track are grouped under Manual searches. A search that fails uses no credit and is not counted.
+            </p>
+            <p>Crossings are new toll crossings found that day. Credits added are on the Credits page. All times are IST.</p>
+          </>
+        }
       />
 
-      <div className="space-y-3">
-        {/* Where the grants and the money went, both of which used to be
-            somewhere on this page. Above the tiles rather than under the
-            ledger: somebody who came here looking for a top-up that has not
-            appeared needs the pointer before they have scrolled past fifty
-            charges deciding it is missing. */}
-        <LedgerLinks current="activity" />
-
-        {/* This is the page somebody opens when the balance looks wrong, so the
-            way to fix it belongs on the tile rather than one page further on. */}
-        <CreditSummary
-          userId={overview.id}
-          balance={overview.credits}
-          standing={creditStanding(overview.credits, searchCost)}
+      <div className="hist-filters">
+        <Segmented
+          label="Group activity"
+          current={view}
+          items={[
+            { key: "day", label: "By day", href: href({ view: null, page: null, open: null, t: null, d: null }) },
+            { key: "truck", label: "By truck", href: href({ view: "truck", page: null, open: null, t: null, d: null }) },
+          ]}
         />
-
-        {/*
-          ONE FOLD, and it is the only one on this page.
-
-          There were two. The second, "How do I find one particular charge?",
-          was a paragraph teaching the controls immediately below it - the
-          toggles, the sort, the pills, the split bar - and every one of those
-          reads out what it is currently doing, turns blue when it is doing
-          something and can be switched off from inside itself. A manual for a
-          control that describes itself is the prose the owner keeps asking us
-          to take off these screens, so it has gone rather than moved.
-
-          This one stays because it is not on screen anywhere: what a credit is
-          spent on, and that watching more closely costs more. It is the
-          question support is actually asked, and the reason a bill can look
-          wrong when it is not.
-        */}
-        <HelpNote title="What actually costs credits?">
-          Searches and automatic checks both use credits. Automatic checks are charged at your
-          plan&apos;s rate and are usually the larger share: a truck on a 15-minute alert is
-          checked about 96 times a day. Check less often, or pause a truck, to use fewer credits.
-        </HelpNote>
-
-        {/*
-          only="used" is the whole of the page split. The admin console mounts
-          the same component without it and keeps the full ledger.
-
-          NO SPEND SPLIT ANY MORE. This mount was the only one that turned it
-          on: a proportion bar under the totals reading "Automatic check 98% /
-          Manual search 2%", with each segment a link to that reason. The
-          owner's verdict was that on a phone it took space it had not earned,
-          and it did - 57px of bar and legend, hanging under an 87px totals
-          card that has itself become one 34px line. The reader who wants that
-          breakdown has the Reason pill in the row above, which is the same
-          filter the bar's segments were; what has gone is the picture, not the
-          answer. The prop and the component are both gone rather than left
-          switched off, because a bar nothing turns on is a bar that comes back.
-        */}
-        <CreditLedger
-          userId={overview.id}
-          basePath="/portal/activity"
-          query={query}
-          title="Credits used"
-          only="used"
-        />
-
-        {removed.length > 0 ? (
-          <Panel title="Trucks deleted" bodyClassName="p-0">
-            <ul className="divide-y divide-divider">
-              {removed.map((row) => (
-                <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <Trash2 size={14} aria-hidden className="shrink-0 text-faint" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-ink">
-                      <Mono className="font-semibold">{row.truck_number}</Mono> deleted from My trucks
-                    </p>
-                    <p className="text-[11.5px] text-muted">
-                      {fmtWhenAgo(row.created_at)} · its crossings and charges are kept
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        ) : null}
+        <div className="hist-toolbar">
+          <nav className="hist-seg is-small" aria-label="Check type" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+            {(
+              [
+                ["auto", "Auto"],
+                ["manual", "Manual"],
+                ["all", "All"],
+              ] as const
+            ).map(([key, label]) => (
+              <Link
+                key={key}
+                href={href({ type: key === "all" ? null : key, page: null, open: null, t: null, d: null })}
+                scroll={false}
+                aria-current={mode === key ? "page" : undefined}
+                className={cx(mode === key && "is-active")}
+              >
+                <span className="hist-seg-label">{label}</span>
+              </Link>
+            ))}
+          </nav>
+          <RangeControl
+            basePath={BASE}
+            params={without("range", "from", "to")}
+            current={range.key}
+            from={range.from}
+            to={range.to}
+            fallback="7d"
+            options={["7d", "30d", "custom"]}
+          />
+          {showPicker ? (
+            <UrlSelect
+              basePath={BASE}
+              params={filters}
+              name="truck"
+              value={truck ?? ""}
+              fallback=""
+              label="Truck"
+              icon={<Truck size={14} aria-hidden />}
+              options={pickerOptions}
+              className="hist-truck"
+            />
+          ) : null}
+        </div>
       </div>
-    </>
+
+      {data.error ? <p className="hist-warn">Some activity could not be read. Please refresh in a moment.</p> : null}
+      {data.capped ? <p className="hist-warn">This period is very large; choose a shorter range for complete figures.</p> : null}
+
+      {body}
+      {pager}
+
+      <LedgerLinks current="activity" />
+    </div>
   );
 }

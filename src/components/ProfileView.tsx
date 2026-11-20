@@ -14,7 +14,7 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
     { title: "Plan & payments", items: [
       { href: "/portal/plan", title: "My plan", detail: m.planName, icon: Wallet, tone: "orange" },
       { href: "/portal/payments", title: "Payments", detail: "Receipts and transactions", icon: CreditCard, tone: "blue" },
-      { href: "/portal/credits", title: "Credit history", detail: "Credits added and used", icon: Coins, tone: "mint" },
+      { href: "/portal/credits", title: "Credits", detail: "Credits added and used", icon: Coins, tone: "mint" },
       { href: "/portal/activity", title: "Activity", detail: "Search and tracking usage", icon: History, tone: "violet" },
       ...(m.referralsEnabled ? [{ href: "/portal/referrals", title: "Invite & earn", detail: "Earn credits when a friend pays", icon: Gift, tone: "orange" }] : []),
     ] },
@@ -31,7 +31,7 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
   ];
   return <div className="app-profile"><header className="app-profile-heading"><div><p>Account</p><h1>Profile</h1></div><Link href="/portal/profile/edit" aria-label="Edit your profile"><Settings size={21} /></Link></header>
     <section className="app-identity" aria-label="Your account"><div className="app-avatar">{m.initials}</div><h2>{m.name}</h2><p>{m.email}</p><Link href="/portal/plan" className={`app-plan-badge ${m.planActive ? "is-active" : ""}`}><ShieldCheck size={14} />{m.planActive ? m.planName : "Choose a tracking plan"}<ChevronRight size={13} /></Link></section>
-    <section className="app-profile-wallet" aria-label="Credit balance"><div><span><Wallet size={16} />Available credits</span><strong>{m.credits}</strong><Link href="/portal/credits">View credit history<ChevronRight size={14} /></Link></div><Link className="app-primary" href={TOPUP_HREF}>Top up<ArrowRight size={16} /></Link></section>
+    <section className="app-profile-wallet" aria-label="Credit balance"><div><span><Wallet size={16} />Available credits</span><strong>{m.credits}</strong><Link href="/portal/credits">View credits<ChevronRight size={14} /></Link></div><Link className="app-primary" href={TOPUP_HREF}>Top up<ArrowRight size={16} /></Link></section>
     <div className="app-profile-sections">{sections.map(section => <section key={section.title}><h2>{section.title}</h2><nav className="app-menu-list" aria-label={section.title}>{section.items.map(({ href, title, detail, icon: Icon, tone }) => <Link key={href} href={href}><span className={`app-menu-icon app-tone-${tone}`}><Icon size={20} strokeWidth={1.8} /></span><span><strong>{title}</strong><small>{detail}</small></span><ChevronRight size={17} /></Link>)}</nav></section>)}</div>
     <div className="app-signout">{signOut}</div><nav className="app-legal" aria-label="Legal"><Link href="/privacy">Privacy policy</Link><Link href="/terms">Terms of use</Link><Link href="/about">About Rahdari</Link></nav>
   </div>;
