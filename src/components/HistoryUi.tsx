@@ -43,22 +43,38 @@ export function Segmented({
 
 /**
  * The one-line summary under a page title: figures separated by dots, the
- * explanation behind an (i).
+ * period after them in a muted piece of its own, the explanation behind an (i).
+ *
+ * The dot belongs to the piece BEFORE it (trailing) and no piece wraps inside
+ * itself, so a line can never START with a separator - on a phone "· All
+ * time" used to begin the second line. The period has no dot at all; pass
+ * null when it is the page's all-time default.
  */
 export function SummaryLine({
   parts,
+  period,
   info,
   infoLabel,
 }: {
   parts: ReactNode[];
+  period?: ReactNode;
   info?: ReactNode;
   infoLabel?: string;
 }) {
+  const shown = parts.filter(Boolean);
   const line = (
     <p className="hist-summary-line">
-      {parts.filter(Boolean).map((part, index) => (
-        <span key={index}>{part}</span>
+      {shown.map((part, index) => (
+        <span key={index} className="hist-summary-part">
+          {part}
+          {index < shown.length - 1 ? (
+            <span aria-hidden className="hist-dot">
+              ·
+            </span>
+          ) : null}
+        </span>
       ))}
+      {period ? <span className="hist-summary-range">{period}</span> : null}
     </p>
   );
   if (!info) return <div className="hist-summary">{line}</div>;
@@ -66,6 +82,48 @@ export function SummaryLine({
     <InfoTip label={infoLabel ?? "these figures"} info={info} className="hist-summary" rowClassName="hist-summary-row">
       {line}
     </InfoTip>
+  );
+}
+
+/**
+ * Previous / Next for a list INSIDE an open row (Activity's groups). Unlike
+ * the page Pager it keeps the scroll position, so the open row stays put.
+ */
+export function MiniPager({
+  page,
+  total,
+  pageSize,
+  noun,
+  href,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  noun: string;
+  href: (page: number) => string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pages <= 1) return null;
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+  const step = (to: number, label: string, enabled: boolean) =>
+    enabled ? (
+      <Link href={href(to)} scroll={false} className="hist-minipager-step">
+        {label}
+      </Link>
+    ) : (
+      <span aria-disabled className="hist-minipager-step is-off">
+        {label}
+      </span>
+    );
+  return (
+    <nav className="hist-minipager" aria-label={`More ${noun}`}>
+      {step(page - 1, "Previous", page > 1)}
+      <span className="hist-minipager-count">
+        {first.toLocaleString("en-IN")}–{last.toLocaleString("en-IN")} of {total.toLocaleString("en-IN")} {noun}
+      </span>
+      {step(page + 1, "Next", page < pages)}
+    </nav>
   );
 }
 

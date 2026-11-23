@@ -89,11 +89,16 @@ async function handle(request: NextRequest) {
   /* The mail work of /api/cron/notify, repeated here as its fallback: with no
      minute-schedule configured these still go out, just up to five minutes
      late. Both never throw and both are once-only, so running twice is safe. */
-  const [chatMail, dailySummary, planReminders] = await Promise.all([
+  const [chatMail, dailySummary, planReminders, expiredHolds] = await Promise.all([
     sendUnseenChatEmails(getSupabaseAdmin()),
     maybeSendDailySummary(getSupabaseAdmin()),
     // 3 days / 1 day / last day / day after - each once per expiry date.
     sendPlanExpiryReminders(),
+    // Search credit holds nobody settled (0073). Bookkeeping only: an expired
+    // hold already stopped counting, this just marks it so in the audit trail.
+    getSupabaseAdmin()
+      .rpc("expire_credit_holds")
+      .then(({ data, error }) => (error ? null : (data as number))),
   ]);
 
   try {
@@ -141,6 +146,7 @@ async function handle(request: NextRequest) {
       chatMail,
       dailySummary,
       planReminders,
+      expiredHolds,
     });
   } catch (error) {
     // The caller here is a scheduler, not a person, so this one keeps the real

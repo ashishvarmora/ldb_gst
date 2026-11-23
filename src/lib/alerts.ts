@@ -177,7 +177,58 @@ export type AlertDraft = {
   title: string;
   message: string;
   position: Position;
+  /** Halt alert only: which of its three messages this is. */
+  phase?: HaltPhase;
+  /** location_change: the plaza it was last reported at (null on a return to the same one). */
+  previousLocation?: string | null;
+  /** halt: how long without a crossing, worded ("4 hours"). */
+  idleText?: string;
+  /** plaza_crossing: the plaza name the customer asked about. */
+  watchedPlaza?: string | null;
+  /** plaza_crossing: matched by similarity, so the recorded name differs from the one asked about. */
+  guessed?: boolean;
 };
+
+export type HaltPhase = "halted" | "still_halted" | "moving_again";
+
+/*
+ * WHICH ALERTS ARE WORTH A WHATSAPP MESSAGE (owner, 23 Nov 2026).
+ *
+ * Outside the 24-hour window a WhatsApp message is a paid template (about
+ * Rs 0.12-0.15 each in India), and a truck on "every check" every 15 minutes
+ * would be ~96 of them a day saying mostly the same thing. So WhatsApp
+ * carries only the news a person acts on:
+ *
+ *   plaza_crossing     yes - the truck reached the plaza they named
+ *   location_change    yes - it crossed a new plaza
+ *   halt               the first "has halted" and "moving again" only; the
+ *                      hourly "still halted" reminders stay on app + Telegram
+ *   periodic_location  never - app push and Telegram only
+ *
+ * App push and Telegram are free and keep getting everything.
+ */
+export function alertGoesToWhatsApp(draft: Pick<AlertDraft, "kind" | "phase">): boolean {
+  switch (draft.kind) {
+    case "plaza_crossing":
+    case "location_change":
+      return true;
+    case "halt":
+      return draft.phase === "halted" || draft.phase === "moving_again";
+    default:
+      return false;
+  }
+}
+
+/** The one-line channel note under an alert kind in the add-alert form. */
+export const ALERT_KIND_WHATSAPP_NOTE: Record<AlertRuleKind, string> = {
+  periodic_location: "Not sent on WhatsApp. Arrives in the app and on Telegram.",
+  location_change: "Also sent on WhatsApp, if you have it on.",
+  plaza_crossing: "Also sent on WhatsApp, if you have it on.",
+  halt: "On WhatsApp: the first halt and moving again. Hourly reminders come in the app and on Telegram.",
+};
+
+/** The rule in one line, for the Notifications page. */
+export const WHATSAPP_ALERTS_SCOPE = "WhatsApp: crossings, halt and moving again only.";
 
 /**
  * What to write back on the alert row. Applied whether or not delivery
@@ -351,6 +402,7 @@ export function evaluateAlert({
             ? `Passed ${place(position)}${heading(position)} again.`
             : `Now at ${place(position)}${heading(position)}, previously ${alert.last_location}.`,
           position,
+          previousLocation: returned ? null : alert.last_location,
         },
         stateUpdate,
       };
@@ -432,6 +484,8 @@ export function evaluateAlert({
             ? `Recorded at ${place(position)}${heading(position)}. You asked about "${alert.plaza}" and this is the closest name on record, so check it is the plaza you meant.`
             : `Recorded at ${place(position)}${heading(position)}.`,
           position,
+          watchedPlaza: alert.plaza,
+          guessed,
         },
         stateUpdate,
       };
@@ -464,6 +518,7 @@ export function evaluateAlert({
             title: `${truckNumber} is moving again`,
             message: `Crossed ${place(position)}${heading(position)}.`,
             position,
+            phase: "moving_again",
           },
           stateUpdate,
         };
@@ -495,6 +550,8 @@ export function evaluateAlert({
             title: `${truckNumber} has halted`,
             message: `No toll crossing for ${idleText}. ${lastSeen}`,
             position,
+            phase: "halted",
+            idleText,
           },
           stateUpdate,
         };
@@ -508,6 +565,8 @@ export function evaluateAlert({
             title: `${truckNumber} is still halted`,
             message: `No toll crossing for ${idleText}. ${lastSeen}`,
             position,
+            phase: "still_halted",
+            idleText,
           },
           stateUpdate,
         };

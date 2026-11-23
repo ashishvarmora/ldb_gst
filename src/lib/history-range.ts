@@ -1,8 +1,9 @@
 /**
- * The one date control on the account history pages (Payments, Activity):
- * Last 7 days / Last 30 days / Last 90 days / Custom, plus "All time" where a
- * page allows it. Lives in the URL as ?range=7d|30d|90d|all|custom (&from&to
- * for custom), and every date is an IST calendar day (YYYY-MM-DD).
+ * The one date control on the account history pages (Payments, Credits,
+ * Activity): All / Last 7 days / Custom (owner, 23 Nov 2026). Lives in the URL
+ * as ?range=all|7d|custom (&from&to for custom); every date is an IST calendar
+ * day (YYYY-MM-DD). 30d / 90d are still understood when a page lists them, but
+ * no page offers them any more - an old link falls back to the page default.
  *
  * Pure and client-safe: the server parses it, the client control renders it.
  */
@@ -67,11 +68,13 @@ export function istDayOf(iso: string): string {
 
 export function parseHistoryRange(
   params: { range?: string; from?: string; to?: string },
-  options: { fallback: RangeKey; allowAll: boolean; maxDays?: number },
+  options: { fallback: RangeKey; allowAll: boolean; maxDays?: number; keys?: readonly RangeKey[] },
 ): HistoryRange {
   const raw = params.range as RangeKey | undefined;
   let key: RangeKey =
-    raw && raw in RANGE_LABEL && (raw !== "all" || options.allowAll) ? raw : options.fallback;
+    raw && raw in RANGE_LABEL && (raw !== "all" || options.allowAll) && (!options.keys || options.keys.includes(raw))
+      ? raw
+      : options.fallback;
 
   if (key === "custom") {
     let from = isIsoDay(params.from) ? params.from : null;
@@ -94,6 +97,9 @@ export function parseHistoryRange(
   return { key, from: istDay(-(days - 1)), to: istDay() };
 }
 
+/** The three choices every history page offers. */
+export const HISTORY_RANGE_KEYS = ["all", "7d", "custom"] as const satisfies readonly RangeKey[];
+
 /** The URL parameters that reproduce a range (empty for the page default). */
 export function rangeQuery(range: HistoryRange, fallback: RangeKey): Record<string, string> {
   if (range.key === "custom" && range.from && range.to) return { range: "custom", from: range.from, to: range.to };
@@ -113,12 +119,14 @@ export function dayLabel(day: string): string {
   return `${weekday}, ${d} ${MONTHS[m - 1]}${year}`;
 }
 
+/** "12 Nov" (year added when it is not this year). */
+export function shortDay(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}${day.slice(0, 4) === istDay().slice(0, 4) ? "" : ` ${y}`}`;
+}
+
 /** "12 Nov – 19 Nov" for a custom range, else the preset's name. */
 export function rangeLabel(range: HistoryRange): string {
   if (range.key !== "custom" || !range.from || !range.to) return RANGE_LABEL[range.key];
-  const short = (day: string) => {
-    const [, m, d] = day.split("-").map(Number);
-    return `${d} ${MONTHS[m - 1]}`;
-  };
-  return range.from === range.to ? short(range.from) : `${short(range.from)} – ${short(range.to)}`;
+  return range.from === range.to ? shortDay(range.from) : `${shortDay(range.from)} – ${shortDay(range.to)}`;
 }

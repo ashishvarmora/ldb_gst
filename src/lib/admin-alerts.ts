@@ -1,9 +1,10 @@
 import { adminRecipients } from "@/lib/chat";
 import { formatCredits } from "@/lib/credits";
-import { notifyAdminsOfPaymentEvent } from "@/lib/email";
+import { canEmailCustomers, esc, notifyAdminsOfPaymentEvent, sendEmail, shell } from "@/lib/email";
+import { env } from "@/lib/env";
 import { sendPushToUser, type PushPayload } from "@/lib/push";
-import { sendWhatsAppAlert, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
 import { loadSettings } from "@/lib/settings";
+import { sendTelegramMessage } from "@/lib/telegram";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
@@ -17,6 +18,12 @@ type Admin = ReturnType<typeof getSupabaseAdmin>;
  * phone, in a browser or in the Android app - and need nothing but the push
  * keys. Each event has its own switch on /admin/settings (adminPush* in
  * app_settings), absent meaning on.
+ *
+ * WhatsApp is NOT used for any of these (owner, 23 Nov 2026): a business-
+ * initiated WhatsApp is a paid message, and the admins get exactly one a day -
+ * the end-of-day summary in daily-summary.ts. These go on the free channels:
+ * push to every admin device, and Telegram for an admin who has a Telegram
+ * chat saved on their own account.
  *
  * Same contract as every notifier here: never throws, never reports a failure
  * back, and is awaited by its caller - a serverless function kills work that
@@ -58,37 +65,41 @@ export async function pushAdmins(
     const desk = await adminRecipients(admin);
     await Promise.allSettled([
       ...desk.map((id) => sendPushToUser(id, payload)),
-      whatsappAdmins(admin, desk, payload),
+      telegramAdmins(admin, desk, payload),
     ]);
   } catch (error) {
     console.error(`[admin-push] ${event} crashed:`, (error as Error).message);
   }
 }
 
+function escapeTelegram(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /**
- * The same admin alert on WhatsApp, to each admin's profile mobile, when
- * switched on (admin_whatsapp). Inside the 24-hour window (the admin messaged
- * Rahdari recently) it goes as free plain text; otherwise as the approved
- * template, which Meta charges per message.
+ * The same admin alert on Telegram, for each admin who has a Telegram chat
+ * saved and switched on for their own account (telegram_configs). Free, so it
+ * follows the same per-event switches as push.
  */
-async function whatsappAdmins(admin: Admin, ids: string[], payload: PushPayload): Promise<void> {
-  if (!whatsappConfigured() || ids.length === 0) return;
-  const settings = await loadSettings(admin);
-  if (!settings.adminWhatsapp) return;
-  const { data } = await admin.from("profiles").select("id, phone").in("id", ids);
-  const text = [`*${payload.title}*`, payload.body, "", "— Rahdari admin"].join(String.fromCharCode(10));
+async function telegramAdmins(admin: Admin, ids: string[], payload: PushPayload): Promise<void> {
+  if (ids.length === 0) return;
+  const { data } = await admin
+    .from("telegram_configs")
+    .select("user_id, chat_id, bot_token, is_enabled")
+    .in("user_id", ids)
+    .eq("is_enabled", true);
+  const rows = (data ?? []) as { user_id: string; chat_id: string | null; bot_token: string | null }[];
+  if (rows.length === 0) return;
+  const link = payload.url ? `${env.siteUrl}${payload.url.startsWith("/") ? "" : "/"}${payload.url}` : null;
+  const text = [
+    `<b>${escapeTelegram(payload.title)}</b>`,
+    escapeTelegram(payload.body),
+    ...(link ? ["", link] : []),
+  ].join("\n");
   await Promise.allSettled(
-    (data ?? [])
-      .filter((p: { phone: string | null }) => p.phone)
-      .map((p: { id: string; phone: string | null }) =>
-        sendWhatsAppAlert({
-          to: p.phone as string,
-          text,
-          params: ["admin update", payload.title.slice(0, 120), whatsappTime()],
-          purpose: "alert",
-          userId: p.id,
-        }),
-      ),
+    rows
+      .filter((row) => row.chat_id)
+      .map((row) => sendTelegramMessage({ chatId: row.chat_id as string, botToken: row.bot_token, text })),
   );
 }
 
@@ -193,9 +204,71 @@ export async function notifyPaymentSettled(admin: Admin, paymentId: string): Pro
         tag: `pay-${paymentId}`,
         url: "/portal/payments",
       }),
+      emailBuyerReceipt(admin, paymentId, facts),
     ]);
   } catch (error) {
     console.error("[admin-push] payment settled crashed:", (error as Error).message);
+  }
+}
+
+/**
+ * "Payment received" by email to the buyer - the one written record of the
+ * purchase from Rahdari itself (Razorpay's own mail, if any, names Razorpay).
+ * Rides on notifyPaymentSettled, so it inherits its once-only guarantee.
+ * Free channel; skipped when this deployment cannot email customers.
+ */
+async function emailBuyerReceipt(admin: Admin, paymentId: string, facts: PaymentFacts): Promise<void> {
+  try {
+    if (!canEmailCustomers()) return;
+    const [{ data: buyer }, settings] = await Promise.all([
+      admin
+        .from("profiles")
+        .select("email, full_name, credits, plan_expires_on")
+        .eq("id", facts.user_id)
+        .maybeSingle<{ email: string | null; full_name: string | null; credits: number; plan_expires_on: string | null }>(),
+      loadSettings(admin),
+    ]);
+    if (!buyer?.email) return;
+
+    const amount = rupees(facts.amount_inr);
+    const balance = `${formatCredits(Number(buyer.credits) || 0)} credits`;
+    const validTill =
+      facts.kind === "plan" && buyer.plan_expires_on
+        ? new Date(`${buyer.plan_expires_on}T00:00:00+05:30`).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            timeZone: "Asia/Kolkata",
+          })
+        : null;
+    const url = `${env.siteUrl}/portal/payments`;
+    const heading = `Payment received: ${amount}`;
+    const lines = [
+      `Thank you${buyer.full_name?.trim() ? `, ${esc(buyer.full_name.trim())}` : ""}. We have received your payment of <strong>${esc(amount)}</strong>.`,
+      `<strong>Bought:</strong> ${esc(facts.bought)}`,
+      ...(validTill ? [`<strong>Plan valid till:</strong> ${esc(validTill)}`] : []),
+      `<strong>Balance now:</strong> ${esc(balance)}`,
+      `Reference: ${esc(paymentId)}`,
+    ];
+    const sent = await sendEmail({
+      to: buyer.email,
+      subject: `${heading} — ${settings.brandName}`,
+      html: shell(settings.brandName, heading, lines, { label: "View payments", url }),
+      text: [
+        heading,
+        "",
+        `Bought: ${facts.bought}`,
+        ...(validTill ? [`Plan valid till: ${validTill}`] : []),
+        `Balance now: ${balance}`,
+        `Reference: ${paymentId}`,
+        "",
+        url,
+      ].join("\n"),
+      replyTo: settings.supportEmail || null,
+    });
+    if (!sent.ok) console.error(`[receipt] not sent for ${paymentId}:`, sent.error);
+  } catch (error) {
+    console.error("[receipt] crashed:", (error as Error).message);
   }
 }
 

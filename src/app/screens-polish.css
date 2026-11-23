@@ -1271,15 +1271,16 @@ section.nrow .nrow-head { cursor: default; }
 .nrow-meta { font-size: 12px; color: var(--app-muted, #6b7a90); }
 
 /* ===========================================================================
-   Account history pages, 20 Nov 2026: Payments, Credits, Activity
-   (src/app/portal/{payments,credits,activity}/page.tsx, PaymentList.tsx,
-   src/components/HistoryUi.tsx, HistoryControls.tsx, ActivityTimeline.tsx).
+   Account history pages, 20 Nov 2026 (filters reworked 23 Nov): Payments,
+   Credits, Activity (src/app/portal/{payments,credits,activity}/page.tsx,
+   PaymentList.tsx, src/components/HistoryUi.tsx, HistoryControls.tsx,
+   ActivityTimeline.tsx).
 
-   One scale on all three: title 22px/700, section heading 15px/700, body
-   14px, secondary 12.5px. Compact rows like My trucks / Notifications: a
-   coloured left edge for status (red failed, amber pending), the figure on
-   the right, a chevron that opens the row. Every control 40px+ to the finger;
-   labels never wrap.
+   One type scale on all three: title 22px/700, row titles 14px, labels and
+   controls 13px, page summary 13px, secondary text 12px. Compact rows like My
+   trucks / Notifications: a coloured left edge for status (red failed, amber
+   pending), the figure on the right, a chevron that opens the row. Every
+   control 36px+ to the finger; labels never wrap or truncate.
    =========================================================================== */
 .ledger-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; max-width: 760px; }
 .ledger-page > * { min-width: 0; }
@@ -1296,21 +1297,24 @@ section.nrow .nrow-head { cursor: default; }
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 2px;
   min-width: 0; flex: 1; font-size: 13px; line-height: 1.5; color: var(--color-muted);
 }
-.hist-summary-line > * + *::before { content: "\00B7"; margin-right: 6px; color: var(--color-faint); }
-.hist-figure { font-size: 15px; font-weight: 700; color: var(--color-strong); font-variant-numeric: tabular-nums; }
+/* Each piece keeps its own trailing dot and never breaks inside, so a
+   wrapped line starts with a figure, never with a separator. */
+.hist-summary-part { white-space: nowrap; }
+.hist-dot { margin-left: 6px; color: var(--color-faint); }
+.hist-figure { font-size: 14px; font-weight: 700; color: var(--color-strong); font-variant-numeric: tabular-nums; }
 .hist-summary-line .is-bad { color: var(--color-bad-500); font-weight: 600; }
-.hist-summary-range { color: var(--color-faint); white-space: nowrap; }
+.hist-summary-range { margin-left: 4px; font-size: 12px; color: var(--color-faint); white-space: nowrap; }
 
 /* -- filters ------------------------------------------------------------- */
 .hist-filters { display: grid; gap: 8px; }
 .hist-seg {
-  display: grid; gap: 4px; padding: 4px;
-  border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-sunken);
+  display: grid; gap: 3px; padding: 3px;
+  border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-sunken);
 }
 .hist-seg a {
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 40px; padding: 0 8px; border-radius: 10px;
-  font-size: 13.5px; font-weight: 600; color: var(--color-muted); white-space: nowrap;
+  min-height: 36px; padding: 0 8px; border-radius: 9px;
+  font-size: 13px; font-weight: 600; color: var(--color-muted); white-space: nowrap;
   transition: background-color .15s, color .15s;
 }
 .hist-seg a:hover { color: var(--color-ink); }
@@ -1323,59 +1327,106 @@ section.nrow .nrow-head { cursor: default; }
 }
 .hist-seg-count.is-bad { background: color-mix(in srgb, var(--color-bad-500) 14%, transparent); color: var(--color-bad-500); }
 .hist-seg-count.is-warn { background: color-mix(in srgb, var(--color-warn-500) 16%, transparent); color: var(--color-warn-500); }
-/* The small one (Auto / Manual / All): 34px pills in a 3px track = 40px. */
-.hist-seg.is-small { display: inline-grid; flex: 1 1 170px; max-width: 240px; padding: 3px; border-radius: 12px; }
-.hist-seg.is-small a { min-height: 34px; font-size: 13px; border-radius: 9px; }
 
-.hist-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
-.hist-range { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 150px; min-width: 0; }
+/* One row of controls; whole controls wrap, nothing inside them does. */
+.hist-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.hist-toolbar > * { min-width: 0; max-width: 100%; }
+
+/* On/off chips (Activity: Auto / Manual, Day / Truck). */
+.hist-chips { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.hist-chips-caption { margin-right: 2px; font-size: 12px; font-weight: 600; color: var(--color-muted); }
+.hist-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 36px; padding: 0 12px;
+  border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-panel);
+  font-size: 13px; font-weight: 600; color: var(--color-muted); white-space: nowrap;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.hist-chip:hover { color: var(--color-ink); }
+.hist-chip.is-on {
+  border-color: color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  background: color-mix(in srgb, var(--color-brand-500) 10%, var(--color-panel));
+  color: var(--color-brand-500);
+}
+.hist-chip.is-locked { cursor: not-allowed; }
+.hist-chip:focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+
+/* Compact select (date, sort, group order). Natural width - the native
+   option list then opens the width of the control, not past it. */
 .hist-select {
-  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 100%;
-  height: 40px; padding: 0 0 0 10px;
-  border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-panel); color: var(--color-muted);
+  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto;
+  min-width: 0; max-width: 100%; height: 36px; padding: 0 0 0 10px;
+  border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-panel); color: var(--color-muted);
 }
 .hist-select select {
   height: 100%; min-width: 0; max-width: 100%; padding: 0 8px 0 0; border: 0; background: transparent;
-  font-size: 13.5px; font-weight: 600; color: var(--color-ink); outline: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--color-ink); outline: none; cursor: pointer;
   text-overflow: ellipsis;
 }
 .hist-select:focus-within { border-color: var(--color-brand-500); }
 .hist-sort { margin-left: auto; }
-/* Date + sort share one row on a phone: two equal halves, never a wrap. */
-.hist-toolbar > .hist-range { flex: 1 1 0; }
-.hist-toolbar > .hist-sort { flex: 1 1 0; margin-left: 0; min-width: 0; }
-.hist-range > .hist-select, .hist-toolbar > .hist-sort { width: 100%; }
-.hist-range > .hist-select select, .hist-toolbar > .hist-sort select { flex: 1; width: 100%; }
-.hist-toolbar > .hist-range:has(.hist-custom) { flex-basis: 100%; }
-/* Activity: Auto / Manual / All gets its own full row so "Manual" is never cut;
-   date and truck then share the row below, half each. */
-.hist-toolbar > .hist-seg.is-small { flex: 1 1 100%; max-width: none; }
-.hist-toolbar > .hist-truck { flex: 1 1 0; min-width: 0; }
-.hist-toolbar > .hist-truck select { width: 100%; }
-.hist-truck { flex: 1 1 100%; }
-.hist-truck select { flex: 1; }
-.hist-custom { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; }
+
+/* Date: the select, a pencil while a custom range is on, the custom panel. */
+.hist-range { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.hist-range.is-editing { flex: 1 1 100%; }
+.hist-range-row { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.hist-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 36px; height: 36px; border: 1px solid var(--color-line); border-radius: 10px;
+  background: var(--color-panel); color: var(--color-muted);
+}
+.hist-icon-btn:hover { color: var(--color-ink); }
+.hist-custom {
+  display: grid; gap: 10px; flex: 1 1 100%; min-width: 0; padding: 10px;
+  border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-panel);
+}
+.hist-custom-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hist-custom-fields label { display: grid; gap: 4px; min-width: 0; }
+.hist-custom-fields span { font-size: 12px; font-weight: 600; color: var(--color-muted); }
 .hist-custom input {
-  flex: 1 1 0; min-width: 0; height: 40px; padding: 0 8px;
+  width: 100%; min-width: 0; height: 36px; padding: 0 8px;
   border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-panel);
   font-size: 16px; color: var(--color-ink); /* 16px: phones do not zoom into the field */
 }
-.hist-custom-dash { color: var(--color-faint); }
-.hist-apply {
-  flex: none; height: 40px; padding: 0 14px; border-radius: 10px;
-  background: var(--color-brand-500); color: #fff; font-size: 13.5px; font-weight: 600; white-space: nowrap;
+.hist-custom input:focus { outline: none; border-color: var(--color-brand-500); }
+.hist-custom-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.hist-cancel, .hist-apply {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 10px;
+  font-size: 13px; font-weight: 600; white-space: nowrap;
 }
+.hist-cancel { border: 1px solid var(--color-line); background: var(--color-panel); color: var(--color-ink); }
+.hist-apply { background: var(--color-brand-500); color: #fff; }
+.hist-apply:disabled { opacity: .55; }
+
+/* Credits: the chosen period's own figure, beside the date control. */
+.hist-period {
+  display: inline-flex; align-items: baseline; gap: 4px; margin-left: auto;
+  font-size: 13px; color: var(--color-muted); white-space: nowrap;
+}
+.hist-period strong { font-size: 14px; font-weight: 700; color: var(--color-strong); font-variant-numeric: tabular-nums; }
+.hist-period strong.is-brand { color: var(--color-brand-500); }
+.hist-period-when { margin-left: 4px; font-size: 12px; color: var(--color-faint); }
+
 @media (max-width: 374px) {
-  .hist-select select { font-size: 12.5px; }
-  .hist-seg a { font-size: 12.5px; padding: 0 4px; }
+  .hist-chip { padding: 0 10px; }
+  .hist-select { padding-left: 8px; }
 }
 
 .hist-warn {
-  padding: 8px 12px; border-radius: 10px; font-size: 12.5px; color: var(--color-warn-500);
+  padding: 8px 12px; border-radius: 10px; font-size: 12px; color: var(--color-warn-500);
   border: 1px solid color-mix(in srgb, var(--color-warn-500) 40%, transparent);
   background: color-mix(in srgb, var(--color-warn-500) 10%, transparent);
 }
 .hist-pager { margin-top: 0; }
+
+/* Previous / Next inside an open group (keeps the scroll position). */
+.hist-minipager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; }
+.hist-minipager-step {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; flex: none;
+  border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-panel);
+  font-size: 13px; font-weight: 600; color: var(--color-ink);
+}
+.hist-minipager-step.is-off { opacity: .45; pointer-events: none; }
+.hist-minipager-count { min-width: 0; text-align: center; font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
 
 /* -- compact rows ---------------------------------------------------------- */
 .hrow-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -1388,8 +1439,8 @@ section.nrow .nrow-head { cursor: default; }
 .hrow.is-pending { box-shadow: inset 3px 0 0 var(--color-warn-500); }
 .hrow.is-added { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-brand-500) 55%, transparent); }
 .hrow-head {
-  display: flex; align-items: center; gap: 10px; min-height: 60px;
-  padding: 9px 10px 9px 14px; list-style: none; cursor: pointer; color: inherit;
+  display: flex; align-items: center; gap: 10px; min-height: 56px;
+  padding: 8px 10px 8px 14px; list-style: none; cursor: pointer; color: inherit;
 }
 div.hrow-head { cursor: default; }
 .hrow-head::-webkit-details-marker { display: none; }
@@ -1401,23 +1452,23 @@ a.hrow-head:hover, summary.hrow-head:hover { background: color-mix(in srgb, var(
   font-size: 14px; font-weight: 600; line-height: 20px; color: var(--color-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.hrow-title-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-weight: 400; color: var(--color-muted); white-space: pre; }
+.hrow-title-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 400; color: var(--color-muted); white-space: pre; }
 .hrow-title-icon { flex: none; margin-right: 6px; color: var(--color-muted); }
 .hrow-plate { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 14px; font-weight: 700; letter-spacing: .02em; }
 .hrow-sub {
   display: flex; align-items: baseline; gap: 6px; min-width: 0;
-  font-size: 12.5px; line-height: 17px; color: var(--color-muted); white-space: nowrap; overflow: hidden;
+  font-size: 12px; line-height: 17px; color: var(--color-muted); white-space: nowrap; overflow: hidden;
 }
 .hrow-sub > * { flex: none; }
 .hrow-sub > :last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .hrow-sub > * + *::before { content: "\00B7"; margin-right: 6px; color: var(--color-faint); }
 .hrow-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
 .hrow-end { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
-.hrow-amount { font-size: 15px; font-weight: 700; line-height: 20px; color: var(--color-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hrow-amount { font-size: 14px; font-weight: 700; line-height: 20px; color: var(--color-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hrow-amount.is-muted { color: var(--color-faint); font-weight: 600; }
 .hrow-amount.is-brand { color: var(--color-brand-500); }
 .hrow-amount.is-bad { color: var(--color-bad-500); }
-.hrow-unit { font-size: 11.5px; line-height: 14px; color: var(--color-muted); }
+.hrow-unit { font-size: 11px; line-height: 14px; color: var(--color-muted); }
 .hrow-chev { flex: none; color: var(--color-faint); transition: transform .2s; }
 details[open] > .hrow-head .hrow-chev, .hrow.is-open > .hrow-head .hrow-chev { transform: rotate(180deg); }
 .hrow-chev-space { flex: none; width: 16px; }
@@ -1426,23 +1477,25 @@ details[open] > .hrow-head .hrow-chev, .hrow.is-open > .hrow-head .hrow-chev { t
 .hrow-facts { display: grid; }
 .hrow-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; }
 .hrow-facts > div + div { border-top: 1px solid var(--color-divider); }
-.hrow-facts dt { flex: none; font-size: 12.5px; color: var(--color-muted); }
-.hrow-facts dd { min-width: 0; text-align: right; font-size: 13.5px; color: var(--color-ink); overflow-wrap: anywhere; }
+.hrow-facts dt { flex: none; font-size: 12px; color: var(--color-muted); }
+.hrow-facts dd { min-width: 0; text-align: right; font-size: 13px; color: var(--color-ink); overflow-wrap: anywhere; }
 .hrow-facts dd.is-bad { color: var(--color-bad-500); }
 .hrow-note { font-size: 12px; color: var(--color-faint); }
 .hrow-link {
   display: inline-flex; align-items: center; gap: 4px; justify-self: start;
-  min-height: 40px; font-size: 13.5px; font-weight: 600; color: var(--color-brand-500);
+  min-height: 40px; font-size: 13px; font-weight: 600; color: var(--color-brand-500);
 }
 
-/* -- Credits: Available | Added | Used ----------------------------------- */
+/* -- Credits: Available | Added | Used (all time) -------------------------- */
 .credit-totals-wrap { min-width: 0; }
 .credit-totals-row { flex-wrap: nowrap; align-items: flex-start; }
-.credit-totals {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 1; min-width: 0;
+.credit-totals-box {
+  flex: 1; min-width: 0;
   border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-panel);
 }
-.credit-totals > div { min-width: 0; padding: 9px 10px 9px 12px; }
+.credit-totals-caption { padding: 7px 12px 0; font-size: 12px; color: var(--color-faint); }
+.credit-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+.credit-totals > div { min-width: 0; padding: 4px 10px 9px 12px; }
 .credit-totals > div + div { border-left: 1px solid var(--color-divider); }
 .credit-totals dt { font-size: 12px; font-weight: 600; color: var(--color-muted); white-space: nowrap; }
 .credit-totals dd {
@@ -1453,22 +1506,10 @@ details[open] > .hrow-head .hrow-chev, .hrow.is-open > .hrow-head .hrow-chev { t
 .credit-totals dd.is-brand { color: var(--color-brand-500); }
 .credit-totals dd.is-warn { color: var(--color-warn-500); }
 .credit-totals dd.is-bad { color: var(--color-bad-500); }
-.credit-unit { font-size: 11.5px; font-weight: 500; color: var(--color-muted); }
+.credit-unit { font-size: 11px; font-weight: 500; color: var(--color-muted); }
 .credit-topup { min-height: 28px !important; }
 
-/* -- Activity: day sections and nested rows ------------------------------ */
-.aday-list { display: grid; gap: 10px; }
-.aday { border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-panel); overflow: hidden; }
-.aday-head {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  background: color-mix(in srgb, var(--color-sunken) 60%, transparent);
-  border-bottom: 1px solid var(--color-divider);
-}
-.aday-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
-.aday-title { font-size: 15px; font-weight: 700; line-height: 20px; color: var(--color-strong); white-space: nowrap; }
-.aday-sub { font-size: 12.5px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.aday-credits { flex: none; font-size: 12.5px; color: var(--color-muted); white-space: nowrap; }
-.aday-credits strong { font-size: 15px; font-weight: 700; color: var(--color-strong); font-variant-numeric: tabular-nums; }
+/* -- Activity: groups, nested groups and entries ------------------------- */
 .hrow-list.is-inset { gap: 0; }
 .hrow-list.is-inset > .hrow { border: 0; border-radius: 0; }
 .hrow-list.is-inset > .hrow + .hrow { border-top: 1px solid var(--color-divider); }
@@ -1476,9 +1517,18 @@ details[open] > .hrow-head .hrow-chev, .hrow.is-open > .hrow-head .hrow-chev { t
 .hrow-list.is-nested > .hrow { background: transparent; }
 .hrow-list.is-nested .hrow-head { padding-left: 24px; min-height: 52px; }
 .hrow.is-open > .hrow-head { background: color-mix(in srgb, var(--color-brand-500) 6%, transparent); }
-.aday-events { padding: 2px 14px 10px 14px; border-top: 1px solid var(--color-divider); }
+.aday-events { padding: 2px 14px 10px; border-top: 1px solid var(--color-divider); }
 .hrow-list.is-nested .aday-events { padding-left: 24px; }
+.hrow-list.is-nested + .aday-events { border-top: 0; padding-top: 0; }
 .aday-more { padding-top: 6px; font-size: 12px; color: var(--color-faint); }
+/* No grouping: the entries in one panel. */
+.aentry-panel { border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-panel); }
+.aentry-panel > .aday-events { border-top: 0; }
+.aday-events .truck-timeline-title { display: flex; flex-wrap: wrap; column-gap: 6px; font-size: 13px; }
+.aday-events .truck-timeline-sub { font-size: 12px; }
+.aday-events .truck-timeline-time { font-size: 12px; }
+.aentry-text { min-width: 0; }
+.aentry-plate { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; letter-spacing: .02em; color: var(--color-strong); }
 
 /* -- links to the sibling pages ------------------------------------------ */
 .hist-siblings { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }

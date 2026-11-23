@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight, Download, ReceiptText as PageIcon } from "lucide-react";
 
 import { TopUpLink } from "@/components/CreditBalance";
+import { DateRangeControl } from "@/components/HistoryControls";
 import { Segmented, plural } from "@/components/HistoryUi";
 import { InfoTip } from "@/components/InfoTip";
 import { Pager, pageCount, pageFromParam } from "@/components/Pager";
@@ -10,7 +11,7 @@ import { EmptyState, LinkButton, PageHeader, cx } from "@/components/ui";
 import { loadAdditions, loadCreditStatement } from "@/lib/credit-history";
 import { creditStanding, formatCredits } from "@/lib/credits";
 import { fmtDayTime } from "@/lib/format";
-import { dayLabel } from "@/lib/history-range";
+import { HISTORY_RANGE_KEYS, dayLabel, parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
 import { loadSearchCost, requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { LedgerLinks, parseSide } from "./LedgerNav";
@@ -23,7 +24,12 @@ export async function generateMetadata() {
 /**
  * Credits: the statement of the balance.
  *
- *   top      Available | Added | Used (all time), explanation behind (i)
+ *   top      Available | Added | Used, ALWAYS ALL TIME (captioned so), the
+ *            explanation behind (i). All-time on purpose: Available is a
+ *            balance, and Available = Added - Used only holds over all time.
+ *   filter   Added | Used per day, and the date control (All by default /
+ *            Last 7 days / Custom) that filters both lists; beside it, the
+ *            chosen period's own figure (+N added / N used).
  *   Added    one entry per ledger addition, its source named (payment, coupon
  *            code, referral, admin, trial, sign-up...), credits, date-time and
  *            the reference to quote. Never rolled up into days.
@@ -43,7 +49,7 @@ const BASE = "/portal/credits";
 export default async function CreditsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ side?: string; page?: string }>;
+  searchParams: Promise<{ side?: string; page?: string; range?: string; from?: string; to?: string }>;
 }) {
   const [{ overview }, searchCost, params] = await Promise.all([
     requirePortalSession(),
@@ -55,19 +61,24 @@ export default async function CreditsPage({
   const balance = Number(overview.credits ?? 0);
   const standing = creditStanding(balance, searchCost);
   const requested = pageFromParam(params.page);
+  const range = parseHistoryRange(params, { fallback: "all", allowAll: true, keys: HISTORY_RANGE_KEYS });
+  const window = { from: range.from, to: range.to };
 
   const [statement, additions] = await Promise.all([
-    loadCreditStatement(admin, overview.id, balance, side === "used" ? requested : 1, DAYS_PAGE),
-    side === "added" ? loadAdditions(admin, overview.id, requested, ADDED_PAGE) : Promise.resolve(null),
+    loadCreditStatement(admin, overview.id, balance, side === "used" ? requested : 1, DAYS_PAGE, window),
+    side === "added" ? loadAdditions(admin, overview.id, requested, ADDED_PAGE, window) : Promise.resolve(null),
   ]);
 
-  const pageHref = (page: number) => {
-    const search = new URLSearchParams();
-    if (side === "used") search.set("side", "used");
+  /* Every link keeps the range; the side and the page are per link. */
+  const sideHref = (next: "added" | "used", page = 1) => {
+    const search = new URLSearchParams(rangeQuery(range, "all"));
+    if (next === "used") search.set("side", "used");
     if (page > 1) search.set("page", String(page));
     const out = search.toString();
     return out ? `${BASE}?${out}` : BASE;
   };
+  const pageHref = (page: number) => sideHref(side, page);
+  const period = range.key === "all" ? "All time" : rangeLabel(range);
 
   return (
     <div className="ledger-page">
@@ -103,7 +114,9 @@ export default async function CreditsPage({
           </>
         }
       >
-        <dl className="credit-totals">
+        <div className="credit-totals-box">
+          <p className="credit-totals-caption">All-time totals</p>
+          <dl className="credit-totals">
           <div>
             <dt>Available</dt>
             <dd className={cx(standing === "empty" ? "is-bad" : standing === "low" ? "is-warn" : undefined)}>
@@ -126,7 +139,8 @@ export default async function CreditsPage({
               <span className="credit-unit">credits</span>
             </dd>
           </div>
-        </dl>
+          </dl>
+        </div>
       </InfoTip>
 
       <div className="hist-filters">
@@ -134,10 +148,29 @@ export default async function CreditsPage({
           label="Credits added or used"
           current={side}
           items={[
-            { key: "added", label: "Added", href: BASE, count: statement.additionsCount || null },
-            { key: "used", label: "Used per day", href: `${BASE}?side=used` },
+            { key: "added", label: "Added", href: sideHref("added"), count: statement.period.additions || null },
+            { key: "used", label: "Used per day", href: sideHref("used") },
           ]}
         />
+        <div className="hist-toolbar">
+          <DateRangeControl
+            basePath={BASE}
+            params={side === "used" ? { side: "used" } : {}}
+            current={range.key}
+            from={range.from}
+            to={range.to}
+            fallback="all"
+          />
+          <p className="hist-period">
+            {side === "added" ? (
+              <strong className="is-brand">+{formatCredits(statement.period.added)}</strong>
+            ) : (
+              <strong>{formatCredits(statement.period.used)}</strong>
+            )}{" "}
+            {side === "added" ? "added" : "used"}
+            <span className="hist-period-when">{period}</span>
+          </p>
+        </div>
       </div>
 
       {statement.error || additions?.error ? (
@@ -147,7 +180,7 @@ export default async function CreditsPage({
       {side === "added" && additions ? (
         additions.rows.length === 0 ? (
           <div className="panel">
-            <EmptyState title="No credits added yet" />
+            <EmptyState title={range.key === "all" ? "No credits added yet" : "No credits added in this period"} />
           </div>
         ) : (
           <>
@@ -215,7 +248,7 @@ export default async function CreditsPage({
       {side === "used" ? (
         statement.days.length === 0 ? (
           <div className="panel">
-            <EmptyState title="No credits used yet" />
+            <EmptyState title={range.key === "all" ? "No credits used yet" : "No credits used in this period"} />
           </div>
         ) : (
           <>

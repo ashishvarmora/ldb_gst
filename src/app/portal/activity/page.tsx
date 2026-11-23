@@ -1,25 +1,24 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronDown, History as PageIcon, Search, Truck } from "lucide-react";
+import { ArrowDownUp, ChevronDown, History as PageIcon, ListTree, Search } from "lucide-react";
 
 import { ActivityTimeline } from "@/components/ActivityTimeline";
-import { RangeControl, UrlSelect } from "@/components/HistoryControls";
-import { Figure, Segmented, SummaryLine, plural } from "@/components/HistoryUi";
-import { Pager, pageCount, pageFromParam } from "@/components/Pager";
+import { ChipToggles, DateRangeControl, UrlSelect } from "@/components/HistoryControls";
+import { Figure, MiniPager, SummaryLine, plural } from "@/components/HistoryUi";
+import { Pager, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
 import { EmptyState, PageHeader, cx } from "@/components/ui";
 import {
   SEARCHES_KEY,
   loadActivity,
-  loadSearchDayEvents,
-  loadTruckDayEvents,
+  loadActivityEntries,
   type ActivityMode,
   type Cell,
-  type DayEvent,
+  type EntryScope,
+  type EntrySort,
 } from "@/lib/credit-history";
 import { formatCredits } from "@/lib/credits";
-import { fmtTime } from "@/lib/format";
-import { dayLabel, isIsoDay, parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
+import { HISTORY_RANGE_KEYS, dayLabel, parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { LedgerLinks } from "../credits/LedgerNav";
@@ -30,97 +29,184 @@ export async function generateMetadata() {
 }
 
 /**
- * Activity: what was checked, and what it found. Complements Credits (which
- * owns additions and the per-day statement); no credit additions here.
+ * Activity: what was checked, and what it found (owner's spec, 23 Nov 2026).
  *
- *   By day (default)  a header per day (auto/manual checks, credits used,
- *                     crossings found), one row per truck inside it; tap a
- *                     truck -> its events that day (checks, crossings found,
- *                     alerts sent, paused / live / auto-paused).
- *   By truck          one row per truck with range totals; tap -> its days;
- *                     tap a day -> that day's events.
+ *   Type      Auto / Manual chips, independent; at least one stays on.
+ *   Date      All / Last 7 days (default) / Custom.
+ *   Group     Day / Truck chips, independent. One on = groups of that kind;
+ *             both = nested, Day -> Truck (default) or Truck -> Day; none =
+ *             the individual entries. Tapping a group opens its child groups
+ *             or its entries.
+ *   Sort      Newest / Oldest (a group by its latest / earliest activity),
+ *             Most / Fewest credits (a group by its total).
  *
- * MANUAL SEARCHES of numbers you do not track are one pseudo-truck,
- * "Manual searches", in both views (its sub-line counts the numbers); opening
- * it lists each search with its number, time and result. A "Check now" on a
- * tracked truck is that truck's manual check, not part of this group.
+ * An ENTRY is one check or search (ledger charge) or a truck event
+ * (truck_activity) - loadActivityEntries. MANUAL SEARCHES of numbers you do
+ * not track are one pseudo-truck, "Manual searches"; a "Check now" on a
+ * tracked truck is that truck's manual check.
  *
- * Failed manual searches are excluded everywhere (credit-history.ts). All
- * filters are in the URL; totals are summed by the database
- * (credit_ledger_daily) and only one day's events are ever read at a time.
+ * Group figures are summed by the database (credit_ledger_daily) and netted
+ * of failed searches in credit-history.ts; entries are paged by the database
+ * and only the one open group's entries are ever read. Failed manual searches
+ * appear nowhere. Everything is in the URL; a filter change lands on page 1
+ * with every group closed.
  */
 
 const BASE = "/portal/activity";
-const DAYS_PAGE = 10;
-const TRUCKS_PAGE = 25;
+const GROUPS_PAGE = 15;
+const CHILD_PAGE = 15;
+const ENTRIES_PAGE = 25;
+
+type Dim = "day" | "truck";
+type GroupValue = "day-truck" | "truck-day" | "day" | "truck" | "none";
+const GROUP_DEFAULT: GroupValue = "day-truck";
 
 type Query = {
-  view?: string;
   type?: string;
-  truck?: string;
   range?: string;
   from?: string;
   to?: string;
+  group?: string;
+  sort?: string;
   page?: string;
-  /** By day: "<day>~<truck key>" of the open row. */
-  open?: string;
-  /** By truck: the open truck key, and the open day inside it. */
-  t?: string;
-  d?: string;
+  /** The open top-level group, the open child group, their pages. */
+  o?: string;
+  o2?: string;
+  cp?: string;
+  rp?: string;
 };
 
-type Totals = { auto: number; manual: number; credits: number; crossings: number; numbers: Set<string> };
-/** What a row prints: a cell, or a cell's sum over the range. */
-type Figures = { key: string; auto: number; manual: number; credits: number; crossings: number; numbers: { size: number } };
+const SORTS: { value: EntrySort; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "most", label: "Most credits" },
+  { value: "fewest", label: "Fewest credits" },
+];
 
-function sum(cells: Cell[]): Totals {
-  const out: Totals = { auto: 0, manual: 0, credits: 0, crossings: 0, numbers: new Set() };
+function parseGroup(raw: string | undefined): GroupValue {
+  return raw === "truck-day" || raw === "day" || raw === "truck" || raw === "none" ? raw : GROUP_DEFAULT;
+}
+
+function groupValue(day: boolean, truck: boolean, first: Dim): GroupValue {
+  if (day && truck) return first === "day" ? "day-truck" : "truck-day";
+  return day ? "day" : truck ? "truck" : "none";
+}
+
+/* -------------------------------------------------------------- groups */
+
+type Group = {
+  key: string;
+  dim: Dim;
+  auto: number;
+  manual: number;
+  credits: number;
+  crossings: number;
+  numbers: Set<string>;
+  /** Earliest / latest activity, ms. */
+  first: number;
+  last: number;
+  cells: Cell[];
+};
+
+function groupCells(cells: Cell[], dim: Dim): Group[] {
+  const groups = new Map<string, Group>();
   for (const cell of cells) {
-    out.auto += cell.auto;
-    out.manual += cell.manual;
-    out.credits += cell.credits;
-    out.crossings += cell.crossings;
-    for (const number of cell.numbers.keys()) out.numbers.add(number);
+    const key = dim === "day" ? cell.day : cell.key;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        dim,
+        auto: 0,
+        manual: 0,
+        credits: 0,
+        crossings: 0,
+        numbers: new Set(),
+        first: Infinity,
+        last: -Infinity,
+        cells: [],
+      };
+      groups.set(key, group);
+    }
+    group.auto += cell.auto;
+    group.manual += cell.manual;
+    group.credits += cell.credits;
+    group.crossings += cell.crossings;
+    for (const number of cell.numbers.keys()) group.numbers.add(number);
+    /* A day with crossings but no charge has no times: its day bounds. */
+    const first = cell.firstAt ? Date.parse(cell.firstAt) : Date.parse(`${cell.day}T00:00:00+05:30`);
+    const last = cell.lastAt ? Date.parse(cell.lastAt) : Date.parse(`${cell.day}T23:59:59+05:30`);
+    group.first = Math.min(group.first, first);
+    group.last = Math.max(group.last, last);
+    group.cells.push(cell);
   }
-  out.credits = Math.round(out.credits * 100) / 100;
-  return out;
+  for (const group of groups.values()) group.credits = Math.round(group.credits * 100) / 100;
+  return [...groups.values()];
+}
+
+function sortGroups(groups: Group[], sort: EntrySort): Group[] {
+  const by: Record<EntrySort, (a: Group, b: Group) => number> = {
+    newest: (a, b) => b.last - a.last,
+    oldest: (a, b) => a.first - b.first,
+    most: (a, b) => b.credits - a.credits || b.last - a.last,
+    fewest: (a, b) => a.credits - b.credits || b.last - a.last,
+  };
+  return [...groups].sort((a, b) => by[sort](a, b) || a.key.localeCompare(b.key));
 }
 
 /** "96 auto · 1 manual · 4 crossings" - zero parts left out. */
-function countParts(t: Omit<Figures, "key">, isSearches: boolean): string[] {
+function countParts(g: Group): string[] {
   const parts: string[] = [];
-  if (isSearches) {
-    if (t.numbers.size > 0) parts.push(plural(t.numbers.size, "number"));
-    if (t.manual > 0) parts.push(plural(t.manual, "search", "searches"));
+  if (g.dim === "truck" && g.key === SEARCHES_KEY) {
+    if (g.numbers.size > 0) parts.push(plural(g.numbers.size, "number"));
+    if (g.manual > 0) parts.push(plural(g.manual, "search", "searches"));
   } else {
-    if (t.auto > 0) parts.push(`${t.auto.toLocaleString("en-IN")} auto`);
-    if (t.manual > 0) parts.push(`${t.manual.toLocaleString("en-IN")} manual`);
+    if (g.auto > 0) parts.push(`${g.auto.toLocaleString("en-IN")} auto`);
+    if (g.manual > 0) parts.push(`${g.manual.toLocaleString("en-IN")} manual`);
   }
-  if (t.crossings > 0) parts.push(plural(t.crossings, "crossing"));
+  if (g.crossings > 0) parts.push(plural(g.crossings, "crossing"));
   return parts;
 }
+
+const slice = <T,>(rows: T[], page: number, size: number) => rows.slice((page - 1) * size, page * size);
+const pagesOf = (total: number, size: number) => Math.max(1, Math.ceil(total / size));
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Query> }) {
   const [{ overview }, params] = await Promise.all([requirePortalSession(), searchParams]);
   const admin = getSupabaseAdmin();
 
-  const view: "day" | "truck" = params.view === "truck" ? "truck" : "day";
+  /* ---------------------------------------------------------------- filters */
   const mode: ActivityMode = params.type === "auto" || params.type === "manual" ? params.type : "all";
-  const range = parseHistoryRange(params, { fallback: "7d", allowAll: false, maxDays: 366 });
-  const from = range.from!;
-  const to = range.to!;
-  const truck = params.truck?.trim() || null;
+  const autoOn = mode !== "manual";
+  const manualOn = mode !== "auto";
+  const range = parseHistoryRange(params, {
+    fallback: "7d",
+    allowAll: true,
+    keys: HISTORY_RANGE_KEYS,
+  });
+  const group = parseGroup(params.group);
+  const dayOn = group !== "truck" && group !== "none";
+  const truckOn = group !== "day" && group !== "none";
+  const firstDim: Dim = group === "truck-day" || group === "truck" ? "truck" : "day";
+  const levels: Dim[] =
+    dayOn && truckOn ? [firstDim, firstDim === "day" ? "truck" : "day"] : dayOn ? ["day"] : truckOn ? ["truck"] : [];
+  const sort: EntrySort = SORTS.some((s) => s.value === params.sort) ? (params.sort as EntrySort) : "newest";
 
-  const data = await loadActivity(admin, overview.id, { from, to, mode, truck });
-  const truckSet = new Set(data.trucks.map((row) => row.number));
+  const data = await loadActivity(admin, overview.id, {
+    from: range.from,
+    to: range.to,
+    mode,
+    truck: null,
+  });
+  const tracked = new Set(data.trucks.map((row) => row.number));
   const labelOf = new Map(data.trucks.map((row) => [row.number, row.label]));
 
-  /* Every link keeps the filters; the page and the open rows are per link. */
+  /* The query every filter control and link keeps. No page, nothing open. */
   const filters: Record<string, string> = {
-    ...(view === "truck" ? { view } : {}),
     ...(mode !== "all" ? { type: mode } : {}),
-    ...(truck ? { truck } : {}),
     ...rangeQuery(range, "7d"),
+    ...(group !== GROUP_DEFAULT ? { group } : {}),
+    ...(sort !== "newest" ? { sort } : {}),
   };
   const href = (patch: Record<string, string | null | undefined>) => {
     const search = new URLSearchParams(filters);
@@ -131,43 +217,68 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
     const out = search.toString();
     return out ? `${BASE}?${out}` : BASE;
   };
+  const num = (page: number) => (page > 1 ? String(page) : null);
   const without = (...keys: string[]) => {
     const copy = { ...filters };
     for (const key of keys) delete copy[key];
     return copy;
   };
 
-  const totals = sum(data.cells);
-  const hasSearches = data.cells.some((cell) => cell.key === SEARCHES_KEY);
+  const totals = groupCells(data.cells, "day").reduce(
+    (acc, g) => ({
+      auto: acc.auto + g.auto,
+      manual: acc.manual + g.manual,
+      credits: acc.credits + g.credits,
+      crossings: acc.crossings + g.crossings,
+    }),
+    { auto: 0, manual: 0, credits: 0, crossings: 0 },
+  );
+  totals.credits = Math.round(totals.credits * 100) / 100;
 
-  /* ---------------------------------------------------------------- events */
-  async function eventsFor(key: string, day: string, cell: Cell | undefined) {
-    const events: DayEvent[] =
-      key === SEARCHES_KEY
-        ? await loadSearchDayEvents(admin, overview.id, day, truckSet)
-        : await loadTruckDayEvents(admin, overview.id, key, day, mode);
-    const summary =
-      key !== SEARCHES_KEY && cell && (cell.auto > 0 || cell.manual > 0)
-        ? {
-            title: [
-              cell.auto > 0 ? plural(cell.auto, "auto check") : null,
-              cell.manual > 0 ? plural(cell.manual, "manual check") : null,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-            sub: [
-              `${formatCredits(cell.credits)} credits used`,
-              cell.firstAt && cell.lastAt ? `${fmtTime(cell.firstAt)} – ${fmtTime(cell.lastAt)}` : null,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          }
-        : null;
-    return <ActivityTimeline summary={summary} events={events} />;
+  /* --------------------------------------------------------------- entries */
+  async function entries(
+    scope: Pick<EntryScope, "from" | "to" | "key">,
+    page: number,
+    pageHref: (page: number) => string,
+    inside: Dim[],
+  ) {
+    const result = await loadActivityEntries(admin, overview.id, { ...scope, mode, tracked }, sort, page, ENTRIES_PAGE);
+    /* Inside a truck's group the truck goes without saying - but "Manual
+       searches" holds many numbers, so each row names its own. */
+    const showTruck = !inside.includes("truck") || scope.key === SEARCHES_KEY;
+    return {
+      total: result.total,
+      node: (
+        <>
+          {result.error ? (
+            <p className="hist-warn">Some entries could not be read. Please refresh in a moment.</p>
+          ) : null}
+          <ActivityTimeline
+            entries={result.rows}
+            showTruck={showTruck}
+            showDate={!inside.includes("day")}
+            note={
+              !result.withEvents && scope.key !== SEARCHES_KEY
+                ? "Sorted by credits: truck events (paused, alerts changed…) are listed only when sorted by time."
+                : null
+            }
+          />
+          <MiniPager page={result.page} total={result.total} pageSize={ENTRIES_PAGE} noun="entries" href={pageHref} />
+        </>
+      ),
+    };
   }
 
-  function rowTitle(key: string) {
-    if (key === SEARCHES_KEY) {
+  /* A group's own slice of the range. */
+  const scopeOf = (path: Group[]): Pick<EntryScope, "from" | "to" | "key"> => {
+    const day = path.find((g) => g.dim === "day")?.key ?? null;
+    const truck = path.find((g) => g.dim === "truck")?.key ?? null;
+    return { from: day ?? range.from, to: day ?? range.to, key: truck };
+  };
+
+  function groupTitle(g: Group) {
+    if (g.dim === "day") return <span className="hrow-title">{dayLabel(g.key)}</span>;
+    if (g.key === SEARCHES_KEY) {
       return (
         <span className="hrow-title">
           <Search size={13} aria-hidden className="hrow-title-icon" />
@@ -175,28 +286,28 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
         </span>
       );
     }
-    const label = labelOf.get(key);
+    const label = labelOf.get(g.key);
     return (
       <span className="hrow-title">
-        <span className="hrow-plate">{key}</span>
+        <span className="hrow-plate">{g.key}</span>
         {label ? <span className="hrow-title-note"> · {label}</span> : null}
       </span>
     );
   }
 
-  function TruckRow({ cell, open, link, children }: { cell: Figures; open: boolean; link: string; children?: ReactNode }) {
-    const parts = countParts(cell, cell.key === SEARCHES_KEY);
+  function GroupRow({ g, open, link, children }: { g: Group; open: boolean; link: string; children?: ReactNode }) {
+    const parts = countParts(g);
     return (
       <li className={cx("hrow", open && "is-open")}>
         <Link href={link} scroll={false} className="hrow-head" aria-expanded={open}>
           <span className="hrow-text">
-            {rowTitle(cell.key)}
+            {groupTitle(g)}
             <span className="hrow-sub">
               {parts.length > 0 ? parts.map((part) => <span key={part}>{part}</span>) : <span>No checks</span>}
             </span>
           </span>
           <span className="hrow-end">
-            <span className="hrow-amount">{formatCredits(cell.credits)}</span>
+            <span className="hrow-amount">{formatCredits(g.credits)}</span>
             <span className="hrow-unit">credits</span>
           </span>
           <ChevronDown size={16} aria-hidden className="hrow-chev" />
@@ -206,147 +317,136 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  /* --------------------------------------------------------------- by day */
-  let body: ReactNode = null;
+  /* ------------------------------------------------------------------ body */
+  let body: ReactNode;
   let pager: ReactNode = null;
+  const requested = pageFromParam(params.page);
 
-  const order = (a: Figures, b: Figures) =>
-    a.key === SEARCHES_KEY ? 1 : b.key === SEARCHES_KEY ? -1 : b.credits - a.credits || a.key.localeCompare(b.key);
-
-  if (data.cells.length === 0) {
+  if (levels.length === 0) {
+    /* No grouping: every entry, paged. */
+    const list = await entries(
+      { from: range.from, to: range.to, key: null },
+      requested,
+      (next) => href({ page: num(next) }),
+      [],
+    );
+    body =
+      list.total === 0 ? (
+        <div className="panel">
+          <EmptyState title="No activity in this period" description={rangeLabel(range)} />
+        </div>
+      ) : (
+        <div className="aentry-panel">{list.node}</div>
+      );
+  } else if (data.cells.length === 0) {
     body = (
       <div className="panel">
         <EmptyState title="No activity in this period" description={rangeLabel(range)} />
       </div>
     );
-  } else if (view === "day") {
-    const days = [...new Set(data.cells.map((cell) => cell.day))].sort((a, b) => (a < b ? 1 : -1));
-    const pages = pageCount(days.length, DAYS_PAGE);
-    const page = pageFromParam(params.page, pages);
-    const visible = days.slice((page - 1) * DAYS_PAGE, page * DAYS_PAGE);
-    const [openDay, openKey] = (params.open ?? "").split("~");
-
-    const sections = await Promise.all(
-      visible.map(async (day) => {
-        const cells = data.cells.filter((cell) => cell.day === day).sort(order);
-        const t = sum(cells);
-        const rows = await Promise.all(
-          cells.map(async (cell) => {
-            const open = openDay === day && openKey === cell.key;
-            return (
-              <TruckRow
-                key={cell.key}
-                cell={cell}
-                open={open}
-                link={href({ page: page > 1 ? String(page) : null, open: open ? null : `${day}~${cell.key}` })}
-              >
-                {open ? await eventsFor(cell.key, day, cell) : null}
-              </TruckRow>
-            );
-          }),
-        );
-        return (
-          <section key={day} className="aday">
-            <header className="aday-head">
-              <span className="aday-text">
-                <span className="aday-title">{dayLabel(day)}</span>
-                <span className="aday-sub">
-                  {[
-                    t.auto > 0 ? `${t.auto.toLocaleString("en-IN")} auto` : null,
-                    t.manual > 0 ? `${t.manual.toLocaleString("en-IN")} manual` : null,
-                    t.crossings > 0 ? plural(t.crossings, "crossing") : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </span>
-              <span className="aday-credits">
-                <strong>{formatCredits(t.credits)}</strong> credits
-              </span>
-            </header>
-            <ul className="hrow-list is-inset">{rows}</ul>
-          </section>
-        );
-      }),
-    );
-    body = <div className="aday-list">{sections}</div>;
-    pager = (
-      <Pager page={page} total={days.length} pageSize={DAYS_PAGE} noun="days" href={(next) => href({ page: next > 1 ? String(next) : null })} className="hist-pager" />
-    );
   } else {
-    /* ------------------------------------------------------------ by truck */
-    const keys = [...new Set(data.cells.map((cell) => cell.key))];
-    const rows = keys.map((key) => ({ key, ...sum(data.cells.filter((cell) => cell.key === key)) })).sort(order);
-    const pages = pageCount(rows.length, TRUCKS_PAGE);
-    const page = pageFromParam(params.page, pages);
-    const visible = rows.slice((page - 1) * TRUCKS_PAGE, page * TRUCKS_PAGE);
-    const openKey = params.t ?? (truck && rows.length === 1 ? rows[0].key : null);
-    const openDay = isIsoDay(params.d) ? params.d : null;
+    const top = sortGroups(groupCells(data.cells, levels[0]), sort);
+    const page = Math.min(requested, pagesOf(top.length, GROUPS_PAGE));
+    const visible = slice(top, page, GROUPS_PAGE);
+    /* One group only (a single day from Credits, say): it opens by itself.
+       Closing it writes o=- so it stays closed. */
+    const openKey = params.o ?? (top.length === 1 ? top[0].key : null);
+    const openChild = params.o2 ?? null;
+    const childPage = pageFromParam(params.cp);
+    const entryPage = pageFromParam(params.rp);
+    const at = { page: num(page) };
 
-    const items = await Promise.all(
-      visible.map(async (row) => {
-        const open = openKey === row.key;
+    const rows = await Promise.all(
+      visible.map(async (g) => {
+        const open = openKey === g.key;
         let inner: ReactNode = null;
-        if (open) {
-          const days = data.cells.filter((cell) => cell.key === row.key).sort((a, b) => (a.day < b.day ? 1 : -1));
-          const dayRows = await Promise.all(
-            days.map(async (cell) => {
-              const dayOpen = openDay === cell.day;
-              const parts = countParts(cell, row.key === SEARCHES_KEY);
+        if (open && levels.length === 1) {
+          const list = await entries(scopeOf([g]), entryPage, (next) => href({ ...at, o: g.key, rp: num(next) }), [
+            g.dim,
+          ]);
+          inner = list.node;
+        } else if (open) {
+          const children = sortGroups(groupCells(g.cells, levels[1]), sort);
+          const cpage = Math.min(childPage, pagesOf(children.length, CHILD_PAGE));
+          const childRows = await Promise.all(
+            slice(children, cpage, CHILD_PAGE).map(async (child) => {
+              const childOpen = openChild === child.key;
+              const list = childOpen
+                ? await entries(
+                    scopeOf([g, child]),
+                    entryPage,
+                    (next) =>
+                      href({
+                        ...at,
+                        o: g.key,
+                        cp: num(cpage),
+                        o2: child.key,
+                        rp: num(next),
+                      }),
+                    [g.dim, child.dim],
+                  )
+                : null;
               return (
-                <li key={cell.day} className={cx("hrow", dayOpen && "is-open")}>
-                  <Link
-                    href={href({ t: row.key, d: dayOpen ? null : cell.day, page: page > 1 ? String(page) : null })}
-                    scroll={false}
-                    className="hrow-head"
-                    aria-expanded={dayOpen}
-                  >
-                    <span className="hrow-text">
-                      <span className="hrow-title">{dayLabel(cell.day)}</span>
-                      <span className="hrow-sub">
-                        {parts.map((part) => (
-                          <span key={part}>{part}</span>
-                        ))}
-                      </span>
-                    </span>
-                    <span className="hrow-end">
-                      <span className="hrow-amount">{formatCredits(cell.credits)}</span>
-                      <span className="hrow-unit">credits</span>
-                    </span>
-                    <ChevronDown size={16} aria-hidden className="hrow-chev" />
-                  </Link>
-                  {dayOpen ? await eventsFor(row.key, cell.day, cell) : null}
-                </li>
+                <GroupRow
+                  key={child.key}
+                  g={child}
+                  open={childOpen}
+                  link={href({
+                    ...at,
+                    o: g.key,
+                    cp: num(cpage),
+                    o2: childOpen ? null : child.key,
+                  })}
+                >
+                  {list?.node}
+                </GroupRow>
               );
             }),
           );
-          inner = <ul className="hrow-list is-inset is-nested">{dayRows}</ul>;
+          inner = (
+            <>
+              <ul className="hrow-list is-inset is-nested">{childRows}</ul>
+              {children.length > CHILD_PAGE ? (
+                <div className="aday-events">
+                  <MiniPager
+                    page={cpage}
+                    total={children.length}
+                    pageSize={CHILD_PAGE}
+                    noun={levels[1] === "day" ? "days" : "trucks"}
+                    href={(next) => href({ ...at, o: g.key, cp: num(next) })}
+                  />
+                </div>
+              ) : null}
+            </>
+          );
         }
         return (
-          <TruckRow
-            key={row.key}
-            cell={row}
-            open={open}
-            link={href({ t: open ? null : row.key, d: null, page: page > 1 ? String(page) : null })}
-          >
+          <GroupRow key={g.key} g={g} open={open} link={href({ ...at, o: open ? "-" : g.key })}>
             {inner}
-          </TruckRow>
+          </GroupRow>
         );
       }),
     );
-    body = <ul className="hrow-list">{items}</ul>;
+    body = <ul className="hrow-list">{rows}</ul>;
     pager = (
-      <Pager page={page} total={rows.length} pageSize={TRUCKS_PAGE} noun="trucks" href={(next) => href({ page: next > 1 ? String(next) : null })} className="hist-pager" />
+      <Pager
+        page={page}
+        total={top.length}
+        pageSize={GROUPS_PAGE}
+        noun={levels[0] === "day" ? "days" : "trucks"}
+        href={(next) => href({ page: num(next) })}
+        className="hist-pager"
+      />
     );
   }
 
-  /* ------------------------------------------------------------- picker */
-  const pickerOptions = [
-    { value: "", label: "All trucks" },
-    ...data.trucks.map((row) => ({ value: row.number, label: row.label ? `${row.number} · ${row.label}` : row.number })),
-    ...(hasSearches || truck === SEARCHES_KEY ? [{ value: SEARCHES_KEY, label: "Manual searches" }] : []),
-  ];
-  const showPicker = data.trucks.length > 1 || Boolean(truck);
+  /* ---------------------------------------------------------------- chips */
+  const typeHref = (auto: boolean, manual: boolean) => href({ type: auto && manual ? null : auto ? "auto" : "manual" });
+  const groupHref = (day: boolean, truck: boolean) => {
+    const next = groupValue(day, truck, firstDim);
+    return href({ group: next === GROUP_DEFAULT ? null : next });
+  };
+  const lastOn = "At least one type stays on";
 
   return (
     <div className="ledger-page">
@@ -363,8 +463,8 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           <>
             <Figure value={totals.crossings.toLocaleString("en-IN")} /> crossings
           </>,
-          <span className="hist-summary-range">{rangeLabel(range)}</span>,
         ]}
+        period={rangeLabel(range)}
         infoLabel="activity figures"
         info={
           <>
@@ -376,67 +476,94 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
               Automatic checks run on your trucks&apos; alerts at your plan&apos;s rate. Manual searches of numbers you
               do not track are grouped under Manual searches. A search that fails uses no credit and is not counted.
             </p>
-            <p>Crossings are new toll crossings found that day. Credits added are on the Credits page. All times are IST.</p>
+            <p>Crossings are new toll crossings found. Credits added are on the Credits page. All times are IST.</p>
           </>
         }
       />
 
       <div className="hist-filters">
-        <Segmented
-          label="Group activity"
-          current={view}
-          items={[
-            { key: "day", label: "By day", href: href({ view: null, page: null, open: null, t: null, d: null }) },
-            { key: "truck", label: "By truck", href: href({ view: "truck", page: null, open: null, t: null, d: null }) },
-          ]}
-        />
         <div className="hist-toolbar">
-          <nav className="hist-seg is-small" aria-label="Check type" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-            {(
-              [
-                ["auto", "Auto"],
-                ["manual", "Manual"],
-                ["all", "All"],
-              ] as const
-            ).map(([key, label]) => (
-              <Link
-                key={key}
-                href={href({ type: key === "all" ? null : key, page: null, open: null, t: null, d: null })}
-                scroll={false}
-                aria-current={mode === key ? "page" : undefined}
-                className={cx(mode === key && "is-active")}
-              >
-                <span className="hist-seg-label">{label}</span>
-              </Link>
-            ))}
-          </nav>
-          <RangeControl
+          <ChipToggles
+            label="Check type"
+            items={[
+              {
+                key: "auto",
+                label: "Auto",
+                on: autoOn,
+                href: autoOn && !manualOn ? null : typeHref(!autoOn, manualOn),
+                lockedHint: lastOn,
+              },
+              {
+                key: "manual",
+                label: "Manual",
+                on: manualOn,
+                href: manualOn && !autoOn ? null : typeHref(autoOn, !manualOn),
+                lockedHint: lastOn,
+              },
+            ]}
+          />
+          <DateRangeControl
             basePath={BASE}
             params={without("range", "from", "to")}
             current={range.key}
             from={range.from}
             to={range.to}
             fallback="7d"
-            options={["7d", "30d", "custom"]}
           />
-          {showPicker ? (
+        </div>
+        <div className="hist-toolbar">
+          <ChipToggles
+            label="Group by"
+            caption="Group"
+            items={[
+              {
+                key: "day",
+                label: "Day",
+                on: dayOn,
+                href: groupHref(!dayOn, truckOn),
+              },
+              {
+                key: "truck",
+                label: "Truck",
+                on: truckOn,
+                href: groupHref(dayOn, !truckOn),
+              },
+            ]}
+          />
+          {dayOn && truckOn ? (
             <UrlSelect
               basePath={BASE}
               params={filters}
-              name="truck"
-              value={truck ?? ""}
-              fallback=""
-              label="Truck"
-              icon={<Truck size={14} aria-hidden />}
-              options={pickerOptions}
-              className="hist-truck"
+              name="group"
+              value={group}
+              fallback={GROUP_DEFAULT}
+              label="Group order"
+              icon={<ListTree size={14} aria-hidden />}
+              options={[
+                { value: "day-truck", label: "Day → Truck" },
+                { value: "truck-day", label: "Truck → Day" },
+              ]}
+              className="hist-order"
             />
           ) : null}
+          <UrlSelect
+            basePath={BASE}
+            params={filters}
+            name="sort"
+            value={sort}
+            fallback="newest"
+            label="Sort"
+            icon={<ArrowDownUp size={14} aria-hidden />}
+            options={SORTS}
+            className="hist-sort"
+          />
         </div>
       </div>
 
       {data.error ? <p className="hist-warn">Some activity could not be read. Please refresh in a moment.</p> : null}
-      {data.capped ? <p className="hist-warn">This period is very large; choose a shorter range for complete figures.</p> : null}
+      {data.capped ? (
+        <p className="hist-warn">This period is very large; choose a shorter range for complete figures.</p>
+      ) : null}
 
       {body}
       {pager}

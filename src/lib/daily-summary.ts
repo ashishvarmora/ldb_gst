@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { fmtDate, fmtDayTime, fmtNumber, fmtRelative, fmtRupees, fmtTime, istToday } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { sendWhatsAppAlert, whatsappConfigured } from "@/lib/whatsapp";
 
 /**
  * The owner's end-of-day mail.
@@ -43,7 +44,26 @@ const RAZORPAY_SITE_BLOCK = /does not match registered website/i;
 /* Sending, once a day                                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Both end-of-day summaries: the email (below) and the admins' WhatsApp
+ * (maybeSendWhatsAppDailySummary). Called on every tick of /api/cron/notify
+ * and /api/cron/track; each is once-only per IST day on its own stamp, so the
+ * two crons and overlapping instances cannot double-send. `force` is the
+ * "send today's summary now" button and covers the email only.
+ */
 export async function maybeSendDailySummary(
+  admin: Admin,
+  opts: { force?: boolean } = {},
+): Promise<{ sent: boolean; reason: string; whatsapp?: { sent: number; reason: string } }> {
+  if (opts.force) return maybeSendEmailSummary(admin, opts);
+  const [email, whatsapp] = await Promise.all([
+    maybeSendEmailSummary(admin, opts),
+    maybeSendWhatsAppDailySummary(admin),
+  ]);
+  return { ...email, whatsapp };
+}
+
+async function maybeSendEmailSummary(
   admin: Admin,
   opts: { force?: boolean } = {},
 ): Promise<{ sent: boolean; reason: string }> {
@@ -113,12 +133,208 @@ function noTargetReason(): string {
   return "Nobody to send to: no Notify admin address, the daily summary is off, or this deployment cannot send email.";
 }
 
+/* -------------------------------------------------------------------------- */
+/* The WhatsApp summary - the only WhatsApp an admin gets                      */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Owner, 23 Nov 2026: admins get NO per-event WhatsApp (sign-ups, payments and
+ * chats go to push, email and Telegram, which are free). Instead, one short
+ * end-of-day summary per admin per day, on WhatsApp, at daily_summary_hour IST
+ * (default 9 pm), switched by admin_whatsapp ("Daily summary on WhatsApp").
+ *
+ * Once a day: its own app_settings stamp, claimed with the same optimistic
+ * update as the email's, so the minute tick, the five-minute tick and two
+ * overlapping instances cannot send it twice. If the owner has messaged the
+ * Rahdari number in the last 24 hours it goes as free text; otherwise
+ * sendWhatsAppAlert() falls back to the approved template (one paid message
+ * per admin per day).
+ */
+const WA_MARKER_KEY = "daily_summary_whatsapp_last_sent";
+
+/** Rough Meta price of one business-initiated utility template in India, for the summary's cost line. */
+const WA_TEMPLATE_COST_INR = 0.13;
+
+export async function maybeSendWhatsAppDailySummary(
+  admin: Admin,
+  opts: { force?: boolean } = {},
+): Promise<{ sent: number; reason: string }> {
+  try {
+    if (!whatsappConfigured()) return { sent: 0, reason: "WhatsApp is not configured." };
+    const settings = await loadSettings(admin);
+    if (!settings.adminWhatsapp && !opts.force) {
+      return { sent: 0, reason: "The WhatsApp daily summary is switched off." };
+    }
+
+    const today = istToday();
+    const hour = clampHour(settings.dailySummaryHour);
+    if (!opts.force && istHourNow() < hour) return { sent: 0, reason: `Not ${hourLabel(hour)} IST yet.` };
+
+    const recipients = await whatsappAdmins(admin);
+    if (recipients.length === 0) {
+      return { sent: 0, reason: "No active super admin has a mobile number in their profile." };
+    }
+
+    let claim: { ok: true; stamp: string } | null = null;
+    let previous = "";
+    if (!opts.force) {
+      const marker = await readMarker(admin, WA_MARKER_KEY);
+      if (!marker.ok) return { sent: 0, reason: marker.reason };
+      if (marker.value === today) return { sent: 0, reason: "Already sent today." };
+      const claimed = await claimDay(admin, today, marker, WA_MARKER_KEY);
+      if (!claimed.ok) return { sent: 0, reason: claimed.reason };
+      claim = claimed;
+      previous = marker.value;
+    }
+
+    const message = await buildWhatsAppSummary(admin, today);
+    const results = await Promise.all(
+      recipients.map((person) =>
+        sendWhatsAppAlert({
+          to: person.phone,
+          text: message.text,
+          params: message.params,
+          purpose: "alert",
+          userId: person.id,
+        }),
+      ),
+    );
+    const sent = results.filter((result) => result.ok).length;
+
+    if (sent === 0) {
+      /* Nobody got it: give the day back so the next tick tries again. A
+         partial send keeps the claim - a retry would charge the admins who
+         already have it. */
+      if (claim) await releaseDay(admin, claim.stamp, previous, WA_MARKER_KEY);
+      const reason = results.map((result) => (result.ok ? null : result.error)).filter(Boolean).join(" ");
+      console.error("whatsapp daily summary not sent:", reason);
+      return { sent: 0, reason: reason || "Not sent." };
+    }
+    return { sent, reason: `Sent to ${sent} of ${recipients.length} admin${recipients.length === 1 ? "" : "s"}.` };
+  } catch (error) {
+    console.error("whatsapp daily summary crashed:", error);
+    return { sent: 0, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Active super admins with a mobile number on their profile. */
+async function whatsappAdmins(admin: Admin): Promise<{ id: string; phone: string }[]> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("id, phone")
+    .eq("role", "super_admin")
+    .eq("status", "active");
+  if (error) {
+    console.error("whatsapp daily summary: could not list admins:", error.message);
+    return [];
+  }
+  return ((data ?? []) as { id: string; phone: string | null }[])
+    .filter((row): row is { id: string; phone: string } => Boolean(row.phone))
+    .map((row) => ({ id: row.id, phone: row.phone }));
+}
+
+/**
+ * The summary as WhatsApp text, plus the trip-update template parameters for
+ * when the 24-hour window is closed. Example:
+ *
+ *   📊 *Rahdari daily summary*
+ *   _Mon 23 Nov 2026, till 9:00 pm IST_
+ *
+ *   *Sign-ups:* 3
+ *   *Payments:* 2 paid, Rs 1,998 · 1 failed
+ *   *Credits:* 1,200 sold · 850 used
+ *   *Tracking:* 14 active trucks · 640 checks · 37 crossings
+ *   *Manual searches:* 22
+ *   *WhatsApp sent:* 41 (about Rs 4 · 30 paid, 11 free)
+ *
+ *   ⚠️ *Needs attention*
+ *   • 3 alerts not delivered
+ *   • 2 trucks auto-paused
+ *   • 4 unread customer messages
+ *
+ *   Open admin: https://rahdari.in/admin
+ */
+export async function buildWhatsAppSummary(
+  admin: Admin,
+  date: string,
+): Promise<{ text: string; params: string[] }> {
+  const day = await readDay(admin, date);
+  const from = istDayStart(date);
+  const to = day.until.toISOString();
+
+  const [sold, waRows] = await Promise.all([
+    loadPivotTotals(admin, { from: date, to: date, kind: "grant", reasons: ["purchase", "plan_grant"] }).catch(
+      () => null,
+    ),
+    admin
+      .from("whatsapp_messages")
+      .select("template, status")
+      .gte("created_at", from)
+      .lt("created_at", to)
+      .limit(5000)
+      .then(
+        (res) => ((res.data ?? []) as { template: string | null; status: string }[]),
+        () => [] as { template: string | null; status: string }[],
+      ),
+  ]);
+
+  const revenue = day.paid.reduce((sum, row) => sum + Number(row.amount_inr || 0), 0);
+  const creditsSold = Math.abs(Number(sold?.credits ?? 0));
+  const waSent = waRows.filter((row) => row.status !== "failed");
+  const waPaid = waSent.filter((row) => row.template !== "(text)").length;
+  const waFree = waSent.length - waPaid;
+  const waCost = Math.round(waPaid * WA_TEMPLATE_COST_INR);
+  const pausedAuto = day.pausedToday.filter((row) => row.reason !== "manual").length;
+
+  const attention = [
+    day.alertsFailed > 0 ? `• ${plural(day.alertsFailed, "alert")} not delivered` : null,
+    pausedAuto > 0 ? `• ${plural(pausedAuto, "truck")} auto-paused` : null,
+    day.razorpayBlocked > 0 ? `• ${plural(day.razorpayBlocked, "payment")} blocked: Razorpay website mismatch` : null,
+    day.leads.length > 0 ? `• ${plural(day.leads.length, "customer")} tried to pay and did not finish` : null,
+    day.unread.length > 0
+      ? `• ${plural(day.unread.reduce((sum, row) => sum + row.count, 0), "unread customer message")}`
+      : null,
+    day.expiring.length > 0 ? `• ${plural(day.expiring.length, "plan")} expiring within ${EXPIRY_WINDOW_DAYS} days` : null,
+    day.autoFailed > 0 ? `• ${plural(day.autoFailed, "failed check")}` : null,
+    day.problems.length > 0 ? `• Summary incomplete: ${day.problems.length} figure(s) could not be read` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  const text = [
+    "📊 *Rahdari daily summary*",
+    `_${longDay(date)}, till ${fmtTime(day.until.toISOString())} IST_`,
+    "",
+    `*Sign-ups:* ${fmtNumber(day.signups.length)}`,
+    `*Payments:* ${fmtNumber(day.paid.length)} paid, ${fmtRupees(revenue)} · ${fmtNumber(day.failedAttempts)} failed`,
+    `*Credits:* ${formatCredits(creditsSold)} sold · ${formatCredits(day.creditsUsed)} used`,
+    `*Tracking:* ${plural(day.trucksActive, "active truck")} · ${plural(day.autoChecks, "check")} · ${plural(day.crossings, "crossing")}`,
+    `*Manual searches:* ${fmtNumber(day.manualSearches)}`,
+    `*WhatsApp sent:* ${fmtNumber(waSent.length)} (about ${fmtRupees(waCost)} · ${fmtNumber(waPaid)} paid, ${fmtNumber(waFree)} free)`,
+    "",
+    ...(attention.length > 0 ? ["⚠️ *Needs attention*", ...attention] : ["✅ Nothing needs attention."]),
+    "",
+    `Open admin: ${env.siteUrl}/admin`,
+  ].join("\n");
+
+  /* Template fallback ("Hello, your Rahdari trip {{1}} status has been updated
+     to {{2}} on {{3}}. ...") - one line, no newlines allowed in a parameter. */
+  const params = [
+    "daily summary",
+    `${fmtNumber(day.signups.length)} sign-ups, ${fmtNumber(day.paid.length)} paid (${fmtRupees(revenue)}), ` +
+      `${fmtNumber(day.failedAttempts)} failed payments, ${plural(day.autoChecks, "check")}, ` +
+      `${plural(day.crossings, "crossing")}, ${attention.length} item(s) need attention`,
+    longDay(date),
+  ];
+
+  return { text, params };
+}
+
 type Marker =
   | { ok: true; value: string; updatedAt: string | null }
   | { ok: false; reason: string };
 
 /** The last IST day a summary went out, creating the row on first use. */
-async function readMarker(admin: Admin): Promise<Marker> {
+async function readMarker(admin: Admin, key: string = MARKER_KEY): Promise<Marker> {
+  const MARKER_KEY = key;
   const read = () =>
     admin.from("app_settings").select("value, updated_at").eq("key", MARKER_KEY).maybeSingle();
 
@@ -160,7 +376,9 @@ async function claimDay(
   admin: Admin,
   today: string,
   marker: Extract<Marker, { ok: true }>,
+  key: string = MARKER_KEY,
 ): Promise<{ ok: true; stamp: string } | { ok: false; reason: string }> {
+  const MARKER_KEY = key;
   const stamp = new Date().toISOString();
   let query = admin
     .from("app_settings")
@@ -177,7 +395,8 @@ async function claimDay(
 }
 
 /** Put the previous day back after a failed send, unless something moved it since. */
-async function releaseDay(admin: Admin, stamp: string, previous: string): Promise<void> {
+async function releaseDay(admin: Admin, stamp: string, previous: string, key: string = MARKER_KEY): Promise<void> {
+  const MARKER_KEY = key;
   const { error } = await admin
     .from("app_settings")
     .update({ value: previous || "1970-01-01", updated_at: new Date().toISOString() })

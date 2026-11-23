@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { assertSuperAdmin, type SessionUser } from "@/lib/auth";
-import { maybeSendDailySummary } from "@/lib/daily-summary";
+import { maybeSendDailySummary, maybeSendWhatsAppDailySummary } from "@/lib/daily-summary";
 import { emailSenderProblem, esc, sendEmail, shell } from "@/lib/email";
 import { loadSettings } from "@/lib/settings";
 import { diffFields, writeAudit } from "@/lib/audit";
@@ -111,7 +111,7 @@ const ADMIN_PUSH_SPECS: SettingSpec[] = [
   { key: "admin_push_payment", label: "Payment succeeded", kind: "bool" },
   { key: "admin_push_payment_failed", label: "Payment failed", kind: "bool" },
   { key: "admin_push_chat", label: "Customer message", kind: "bool" },
-  { key: "admin_whatsapp", label: "Also on WhatsApp", kind: "bool" },
+  { key: "admin_whatsapp", label: "Daily summary on WhatsApp", kind: "bool" },
 ];
 
 const SITE_SPECS: SettingSpec[] = [
@@ -409,6 +409,18 @@ export async function sendTestDailySummary(
   const result = await maybeSendDailySummary(getSupabaseAdmin(), { force: true });
   return result.sent
     ? { ok: true, message: "Sent today's summary to the Notify admin list." }
+    : { ok: false, error: `Not sent: ${result.reason}` };
+}
+
+/** Today's WhatsApp summary to every admin with a mobile, now (does not use up tonight's). */
+export async function sendTestWhatsAppSummary(
+  _prev: ActionResult | null,
+  _fd: FormData,
+): Promise<ActionResult> {
+  await assertSuperAdmin();
+  const result = await maybeSendWhatsAppDailySummary(getSupabaseAdmin(), { force: true });
+  return result.sent > 0
+    ? { ok: true, message: `${result.reason} Check WhatsApp.` }
     : { ok: false, error: `Not sent: ${result.reason}` };
 }
 
