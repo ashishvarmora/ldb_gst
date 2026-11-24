@@ -22,6 +22,7 @@ import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { SaveTruckButton } from "@/components/SaveTruckButton";
+import { FailureLimitField } from "@/components/TruckAlertForm";
 import { publicSettings } from "@/components/SiteFooter";
 import { directionLabel } from "@/components/Timeline";
 import { Badge, EmptyState, LinkButton, Panel, buttonClass, cx } from "@/components/ui";
@@ -255,6 +256,11 @@ export default async function SearchResultPage({
               <Field label="Label" name="label" hint="Optional. Something you will recognise later.">
                 <Input name="label" placeholder="e.g. Supplier vehicle — north route" />
               </Field>
+              {/* Required by addTruck since 20 Nov 2026 - this sheet was missed then,
+                  so every add from a search result failed until 24 Nov. */}
+              <div className="mt-4">
+                <FailureLimitField />
+              </div>
               <p className="mt-4 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
                 Checking starts once the truck has an alert. After adding it, open the truck and
                 choose an alert.

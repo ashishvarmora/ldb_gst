@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+
+import { announceNavigation } from "@/components/NavProgress";
 import { CalendarDays, Check, Loader2, Pencil } from "lucide-react";
 
 import { cx } from "@/components/ui";
@@ -71,6 +73,7 @@ export function UrlSelect({
           const href = hrefFor(basePath, params, {
             [name]: next === fallback ? null : next,
           });
+          announceNavigation(href);
           startTransition(() => router.replace(href, { scroll: false }));
         }}
       >
@@ -125,7 +128,8 @@ export function ChipToggles({ label, caption, items }: { label: string; caption?
               if (!item.href) return;
               setBusy(item.key);
               const href = item.href;
-              startTransition(() => router.replace(href, { scroll: false }));
+              announceNavigation(href);
+          startTransition(() => router.replace(href, { scroll: false }));
             }}
           >
             {pending && busy === item.key ? (
@@ -180,7 +184,9 @@ export function DateRangeControl({
   }, [current, from, to]);
 
   function go(patch: Record<string, string | null>) {
-    startTransition(() => router.replace(hrefFor(basePath, params, patch), { scroll: false }));
+    const href = hrefFor(basePath, params, patch);
+    announceNavigation(href);
+    startTransition(() => router.replace(href, { scroll: false }));
   }
 
   const customLabel = current === "custom" && from && to ? rangeLabel({ key: "custom", from, to }) : RANGE_LABEL.custom;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { announceNavigation } from "@/components/NavProgress";
 import { ArrowDownUp, Loader2, Search, X } from "lucide-react";
 
 /**
@@ -42,7 +43,9 @@ export function FleetToolbar({
     if (trimmed) search.set("q", trimmed);
     if (nextSort !== "crossing") search.set("sort", nextSort);
     const qs = search.toString();
-    startTransition(() => router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false }));
+    const href = qs ? `${basePath}?${qs}` : basePath;
+    announceNavigation(href);
+    startTransition(() => router.replace(href, { scroll: false }));
   }
 
   function onType(next: string) {
