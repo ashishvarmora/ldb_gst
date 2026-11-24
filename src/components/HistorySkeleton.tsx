@@ -7,11 +7,15 @@ import { Skeleton } from "@/components/Skeleton";
  */
 export function HistorySkeleton({
   totals = false,
-  toolbar = true,
+  segmented = true,
+  toolbarRows = 1,
   rows = 6,
 }: {
   totals?: boolean;
-  toolbar?: boolean;
+  /** The Added|Used or status segmented control (Credits, Payments). */
+  segmented?: boolean;
+  /** Rows of compact chips and selects under it (Activity has two). */
+  toolbarRows?: number;
   rows?: number;
 }) {
   return (
@@ -24,16 +28,16 @@ export function HistorySkeleton({
         <Skeleton className="h-10 w-20 rounded-lg" />
       </div>
       {totals ? <Skeleton className="h-[68px] w-full rounded-[14px]" /> : <Skeleton className="h-4 w-64 max-w-full" />}
-      <Skeleton className="h-[50px] w-full rounded-[14px]" />
-      {toolbar ? (
-        <div className="flex gap-2">
-          <Skeleton className="h-10 w-40 rounded-xl" />
-          <Skeleton className="ml-auto h-10 w-28 rounded-xl" />
+      {segmented ? <Skeleton className="h-[44px] w-full rounded-xl" /> : null}
+      {Array.from({ length: toolbarRows }, (_, i) => (
+        <div key={i} className="flex gap-2">
+          <Skeleton className="h-9 w-36 rounded-full" />
+          <Skeleton className="ml-auto h-9 w-32 rounded-[10px]" />
         </div>
-      ) : null}
+      ))}
       <div className="hrow-list">
         {Array.from({ length: rows }, (_, i) => (
-          <Skeleton key={i} className="h-[60px] w-full rounded-[14px]" />
+          <Skeleton key={i} className="h-[56px] w-full rounded-[14px]" />
         ))}
       </div>
     </div>

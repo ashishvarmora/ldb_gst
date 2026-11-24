@@ -920,7 +920,7 @@ export const ARTICLES: GuideArticle[] = [
     blocks: [
       {
         kind: "p",
-        text: "Alerts can arrive as phone notifications or Telegram messages once connected in Settings. They also appear in the app’s notification bell. WhatsApp is coming soon.",
+        text: "Alerts can arrive as phone notifications, Telegram messages or WhatsApp once connected in Notifications. They also appear in the app’s notification bell. WhatsApp carries only the important ones: a plaza crossing, a move to a new plaza, a halt and moving again. Every-check updates and hourly halt reminders come in the app and on Telegram.",
       },
       {
         kind: "note",
@@ -991,7 +991,7 @@ export const ARTICLES: GuideArticle[] = [
       },
       {
         q: "Can I get alerts by SMS or WhatsApp?",
-        a: "SMS and WhatsApp are not available. You can use phone notifications or Telegram, configured separately in Settings.",
+        a: "WhatsApp, yes: turn it on in Notifications. It carries crossings, halts and moving again; every-check updates stay in the app and on Telegram. SMS is not available.",
       },
       {
         q: "Will my old alerts be sent once I connect Telegram?",

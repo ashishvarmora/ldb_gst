@@ -16,6 +16,7 @@ import { requirePortalSession } from "@/lib/officer";
 import { formatIndianMobile } from "@/lib/phone";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TelegramConfig } from "@/lib/types";
+import { WHATSAPP_ALERTS_SCOPE } from "@/lib/alerts";
 import { whatsappConfigured } from "@/lib/whatsapp";
 
 export async function generateMetadata() {
@@ -113,6 +114,7 @@ export default async function NotificationsPage() {
                   {" · "}
                   <Link href="/portal/profile/edit" className="nrow-link">Change</Link>
                 </p>
+                <p className="nrow-line">{WHATSAPP_ALERTS_SCOPE} Every-check updates and hourly halt reminders come in the app and on Telegram.</p>
                 <ActionForm action={saveMyWhatsApp} closeOnSuccess={false} className="nrow-form">
                   <Checkbox name="opt_in" label="Send my truck alerts on WhatsApp" defaultChecked={waOn} />
                   <SubmitButton size="sm">Save</SubmitButton>

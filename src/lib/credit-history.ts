@@ -300,32 +300,44 @@ export function describeAddition(row: AdditionRow): Addition {
 const ADDITION_SELECT =
   "id,created_at,delta,reason,note,actor_id,payment_id,payment:payments(razorpay_order_id,kind,plan:plans(name),pack:credit_packs(name))";
 
-/** One page of additions, newest first. Refunds and spending never appear. */
+/** An inclusive IST day window; a null bound is open (all time). */
+export type DayWindow = { from: string | null; to: string | null };
+
+/** One page of additions in a window, newest first. Refunds and spending never appear. */
 export async function loadAdditions(
   admin: Admin,
   userId: string,
   page: number,
   pageSize: number,
+  window: DayWindow = { from: null, to: null },
 ): Promise<{ rows: Addition[]; total: number; error: string | null }> {
+  const fromIso = window.from ? istDayStartIso(window.from) : null;
+  const toIso = window.to ? istDayEndIso(window.to) : null;
   const start = (page - 1) * pageSize;
-  const { data, error, count } = await admin
+  let query = admin
     .from("credit_transactions")
     .select(ADDITION_SELECT, { count: "exact" })
     .eq("user_id", userId)
-    .not("reason", "in", NOT_ADDITIONS)
+    .not("reason", "in", NOT_ADDITIONS);
+  if (fromIso) query = query.gte("created_at", fromIso);
+  if (toIso) query = query.lt("created_at", toIso);
+  const { data, error, count } = await query
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(start, start + pageSize - 1);
   if (error) {
     /* PostgREST refuses a range past the end; land on the last page instead. */
     if (page > 1) {
-      const { count: all } = await admin
+      let head = admin
         .from("credit_transactions")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .not("reason", "in", NOT_ADDITIONS);
+      if (fromIso) head = head.gte("created_at", fromIso);
+      if (toIso) head = head.lt("created_at", toIso);
+      const { count: all } = await head;
       const last = Math.max(1, Math.ceil((all ?? 0) / pageSize));
-      if (last < page) return loadAdditions(admin, userId, last, pageSize);
+      if (last < page) return loadAdditions(admin, userId, last, pageSize, window);
     }
     return { rows: [], total: 0, error: error.message };
   }
@@ -369,7 +381,9 @@ export type CreditStatement = {
   usedManual: number;
   /** balance - (added - used). Zero when the ledger reconciles. */
   unexplained: number;
-  /** One page of usage days, newest first. */
+  /** The same figures inside the chosen date window (all time = the above). */
+  period: { added: number; additions: number; used: number; days: number };
+  /** One page of usage days in the window, newest first. */
   days: UsageDay[];
   totalDays: number;
   /** Refunds that could not be matched to a charge (should be none). */
@@ -379,7 +393,8 @@ export type CreditStatement = {
 };
 
 /**
- * The Credits page: totals over all time, and one page of usage days.
+ * The Credits page: totals over all time, the same figures for the chosen
+ * date window, and one page of usage days inside that window.
  *
  * Totals are read from credit_ledger_daily (the database sums the rows) and
  * the addition amounts; a day's usage nets out the failed searches of that day
@@ -391,13 +406,15 @@ export async function loadCreditStatement(
   balance: number,
   usagePage: number,
   daysPerPage: number,
+  window: DayWindow = { from: null, to: null },
 ): Promise<CreditStatement> {
+  const inWindow = (day: string) => (!window.from || day >= window.from) && (!window.to || day <= window.to);
   const [additions, daily] = await Promise.all([
-    fetchAll<{ delta: number }>(
+    fetchAll<{ delta: number; created_at: string }>(
       (from, to) =>
         admin
           .from("credit_transactions")
-          .select("delta")
+          .select("delta,created_at")
           .eq("user_id", userId)
           .not("reason", "in", NOT_ADDITIONS)
           .order("id")
@@ -420,6 +437,8 @@ export async function loadCreditStatement(
   ]);
 
   const added = additions.rows.reduce((sum, row) => sum + (Number(row.delta) || 0), 0);
+  const periodAdditions = additions.rows.filter((row) => inWindow(istDayOf(row.created_at)));
+  const periodAdded = periodAdditions.reduce((sum, row) => sum + (Number(row.delta) || 0), 0);
 
   type Acc = { autoN: number; autoC: number; manN: number; manC: number; refN: number; refC: number };
   const byDay = new Map<string, Acc>();
@@ -442,15 +461,18 @@ export async function loadCreditStatement(
 
   let usedAuto = 0;
   let usedManual = 0;
-  for (const acc of byDay.values()) {
+  let periodUsed = 0;
+  for (const [day, acc] of byDay) {
     usedAuto += acc.autoC;
     usedManual += acc.manC - acc.refC;
+    if (inWindow(day)) periodUsed += acc.autoC + acc.manC - acc.refC;
   }
   const used = usedAuto + usedManual;
 
-  /* Days with real use. A day whose only charges were refunded searches nets
-     to nothing and is not a day of usage. */
+  /* Days with real use, in the window. A day whose only charges were refunded
+     searches nets to nothing and is not a day of usage. */
   const allDays = [...byDay.entries()]
+    .filter(([day]) => inWindow(day))
     .filter(([, acc]) => acc.autoN > 0 || round2(acc.manC - acc.refC) > 0 || acc.manN - acc.refN > 0)
     .map(([day]) => day)
     .sort((a, b) => (a < b ? 1 : -1));
@@ -505,6 +527,12 @@ export async function loadCreditStatement(
     usedAuto: round2(usedAuto),
     usedManual: round2(usedManual),
     unexplained: round2(balance - (added - used)),
+    period: {
+      added: round2(periodAdded),
+      additions: periodAdditions.length,
+      used: round2(periodUsed),
+      days: allDays.length,
+    },
     days,
     totalDays: allDays.length,
     unpairedRefunds,
@@ -551,7 +579,8 @@ export type ActivityData = {
 type SearchLogRow = { truck_number: string; created_at: string; new_events: number; source: string };
 
 /**
- * Everything the Activity page shows, for one IST date window, already netted
+ * Everything the Activity page sums, for one IST date window (a null bound is
+ * open: "All" is the whole history), already netted
  * of failed searches. Server-side work: credit_ledger_daily sums the charges
  * per day per truck in the database; search_logs supplies crossings found
  * (rows exist only for checks that found something new).
@@ -559,45 +588,37 @@ type SearchLogRow = { truck_number: string; created_at: string; new_events: numb
 export async function loadActivity(
   admin: Admin,
   userId: string,
-  filter: { from: string; to: string; mode: ActivityMode; truck: string | null },
+  filter: { from: string | null; to: string | null; mode: ActivityMode; truck: string | null },
 ): Promise<ActivityData> {
-  const fromIso = istDayStartIso(filter.from);
-  const toIso = istDayEndIso(filter.to);
+  const fromIso = filter.from ? istDayStartIso(filter.from) : null;
+  const toIso = filter.to ? istDayEndIso(filter.to) : null;
 
   const [tracked, removed, ledger, logs, failed] = await Promise.all([
     admin.from("tracked_trucks").select("truck_number,label").eq("user_id", userId).order("truck_number"),
     /* Trucks deleted from My trucks keep their history under their number
        (0072). Fails quietly until 0072 is applied. */
     admin.from("truck_activity").select("truck_number").eq("user_id", userId).eq("kind", "deleted").limit(500),
-    fetchAll<DailyRow>(
-      (from, to) =>
-        admin
-          .from("credit_ledger_daily")
-          .select("ist_date,reason,truck_number,entries,credits,first_at,last_at")
-          .eq("user_id", userId)
-          .in("reason", CHARGE_REASONS as unknown as string[])
-          .gte("ist_date", filter.from)
-          .lte("ist_date", filter.to)
-          .order("ist_date", { ascending: false })
-          .order("reason")
-          .order("truck_number")
-          .range(from, to),
-      30_000,
-    ),
-    fetchAll<SearchLogRow>(
-      (from, to) =>
-        admin
-          .from("search_logs")
-          .select("truck_number,created_at,new_events,source")
-          .eq("user_id", userId)
-          .eq("ok", true)
-          .gt("new_events", 0)
-          .gte("created_at", fromIso)
-          .lt("created_at", toIso)
-          .order("id")
-          .range(from, to),
-      30_000,
-    ),
+    fetchAll<DailyRow>((from, to) => {
+      let query = admin
+        .from("credit_ledger_daily")
+        .select("ist_date,reason,truck_number,entries,credits,first_at,last_at")
+        .eq("user_id", userId)
+        .in("reason", CHARGE_REASONS as unknown as string[]);
+      if (filter.from) query = query.gte("ist_date", filter.from);
+      if (filter.to) query = query.lte("ist_date", filter.to);
+      return query.order("ist_date", { ascending: false }).order("reason").order("truck_number").range(from, to);
+    }, 30_000),
+    fetchAll<SearchLogRow>((from, to) => {
+      let query = admin
+        .from("search_logs")
+        .select("truck_number,created_at,new_events,source")
+        .eq("user_id", userId)
+        .eq("ok", true)
+        .gt("new_events", 0);
+      if (fromIso) query = query.gte("created_at", fromIso);
+      if (toIso) query = query.lt("created_at", toIso);
+      return query.order("id").range(from, to);
+    }, 30_000),
     loadFailedSearches(admin, userId, { fromIso, toIso }),
   ]);
 
@@ -645,7 +666,7 @@ export async function loadActivity(
   if (wantManual) {
     for (const { charge } of failed.pairs) {
       const day = istDayOf(charge.created_at);
-      if (day < filter.from || day > filter.to) continue;
+      if ((filter.from && day < filter.from) || (filter.to && day > filter.to)) continue;
       const key = keyOf(charge.truck_number);
       if (!wantKey(key)) continue;
       const target = cells.get(`${day}|${key}`);
@@ -692,191 +713,290 @@ export async function loadActivity(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Activity: one truck on one day                                              */
+/* Activity: individual entries (one check or search, or a truck event)        */
 /* -------------------------------------------------------------------------- */
 
-export type DayEvent = {
+export type EntrySort = "newest" | "oldest" | "most" | "fewest";
+
+export type ActivityEntry = {
   key: string;
   at: string;
-  kind: "crossing" | "alert" | "activity" | "search";
-  title: string;
+  kind: "check" | "event";
+  /** The truck number (or number searched); null for an event without one. */
+  truck: string | null;
+  /** Auto check, manual check of a tracked truck, or search of another number. */
+  check: "auto" | "manual" | "search" | null;
+  credits: number;
+  /** Crossings the check returned / of which new; null when not known. */
+  found: number | null;
+  fresh: number | null;
+  /** Events only: what happened. */
+  title: string | null;
   sub: string | null;
   tone: "good" | "warn" | "bad" | "brand" | "neutral";
-  /** truck_activity.kind / alert_logs.kind, for the icon. */
   code: string | null;
-  notSent?: boolean;
 };
 
-/** Crossings found, alerts sent and what happened to the truck, that day. */
-export async function loadTruckDayEvents(
+export type EntryScope = {
+  /** Inclusive IST days; null = open. */
+  from: string | null;
+  to: string | null;
+  /** A truck number, SEARCHES_KEY, or null for everything. */
+  key: string | null;
+  mode: ActivityMode;
+  /** ActivityData.trucks: numbers that are trucks, not searches. */
+  tracked: Set<string>;
+};
+
+export type EntryPage = {
+  rows: ActivityEntry[];
+  total: number;
+  /** The page actually served (clamped to the last one). */
+  page: number;
+  /** Truck events are merged in only when sorted by time. */
+  withEvents: boolean;
+  error: string | null;
+};
+
+/** Most truck events merged into one list (they are a few a day per truck). */
+const EVENT_CAP = 1000;
+
+const quoteList = (values: string[]) => `(${values.map((v) => `"${v.replace(/["\\]/g, "")}"`).join(",")})`;
+
+/**
+ * One page of individual entries in a scope - the leaves of the Activity
+ * page, whatever the grouping.
+ *
+ *   Checks    one ledger charge each (auto_check / manual_search), failed
+ *             searches EXCLUDED by id (pairFailedSearches), paged and sorted
+ *             by the database. Crossings found come from the check's own
+ *             search_logs row (written only when an auto check found news,
+ *             always for a successful search).
+ *   Events    truck_activity rows (added, paused, alert changed...). Merged in
+ *             time order only - they cost nothing, so a credits sort lists
+ *             checks alone. A "Check now" event is the manual check's charge
+ *             row already, so it is not listed twice.
+ *
+ * Merging two sorted sources under one pager without reading everything: all
+ * events in scope are read (a few per truck per day, capped), then only the
+ * window of checks that can land on this page - offset max(0, start - E) for
+ * at most E + pageSize rows. Every check's rank is exact (all events are
+ * known); an event that sorts before that window ranks below `start` and an
+ * event after a full window ranks past the page, so neither is shown.
+ */
+export async function loadActivityEntries(
   admin: Admin,
   userId: string,
-  truck: string,
-  day: string,
-  mode: ActivityMode,
-): Promise<DayEvent[]> {
-  const fromIso = istDayStartIso(day);
-  const toIso = istDayEndIso(day);
+  scope: EntryScope,
+  sort: EntrySort,
+  page: number,
+  pageSize: number,
+): Promise<EntryPage> {
+  const fromIso = scope.from ? istDayStartIso(scope.from) : null;
+  const toIso = scope.to ? istDayEndIso(scope.to) : null;
+  const isSearches = scope.key === SEARCHES_KEY;
+  const reasons = (["auto_check", "manual_search"] as const).filter((reason) =>
+    reason === "auto_check" ? scope.mode !== "manual" && !isSearches : scope.mode !== "auto",
+  );
+  const byTime = sort === "newest" || sort === "oldest";
+  const ascending = sort === "oldest";
+  const withEvents = byTime && !isSearches;
+  const empty: EntryPage = { rows: [], total: 0, page: 1, withEvents, error: null };
 
-  const [crossings, alerts, activity] = await Promise.all([
-    admin
-      .from("truck_events")
-      .select("id,loc_name,event_time,direction,fetched_at")
-      .eq("user_id", userId)
-      .eq("truck_number", truck)
-      .gte("fetched_at", fromIso)
-      .lt("fetched_at", toIso)
-      .order("fetched_at", { ascending: false })
-      .limit(60),
-    admin
-      .from("alert_logs")
-      .select("id,kind,title,message,delivered,created_at")
-      .eq("user_id", userId)
-      .eq("truck_number", truck)
-      .gte("created_at", fromIso)
-      .lt("created_at", toIso)
-      .order("created_at", { ascending: false })
-      .limit(60),
-    admin
-      .from("truck_activity")
-      .select("id,kind,detail,created_at")
-      .eq("user_id", userId)
-      .eq("truck_number", truck)
-      .gte("created_at", fromIso)
-      .lt("created_at", toIso)
-      .order("created_at", { ascending: false })
-      .limit(60),
-  ]);
+  const tracked = [...scope.tracked];
+  const inScope = (truck: string | null) =>
+    scope.key === null ? true : isSearches ? !(truck && scope.tracked.has(truck)) : truck === scope.key;
 
-  const events: DayEvent[] = [];
-
-  for (const row of (crossings.data ?? []) as {
-    id: number;
-    loc_name: string | null;
-    event_time: string | null;
-    direction: string | null;
-    fetched_at: string;
-  }[]) {
-    events.push({
-      key: `x${row.id}`,
-      at: row.fetched_at,
-      kind: "crossing",
-      title: `Crossing found: ${row.loc_name ?? "toll plaza"}`,
-      sub: row.event_time ? `Crossed ${timeOf(row.event_time)}${row.direction ? ` · ${row.direction}` : ""}` : null,
-      tone: "brand",
-      code: null,
-    });
+  /* Failed searches: their charges never appear. */
+  let excluded: number[] = [];
+  let pairError: string | null = null;
+  if (reasons.includes("manual_search")) {
+    const failed = await loadFailedSearches(admin, userId, { fromIso, toIso });
+    pairError = failed.error;
+    excluded = failed.pairs
+      .map((pair) => pair.charge)
+      .filter((charge) => !fromIso || Date.parse(charge.created_at) >= Date.parse(fromIso))
+      .filter((charge) => !toIso || Date.parse(charge.created_at) < Date.parse(toIso))
+      .filter((charge) => inScope(charge.truck_number))
+      .map((charge) => charge.id);
   }
 
-  for (const row of (alerts.data ?? []) as {
-    id: number;
-    kind: string | null;
-    title: string;
-    message: string | null;
-    delivered: boolean;
-    created_at: string;
-  }[]) {
-    const kind = row.kind ?? "";
-    const tone = /moving again/i.test(row.title) ? "good" : kind === "halt" ? "warn" : kind.startsWith("tracking_") || kind === "out_of_credits" ? "bad" : "brand";
-    events.push({
-      key: `l${row.id}`,
-      at: row.created_at,
-      kind: "alert",
-      title: `Alert: ${row.title}`,
-      sub: row.message,
-      tone,
-      code: kind,
-      notSent: !row.delivered,
-    });
-  }
-
-  for (const row of (activity.data ?? []) as {
-    id: number;
-    kind: string;
-    detail: Record<string, unknown> | null;
-    created_at: string;
-  }[]) {
-    if (mode === "auto" && row.kind === "manual_check") continue;
-    events.push({ key: `a${row.id}`, at: row.created_at, kind: "activity", ...describeActivity(row.kind, row.detail ?? {}) });
-  }
-
-  return events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-}
-
-/** Successful searches of numbers you do not track, on one day. */
-export async function loadSearchDayEvents(
-  admin: Admin,
-  userId: string,
-  day: string,
-  trucks: Set<string>,
-): Promise<DayEvent[]> {
-  const fromIso = istDayStartIso(day);
-  const toIso = istDayEndIso(day);
-
-  const [charges, logs, failed] = await Promise.all([
-    admin
+  const checks = (select: string, head = false) => {
+    let query = admin
       .from("credit_transactions")
-      .select("id,created_at,delta,truck_number")
+      .select(select, { count: "exact", head })
       .eq("user_id", userId)
-      .eq("reason", "manual_search")
-      .gte("created_at", fromIso)
-      .lt("created_at", toIso)
-      .order("created_at", { ascending: false })
-      .limit(300),
-    admin
-      .from("search_logs")
-      .select("truck_number,created_at,events_found,new_events,ok")
+      .in("reason", reasons as unknown as string[]);
+    if (fromIso) query = query.gte("created_at", fromIso);
+    if (toIso) query = query.lt("created_at", toIso);
+    if (isSearches) {
+      if (tracked.length > 0) query = query.or(`truck_number.is.null,truck_number.not.in.${quoteList(tracked)}`);
+    } else if (scope.key) {
+      query = query.eq("truck_number", scope.key);
+    }
+    if (excluded.length > 0) query = query.not("id", "in", `(${excluded.join(",")})`);
+    return query;
+  };
+
+  const eventsQuery = async (): Promise<{ id: number; kind: string; detail: Record<string, unknown> | null; created_at: string; truck_number: string }[]> => {
+    if (!withEvents) return [];
+    let query = admin
+      .from("truck_activity")
+      .select("id,kind,detail,created_at,truck_number")
       .eq("user_id", userId)
-      .eq("source", "manual")
-      .eq("ok", true)
-      .gte("created_at", fromIso)
-      .lt("created_at", toIso)
-      .limit(600),
-    loadFailedSearches(admin, userId, { fromIso, toIso }),
+      .neq("kind", "manual_check");
+    if (fromIso) query = query.gte("created_at", fromIso);
+    if (toIso) query = query.lt("created_at", toIso);
+    if (scope.key) query = query.eq("truck_number", scope.key);
+    const { data, error } = await query
+      .order("created_at", { ascending })
+      .order("id", { ascending })
+      .limit(EVENT_CAP);
+    /* truck_activity arrived in 0068; a missing table just means no events. */
+    return error ? [] : ((data ?? []) as never[]);
+  };
+
+  const [counted, eventRows] = await Promise.all([
+    reasons.length > 0 ? checks("id", true) : Promise.resolve({ count: 0, error: null }),
+    eventsQuery(),
   ]);
+  if (counted.error) return { ...empty, error: counted.error.message };
+  const checkTotal = counted.count ?? 0;
+  const total = checkTotal + eventRows.length;
+  if (total === 0) return { ...empty, error: pairError };
 
-  const results = (logs.data ?? []) as {
-    truck_number: string;
-    created_at: string;
-    events_found: number;
-    new_events: number;
-  }[];
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const onPage = Math.min(Math.max(1, page), pages);
+  const start = (onPage - 1) * pageSize;
 
-  return ((charges.data ?? []) as ChargeRow[])
-    .filter((row) => !failed.chargeIds.has(row.id) && !(row.truck_number && trucks.has(row.truck_number)))
-    .map((row) => {
-      const at = Date.parse(row.created_at);
-      /* The search's own log row: same number, written seconds after the charge. */
-      const result = results.find(
-        (log) => log.truck_number === row.truck_number && Math.abs(Date.parse(log.created_at) - at) < 2 * 60_000,
-      );
-      const credits = Math.abs(Number(row.delta) || 0);
-      return {
-        key: `s${row.id}`,
-        at: row.created_at,
-        kind: "search" as const,
-        title: `Searched ${row.truck_number ?? "a number"}`,
-        sub: [
-          result ? `${result.events_found} crossing${result.events_found === 1 ? "" : "s"} found, ${result.new_events} new` : null,
-          `${credits.toLocaleString("en-IN")} credit${credits === 1 ? "" : "s"}`,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        tone: "neutral" as const,
-        code: "search",
-      };
+  /* The window of checks that can reach this page. */
+  const c0 = withEvents ? Math.max(0, start - eventRows.length) : start;
+  const want = Math.min(withEvents ? start + pageSize - c0 : pageSize, Math.max(0, checkTotal - c0));
+  type Check = ChargeRow & { reason: string };
+  const charges: Check[] = [];
+  for (let offset = c0; offset < c0 + want; offset += CHUNK) {
+    const upto = Math.min(offset + CHUNK, c0 + want) - 1;
+    let query = checks("id,created_at,delta,reason,truck_number");
+    if (byTime) {
+      query = query.order("created_at", { ascending }).order("id", { ascending });
+    } else {
+      /* Charges are negative: the most credits is the lowest delta. */
+      query = query
+        .order("delta", { ascending: sort === "most" })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+    }
+    const { data, error } = await query.range(offset, upto);
+    if (error) return { ...empty, error: error.message };
+    const rows = (data ?? []) as unknown as Check[];
+    charges.push(...rows);
+    if (rows.length < upto - offset + 1) break;
+  }
+
+  /* Rank and cut. */
+  type Ranked = { at: string; check?: Check; event?: (typeof eventRows)[number] };
+  let picked: Ranked[];
+  if (!withEvents) {
+    picked = charges.map((check) => ({ at: check.created_at, check }));
+  } else {
+    const time = (iso: string) => Date.parse(iso);
+    const merged: Ranked[] = [
+      ...charges.map((check): Ranked => ({ at: check.created_at, check })),
+      ...eventRows.map((event): Ranked => ({ at: event.created_at, event })),
+    ].sort((a, b) => {
+      const d = time(a.at) - time(b.at);
+      if (d !== 0) return ascending ? d : -d;
+      if (a.check && b.check) return ascending ? a.check.id - b.check.id : b.check.id - a.check.id;
+      if (a.event && b.event) return ascending ? a.event.id - b.event.id : b.event.id - a.event.id;
+      return a.check ? -1 : 1;
     });
-}
+    picked = [];
+    let checksSeen = 0;
+    let eventsSeen = 0;
+    for (const item of merged) {
+      let rank: number | null;
+      if (item.check) {
+        rank = c0 + checksSeen + eventsSeen;
+        checksSeen += 1;
+      } else {
+        rank = c0 > 0 && checksSeen === 0 ? null : c0 + checksSeen + eventsSeen;
+        eventsSeen += 1;
+      }
+      if (rank !== null && rank >= start && rank < start + pageSize) picked.push(item);
+    }
+  }
 
-function timeOf(iso: string): string {
-  return new Date(iso).toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
+  /* Crossings found by the checks on this page: each check's own log row. */
+  const pageChecks = picked.flatMap((item) => (item.check ? [item.check] : []));
+  type LogRow = { id: number; truck_number: string; created_at: string; source: string; events_found: number; new_events: number };
+  let logs: LogRow[] = [];
+  if (pageChecks.length > 0) {
+    const times = pageChecks.map((check) => Date.parse(check.created_at));
+    const numbers = [...new Set(pageChecks.map((check) => check.truck_number).filter((n): n is string => Boolean(n)))];
+    if (numbers.length > 0) {
+      const { data } = await admin
+        .from("search_logs")
+        .select("id,truck_number,created_at,source,events_found,new_events")
+        .eq("user_id", userId)
+        .eq("ok", true)
+        .in("truck_number", numbers)
+        .gte("created_at", new Date(Math.min(...times) - 60_000).toISOString())
+        .lte("created_at", new Date(Math.max(...times) + 5 * 60_000).toISOString())
+        .limit(1000);
+      logs = (data ?? []) as LogRow[];
+    }
+  }
+  const usedLogs = new Set<number>();
+  const logFor = (check: Check) => {
+    const at = Date.parse(check.created_at);
+    const source = check.reason === "auto_check" ? "tracking" : "manual";
+    let best: LogRow | null = null;
+    for (const log of logs) {
+      if (usedLogs.has(log.id) || log.truck_number !== check.truck_number || log.source !== source) continue;
+      const gap = Date.parse(log.created_at) - at;
+      if (gap < -30_000 || gap > 5 * 60_000) continue;
+      if (!best || Math.abs(gap) < Math.abs(Date.parse(best.created_at) - at)) best = log;
+    }
+    if (best) usedLogs.add(best.id);
+    return best;
+  };
+
+  const rows: ActivityEntry[] = picked.map((item) => {
+    if (item.check) {
+      const check = item.check;
+      const log = logFor(check);
+      const auto = check.reason === "auto_check";
+      return {
+        key: `c${check.id}`,
+        at: check.created_at,
+        kind: "check",
+        truck: check.truck_number,
+        check: auto ? "auto" : check.truck_number && scope.tracked.has(check.truck_number) ? "manual" : "search",
+        credits: Math.abs(Number(check.delta) || 0),
+        /* An auto check logs only when it found something new. */
+        found: log ? Number(log.events_found) || 0 : null,
+        fresh: log ? Number(log.new_events) || 0 : auto ? 0 : null,
+        title: null,
+        sub: null,
+        tone: "neutral",
+        code: auto ? "auto_check" : "manual_search",
+      };
+    }
+    const event = item.event!;
+    return {
+      key: `a${event.id}`,
+      at: event.created_at,
+      kind: "event",
+      truck: event.truck_number,
+      check: null,
+      credits: 0,
+      found: null,
+      fresh: null,
+      ...describeActivity(event.kind, event.detail ?? {}),
+    };
   });
+
+  return { rows, total, page: onPage, withEvents, error: pairError };
 }
 
 const PAUSE_REASON: Record<string, string> = {
@@ -891,7 +1011,7 @@ const PAUSE_REASON: Record<string, string> = {
 function describeActivity(
   kind: string,
   detail: Record<string, unknown>,
-): Pick<DayEvent, "title" | "sub" | "tone" | "code"> {
+): { title: string; sub: string | null; tone: ActivityEntry["tone"]; code: string } {
   const alert = typeof detail.alert === "string" ? detail.alert : "alert";
   const summary = typeof detail.summary === "string" ? detail.summary : null;
   switch (kind) {

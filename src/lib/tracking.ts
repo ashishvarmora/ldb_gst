@@ -1,5 +1,6 @@
 import {
   alertDue,
+  alertGoesToWhatsApp,
   evaluateAlert,
   isRevisit,
   normaliseLocation,
@@ -19,7 +20,15 @@ import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { recordTruckActivity } from "@/lib/truck-activity";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
-import { formatWhatsAppText, noticeParams, sendWhatsAppAlert, tripUpdateParams, whatsappConfigured } from "@/lib/whatsapp";
+import {
+  noticeParams,
+  sendWhatsAppAlert,
+  siteLink,
+  whatsappAlertParams,
+  whatsappAlertText,
+  whatsappConfigured,
+  whatsappNoticeText,
+} from "@/lib/whatsapp";
 import { fmtDateTime } from "@/lib/format";
 import { canEmailCustomers, esc, sendEmail, shell } from "@/lib/email";
 import { env } from "@/lib/env";
@@ -302,20 +311,27 @@ async function deliverAlert({
   context: OfficerContext;
   telegramText: string;
   push: { title: string; body: string; tag: string; url: string };
-  /** Template parameters (truck, what happened, when) and the plain-text version for the 24-hour window. */
-  whatsapp: { params: string[]; text: string };
+  /**
+   * Template parameters (truck, what happened, when) and the plain-text version
+   * for the 24-hour window - or null when this message is not worth a WhatsApp
+   * (every-check updates, hourly halt reminders, minor notices: see
+   * alertGoesToWhatsApp). Those still go to app push and Telegram.
+   */
+  whatsapp: { params: string[]; text: string } | null;
 }): Promise<Delivery> {
   const telegramAllowed =
     (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
   const pushAllowed = context.pushDevices > 0;
-  const whatsappAllowed =
+  const whatsappOn =
     whatsappConfigured() && (context.whatsapp?.is_enabled ?? false) && Boolean(context.whatsapp?.phone);
+  const whatsappAllowed = whatsappOn && whatsapp !== null;
 
   if (!telegramAllowed && !pushAllowed && !whatsappAllowed) {
     return {
       sent: false,
-      error:
-        "No WhatsApp number, Telegram chat ID or phone notifications set up. Set one up in Settings to receive alerts.",
+      error: whatsappOn
+        ? "Shown here only: WhatsApp carries crossings, halt and moving again. Turn on phone notifications or Telegram in Notifications for the other alerts."
+        : "No WhatsApp number, Telegram chat ID or phone notifications set up. Set one up in Settings to receive alerts.",
     };
   }
 
@@ -331,8 +347,8 @@ async function deliverAlert({
     whatsappAllowed
       ? sendWhatsAppAlert({
           to: context.whatsapp!.phone,
-          text: whatsapp.text,
-          params: whatsapp.params,
+          text: whatsapp!.text,
+          params: whatsapp!.params,
           purpose: "alert",
           userId: context.userId,
         })
@@ -414,7 +430,7 @@ async function dispatchAlerts({
         tag: `${truckId}:${draft.kind}`,
         url: `/portal/trucks/${truckId}`,
       },
-      whatsapp: { params: tripUpdateParams(position), text: formatWhatsAppText(position) },
+      whatsapp: alertGoesToWhatsApp(draft) ? whatsappForDraft(draft, truckNumber, truckId) : null,
     });
 
     if (sent) delivered += 1;
@@ -434,6 +450,25 @@ async function dispatchAlerts({
   return { created: drafts.length, delivered };
 }
 
+/** A truck alert's WhatsApp text and template parameters, with a link to the truck. */
+function whatsappForDraft(draft: AlertDraft, truckNumber: string, truckId: string) {
+  const input = {
+    kind: draft.kind,
+    phase: draft.phase,
+    title: draft.title,
+    truckNumber,
+    location: draft.position.locName,
+    direction: draft.position.direction,
+    eventTime: draft.position.eventTime,
+    previousLocation: draft.previousLocation,
+    idleText: draft.idleText,
+    watchedPlaza: draft.watchedPlaza,
+    guessed: draft.guessed,
+    url: siteLink(`/portal/trucks/${truckId}`),
+  };
+  return { params: whatsappAlertParams(input), text: whatsappAlertText(input) };
+}
+
 /**
  * An alert about the watching itself rather than about a truck's movement.
  *
@@ -450,6 +485,7 @@ async function sendSystemAlert({
   kind,
   title,
   message,
+  whatsappLink,
 }: {
   admin: Admin;
   context: OfficerContext;
@@ -457,6 +493,12 @@ async function sendSystemAlert({
   kind: string;
   title: string;
   message: string;
+  /**
+   * Also on WhatsApp, with this link. Left out for notices not worth a paid
+   * message - only "tracking has stopped and you must act" ones get it (no
+   * credits, plan ending tomorrow / ended, repeated failures).
+   */
+  whatsappLink?: { label: string; url: string };
 }): Promise<void> {
   const heading = truckNumber ? `${title}\n${truckNumber}` : title;
 
@@ -481,10 +523,12 @@ async function sendSystemAlert({
        */
       url: "/portal/notifications",
     },
-    whatsapp: {
-      params: noticeParams(truckNumber, title),
-      text: [`*${title}*`, ...(truckNumber ? [`🚚 ${truckNumber}`] : []), "", message, "", "— Rahdari"].join("\n"),
-    },
+    whatsapp: whatsappLink
+      ? {
+          params: noticeParams(truckNumber, title),
+          text: whatsappNoticeText({ title, truckNumber, message, link: whatsappLink }),
+        }
+      : null,
   });
 
   const { error } = await admin.from("alert_logs").insert({
@@ -745,6 +789,7 @@ export async function checkTruck({
           message:
             "All tracked trucks are paused. Your trucks, alerts and history are saved. " +
             "Top up, then switch the trucks you need back on from My trucks.",
+          whatsappLink: { label: "Top up", url: siteLink("/portal/plan") },
         });
       }
 
@@ -824,6 +869,7 @@ export async function checkTruck({
           `We could not get records for this number after ${errors} checks in a row, so tracking ` +
           "is paused. Its recorded crossings are saved. Please check the number and switch it " +
           "back on from My trucks.",
+        whatsappLink: { label: "Open truck", url: siteLink(`/portal/trucks/${truck.id}`) },
       });
     } else if (warnNow) {
       await sendSystemAlert({
@@ -1725,7 +1771,20 @@ export async function sendPlanExpiryReminders(): Promise<{ sent: number }> {
           : `Automatic tracking stops after ${date}. ${row.plan?.is_trial ? "Choose a plan" : "Renew"} to keep your trucks tracked — credits never expire.`;
 
       const context = await loadOfficerContext(admin, row.id);
-      await sendSystemAlert({ admin, context, truckNumber: null, kind, title, message });
+      /* WhatsApp only for "ends tomorrow" (still time to act) and "has ended"
+         (tracking stopped); the 3-day and same-day ones stay on the free channels. */
+      const onWhatsApp = stage === 1 || stage === -1;
+      await sendSystemAlert({
+        admin,
+        context,
+        truckNumber: null,
+        kind,
+        title,
+        message,
+        ...(onWhatsApp
+          ? { whatsappLink: { label: row.plan?.is_trial ? "Choose a plan" : "Renew", url: siteLink("/portal/plan") } }
+          : {}),
+      });
 
       if (row.email && canEmailCustomers()) {
         const url = `${env.siteUrl}/portal/plan`;

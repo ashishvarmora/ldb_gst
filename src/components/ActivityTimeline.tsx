@@ -1,12 +1,8 @@
 import {
   Bell,
   BellOff,
-  BellRing,
-  Coins,
-  MapPin,
-  Octagon,
-  PauseCircle,
   Pencil,
+  PauseCircle,
   PlayCircle,
   Plus,
   RefreshCw,
@@ -14,34 +10,31 @@ import {
   Settings2,
   Timer,
   Trash2,
-  TriangleAlert,
+  Hand,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Badge, cx } from "@/components/ui";
-import type { DayEvent } from "@/lib/credit-history";
-import { fmtTime } from "@/lib/format";
+import { cx } from "@/components/ui";
+import type { ActivityEntry } from "@/lib/credit-history";
+import { formatCredits } from "@/lib/credits";
+import { fmtDayTime, fmtTime } from "@/lib/format";
 
 /**
- * One truck's (or the manual searches') events for one day on /portal/activity:
- * a summary line for the checks, then crossings found, alerts sent and what
- * happened to the truck, newest first. Same look as the truck page timeline
- * (truck-timeline-* in screens-polish.css).
+ * The individual entries on /portal/activity: one row per check or search
+ * (time, truck, auto or manual, credits, crossings found) and the truck's own
+ * events (added, paused, alert changed...). Same look as the truck page
+ * timeline (truck-timeline-* in screens-polish.css).
  */
 
 const ICON = 14;
-const LIMIT = 40;
 
-function iconFor(event: DayEvent): ReactNode {
-  if (event.kind === "crossing") return <MapPin size={ICON} />;
-  if (event.kind === "search") return <Search size={ICON} />;
-  if (event.kind === "alert") {
-    if (event.tone === "good") return <PlayCircle size={ICON} />;
-    if (event.code === "halt") return <Octagon size={ICON} />;
-    if (event.tone === "bad") return <TriangleAlert size={ICON} />;
-    return <BellRing size={ICON} />;
+function iconFor(entry: ActivityEntry): ReactNode {
+  if (entry.kind === "check") {
+    if (entry.check === "auto") return <RefreshCw size={ICON} />;
+    if (entry.check === "manual") return <Hand size={ICON} />;
+    return <Search size={ICON} />;
   }
-  switch (event.code) {
+  switch (entry.code) {
     case "added":
     case "readded":
       return <Plus size={ICON} />;
@@ -61,58 +54,75 @@ function iconFor(event: DayEvent): ReactNode {
       return <PlayCircle size={ICON} />;
     case "auto_paused":
       return <Timer size={ICON} />;
-    case "manual_check":
-      return <RefreshCw size={ICON} />;
     default:
       return <Settings2 size={ICON} />;
   }
 }
 
-export function ActivityTimeline({
-  summary,
-  events,
-}: {
-  /** The checks of the day in one line ("96 auto checks · 97 credits"). */
-  summary: { title: string; sub: string | null } | null;
-  events: DayEvent[];
-}) {
-  const shown = events.slice(0, LIMIT);
-  const hidden = events.length - shown.length;
+const CHECK_LABEL = {
+  auto: "Auto check",
+  manual: "Manual check",
+  search: "Manual search",
+} as const;
 
+function checkSub(entry: ActivityEntry): string {
+  const parts: string[] = [];
+  if (entry.found !== null) {
+    parts.push(`${entry.found} crossing${entry.found === 1 ? "" : "s"} found, ${entry.fresh ?? 0} new`);
+  } else if (entry.check === "auto") {
+    parts.push("No new crossings");
+  }
+  parts.push(`${formatCredits(entry.credits)} credit${entry.credits === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+export function ActivityTimeline({
+  entries,
+  showTruck,
+  showDate,
+  note,
+}: {
+  entries: ActivityEntry[];
+  /** Name the truck on each row (not needed inside a truck's group). */
+  showTruck: boolean;
+  /** Date with the time (not needed inside a day's group). */
+  showDate: boolean;
+  /** One muted line under the list. */
+  note?: ReactNode;
+}) {
   return (
     <div className="aday-events">
-      <ol className="truck-timeline">
-        {summary ? (
-          <li className="truck-timeline-item">
-            <span aria-hidden className="truck-timeline-icon">
-              <Coins size={ICON} />
-            </span>
-            <div>
-              <p className="truck-timeline-title">{summary.title}</p>
-              {summary.sub ? <p className="truck-timeline-sub">{summary.sub}</p> : null}
-            </div>
-            <span />
-          </li>
-        ) : null}
-        {shown.map((event) => (
-          <li key={event.key} className="truck-timeline-item">
-            <span aria-hidden className={cx("truck-timeline-icon", `is-${event.tone}`)}>
-              {iconFor(event)}
-            </span>
-            <div>
-              <p className="truck-timeline-title">
-                {event.title} {event.notSent ? <Badge tone="warn">not sent</Badge> : null}
-              </p>
-              {event.sub ? <p className="truck-timeline-sub">{event.sub}</p> : null}
-            </div>
-            <time dateTime={event.at} className="truck-timeline-time">
-              {fmtTime(event.at)}
-            </time>
-          </li>
-        ))}
-      </ol>
-      {hidden > 0 ? <p className="aday-more">+{hidden} earlier that day</p> : null}
-      {events.length === 0 && !summary ? <p className="aday-more">Nothing else recorded that day.</p> : null}
+      {entries.length === 0 ? (
+        <p className="aday-more">Nothing recorded here.</p>
+      ) : (
+        <ol className="truck-timeline">
+          {entries.map((entry) => {
+            const what = entry.kind === "check" ? CHECK_LABEL[entry.check ?? "auto"] : entry.title;
+            return (
+              <li key={entry.key} className="truck-timeline-item">
+                <span aria-hidden className={cx("truck-timeline-icon", entry.kind === "event" && `is-${entry.tone}`)}>
+                  {iconFor(entry)}
+                </span>
+                <div className="aentry-text">
+                  <p className="truck-timeline-title">
+                    {showTruck && entry.truck ? <span className="aentry-plate">{entry.truck}</span> : null}
+                    <span>{what}</span>
+                  </p>
+                  {entry.kind === "check" ? (
+                    <p className="truck-timeline-sub">{checkSub(entry)}</p>
+                  ) : entry.sub ? (
+                    <p className="truck-timeline-sub">{entry.sub}</p>
+                  ) : null}
+                </div>
+                <time dateTime={entry.at} className="truck-timeline-time">
+                  {showDate ? fmtDayTime(entry.at) : fmtTime(entry.at)}
+                </time>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {note ? <p className="aday-more">{note}</p> : null}
     </div>
   );
 }

@@ -130,7 +130,7 @@ export const FAQS: GuideFaq[] = [
   },
   {
     q: "Can I get the alerts on WhatsApp or SMS?",
-    a: "Not yet. WhatsApp is shown in [Settings](/portal/settings) as coming soon, and there is no SMS option. Use phone notifications or Telegram.",
+    a: "WhatsApp, yes: turn it on in [Notifications](/portal/notifications). It carries plaza crossings, halts and moving again; every-check updates and hourly halt reminders come in the app and on Telegram. There is no SMS option.",
     category: "alerts",
     keywords: ["whatsapp", "sms", "message", "kab", "coming soon", "channel"],
   },

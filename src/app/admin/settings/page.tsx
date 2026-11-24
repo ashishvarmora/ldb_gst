@@ -22,6 +22,7 @@ import {
   saveSiteSettings,
   sendTestAdminEmail,
   sendTestDailySummary,
+  sendTestWhatsAppSummary,
 } from "./actions";
 import { PushSetup } from "@/app/portal/settings/PushSetup";
 import { ApkUpload } from "./ApkUpload";
@@ -515,7 +516,7 @@ export default async function SettingsPage({
             */}
             <Panel
               title="Phone alerts for admins"
-              description="Notifications on every admin's own phone or browser."
+              description="Notifications on every admin's own phone or browser, and on Telegram for an admin who has it set up."
             >
               <ActionForm action={saveAdminPushSettings} closeOnSuccess={false}>
                 <div className="space-y-3">
@@ -549,8 +550,8 @@ export default async function SettingsPage({
                   />
                   <Checkbox
                     name="admin_whatsapp"
-                    label="Also send these on WhatsApp"
-                    hint="To each admin's profile mobile. Free while you have messaged Rahdari on WhatsApp in the last 24 hours; otherwise each message is charged by Meta."
+                    label="Daily summary on WhatsApp"
+                    hint={`One short summary of the day to each admin's profile mobile at ${site.dailySummaryHour % 12 === 0 ? 12 : site.dailySummaryHour % 12}:00 ${site.dailySummaryHour < 12 ? "am" : "pm"} IST (the time set under Daily summary). The only WhatsApp admins get: the alerts above come on this phone and on Telegram. Free if you messaged Rahdari on WhatsApp in the last 24 hours, otherwise one paid template (about Rs 0.13).`}
                     defaultChecked={site.adminWhatsapp}
                   />
                 </div>
@@ -558,6 +559,11 @@ export default async function SettingsPage({
                   <SubmitButton>Save phone alerts</SubmitButton>
                 </FormActions>
               </ActionForm>
+              <div className="mt-3">
+                <ActionForm action={sendTestWhatsAppSummary} closeOnSuccess={false}>
+                  <SubmitButton variant="secondary">Send today&apos;s WhatsApp summary now</SubmitButton>
+                </ActionForm>
+              </div>
 
               <PushSetup
                 platformReady={health.webPush}

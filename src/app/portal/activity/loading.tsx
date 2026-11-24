@@ -1,6 +1,6 @@
-﻿import { HistorySkeleton } from "@/components/HistorySkeleton";
+import { HistorySkeleton } from "@/components/HistorySkeleton";
 
 /** Same boxes as the page: see HistorySkeleton. */
 export default function Loading() {
-  return <HistorySkeleton />;
+  return <HistorySkeleton segmented={false} toolbarRows={2} />;
 }

@@ -62,21 +62,43 @@ const SHOW_AFTER_MS = 150;
  */
 const GIVE_UP_AFTER_MS = 20_000;
 
+/*
+ * STUCK-NAVIGATION WATCHDOG (24 Nov 2026). Seen on localhost and reported by
+ * the owner on phones: a tap starts a soft navigation, the server answers in
+ * half a second, and the new page still never appears - the router is left
+ * waiting behind something that does not settle, and the old screen stays up
+ * with the bar running. Not reproducible on demand, so rather than wait for
+ * the exact cause this guarantees the outcome: if the page the customer asked
+ * for has not arrived after this long, load it directly. A normal navigation
+ * lands in well under a second; this only ever fires on a stuck one.
+ */
+const HARD_NAVIGATE_AFTER_MS = 8_000;
+
+/** Programmatic navigations (filter chips, selects) report here so the watchdog covers them too. */
+export const NAV_START_EVENT = "rahdari:navigate";
+export function announceNavigation(href: string): void {
+  try {
+    window.dispatchEvent(new CustomEvent(NAV_START_EVENT, { detail: href }));
+  } catch {
+    /* no window: nothing to watch */
+  }
+}
+
 /** Whether a click is one that is about to navigate this document somewhere new. */
-function startsANavigation(event: MouseEvent): boolean {
+function startsANavigation(event: MouseEvent): URL | null {
   // Left button, unmodified. Ctrl/Cmd/Shift open a new tab or window, and this
   // document stays exactly where it is.
-  if (event.button !== 0) return false;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
-  if (event.defaultPrevented) return false;
+  if (event.button !== 0) return null;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null;
+  if (event.defaultPrevented) return null;
 
   const anchor = (event.target as Element | null)?.closest?.("a");
-  if (!(anchor instanceof HTMLAnchorElement)) return false;
-  if (anchor.hasAttribute("download")) return false;
-  if (anchor.target && anchor.target !== "_self") return false;
+  if (!(anchor instanceof HTMLAnchorElement)) return null;
+  if (anchor.hasAttribute("download")) return null;
+  if (anchor.target && anchor.target !== "_self") return null;
 
   const href = anchor.getAttribute("href");
-  if (!href) return false;
+  if (!href) return null;
 
   // mailto:, tel: and an external host all hand off to something that is not
   // this page; a bar reporting on them would never be told they finished.
@@ -84,9 +106,9 @@ function startsANavigation(event: MouseEvent): boolean {
   try {
     target = new URL(anchor.href, window.location.href);
   } catch {
-    return false;
+    return null;
   }
-  if (target.origin !== window.location.origin) return false;
+  if (target.origin !== window.location.origin) return null;
 
   /*
    * A link to the page you are already on. The router has nothing to commit,
@@ -95,7 +117,7 @@ function startsANavigation(event: MouseEvent): boolean {
    * same case.
    */
   if (target.pathname === window.location.pathname && target.search === window.location.search) {
-    return false;
+    return null;
   }
 
   /*
@@ -104,9 +126,9 @@ function startsANavigation(event: MouseEvent): boolean {
    * saved the file, the URL never changed, and the bar pulsed for the full
    * 20-second cap - one of the "loading indicator stuck/looping" reports.
    */
-  if (isFileDownloadHref(target.pathname)) return false;
+  if (isFileDownloadHref(target.pathname)) return null;
 
-  return true;
+  return target;
 }
 
 function NavProgressBar({ className }: { className?: string }) {
@@ -116,6 +138,7 @@ function NavProgressBar({ className }: { className?: string }) {
 
   const showTimer = useRef<number | null>(null);
   const giveUpTimer = useRef<number | null>(null);
+  const hardTimer = useRef<number | null>(null);
 
   const stop = useCallback(() => {
     if (showTimer.current !== null) {
@@ -125,6 +148,10 @@ function NavProgressBar({ className }: { className?: string }) {
     if (giveUpTimer.current !== null) {
       window.clearTimeout(giveUpTimer.current);
       giveUpTimer.current = null;
+    }
+    if (hardTimer.current !== null) {
+      window.clearTimeout(hardTimer.current);
+      hardTimer.current = null;
     }
     setVisible(false);
   }, []);
@@ -141,7 +168,24 @@ function NavProgressBar({ className }: { className?: string }) {
   }, [committed, stop]);
 
   useEffect(() => {
-    const start = () => {
+    const start = (target?: URL) => {
+      if (target) {
+        if (hardTimer.current !== null) window.clearTimeout(hardTimer.current);
+        const check = () => {
+          hardTimer.current = null;
+          if (window.location.pathname + window.location.search === target.pathname + target.search) return;
+          // A hidden page (app in the background, a hidden tab) has its
+          // animation frames paused, which alone holds React's page reveal -
+          // that is not a stuck navigation. Look again once it is on screen.
+          if (document.visibilityState !== "visible") {
+            hardTimer.current = window.setTimeout(check, 2_000);
+            return;
+          }
+          // On screen and still not there: the soft navigation is stuck. Load it for real.
+          window.location.assign(target.pathname + target.search + target.hash);
+        };
+        hardTimer.current = window.setTimeout(check, HARD_NAVIGATE_AFTER_MS);
+      }
       // A second click while the first navigation is still running must not
       // restart the give-up clock, or a reader tapping repeatedly - exactly
       // what this is meant to stop - could hold the bar open indefinitely.
@@ -156,7 +200,8 @@ function NavProgressBar({ className }: { className?: string }) {
     };
 
     const onClick = (event: MouseEvent) => {
-      if (startsANavigation(event)) start();
+      const target = startsANavigation(event);
+      if (target) start(target);
     };
 
     const onPageShow = (event: PageTransitionEvent) => {
@@ -165,9 +210,19 @@ function NavProgressBar({ className }: { className?: string }) {
 
     document.addEventListener("click", onClick, { capture: true });
     window.addEventListener("pageshow", onPageShow);
+    const onAnnounce = (event: Event) => {
+      try {
+        const target = new URL((event as CustomEvent<string>).detail, window.location.href);
+        if (target.origin === window.location.origin) start(target);
+      } catch {
+        /* not a URL: ignore */
+      }
+    };
+    window.addEventListener(NAV_START_EVENT, onAnnounce);
     return () => {
       document.removeEventListener("click", onClick, { capture: true });
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener(NAV_START_EVENT, onAnnounce);
       stop();
     };
   }, [stop]);

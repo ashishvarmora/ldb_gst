@@ -1,12 +1,11 @@
 import { after } from "next/server";
 
 import { recordActivity } from "@/lib/audit";
-import { CREDIT_ACTIONS, creditRefusalMessage, spendCredits } from "@/lib/credits";
+import { consumeHold, creditRefusalMessage, holdSearchCredits, releaseHold } from "@/lib/credits";
 import { reportError } from "@/lib/errors";
 import { fetchTruckEvents, type LdbResult } from "@/lib/ldb";
 import { fmtDateTime } from "@/lib/format";
 import { blockedReason, loadOverview } from "@/lib/officer";
-import type { CreditVerdict } from "@/lib/types";
 import { loadSettings } from "@/lib/settings";
 import { recordSavedLookup } from "@/lib/saved-trucks";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -44,14 +43,11 @@ export async function runManualLookup({
   const blocked = blockedReason(overview);
   if (blocked) return { ok: false, error: blocked, creditSpent: false };
 
-  // spend_credits is the single source of truth, so two tabs cannot slip an
+  // The credit is HELD, not charged (0073): consumed on success, released on
+  // failure, so a failed search never reaches the ledger. hold_credits takes
+  // the same profile-row lock as spend_credits, so two tabs cannot slip an
   // extra search through between the check and the call.
-  const verdict = await spendCredits({
-    admin,
-    userId,
-    action: CREDIT_ACTIONS.manualSearch,
-    truckNumber,
-  });
+  const verdict = await holdSearchCredits({ admin, userId, truckNumber });
 
   if (!verdict.allowed) {
     return { ok: false, error: creditRefusalMessage(verdict), creditSpent: false };
@@ -76,8 +72,8 @@ export async function runManualLookup({
      * to a customer who paid for an answer and got none. About one search in
      * seven failed this way, almost all of them the toll portal's own HTTP 500.
      */
-    const [refunded] = await Promise.all([
-      refundSearch(admin, userId, truckNumber, verdict, result.error),
+    const [released] = await Promise.all([
+      releaseHold(admin, userId, verdict, result.error),
       admin.from("search_logs").insert({
         user_id: userId,
         truck_number: truckNumber,
@@ -93,8 +89,8 @@ export async function runManualLookup({
     ]);
     return {
       ok: false,
-      creditSpent: !refunded,
-      error: failureMessage(truckNumber, result, refunded),
+      creditSpent: false,
+      error: failureMessage(truckNumber, result, released),
     };
   }
 
@@ -122,15 +118,13 @@ export async function runManualLookup({
 
     if (insertError) {
       // Our fault, not the portal's: the answer came back and we could not
-      // keep it. Refunded the same way.
+      // keep it. Released the same way - nothing is charged.
       reportError("storing search results", insertError);
-      const refunded = await refundSearch(admin, userId, truckNumber, verdict, "could not store results");
+      await releaseHold(admin, userId, verdict, "could not store results");
       return {
         ok: false,
-        creditSpent: !refunded,
-        error: `The search for ${truckNumber} could not be completed. ${
-          refunded ? "No credit was used. " : ""
-        }Please try again in a moment.`,
+        creditSpent: false,
+        error: `The search for ${truckNumber} could not be completed. No credit was used. Please try again in a moment.`,
       };
     }
     newCount = inserted?.length ?? 0;
@@ -173,6 +167,8 @@ export async function runManualLookup({
       .eq("id", tracked.id)
     : null;
   await Promise.all([
+    // The search succeeded: the hold becomes its one manual_search charge.
+    consumeHold(admin, userId, verdict),
     writeLog,
     updateTracked,
     // A saved truck remembers this check, wherever it was run from (0066).
@@ -227,36 +223,6 @@ async function fetchWithOneRetry(truckNumber: string, apiUrl: string): Promise<L
 }
 
 /**
- * Gives back exactly what spend_credits took for this search. Recorded as its
- * own ledger row (reason 'search_refund', counted as negative spend by 0062)
- * rather than by deleting the charge, so the ledger still adds up to the
- * balance and the attempt stays visible. Returns whether it went through.
- */
-async function refundSearch(
-  admin: ReturnType<typeof getSupabaseAdmin>,
-  userId: string,
-  truckNumber: string,
-  verdict: CreditVerdict,
-  why: string,
-): Promise<boolean> {
-  const cost = Number(verdict.cost ?? 0);
-  if (verdict.free || !(cost > 0)) return true; // nothing was taken
-  const { data, error } = await admin.rpc("grant_credits", {
-    p_user: userId,
-    p_amount: cost,
-    p_reason: "search_refund",
-    p_actor: null,
-    p_note: `Refund: search for ${truckNumber} failed (${why.slice(0, 120)})`,
-    p_payment: null,
-  });
-  if (error || (data as { ok?: boolean } | null)?.ok === false) {
-    reportError("refunding a failed search", error ?? data);
-    return false;
-  }
-  return true;
-}
-
-/**
  * What the customer reads when the toll portal let them down: what happened in
  * plain words, an apology, that they were not charged, and what to do next.
  * Never the raw "Portal returned HTTP 500".
@@ -264,7 +230,7 @@ async function refundSearch(
 function failureMessage(
   truckNumber: string,
   result: Extract<LdbResult, { ok: false }>,
-  refunded: boolean,
+  released: boolean,
 ): string {
   const status = result.httpStatus;
   const what =
@@ -275,7 +241,7 @@ function failureMessage(
         : status !== null && status >= 400 && status < 500
           ? `the toll network could not look up ${truckNumber}. Check that the number is correct`
           : "the toll network is temporarily unavailable";
-  const charge = refunded
+  const charge = released
     ? "No credit was used."
     : "If a credit was used for this search, contact support and we will return it.";
   return `Crossings for ${truckNumber} could not be fetched because ${what}. ${charge} Please try again in a few minutes.`;

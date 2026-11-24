@@ -5,12 +5,15 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 /**
  * WhatsApp alerts through Meta's WhatsApp Cloud API.
  *
- * Sender: "Rahdari", +91 92134 34855 (WHATSAPP_PHONE_ID). Every alert is
- * business-initiated, which WhatsApp only allows through a pre-approved
- * template, so alerts go out as WA_TEMPLATE_TRIP_UPDATE with three body
- * parameters: {{1}} the truck, {{2}} what happened, {{3}} when. Free text is
- * only accepted inside the 24-hour window after the customer messages us, so
- * nothing here sends free text.
+ * Sender: "Rahdari", +91 92134 34855 (WHATSAPP_PHONE_ID). Inside the 24-hour
+ * window after the person last messaged us, an alert goes as free text (free
+ * of charge); outside it, business-initiated messages need a pre-approved
+ * template, so it goes as WA_TEMPLATE_TRIP_UPDATE with three body parameters:
+ * {{1}} the truck, {{2}} what happened, {{3}} when - a paid utility message.
+ *
+ * Because of that cost, WhatsApp carries only high-value news: see
+ * alertGoesToWhatsApp() in alerts.ts for trucks, and the admin daily summary
+ * (daily-summary.ts) - the only WhatsApp an admin gets.
  *
  * Same contract as telegram.ts and push.ts: never throws, and `skipped` tells
  * "the platform has no WhatsApp" apart from "this send failed".
@@ -291,29 +294,23 @@ export async function sendWhatsAppAlert({
   return last;
 }
 
-/** A crossing as a plain WhatsApp message (used inside the 24-hour window). */
-export function formatWhatsAppText({
-  title,
-  truckNumber,
-  location,
-  direction,
-  eventTime,
-  extra,
-}: {
-  title: string;
-  truckNumber: string;
-  location?: string | null;
-  direction?: string | null;
-  eventTime?: string | null;
-  extra?: string | null;
-}): string {
-  const lines = [`*${title}*`, "", `🚚 ${truckNumber}`];
-  if (location) lines.push(`📍 ${location}${direction ? ` (${direction})` : ""}`);
-  lines.push(`🕒 ${whatsappTime(eventTime)} IST`);
-  if (extra) lines.push("", extra);
-  lines.push("", "— Rahdari");
-  return lines.join("\n");
-}
+/*
+ * MESSAGE TEXTS
+ *
+ * Two shapes for every message:
+ *   - free text, used inside the 24-hour window (free of charge): WhatsApp
+ *     formatting (*bold*, _italic_), one emoji on the headline, and a link that
+ *     opens the right page of the app;
+ *   - three template parameters for rahdari_trip_update, used outside it.
+ *     The approved body reads
+ *       "Hello, your Rahdari trip {{1}} status has been updated to {{2}} on
+ *        {{3}}. Open the Rahdari app for full trip details."
+ *     so {{1}} is the truck, {{2}} a short phrase that reads after "updated
+ *     to", {{3}} the IST time.
+ */
+
+const NL = "\n";
+const SIGN = "_Rahdari_";
 
 /** IST, e.g. "19 Nov 2026, 4:30 pm". */
 export function whatsappTime(iso?: string | null): string {
@@ -329,36 +326,144 @@ export function whatsappTime(iso?: string | null): string {
   });
 }
 
-/**
- * A toll crossing as the trip-update template's three parameters. The approved
- * body reads:
- *
- *   "Hello, your Rahdari trip {{1}} status has been updated to {{2}} on {{3}}.
- *    Open the Rahdari app for full trip details."
- *
- * so {{1}} is the truck number, {{2}} a short status that reads after
- * "updated to" ("crossed Chabri Toll Plaza, northbound"), {{3}} the IST time.
- */
-export function tripUpdateParams({
-  title,
-  truckNumber,
-  location,
-  direction,
-  eventTime,
-}: {
+/** An absolute link into the site, e.g. https://rahdari.in/portal/trucks/<id>. */
+export function siteLink(path: string): string {
+  return `${env.siteUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function placeWithDirection(location: string | null | undefined, direction: string | null | undefined): string {
+  const place = location?.trim() || "an unnamed plaza";
+  return direction?.trim() ? `${place} (${direction.trim()})` : place;
+}
+
+/** What a truck alert needs to become a WhatsApp message. Mirrors AlertDraft. */
+export type WhatsAppAlertInput = {
+  kind: string;
+  phase?: "halted" | "still_halted" | "moving_again";
   title: string;
   truckNumber: string;
   location?: string | null;
   direction?: string | null;
   eventTime?: string | null;
-}): string[] {
-  const status = location
-    ? `crossed ${location}${direction ? `, ${direction.toLowerCase()}` : ""}`
-    : title;
-  return [truckNumber, status.slice(0, 200), whatsappTime(eventTime)];
+  previousLocation?: string | null;
+  idleText?: string;
+  watchedPlaza?: string | null;
+  guessed?: boolean;
+  /** Absolute link to open, normally the truck's page. */
+  url: string;
+};
+
+/**
+ * A truck alert as free text.
+ *
+ *   📍 *GJ02AT8546 reached Nadiad Toll Plaza*
+ *
+ *   *Plaza:* Nadiad Toll Plaza (Northbound)
+ *   *Time:* 19 Nov 2026, 4:30 pm IST
+ *
+ *   Open truck: https://rahdari.in/portal/trucks/…
+ *   _Rahdari_
+ */
+export function whatsappAlertText(a: WhatsAppAlertInput): string {
+  const where = placeWithDirection(a.location, a.direction);
+  const when = `${whatsappTime(a.eventTime)} IST`;
+  let emoji = "🚚";
+  let body: string[];
+
+  if (a.kind === "plaza_crossing") {
+    emoji = "📍";
+    body = [`*Plaza:* ${where}`, `*Time:* ${when}`];
+    if (a.guessed && a.watchedPlaza) {
+      body.push("", `_You asked for "${a.watchedPlaza}". This is the closest plaza on record._`);
+    }
+  } else if (a.kind === "location_change") {
+    body = [`*Plaza:* ${where}`];
+    if (a.previousLocation) body.push(`*Previous:* ${a.previousLocation}`);
+    body.push(`*Time:* ${when}`);
+  } else if (a.kind === "halt" && a.phase === "moving_again") {
+    emoji = "✅";
+    body = [`*Crossed:* ${where}`, `*Time:* ${when}`];
+  } else if (a.kind === "halt") {
+    emoji = "⏸️";
+    body = [
+      `No toll crossing for *${a.idleText ?? "a while"}*.`,
+      `*Last seen:* ${where}`,
+      `*At:* ${when}`,
+      "",
+      "_We will message you here when it moves again._",
+    ];
+  } else {
+    body = [`*Plaza:* ${where}`, `*Time:* ${when}`];
+  }
+
+  return [`${emoji} *${a.title}*`, "", ...body, "", `Open truck: ${a.url}`, SIGN].join(NL);
 }
 
-/** An account or truck notice ("Tracking paused: no credits left") in the same template. */
+/** The same alert as the trip-update template's three parameters. */
+export function whatsappAlertParams(a: WhatsAppAlertInput): string[] {
+  const where = placeWithDirection(a.location, a.direction);
+  let status: string;
+  let when = a.eventTime ?? null;
+  if (a.kind === "plaza_crossing") status = `reached ${where}`;
+  else if (a.kind === "halt" && a.phase === "moving_again") status = `moving again, crossed ${where}`;
+  else if (a.kind === "halt") {
+    status = `halted, no toll crossing for ${a.idleText ?? "a while"} (last seen at ${where})`;
+    when = null; // "now": the halt is the news, not the old crossing
+  } else status = `crossed ${where}`;
+  return [a.truckNumber, status.slice(0, 200), whatsappTime(when)];
+}
+
+/**
+ * An account or truck notice ("Tracking paused: no credits left") as free text:
+ *
+ *   ⚠️ *Tracking paused: no credits left*
+ *   🚚 GJ02AT8546            (when it is about one truck)
+ *
+ *   All tracked trucks are paused. …
+ *
+ *   Top up: https://rahdari.in/portal/plan
+ *   _Rahdari_
+ */
+export function whatsappNoticeText({
+  title,
+  truckNumber,
+  message,
+  link,
+}: {
+  title: string;
+  truckNumber: string | null;
+  message: string;
+  link: { label: string; url: string };
+}): string {
+  return [
+    `⚠️ *${title}*`,
+    ...(truckNumber ? [`🚚 ${truckNumber}`] : []),
+    "",
+    message,
+    "",
+    `${link.label}: ${link.url}`,
+    SIGN,
+  ].join(NL);
+}
+
+/** A notice in the trip-update template: "your Rahdari trip tracking status has been updated to …". */
 export function noticeParams(truckNumber: string | null, title: string): string[] {
-  return [truckNumber ?? "alerts", title.slice(0, 200), whatsappTime()];
+  return [truckNumber ?? "tracking", title.slice(0, 200), whatsappTime()];
+}
+
+/** The "Send test" message from the Notifications page. */
+export function whatsappTestText(): string {
+  return [
+    "✅ *Rahdari WhatsApp alerts are on*",
+    "",
+    "This is a test. On WhatsApp you will get:",
+    "• a truck reaching a plaza you named",
+    "• a truck moving to a new plaza",
+    "• a truck halting, and moving again",
+    "",
+    "_Every-check updates and hourly halt reminders come in the app and on Telegram._",
+    "",
+    `Manage alerts: ${siteLink("/portal/notifications")}`,
+    SIGN,
+  ].join(NL);
 }

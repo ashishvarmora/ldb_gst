@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { announceNavigation } from "@/components/NavProgress";
 import { useState, type CSSProperties } from "react";
 import { CalendarRange, Check, ChevronDown, X } from "lucide-react";
 
@@ -58,7 +59,9 @@ export function DateRangeBar({
 
   function applyCustom() {
     if (!from || !to) return;
-    router.push(hrefWith({ range: "custom", from, to }));
+    const href = hrefWith({ range: "custom", from, to });
+    announceNavigation(href);
+    router.push(href);
     setCustom(false);
   }
 

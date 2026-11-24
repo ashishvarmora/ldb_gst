@@ -198,6 +198,73 @@ export async function spendCredits({
   return (data ?? { allowed: false }) as CreditVerdict;
 }
 
+/**
+ * CREDIT HOLDS (0073, 23 Nov 2026) - how a manual search pays.
+ *
+ * Owner's rule: a search HOLDS its credit when it starts, the hold is CONSUMED
+ * (becomes the one manual_search ledger row) when the search succeeds, and
+ * RELEASED when it fails - a failed search never reaches the ledger, so there
+ * is no refund row and nothing to explain in Credits. Released and expired
+ * holds stay in credit_holds as the audit trail. Automatic checks still pay on
+ * execution through spendCredits, which leaves held credits alone.
+ */
+export type CreditHold = CreditVerdict & { hold_id?: number };
+
+/** Reserves one manual search. Same refusals as spendCredits. */
+export async function holdSearchCredits({
+  admin,
+  userId,
+  truckNumber,
+}: {
+  admin: Admin;
+  userId: string;
+  truckNumber: string;
+}): Promise<CreditHold> {
+  const { data, error } = await admin.rpc("hold_credits", {
+    p_user: userId,
+    // One key per attempt, made here on the server. Never reused.
+    p_key: crypto.randomUUID(),
+    p_action: CREDIT_ACTIONS.manualSearch,
+    p_truck: truckNumber,
+  });
+  if (error) {
+    console.error("[credits] hold_credits failed:", error.message);
+    return { allowed: false, reason: "unknown_action" };
+  }
+  return (data ?? { allowed: false }) as CreditHold;
+}
+
+/** The search succeeded: the hold becomes the charge. Returns whether it did. */
+export async function consumeHold(admin: Admin, userId: string, hold: CreditHold): Promise<boolean> {
+  if (!hold.hold_id) return true; // free action: nothing was held
+  const { data, error } = await admin.rpc("consume_hold", { p_user: userId, p_hold: hold.hold_id });
+  const ok = !error && (data as { ok?: boolean } | null)?.ok === true;
+  if (!ok) {
+    // Errs in the customer's favour: the hold expires and nothing is charged.
+    console.error("[credits] consume_hold failed:", hold.hold_id, error?.message ?? JSON.stringify(data));
+  }
+  return ok;
+}
+
+/**
+ * The search failed: nothing is charged. Always true - a hold that could not
+ * be released this moment is never consumed and stops counting at expiry.
+ */
+export async function releaseHold(admin: Admin, userId: string, hold: CreditHold, why: string): Promise<boolean> {
+  if (!hold.hold_id) return true;
+  const { data, error } = await admin.rpc("release_hold", {
+    p_user: userId,
+    p_hold: hold.hold_id,
+    p_why: why.slice(0, 200),
+  });
+  const ok = !error && (data as { ok?: boolean } | null)?.ok === true;
+  if (!ok) {
+    // Still no charge: an active hold that is not released expires on its own.
+    console.error("[credits] release_hold failed:", hold.hold_id, error?.message ?? JSON.stringify(data));
+  }
+  return true;
+}
+
 /** Plain-language version of a refusal, for a form or an alert log. */
 export function creditRefusalMessage(verdict: CreditVerdict): string {
   switch (verdict.reason) {

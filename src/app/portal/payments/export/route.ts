@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { loadPayments, parsePaymentSort, parseStatusFilter, paymentsCsv } from "../payments";
 import { csvFile } from "@/components/report";
 import { getSessionUser } from "@/lib/auth";
-import { parseHistoryRange } from "@/lib/history-range";
+import { HISTORY_RANGE_KEYS, parseHistoryRange } from "@/lib/history-range";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       from: params.get("from") ?? undefined,
       to: params.get("to") ?? undefined,
     },
-    { fallback: "all", allowAll: true },
+    { fallback: "all", allowAll: true, keys: HISTORY_RANGE_KEYS },
   );
 
   const { rows, error } = await loadPayments(getSupabaseAdmin(), session.id, {

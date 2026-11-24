@@ -2,5 +2,5 @@
 
 /** Same boxes as the page: see HistorySkeleton. */
 export default function Loading() {
-  return <HistorySkeleton totals toolbar={false} />;
+  return <HistorySkeleton totals />;
 }

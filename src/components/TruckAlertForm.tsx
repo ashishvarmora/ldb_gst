@@ -12,6 +12,7 @@ import {
   ALERT_KIND_EXAMPLE,
   ALERT_KIND_HINT,
   ALERT_KIND_LABEL,
+  ALERT_KIND_WHATSAPP_NOTE,
   HALT_AFTER_MAX_HOURS,
   HALT_PAUSE_MAX_HOURS,
   HALT_PAUSE_ORDER_ERROR,
@@ -229,6 +230,9 @@ export function AlertChooser({
             </option>
           ))}
         </Select>
+        {/* Which of this alert's messages also go on WhatsApp (paid per message,
+            so only the high-value ones - see alertGoesToWhatsApp). */}
+        <p className="mt-1.5 text-xs leading-relaxed text-faint">{ALERT_KIND_WHATSAPP_NOTE[chosen.kind]}</p>
       </div>
 
       {chosen.kind === "halt" ? (

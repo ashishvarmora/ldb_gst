@@ -12,14 +12,14 @@ import {
   parseStatusFilter,
   type StatusFilter,
 } from "./payments";
-import { RangeControl, UrlSelect } from "@/components/HistoryControls";
+import { DateRangeControl, UrlSelect } from "@/components/HistoryControls";
 import { Figure, Segmented, SummaryLine, plural } from "@/components/HistoryUi";
 import { LedgerLinks } from "../credits/LedgerNav";
 import { Pager, pageCount, pageFromParam } from "@/components/Pager";
 import { publicSettings } from "@/components/SiteFooter";
 import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { fmtRupees } from "@/lib/format";
-import { parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
+import { HISTORY_RANGE_KEYS, parseHistoryRange, rangeLabel, rangeQuery } from "@/lib/history-range";
 import { requirePortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -27,8 +27,10 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * Payments: only payments, every one of them - paid, failed and started but
  * never paid.
  *
- *   one summary line   Total paid · N payments · failed (only if any), (i)
- *   filters            status segmented, one date control, a sort select
+ *   one summary line   Total paid · N payments · failed (only if any), the
+ *                      period (left out for All time), (i)
+ *   filters            status segmented, one date control (All / Last 7 days
+ *                      / Custom), a sort select
  *   rows               PaymentList (tap a row for ids, times, credits)
  *   receipt            ?ref=<order id> renders the printable receipt on top
  *
@@ -55,10 +57,10 @@ type PaymentsQuery = {
 };
 
 const SORT_OPTIONS = [
-  { value: "newest", label: "Newest" },
-  { value: "oldest", label: "Oldest" },
-  { value: "amount_desc", label: "Amount: high to low" },
-  { value: "amount_asc", label: "Amount: low to high" },
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "amount_desc", label: "Highest amount" },
+  { value: "amount_asc", label: "Lowest amount" },
 ];
 
 export async function generateMetadata() {
@@ -76,7 +78,7 @@ export default async function PaymentsPage({
 
   /* All time by default: a customer pays two or three times a year, and a
      30-day default shows an empty list to somebody who has definitely paid. */
-  const range = parseHistoryRange(params, { fallback: "all", allowAll: true });
+  const range = parseHistoryRange(params, { fallback: "all", allowAll: true, keys: HISTORY_RANGE_KEYS });
   const status = parseStatusFilter(params.status);
   const sort = parsePaymentSort(params.sort);
 
@@ -189,8 +191,8 @@ export default async function PaymentsPage({
           summary.failed > 0 ? (
             <span className="is-bad">{plural(summary.failed, "failed", "failed")}</span>
           ) : null,
-          <span className="hist-summary-range">{rangeLabel(range)}</span>,
         ]}
+        period={range.key === "all" ? null : rangeLabel(range)}
         infoLabel="payment totals"
         info={
           <>
@@ -224,14 +226,13 @@ export default async function PaymentsPage({
           }))}
         />
         <div className="hist-toolbar">
-          <RangeControl
+          <DateRangeControl
             basePath={BASE}
             params={withoutRange}
             current={range.key}
             from={range.from}
             to={range.to}
             fallback="all"
-            options={["all", "7d", "30d", "90d", "custom"]}
           />
           <UrlSelect
             basePath={BASE}

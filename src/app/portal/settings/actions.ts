@@ -13,7 +13,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { ActionResult, GoogleSheetConfig, TelegramConfig } from "@/lib/types";
 import { env } from "@/lib/env";
-import { sendWhatsAppAlert, toWhatsAppNumber, whatsappConfigured, whatsappTime } from "@/lib/whatsapp";
+import { sendWhatsAppAlert, toWhatsAppNumber, whatsappConfigured, whatsappTestText, whatsappTime } from "@/lib/whatsapp";
 
 /* -------------------------------------------------------------------------- */
 /* the customer's own details                                                  */
@@ -271,7 +271,7 @@ export async function testMyWhatsApp(
 
   const result = await sendWhatsAppAlert({
     to: number,
-    text: ["*Rahdari is connected*", "", "This is a test. Your truck alerts will arrive here on WhatsApp.", "", "— Rahdari"].join("\n"),
+    text: whatsappTestText(),
     params: ["test", "connected to WhatsApp alerts", whatsappTime()],
     purpose: "test",
     userId: session.id,
