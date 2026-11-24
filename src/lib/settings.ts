@@ -63,6 +63,7 @@ export const SETTINGS_FALLBACK: AppSettings = {
   adminPushPaymentFailed: true,
   adminPushChat: true,
   adminWhatsapp: true,
+  whatsappChargeEnabled: true,
   androidApkUrl: "",
   androidApkVersion: "",
   androidApkBytes: 0,
@@ -177,6 +178,9 @@ export async function loadSettings(admin: Admin): Promise<AppSettings> {
     adminPushPaymentFailed: map.get("admin_push_payment_failed") !== false,
     adminPushChat: map.get("admin_push_chat") !== false,
     adminWhatsapp: map.get("admin_whatsapp") !== false,
+    // Owner's default is ON (0076). Charging also needs the 'whatsapp_alert'
+    // credit_rates row, so before 0076 is applied nothing is charged anyway.
+    whatsappChargeEnabled: map.get("whatsapp_charge_enabled") !== false,
     androidApkUrl: text("android_apk_url", ""),
     androidApkVersion: text("android_apk_version", ""),
     androidApkBytes: number("android_apk_bytes", 0),

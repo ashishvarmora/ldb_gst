@@ -114,6 +114,12 @@ const ADMIN_PUSH_SPECS: SettingSpec[] = [
   { key: "admin_whatsapp", label: "Daily summary on WhatsApp", kind: "bool" },
 ];
 
+/* WhatsApp to customers costs credits (0076). The amount is the
+   'whatsapp_alert' credit rate, edited on Plans -> Rules like every rate. */
+const WHATSAPP_CHARGE_SPECS: SettingSpec[] = [
+  { key: "whatsapp_charge_enabled", label: "Charge credits for WhatsApp alerts", kind: "bool" },
+];
+
 const SITE_SPECS: SettingSpec[] = [
   { key: "brand_name", label: "Product name", kind: "name", max: 60 },
   { key: "signup_enabled", label: "Public sign-up", kind: "bool" },
@@ -397,6 +403,33 @@ export async function saveCustomerMailSettings(
       parsed.values.chat_email_enabled === true
         ? `Saved. A customer is emailed when your reply sits unread for ${parsed.values.chat_email_delay_minutes} minutes.`
         : "Saved. Customers are not emailed about unread replies.",
+  };
+}
+
+/** The ON/OFF switch for charging customers per WhatsApp message. */
+export async function saveWhatsAppChargeSettings(
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const actor = await assertSuperAdmin();
+
+  const parsed = readSpecs(fd, WHATSAPP_CHARGE_SPECS);
+  if ("error" in parsed) return { ok: false, error: parsed.error };
+
+  const result = await persist(actor, parsed.values, "settings.update_whatsapp_charge");
+  if (!result.ok) return result;
+
+  // Customers read the amount (or its absence) on these pages.
+  revalidatePath("/portal/notifications");
+  revalidatePath("/portal/plan");
+  revalidatePath("/pricing");
+
+  return {
+    ok: true,
+    message:
+      parsed.values.whatsapp_charge_enabled === true
+        ? "Saved. Each WhatsApp alert to a customer now uses credits, from the next alert onwards."
+        : "Saved. WhatsApp alerts are free for customers.",
   };
 }
 

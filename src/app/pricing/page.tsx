@@ -8,6 +8,7 @@ import {
   CREDIT_ACTIONS,
   autoCheckRateLabel,
   costOf,
+  customerRates,
   describeOpenTier,
   describeRate,
   formatCredits,
@@ -58,7 +59,7 @@ const FALLBACK_EXAMPLE_CREDITS = 100;
  * how many trucks may be watched, credits are what the watching spends.
  */
 export default async function PricingPage() {
-  const [settings, referralTerms, { plans, packs, rates, alertRule }] =
+  const [settings, referralTerms, { plans, packs, rates: allRates, alertRule }] =
     await Promise.all([
       publicSettings(),
       // Read straight from app_settings rather than through publicSettings, so
@@ -66,6 +67,8 @@ export default async function PricingPage() {
       loadReferralTerms(getSupabaseAdmin()),
       loadCatalogue(),
     ]);
+  // The WhatsApp rate is listed only while the admin charges for it.
+  const rates = customerRates(allRates, settings.whatsappChargeEnabled);
 
   /*
    * Rendered as for a signed-out reader, always, so the page can be cached at

@@ -132,7 +132,12 @@ export const config = {
    * Supabase round trip in front of the smallest and most frequent request the
    * app makes.
    */
+  /*
+   * d/ and api/driver (0078, live location) are the driver's phone: no account,
+   * no session, the token in the path is the credential. A session refresh
+   * there is a round trip nothing reads, every 30 seconds per sharing driver.
+   */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|api/version|download/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|apk)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|api/webhooks|api/cron|api/version|api/driver/|d/|download/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|apk)$).*)",
   ],
 };

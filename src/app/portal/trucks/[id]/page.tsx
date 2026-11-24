@@ -1,4 +1,4 @@
-import { cache } from "react";
+import { cache, type ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -6,10 +6,12 @@ import {
   BellOff,
   CheckCircle2,
   History,
+  MapPin,
   PauseCircle,
   PlayCircle,
   Plus,
   RefreshCw,
+  Share2,
   Timer,
 } from "lucide-react";
 
@@ -21,6 +23,10 @@ import {
   SubmitButton,
 } from "@/components/ActionForm";
 import { InfoTip, LabelWithInfo } from "@/components/InfoTip";
+import { LiveLocationCard } from "@/components/LiveLocationCard";
+import { Modal } from "@/components/Modal";
+import { DestinationForm, ShareTrip } from "@/components/TripControls";
+import { TripLine } from "@/components/TripLine";
 import { TruckActivityTimeline, type LedgerDay } from "@/components/TruckActivityTimeline";
 import { TruckMenu } from "@/components/TruckMenu";
 import { Field, FormActions, Input, Select } from "@/components/form";
@@ -36,7 +42,14 @@ import { lastCheckedLabel } from "@/components/TruckCard";
 import { Badge, LinkCard, Panel, buttonClass, cx } from "@/components/ui";
 import { alertCadence, alertIdentity } from "@/lib/alerts";
 import { CREDIT_ACTIONS, TOPUP_HREF, costOf, formatCredits, loadRate } from "@/lib/credits";
-import { fmtWhenAgo } from "@/lib/format";
+import {
+  destinationOf,
+  maskPlate,
+  tripProgress,
+  type DestinationColumns,
+} from "@/lib/destination";
+import { env } from "@/lib/env";
+import { fmtWhen, fmtWhenAgo } from "@/lib/format";
 import {
   PAUSE_HELP_LINE,
   autoPauseCountdown,
@@ -98,6 +111,11 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * seen, and the action row - then a tab bar with four panels shown one at a
  * time: Alerts, Route, Activity, Settings. Every panel is rendered here on the
  * server; TruckTabs only chooses which is visible, so a tap fetches nothing.
+ *
+ * Placement pass (owner, 24 Nov 2026), top card in reading order: plate +
+ * chip + label + ⋯ menu / pause reason / last crossing and checks / where it
+ * is going and roughly how far (TripLine) / Go live | Check now | Pause /
+ * Destination | Share trip. Then the live-location slot, then the tabs.
  */
 export default async function TruckDetailPage({
   params,
@@ -119,7 +137,16 @@ export default async function TruckDetailPage({
 
   const [{ id }, { added }] = await Promise.all([params, searchParams]);
 
-  const [, truck, { data: rules }, { data: templates }, manualRate, settings] = await Promise.all([
+  const [
+    ,
+    truck,
+    { data: rules },
+    { data: templates },
+    manualRate,
+    settings,
+    { data: plazaRows },
+    { data: shareRow },
+  ] = await Promise.all([
     requirePortalSession(),
     loadOwnTruck(userId, id),
     admin
@@ -135,6 +162,21 @@ export default async function TruckDetailPage({
       .order("sort_order", { ascending: true }),
     loadRate(admin, CREDIT_ACTIONS.manualSearch),
     loadSettings(admin),
+    /* Toll plazas with a position, offered beside the towns in the
+       destination picker. Names only; the server finds the position again. */
+    admin.from("toll_plazas").select("name").not("lat", "is", null).order("name").limit(1000),
+    /* The truck's live trip link, if any (0077). Before the migration this
+       errors and reads as "no link". */
+    admin
+      .from("truck_shares")
+      .select("token,expires_at")
+      .eq("tracked_truck_id", id)
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ token: string; expires_at: string }>(),
   ]);
 
   if (!truck) notFound();
@@ -236,6 +278,29 @@ export default async function TruckDetailPage({
   const lastManual = lastAt("manual_search");
   const latest = eventList[0] ?? null;
   const heading = latest ? directionLabel(latest.direction) : null;
+
+  /* Destination and distance left (0077): computed from the crossings already
+     loaded for the Route tab, so no extra read. */
+  const destination = destinationOf(truck as TrackedTruck & DestinationColumns);
+  const progress = tripProgress(destination, eventList);
+  const plazaNames = ((plazaRows ?? []) as { name: string }[]).map((row) => row.name);
+  const shareUrl = shareRow ? `${env.siteUrl}/t/${shareRow.token}` : null;
+  const shareText = `Trip status of truck ${maskPlate(truck.truck_number)}${
+    destination ? ` to ${destination.name}` : ""
+  }:`;
+
+  /*
+   * ===================== LIVE LOCATION SLOT =====================
+   * The driver-phone GPS module hands over a self-contained "Live location"
+   * card. Wire it here, e.g.
+   *   const liveLocationCard = <LiveLocationCard truckId={truck.id} />;
+   * It renders directly under the top card, above the tabs. null = nothing
+   * shown, so the page is unchanged until it is wired.
+   * ==============================================================
+   */
+  const liveLocationCard: ReactNode = (
+    <LiveLocationCard truckId={truck.id} truckNumber={truck.truck_number} />
+  );
 
   /* Where the pause (i) sends somebody who wants to change the limit that
      stopped this truck. The stopped-moving pause belongs to the halt alert. */
@@ -494,6 +559,10 @@ export default async function TruckDetailPage({
           ) : null}
         </dl>
 
+        {/* Where it is going and roughly how far is left; nothing when no
+            destination is set. */}
+        <TripLine destination={destination} progress={progress} className="mt-2" />
+
         {truck.consecutive_errors > 0 ? (
           <p className="mt-3 rounded-lg border border-bad-500/35 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
             {truck.consecutive_errors === 1
@@ -538,7 +607,47 @@ export default async function TruckDetailPage({
             </InlineActionForm>
           ) : null}
         </div>
+
+        {/* Trip row: destination and the public link. Free - no credits. */}
+        <div className="truck-trip-actions">
+          <Modal
+            triggerLabel="Destination"
+            triggerIcon={<MapPin size={14} aria-hidden />}
+            triggerVariant="secondary"
+            triggerSize="sm"
+            triggerClassName="w-full"
+            title={destination ? `Going to ${destination.name}` : "Set a destination"}
+            description="Optional. Shows roughly how far is left after each toll crossing."
+            width="sm"
+          >
+            <DestinationForm
+              truckId={truck.id}
+              current={destination?.name ?? null}
+              plazas={plazaNames}
+            />
+          </Modal>
+          <Modal
+            triggerLabel={shareUrl ? "Link shared" : "Share trip"}
+            triggerIcon={<Share2 size={14} aria-hidden />}
+            triggerVariant="secondary"
+            triggerSize="sm"
+            triggerClassName="w-full"
+            title="Share this trip"
+            description="A read-only link for your customer or driver. No sign-in, no cost."
+            width="sm"
+          >
+            <ShareTrip
+              truckId={truck.id}
+              shareUrl={shareUrl}
+              expiresLabel={shareRow ? `Works until ${fmtWhen(shareRow.expires_at)}.` : null}
+              shareText={shareText}
+            />
+          </Modal>
+        </div>
       </Panel>
+
+      {/* LIVE LOCATION SLOT - see liveLocationCard above. */}
+      {liveLocationCard}
 
       {added ? (
         <p className="flex items-start gap-2 rounded-xl border border-good-500/40 bg-good-500/10 px-3 py-2.5 text-sm text-good-500">

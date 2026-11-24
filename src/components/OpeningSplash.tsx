@@ -58,6 +58,8 @@ function splashMain(STILL: number, FILM_MAX: number, S: typeof SRC) {
   try {
     if (d.referrer && new URL(d.referrer).origin === location.origin) skip = true;
   } catch (e) {}
+  /* The driver's live-location page (/d/<token>): a phone on mobile data, there to tap one button. */
+  if (location.pathname.indexOf("/d/") === 0) skip = true;
   /* Crawlers and speed tools (Lighthouse, PageSpeed) see the page itself,
      so search previews and Core Web Vitals scores never include the intro. */
   if (/bot|crawl|spider|slurp|lighthouse|pagespeed|headlesschrome|preview/i.test(navigator.userAgent) || (navigator as Navigator & { webdriver?: boolean }).webdriver) skip = true;

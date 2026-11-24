@@ -476,7 +476,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
               Automatic checks run on your trucks&apos; alerts at your plan&apos;s rate. Manual searches of numbers you
               do not track are grouped under Manual searches. A search that fails uses no credit and is not counted.
             </p>
-            <p>Crossings are new toll crossings found. Credits added are on the Credits page. All times are IST.</p>
+            <p>Crossings are new toll crossings found. Credits added, and credits used by WhatsApp alerts, are on the Credits page. All times are IST.</p>
           </>
         }
       />

@@ -21,6 +21,7 @@ export default function robots(): MetadataRoute.Robots {
         "/forgot-password",
         "/no-access",
         "/offline",
+        "/d/",
       ],
     },
     sitemap: `${env.siteUrl}/sitemap.xml`,

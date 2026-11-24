@@ -1574,3 +1574,46 @@ details[open] > .hrow-head .hrow-chev, .hrow.is-open > .hrow-head .hrow-chev { t
 .portal-route .truck-timeline-title { font-size: 13px; }
 .portal-route .truck-timeline-sub,
 .portal-route .truck-timeline-time { font-size: 12px; }
+
+/* ===========================================================================
+   Destination, distance left and trip links, 24 Nov 2026
+   (src/components/TripLine.tsx, TripControls.tsx, TruckCard.tsx and the public
+   page src/app/t/[token]/page.tsx). Same 12px meta scale as .truck-facts.
+   =========================================================================== */
+.truck-trip {
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 4px;
+  font-size: 12.5px; line-height: 1.45; color: var(--color-ink);
+}
+.truck-trip-icon { flex: none; color: var(--color-brand-500); }
+.truck-trip-text { min-width: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.truck-trip-text strong { font-weight: 600; }
+.portal-route .truck-trip { font-size: 12px; }
+
+/* the second, lighter action row on the truck page: Destination | Share trip */
+.truck-trip-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.truck-trip-actions > * { min-width: 0; }
+.truck-trip-actions button { white-space: nowrap; }
+
+/* My trucks row: an optional third line, only when a destination is set */
+.truck-row-trip {
+  display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px;
+  font-size: 12px; line-height: 17px; color: var(--color-ink); white-space: nowrap;
+}
+.truck-row-trip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.truck-row-trip .truck-trip-icon { color: var(--color-faint); }
+
+/* public trip page */
+.trip-public { max-width: 520px; margin: 0 auto; padding: 16px 16px 40px; }
+.trip-public-card {
+  border: 1px solid var(--color-line); border-radius: 16px;
+  background: var(--color-panel); padding: 16px;
+}
+.trip-public-card + .trip-public-card { margin-top: 12px; }
+.trip-public-list { display: grid; }
+.trip-public-list li {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-top: 1px solid var(--color-divider);
+  font-size: 13px; line-height: 1.4;
+}
+.trip-public-list li:first-child { border-top: 0; padding-top: 0; }
+.trip-public-list .when { flex: none; color: var(--color-muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }

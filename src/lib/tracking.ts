@@ -20,7 +20,9 @@ import { SETTINGS_FALLBACK, loadSettings } from "@/lib/settings";
 import { recordTruckActivity } from "@/lib/truck-activity";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatAlertMessage, sendTelegramMessage } from "@/lib/telegram";
+import { canPayForWhatsApp, chargeSentWhatsApp, whatsappMessageCost } from "@/lib/whatsapp-charge";
 import {
+  logWhatsAppSkipped,
   noticeParams,
   sendWhatsAppAlert,
   siteLink,
@@ -317,19 +319,49 @@ async function deliverAlert({
    * (every-check updates, hourly halt reminders, minor notices: see
    * alertGoesToWhatsApp). Those still go to app push and Telegram.
    */
-  whatsapp: { params: string[]; text: string } | null;
+  whatsapp: {
+    params: string[];
+    text: string;
+    /** Charged to this truck in the ledger (null for account-wide notices). */
+    truckNumber: string | null;
+    /** Never charged: the "no credits left" notice (see whatsapp-charge.ts). */
+    free?: boolean;
+  } | null;
 }): Promise<Delivery> {
   const telegramAllowed =
     (context.telegram?.is_enabled ?? false) && Boolean(context.telegram?.chat_id);
   const pushAllowed = context.pushDevices > 0;
   const whatsappOn =
     whatsappConfigured() && (context.whatsapp?.is_enabled ?? false) && Boolean(context.whatsapp?.phone);
-  const whatsappAllowed = whatsappOn && whatsapp !== null;
+  let whatsappAllowed = whatsappOn && whatsapp !== null;
+
+  /*
+   * WhatsApp costs credits when the admin has charging on (0076). Checked
+   * BEFORE sending - an account that cannot pay gets no WhatsApp for this
+   * alert, but push and Telegram still go - and charged only AFTER Meta has
+   * accepted the message, below. src/lib/whatsapp-charge.ts has the rules.
+   */
+  const admin = getSupabaseAdmin();
+  let waCost: number | null = null;
+  let waSkipped: string | null = null;
+  if (whatsappAllowed && !whatsapp!.free) {
+    waCost = await whatsappMessageCost(admin);
+    if (waCost !== null) {
+      const pay = await canPayForWhatsApp(admin, context.userId, waCost);
+      if (!pay.ok) {
+        waSkipped = pay.reason;
+        whatsappAllowed = false;
+        await logWhatsAppSkipped({ userId: context.userId, to: context.whatsapp!.phone, reason: pay.reason });
+      }
+    }
+  }
 
   if (!telegramAllowed && !pushAllowed && !whatsappAllowed) {
     return {
       sent: false,
-      error: whatsappOn
+      error: waSkipped
+        ? `WhatsApp: ${waSkipped}. Top up to get WhatsApp alerts again.`
+        : whatsappOn
         ? "Shown here only: WhatsApp carries crossings, halt and moving again. Turn on phone notifications or Telegram in Notifications for the other alerts."
         : "No WhatsApp number, Telegram chat ID or phone notifications set up. Set one up in Settings to receive alerts.",
     };
@@ -355,6 +387,12 @@ async function deliverAlert({
       : null,
   ]);
 
+  // Charged once, and only for a message Meta accepted. A failed send was
+  // never charged, so there is nothing to give back.
+  if (wa?.ok && waCost !== null) {
+    await chargeSentWhatsApp(admin, context.userId, whatsapp!.truckNumber);
+  }
+
   const sent = Boolean(telegram?.ok) || Boolean(phone?.ok) || Boolean(wa?.ok);
   if (sent) {
     // A channel that failed while the other worked is not this alert's problem
@@ -373,6 +411,7 @@ async function deliverAlert({
     telegram && !telegram.ok ? `Telegram: ${telegram.error}` : null,
     phone && !phone.ok && !phone.skipped ? `Phone: ${phone.error}` : null,
     wa && !wa.ok && !wa.skipped ? `WhatsApp: ${wa.error}` : null,
+    waSkipped ? `WhatsApp: ${waSkipped}.` : null,
   ].filter(Boolean);
 
   return { sent: false, error: reasons.join(" ") || "The alert could not be delivered." };
@@ -466,7 +505,7 @@ function whatsappForDraft(draft: AlertDraft, truckNumber: string, truckId: strin
     guessed: draft.guessed,
     url: siteLink(`/portal/trucks/${truckId}`),
   };
-  return { params: whatsappAlertParams(input), text: whatsappAlertText(input) };
+  return { params: whatsappAlertParams(input), text: whatsappAlertText(input), truckNumber };
 }
 
 /**
@@ -527,6 +566,11 @@ async function sendSystemAlert({
       ? {
           params: noticeParams(truckNumber, title),
           text: whatsappNoticeText({ title, truckNumber, message, link: whatsappLink }),
+          truckNumber,
+          /* "No credits left" is free on WhatsApp: the balance it would be
+             charged to is exactly what ran out, and it is the message that
+             tells the customer to top up. */
+          free: kind === "out_of_credits",
         }
       : null,
   });

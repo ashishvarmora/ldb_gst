@@ -271,6 +271,11 @@ export default async function CreditsPage({
                             {split(plural(day.manualSearches, "manual search", "manual searches"), day.manualSearches, day.manualCredits)}
                           </span>
                         ) : null}
+                        {day.whatsappAlerts > 0 ? (
+                          <span>
+                            {split(plural(day.whatsappAlerts, "WhatsApp alert"), day.whatsappAlerts, day.whatsappCredits)}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     <span className="hrow-end">

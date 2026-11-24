@@ -152,6 +152,16 @@ async function logSend(row: {
 }
 
 /**
+ * A message deliberately NOT sent - today only "not enough credits for
+ * WhatsApp" (src/lib/whatsapp-charge.ts). Logged like a failed send so support
+ * sees why a customer got no WhatsApp for an alert.
+ */
+export async function logWhatsAppSkipped({ userId, to, reason }: { userId: string; to: string; reason: string }) {
+  const number = toWhatsAppNumber(to) ?? String(to ?? "");
+  await logSend({ wamid: null, userId, to: number, template: "(not sent)", purpose: "alert", errorMessage: reason });
+}
+
+/**
  * Sends an approved template. `bodyParams` fill {{1}}, {{2}}… in order.
  */
 export async function sendWhatsAppTemplate({

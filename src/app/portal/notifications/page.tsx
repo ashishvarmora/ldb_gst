@@ -18,6 +18,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TelegramConfig } from "@/lib/types";
 import { WHATSAPP_ALERTS_SCOPE } from "@/lib/alerts";
 import { whatsappConfigured } from "@/lib/whatsapp";
+import { whatsappCostLine, whatsappMessageCost } from "@/lib/whatsapp-charge";
 
 export async function generateMetadata() {
   const { brandName } = await publicSettings();
@@ -43,7 +44,7 @@ export default async function NotificationsPage() {
   const admin = getSupabaseAdmin();
   const waReady = whatsappConfigured();
 
-  const [{ data: telegram }, { count: pushDevices }, { data: whatsapp }, { data: me }] = await Promise.all([
+  const [{ data: telegram }, { count: pushDevices }, { data: whatsapp }, { data: me }, waCost] = await Promise.all([
     admin.from("telegram_configs").select("*").eq("user_id", overview.id).maybeSingle<TelegramConfig>(),
     admin.from("push_subscriptions").select("id", { count: "exact", head: true }).eq("user_id", overview.id),
     waReady
@@ -54,6 +55,8 @@ export default async function NotificationsPage() {
           .maybeSingle<WhatsAppConfig>()
       : Promise.resolve({ data: null }),
     admin.from("profiles").select("phone").eq("id", overview.id).maybeSingle<{ phone: string | null }>(),
+    // Credits per WhatsApp message, or null when the admin has charging off.
+    waReady ? whatsappMessageCost(admin) : Promise.resolve(null),
   ]);
 
   const devices = pushDevices ?? 0;
@@ -115,6 +118,12 @@ export default async function NotificationsPage() {
                   <Link href="/portal/profile/edit" className="nrow-link">Change</Link>
                 </p>
                 <p className="nrow-line">{WHATSAPP_ALERTS_SCOPE} Every-check updates and hourly halt reminders come in the app and on Telegram.</p>
+                {waCost !== null ? (
+                  <p className="nrow-line">
+                    {whatsappCostLine(waCost)} The test message is free. Without enough credits the alert still comes in
+                    the app and on Telegram.
+                  </p>
+                ) : null}
                 <ActionForm action={saveMyWhatsApp} closeOnSuccess={false} className="nrow-form">
                   <Checkbox name="opt_in" label="Send my truck alerts on WhatsApp" defaultChecked={waOn} />
                   <SubmitButton size="sm">Save</SubmitButton>

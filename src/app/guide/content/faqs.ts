@@ -130,9 +130,9 @@ export const FAQS: GuideFaq[] = [
   },
   {
     q: "Can I get the alerts on WhatsApp or SMS?",
-    a: "WhatsApp, yes: turn it on in [Notifications](/portal/notifications). It carries plaza crossings, halts and moving again; every-check updates and hourly halt reminders come in the app and on Telegram. There is no SMS option.",
+    a: "WhatsApp, yes: turn it on in [Notifications](/portal/notifications), where it also shows the small amount of credit each WhatsApp alert uses (the test message is free). It carries plaza crossings, halts and moving again; every-check updates and hourly halt reminders come in the app and on Telegram. There is no SMS option.",
     category: "alerts",
-    keywords: ["whatsapp", "sms", "message", "kab", "coming soon", "channel"],
+    keywords: ["whatsapp", "sms", "message", "kab", "coming soon", "channel", "charge", "credit", "cost"],
   },
   {
     q: "How do I connect Telegram?",

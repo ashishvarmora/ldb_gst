@@ -39,8 +39,13 @@ type Admin = ReturnType<typeof getSupabaseAdmin>;
 
 export const CHARGE_REASONS = ["auto_check", "manual_search"] as const;
 export const REFUND_REASON = "search_refund";
+/**
+ * A WhatsApp message to the customer (0076). Usage, but not a check: counted
+ * in the Credits page's "used" figures, not in Activity (which lists checks).
+ */
+export const WHATSAPP_REASON = "whatsapp_alert";
 /** Every reason that is spending, or the reversal of spending. */
-const NOT_ADDITIONS = "(auto_check,manual_search,search_refund)";
+const NOT_ADDITIONS = "(auto_check,manual_search,search_refund,whatsapp_alert)";
 
 /**
  * How far before its refund a failed search's charge can be. The refund is
@@ -369,6 +374,8 @@ export type UsageDay = {
   autoCredits: number;
   manualSearches: number;
   manualCredits: number;
+  whatsappAlerts: number;
+  whatsappCredits: number;
 };
 
 export type CreditStatement = {
@@ -379,6 +386,7 @@ export type CreditStatement = {
   used: number;
   usedAuto: number;
   usedManual: number;
+  usedWhatsApp: number;
   /** balance - (added - used). Zero when the ledger reconciles. */
   unexplained: number;
   /** The same figures inside the chosen date window (all time = the above). */
@@ -427,7 +435,7 @@ export async function loadCreditStatement(
           .from("credit_ledger_daily")
           .select("ist_date,reason,truck_number,entries,credits")
           .eq("user_id", userId)
-          .in("reason", [...CHARGE_REASONS, REFUND_REASON])
+          .in("reason", [...CHARGE_REASONS, REFUND_REASON, WHATSAPP_REASON])
           .order("ist_date", { ascending: false })
           .order("reason")
           .order("truck_number")
@@ -440,10 +448,10 @@ export async function loadCreditStatement(
   const periodAdditions = additions.rows.filter((row) => inWindow(istDayOf(row.created_at)));
   const periodAdded = periodAdditions.reduce((sum, row) => sum + (Number(row.delta) || 0), 0);
 
-  type Acc = { autoN: number; autoC: number; manN: number; manC: number; refN: number; refC: number };
+  type Acc = { autoN: number; autoC: number; manN: number; manC: number; refN: number; refC: number; waN: number; waC: number };
   const byDay = new Map<string, Acc>();
   for (const row of daily.rows) {
-    const acc = byDay.get(row.ist_date) ?? { autoN: 0, autoC: 0, manN: 0, manC: 0, refN: 0, refC: 0 };
+    const acc = byDay.get(row.ist_date) ?? { autoN: 0, autoC: 0, manN: 0, manC: 0, refN: 0, refC: 0, waN: 0, waC: 0 };
     const credits = Math.abs(Number(row.credits) || 0);
     const n = Number(row.entries) || 0;
     if (row.reason === "auto_check") {
@@ -452,6 +460,9 @@ export async function loadCreditStatement(
     } else if (row.reason === "manual_search") {
       acc.manN += n;
       acc.manC += credits;
+    } else if (row.reason === WHATSAPP_REASON) {
+      acc.waN += n;
+      acc.waC += credits;
     } else {
       acc.refN += n;
       acc.refC += credits;
@@ -461,19 +472,21 @@ export async function loadCreditStatement(
 
   let usedAuto = 0;
   let usedManual = 0;
+  let usedWhatsApp = 0;
   let periodUsed = 0;
   for (const [day, acc] of byDay) {
     usedAuto += acc.autoC;
     usedManual += acc.manC - acc.refC;
-    if (inWindow(day)) periodUsed += acc.autoC + acc.manC - acc.refC;
+    usedWhatsApp += acc.waC;
+    if (inWindow(day)) periodUsed += acc.autoC + acc.manC - acc.refC + acc.waC;
   }
-  const used = usedAuto + usedManual;
+  const used = usedAuto + usedManual + usedWhatsApp;
 
   /* Days with real use, in the window. A day whose only charges were refunded
      searches nets to nothing and is not a day of usage. */
   const allDays = [...byDay.entries()]
     .filter(([day]) => inWindow(day))
-    .filter(([, acc]) => acc.autoN > 0 || round2(acc.manC - acc.refC) > 0 || acc.manN - acc.refN > 0)
+    .filter(([, acc]) => acc.autoN > 0 || acc.waN > 0 || round2(acc.manC - acc.refC) > 0 || acc.manN - acc.refN > 0)
     .map(([day]) => day)
     .sort((a, b) => (a < b ? 1 : -1));
 
@@ -514,10 +527,12 @@ export async function loadCreditStatement(
           autoCredits: round2(acc.autoC),
           manualSearches,
           manualCredits,
-          credits: round2(acc.autoC + manualCredits),
+          whatsappAlerts: acc.waN,
+          whatsappCredits: round2(acc.waC),
+          credits: round2(acc.autoC + manualCredits + acc.waC),
         };
       })
-      .filter((day) => day.autoChecks > 0 || day.manualSearches > 0 || day.credits > 0);
+      .filter((day) => day.autoChecks > 0 || day.manualSearches > 0 || day.whatsappAlerts > 0 || day.credits > 0);
   }
 
   return {
@@ -526,6 +541,7 @@ export async function loadCreditStatement(
     used: round2(used),
     usedAuto: round2(usedAuto),
     usedManual: round2(usedManual),
+    usedWhatsApp: round2(usedWhatsApp),
     unexplained: round2(balance - (added - used)),
     period: {
       added: round2(periodAdded),

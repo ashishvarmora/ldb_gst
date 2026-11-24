@@ -24,6 +24,7 @@ import { Badge, LinkCard, PageHeader, Panel, QuotaBar, buttonClass, cx } from "@
 import {
   autoCheckRateLabel,
   creditStanding,
+  customerRates,
   describeRate,
   formatCredits,
   loadCreditPacks,
@@ -77,7 +78,7 @@ export default async function PlanPage() {
   const { overview } = await requirePortalSession();
   const admin = getSupabaseAdmin();
 
-  const [planResult, rates, packs, settings, searchCost] = await Promise.all([
+  const [planResult, allRates, packs, settings, searchCost] = await Promise.all([
     /*
      * Every plan, archived ones included, and then filtered below.
      *
@@ -95,6 +96,8 @@ export default async function PlanPage() {
        of the search rate rather than asking twice per request. */
     loadSearchCost(),
   ]);
+  // The WhatsApp rate is listed only while the admin charges for it.
+  const rates = customerRates(allRates, settings.whatsappChargeEnabled);
 
   const plans = (planResult.data ?? []) as Plan[];
 

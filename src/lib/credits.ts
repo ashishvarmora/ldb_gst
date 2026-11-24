@@ -28,6 +28,8 @@ type Admin = ReturnType<typeof getSupabaseAdmin>;
 export const CREDIT_ACTIONS = {
   manualSearch: "manual_search",
   autoCheck: "auto_check",
+  /** One WhatsApp message to a customer (0076). See src/lib/whatsapp-charge.ts. */
+  whatsappAlert: "whatsapp_alert",
 } as const;
 
 export type CreditAction = (typeof CREDIT_ACTIONS)[keyof typeof CREDIT_ACTIONS];
@@ -41,8 +43,10 @@ export function costOf(unitsPerCredit: number, count = 1): number {
 }
 
 /** "1 credit = 1 use", or "4 credits = 1 use" when a rate is below one. */
-export function describeRate(rate: Pick<CreditRate, "units_per_credit">): string {
+export function describeRate(rate: Pick<CreditRate, "units_per_credit"> & { action?: string }): string {
   const units = rate.units_per_credit;
+  // A fraction of a credit per message reads better than "1 credit = 5 uses".
+  if (rate.action === CREDIT_ACTIONS.whatsappAlert) return `${formatCredits(costOf(units))} credit per message`;
   if (units >= 1) {
     return `1 credit = ${formatCredits(units)} ${units === 1 ? "use" : "uses"}`;
   }
@@ -157,6 +161,14 @@ export function searchesLeftLabel(left: number): string {
 export async function loadCreditRates(admin: Admin): Promise<CreditRate[]> {
   const { data } = await admin.from("credit_rates").select("*").order("action");
   return (data ?? []) as CreditRate[];
+}
+
+/**
+ * The rates a customer is shown. The WhatsApp rate is left out while the admin
+ * has WhatsApp charging switched off, so no page quotes a price nobody pays.
+ */
+export function customerRates(rates: CreditRate[], whatsappChargeEnabled: boolean): CreditRate[] {
+  return whatsappChargeEnabled ? rates : rates.filter((rate) => rate.action !== CREDIT_ACTIONS.whatsappAlert);
 }
 
 export async function loadRate(admin: Admin, action: CreditAction): Promise<number> {
@@ -393,6 +405,9 @@ export const CREDIT_REASON_LABEL: Record<string, string> = {
   // Written by runManualLookup() when the toll portal fails: the hold taken
   // for the search is released, so the pair nets to nothing (0062).
   search_refund: "Search failed — credit returned",
+  // One WhatsApp message to the customer (0076). Charged only after Meta
+  // accepted it.
+  whatsapp_alert: "WhatsApp alert",
 };
 
 /* -------------------------------------------------------------------------- */

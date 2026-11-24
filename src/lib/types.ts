@@ -635,6 +635,12 @@ export type AppSettings = {
   /** One end-of-day summary on WhatsApp to each admin's profile mobile (key admin_whatsapp). The only admin WhatsApp. */
   adminWhatsapp: boolean;
   /**
+   * WhatsApp messages to customers cost credits (0076, key
+   * whatsapp_charge_enabled). The amount is the 'whatsapp_alert' credit rate.
+   * Never the admin daily summary or a customer's own test message.
+   */
+  whatsappChargeEnabled: boolean;
+  /**
    * The Android app offered for download. Blank means the APK bundled with the
    * site (public/rahdari.apk). Set from Admin → Settings → Mobile app, either by
    * uploading a new APK there or by pasting a link to one.

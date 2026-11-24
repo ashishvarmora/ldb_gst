@@ -68,7 +68,8 @@ const REPORT_ONLY_CSP = [
   join("img-src 'self' data: blob:", RAZORPAY_IMG),
   "font-src 'self' data:",
   join("connect-src 'self'", SUPABASE_ORIGIN, RAZORPAY_CONNECT),
-  join("frame-src", RAZORPAY_FRAME),
+  // openstreetmap: the live-location map on the truck page (LiveLocationCard).
+  join("frame-src", RAZORPAY_FRAME, "https://www.openstreetmap.org"),
   "worker-src 'self'",
   "manifest-src 'self'",
   "media-src 'self'",
@@ -273,6 +274,33 @@ const nextConfig: NextConfig = {
           // absent: it would break the Razorpay iframe, which sets no CORP
           // header of its own.
           { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+        ],
+      },
+      {
+        /*
+         * The driver's live-location page (0078) is the one page that asks for
+         * the device's location, so it alone gets geolocation=(self). Listed
+         * after "/:path*" on purpose: when two rules set the same header, Next
+         * keeps the later one. Never indexed - the URL is a credential.
+         */
+        source: "/d/:path*",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: [
+              "accelerometer=()",
+              "camera=()",
+              "geolocation=(self)",
+              "gyroscope=()",
+              "magnetometer=()",
+              "microphone=()",
+              "usb=()",
+              "payment=()",
+            ].join(", "),
+          },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
         ],
       },
       {

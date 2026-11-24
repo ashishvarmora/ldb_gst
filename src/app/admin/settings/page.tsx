@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import {
   AlertTriangle,
@@ -20,6 +21,7 @@ import {
   savePaymentSettings,
   saveSettings,
   saveSiteSettings,
+  saveWhatsAppChargeSettings,
   sendTestAdminEmail,
   sendTestDailySummary,
   sendTestWhatsAppSummary,
@@ -35,6 +37,7 @@ import { loadRetentionRules } from "@/lib/backup";
 import { emailSenderProblem } from "@/lib/email";
 import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
+import { CREDIT_ACTIONS, costOf, formatCredits } from "@/lib/credits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { ALERT_BOT_USERNAME, ID_BOT_USERNAME } from "@/lib/telegram-bot";
@@ -82,7 +85,7 @@ export default async function SettingsPage({
 
   // Raw rows for the panels that still need to tell "absent" from "off", and the
   // resolved object for the Site panel, whose defaults live in loadSettings().
-  const [{ data: rows }, { data: plans }, site, rules, headerList] = await Promise.all([
+  const [{ data: rows }, { data: plans }, site, rules, headerList, { data: waRate }] = await Promise.all([
     admin.from("app_settings").select("key, value"),
     admin.from("plans").select("*").eq("is_active", true).order("sort_order"),
     loadSettings(admin),
@@ -90,7 +93,14 @@ export default async function SettingsPage({
     // this page shows enough to tell whether anything is being deleted at all.
     loadRetentionRules(admin),
     headers(),
+    // The WhatsApp price is this rate (0076); null until 0076 is applied.
+    admin
+      .from("credit_rates")
+      .select("units_per_credit")
+      .eq("action", CREDIT_ACTIONS.whatsappAlert)
+      .maybeSingle<{ units_per_credit: number }>(),
   ]);
+  const waCost = waRate && Number(waRate.units_per_credit) > 0 ? costOf(Number(waRate.units_per_credit)) : null;
 
   const settings: SettingsMap = Object.fromEntries(
     (rows ?? []).map((row) => [row.key, row.value]),
@@ -661,6 +671,37 @@ export default async function SettingsPage({
 
               <FormActions>
                 <SubmitButton>Save settings</SubmitButton>
+              </FormActions>
+            </ActionForm>
+          </Panel>
+
+          <Panel
+            title="WhatsApp alerts for customers"
+            description="WhatsApp stays opt-in per customer. This decides whether each message they get costs credits."
+          >
+            <ActionForm action={saveWhatsAppChargeSettings} closeOnSuccess={false}>
+              <Checkbox
+                name="whatsapp_charge_enabled"
+                label="Charge credits for WhatsApp alerts"
+                hint="Truck alerts and the account notices that go on WhatsApp. Never charged: the customer's own test message, the admin daily summary, and the 'no credits left' notice. A customer without enough credits still gets the alert in the app and on Telegram, just not on WhatsApp. A message is charged only after WhatsApp accepted it."
+                defaultChecked={site.whatsappChargeEnabled}
+              />
+              <p className="mt-3 text-xs leading-relaxed text-muted">
+                {waCost === null ? (
+                  <>The WhatsApp rate is not set up yet (migration 0076), so nothing is charged.</>
+                ) : (
+                  <>
+                    Amount: <strong className="text-ink">{formatCredits(waCost)} credit per message</strong>.
+                    Change it under{" "}
+                    <Link href="/admin/plans?tab=rules" className="underline">
+                      Plans &amp; credits → Rules
+                    </Link>{" "}
+                    (the &ldquo;WhatsApp alert&rdquo; rate).
+                  </>
+                )}
+              </p>
+              <FormActions>
+                <SubmitButton>Save WhatsApp charging</SubmitButton>
               </FormActions>
             </ActionForm>
           </Panel>
