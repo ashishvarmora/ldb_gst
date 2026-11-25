@@ -11,6 +11,9 @@ export type DriverKind = "own" | "one_time";
 export type VehicleOwnerType = "own" | "dealer" | "supplier" | "transporter";
 export type TripPurpose = "dispatch" | "pickup" | "transfer" | "return" | "other";
 export type BusinessType = "manufacturer" | "trader" | "distributor" | "transporter" | "other";
+/** 0082: outgoing = we send; incoming = a supplier sends to us (trip-only driver/truck/from). */
+export type TripDirection = "outgoing" | "incoming";
+export type PartyType = "dealer" | "customer" | "internal" | "supplier" | "other";
 export type PlaceKind = "factory" | "warehouse" | "branch" | "customer" | "other";
 
 export const TRIP_STATUSES: TripStatus[] = ["planned", "loading", "in_transit", "arrived", "delivered", "cancelled"];
@@ -110,6 +113,13 @@ export type LiveTrip = {
   from_name?: string | null;
   from_lat?: number | null;
   from_lng?: number | null;
+  /* 0082 */
+  direction?: TripDirection | null;
+  party_type?: PartyType | null;
+  party_name?: string | null;
+  from_address?: string | null;
+  to_address?: string | null;
+  inline_driver?: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -476,7 +486,7 @@ export function signalState(trip: Pick<LiveTrip, "share_status" | "last_point_at
 
 export const DRIVER_KIND_LABEL: Record<DriverKind, string> = {
   own: "Own",
-  one_time: "One-time",
+  one_time: "Trip-only",
 };
 
 export const VEHICLE_OWNER_LABEL: Record<VehicleOwnerType, string> = {
@@ -494,6 +504,25 @@ export const PURPOSE_LABEL: Record<TripPurpose, string> = {
   other: "Other",
 };
 export const PURPOSES = Object.keys(PURPOSE_LABEL) as TripPurpose[];
+
+export const DIRECTION_LABEL: Record<TripDirection, string> = {
+  outgoing: "Sending",
+  incoming: "Receiving",
+};
+
+export const OUT_PARTY_TYPES: PartyType[] = ["customer", "dealer", "internal", "other"];
+export const IN_PARTY_TYPES: PartyType[] = ["supplier", "dealer", "other"];
+export const PARTY_TYPE_LABEL: Record<PartyType, string> = {
+  customer: "Customer",
+  dealer: "Dealer",
+  internal: "Own site",
+  supplier: "Supplier",
+  other: "Other",
+};
+
+export function tripDirection(trip: Pick<LiveTrip, "direction">): TripDirection {
+  return trip.direction === "incoming" ? "incoming" : "outgoing";
+}
 
 export const BUSINESS_TYPE_LABEL: Record<BusinessType, string> = {
   manufacturer: "Manufacturer",
@@ -590,6 +619,8 @@ export const TRIP_FIELDS_BEFORE_START = [
   "transporter",
   "freight_inr",
   "planned_dispatch_at",
+  "party_name",
+  "party_type",
 ] as const;
 
 export type TripPhase = "before_start" | "started" | "closed";

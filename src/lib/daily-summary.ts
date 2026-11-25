@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { fmtDate, fmtDayTime, fmtNumber, fmtRelative, fmtRupees, fmtTime, istToday } from "@/lib/format";
 import { loadSettings } from "@/lib/settings";
 import type { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { sendWhatsAppAlert, whatsappConfigured } from "@/lib/whatsapp";
+import { sendWhatsAppAlert, whatsappConfigured, type PreferredTemplate } from "@/lib/whatsapp";
 
 /**
  * The owner's end-of-day mail.
@@ -194,6 +194,7 @@ export async function maybeSendWhatsAppDailySummary(
           to: person.phone,
           text: message.text,
           params: message.params,
+          preferred: message.preferred,
           purpose: "alert",
           userId: person.id,
         }),
@@ -257,7 +258,7 @@ async function whatsappAdmins(admin: Admin): Promise<{ id: string; phone: string
 export async function buildWhatsAppSummary(
   admin: Admin,
   date: string,
-): Promise<{ text: string; params: string[] }> {
+): Promise<{ text: string; params: string[]; preferred: PreferredTemplate }> {
   const day = await readDay(admin, date);
   const from = istDayStart(date);
   const to = day.until.toISOString();
@@ -325,7 +326,21 @@ export async function buildWhatsAppSummary(
     longDay(date),
   ];
 
-  return { text, params };
+  /* rahdari_admin_daily: "Rahdari summary for {{1}}. Sign-ups: {{2}} Payments: {{3}}
+     Credits: {{4}} Tracking: {{5}} Needs attention: {{6}}" + static "Open admin" button. */
+  const preferred: PreferredTemplate = {
+    template: env.whatsappAdminDailyTemplate,
+    bodyParams: [
+      longDay(date),
+      fmtNumber(day.signups.length),
+      `${fmtNumber(day.paid.length)} paid, ${fmtRupees(revenue)}, ${fmtNumber(day.failedAttempts)} failed`,
+      `${formatCredits(creditsSold)} sold, ${formatCredits(day.creditsUsed)} used`,
+      `${plural(day.trucksActive, "active truck")}, ${plural(day.autoChecks, "check")}, ${plural(day.crossings, "crossing")}`,
+      attention.length > 0 ? attention.map((line) => line.replace(/^•\s*/, "")).join("; ").slice(0, 300) : "nothing",
+    ],
+  };
+
+  return { text, params, preferred };
 }
 
 type Marker =

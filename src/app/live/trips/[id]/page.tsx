@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Copy, ExternalLink, MessageCircle, Navigation, Pencil, Sparkles } from "lucide-react";
+import { Copy, ExternalLink, MessageCircle, Navigation, Pencil, Sparkles, UserRound } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { buttonClass, cx } from "@/components/ui";
@@ -24,8 +24,11 @@ import {
   waHref,
 } from "@/lib/live/server";
 import {
+  DIRECTION_LABEL,
   NEXT_STATUSES,
+  PARTY_TYPE_LABEL,
   PURPOSE_LABEL,
+  tripDirection,
   STATUS_LABEL,
   agoShort,
   destinationText,
@@ -121,7 +124,10 @@ export default async function TripPage({
   const late = issues.some((i) => i.key === "late");
   const signal = signalState(trip, now);
   const ownerLabel = ownerLabelFrom(live.session, profile);
-  const fromText = from?.name ?? trip.from_name ?? null;
+  const direction = tripDirection(trip);
+  const fromText =
+    from?.name ??
+    ([trip.party_name, trip.from_name && trip.from_name !== trip.party_name ? trip.from_name : null].filter(Boolean).join(" · ") || null);
   const phase = tripPhase(trip.status);
 
   // Driver-first (0081): the trip uses the DRIVER's own link.
@@ -156,6 +162,7 @@ export default async function TripPage({
       <header className="live-trip-head">
         <div className="min-w-0">
           <p className="live-trip-no">
+            <span className={`live-dir live-dir-${direction}`}>{DIRECTION_LABEL[direction]}</span>{" "}
             {trip.purpose ? `${PURPOSE_LABEL[trip.purpose].split(" (")[0]} · ` : ""}
             {trip.vehicle_no ? prettyVehicle(trip.vehicle_no) : "No truck"}
             {trip.invoice_no ? ` · Invoice ${trip.invoice_no}` : ""}
@@ -176,7 +183,7 @@ export default async function TripPage({
       {sp.created && dLink ? (
         <section className="live-callout">
           <strong>Trip created. Send {driver?.name ?? "the driver"} his link.</strong>
-          <p>Same link as always for this driver. He opens it, taps Start sharing - you see him here. No app needed.</p>
+          <p>He opens it and taps Start sharing - you see the truck here. No app needed.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {driverWa ? (
               <a href={driverWa} target="_blank" rel="noopener noreferrer" className="live-cta live-cta-sm live-cta-wa">
@@ -185,6 +192,20 @@ export default async function TripPage({
             ) : null}
             <CopyButton value={dLink} />
           </div>
+        </section>
+      ) : null}
+
+      {!trip.driver_id && open ? (
+        <section className="live-callout">
+          <strong>Add the driver to start tracking.</strong>
+          <p>
+            {direction === "incoming"
+              ? "Type the supplier's driver name and mobile. He gets a link on WhatsApp - no app needed."
+              : "Pick your driver. He gets his link on WhatsApp, taps Start sharing, and you see the truck here."}
+          </p>
+          <Link href={`/live/trips/${trip.id}/edit`} className="live-cta live-cta-sm mt-2 inline-flex">
+            <UserRound size={14} /> Add driver
+          </Link>
         </section>
       ) : null}
 
@@ -269,7 +290,7 @@ export default async function TripPage({
                 {hidden(trip)}
                 <input type="hidden" name="status" value={s} />
                 {s === "cancelled" ? (
-                  <ConfirmSubmitButton message="Cancel this trip? It stays in your records. Own drivers keep sharing; a one-time driver stops after the set hours." size="md">
+                  <ConfirmSubmitButton message="Cancel this trip? It stays in your records. Your own drivers keep their link; a receiving-trip driver's link stops after the set hours." size="md">
                     {ACTION_LABEL[s]}
                   </ConfirmSubmitButton>
                 ) : (
@@ -296,17 +317,19 @@ export default async function TripPage({
         <section className="panel p-4">
           <div className="flex items-start justify-between gap-2">
             <h2 className="live-h2">Driver</h2>
-            {driver ? (
-              <Link href={`/live/drivers/${driver.id}`} className="text-sm font-semibold text-brand-600">
-                Manage
+            {driver && driver.kind === "own" ? (
+              <Link href={`/live/drivers/${driver.id}`} className="text-xs font-semibold text-brand-600">
+                Driver page
               </Link>
+            ) : driver ? (
+              <span className="text-[11px] text-muted">Trip-only driver</span>
             ) : null}
           </div>
           {driver ? (
             <>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink">
                 <strong>{driver.name}</strong>
-                <KindChip driver={driver} />
+                {driver.kind === "own" ? <KindChip driver={driver} /> : null}
                 {driver.phone ? <a href={`tel:${driver.phone}`} className="text-muted">{formatIndianMobile(driver.phone)}</a> : null}
               </p>
               <p className="mt-1">
@@ -377,12 +400,18 @@ export default async function TripPage({
         </div>
         <dl className="live-dl mt-2">
           <Row label="Trip">{tripNo(trip.trip_seq)}{trip.trip_name ? ` · ${trip.trip_name}` : ""} (fixed)</Row>
+          <Row label="Direction">
+            {DIRECTION_LABEL[direction]}
+            {trip.party_type ? ` · ${PARTY_TYPE_LABEL[trip.party_type]}` : ""}
+          </Row>
           <Row label="Purpose">{trip.purpose ? PURPOSE_LABEL[trip.purpose] : "-"}</Row>
           <Row label="Driver">{trip.driver_name ?? "-"}</Row>
           <Row label="Truck">{trip.vehicle_no ? <span className="font-mono">{prettyVehicle(trip.vehicle_no)}</span> : "-"}</Row>
           <Row label="From">{fromText ?? "-"}</Row>
           <Row label="To">{toText}</Row>
-          {trip.consignee_name ? <Row label="Customer contact">{trip.consignee_name}{trip.consignee_phone ? ` · ${formatIndianMobile(trip.consignee_phone)}` : ""}</Row> : null}
+          {trip.from_address ? <Row label="From address">{trip.from_address}</Row> : null}
+          {trip.to_address ? <Row label="To address">{trip.to_address}</Row> : null}
+          {trip.consignee_name ? <Row label="Contact">{trip.consignee_name}{trip.consignee_phone ? ` · ${formatIndianMobile(trip.consignee_phone)}` : ""}</Row> : null}
           <Row label="Material">
             {[trip.material, trip.quantity != null ? `${trip.quantity} ${trip.quantity_unit ?? ""}`.trim() : null, trip.weight_kg != null ? `${trip.weight_kg} kg` : null]
               .filter(Boolean)
@@ -422,7 +451,7 @@ export default async function TripPage({
       </section>
 
       <section className="flex flex-wrap items-center gap-2 pb-4">
-        <Link href={`/live/new?copy=${trip.id}`} className={buttonClass("secondary", "sm")}>
+        <Link href={`/live/trips/new?copy=${trip.id}`} className={buttonClass("secondary", "sm")}>
           Same route again
         </Link>
         {trip.status === "planned" && !trip.started_at && !trip.last_point_at ? (

@@ -219,12 +219,12 @@ export async function afterTripClosed(trip: LiveTrip): Promise<void> {
   await db.from("live_drivers").update({ share_expires_at: until, updated_at: new Date().toISOString() }).eq("id", driver.id);
   await db
     .from("live_assignments")
-    .update({ ended_at: new Date().toISOString(), ended_reason: "trip closed (one-time driver)", actor: "system" })
+    .update({ ended_at: new Date().toISOString(), ended_reason: "trip closed (trip-only driver)", actor: "system" })
     .eq("driver_id", driver.id)
     .is("ended_at", null);
   await recordDriverEvent(driver, {
     kind: "share",
-    title: `Sharing will end at ${fmtIst(until)} (one-time driver, trip ${tripNo(trip.trip_seq)} closed)`,
+    title: `Sharing will end at ${fmtIst(until)} (trip-only driver, trip ${tripNo(trip.trip_seq)} closed)`,
     actor: "system",
   });
 }
@@ -310,7 +310,12 @@ function inside(p: { lat: number; lng: number }, place: LivePlace | null | undef
  */
 export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace>, points: Point[], now = Date.now()) {
   if (!OPEN_STATUSES.includes(trip.status)) return;
-  const from = trip.from_place_id ? places.get(trip.from_place_id) : null;
+  // 0082: a receiving trip's origin is typed on the trip (no saved place) - use it as a 500 m geofence.
+  const from =
+    (trip.from_place_id ? places.get(trip.from_place_id) : null) ??
+    (trip.from_lat != null && trip.from_lng != null
+      ? ({ id: `trip-${trip.id}`, name: trip.from_name || trip.party_name || "pickup point", lat: trip.from_lat, lng: trip.from_lng, radius_m: 500 } as LivePlace)
+      : null);
   const to = trip.to_place_id ? places.get(trip.to_place_id) : null;
   const latest = points[0] ?? null;
   const nowIso = new Date(now).toISOString();
@@ -524,7 +529,7 @@ async function driverSweep(now: number) {
     return;
   }
   for (const d of (expired ?? []) as { id: string; owner_id: string }[]) {
-    await recordDriverEvent(d, { kind: "share", title: "Sharing ended (one-time driver, trip done)", actor: "system" });
+    await recordDriverEvent(d, { kind: "share", title: "Sharing ended (trip-only driver, trip done)", actor: "system" });
   }
 
   const cutoff = new Date(now - NO_SIGNAL_MS).toISOString();

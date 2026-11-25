@@ -5,7 +5,7 @@ import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/Acti
 import { Field, Input, Select } from "@/components/form";
 import { buttonClass } from "@/components/ui";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { loadDriverBoard, logLive, requireLiveSession } from "@/lib/live/server";
+import { loadDriverBoard, logLive, requireLiveSession, safeReturn } from "@/lib/live/server";
 import { VEHICLE_OWNER_LABEL, prettyVehicle, type LiveVehicle, type VehicleOwnerType } from "@/lib/live/shared";
 
 import { archiveVehicle, restoreVehicle, saveVehicle } from "../../actions";
@@ -14,10 +14,11 @@ import { BackLink } from "../../BackLink";
 export const metadata = { title: "Live tracking - Trucks" };
 export const dynamic = "force-dynamic";
 
-function TruckForm({ v }: { v: LiveVehicle | null }) {
+function TruckForm({ v, back }: { v: LiveVehicle | null; back?: string | null }) {
   return (
     <ActionForm action={saveVehicle} closeOnSuccess={false} resetOnSuccess={!v} refresh={false} className="mt-3">
       {v ? <input type="hidden" name="id" value={v.id} /> : null}
+      {!v && back ? <input type="hidden" name="return" value={back} /> : null}
       <div className="live-form-grid">
         <Field label="Truck number" name="number" required>
           <Input name="number" required defaultValue={v?.number ?? ""} autoCapitalize="characters" placeholder="GJ36X1234" className="font-mono uppercase" />
@@ -45,16 +46,17 @@ function TruckForm({ v }: { v: LiveVehicle | null }) {
         </Field>
       </div>
       <div className="mt-3">
-        <SubmitButton size="sm">{v ? "Save truck" : "Add truck"}</SubmitButton>
+        <SubmitButton size="sm">{v ? "Save truck" : back ? "Save and go back" : "Add truck"}</SubmitButton>
       </div>
     </ActionForm>
   );
 }
 
-export default async function TrucksMaster({ searchParams }: { searchParams: Promise<{ archived?: string; edit?: string }> }) {
+export default async function TrucksMaster({ searchParams }: { searchParams: Promise<{ archived?: string; edit?: string; add?: string; return?: string }> }) {
   const sp = await searchParams;
   const { ownerId } = await requireLiveSession();
   const showArchived = sp.archived === "1";
+  const back = safeReturn(sp.return);
   const [{ rows, vehicles }, archived] = await Promise.all([
     loadDriverBoard(ownerId),
     showArchived
@@ -76,18 +78,18 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
   const editing = sp.edit ? vehicles.find((v) => v.id === sp.edit) ?? null : null;
 
   return (
-    <div className="live-page mx-auto max-w-3xl space-y-4">
-      <BackLink href="/live/masters" label="Masters" />
+    <div className="live-page mx-auto max-w-3xl space-y-3">
+      <BackLink href={back ?? "/live/masters"} label={back ? "Back to trip" : "Masters"} />
       <header className="live-page-head">
         <div>
           <h1>Trucks</h1>
-          <p>A truck has one driver at a time. Assign it on the driver&apos;s page.</p>
+          <p>Our trucks. A truck has one driver at a time; pick it on a trip.</p>
         </div>
       </header>
 
-      <details className="panel live-form-block" open={Boolean(editing) || (vehicles.length === 0 && !showArchived)} id="truck-form">
+      <details className="panel live-form-block" open={Boolean(editing) || Boolean(sp.add) || (vehicles.length === 0 && !showArchived)} id="truck-form">
         <summary className="live-h2 cursor-pointer">{editing ? `Edit ${prettyVehicle(editing.number)}` : "+ Add a truck"}</summary>
-        <TruckForm key={editing?.id ?? "new"} v={editing} />
+        <TruckForm key={editing?.id ?? "new"} v={editing} back={back} />
       </details>
 
       <nav className="live-tabs" aria-label="Filter">

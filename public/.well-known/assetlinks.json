@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.rahdari.app",
+      "sha256_cert_fingerprints": [
+        "TODO_OWNER_REPLACE_WITH_RELEASE_KEYSTORE_SHA256_AA:BB:CC:...",
+        "TODO_OWNER_ADD_PLAY_APP_SIGNING_SHA256_IF_USING_PLAY"
+      ]
+    }
+  }
+]

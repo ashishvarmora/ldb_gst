@@ -37,9 +37,9 @@ export default async function AppsPage() {
               <Navigation size={24} />
             </span>
             <strong className="text-lg text-strong">Live tracking</strong>
-            <span className="text-sm text-muted">Dispatch trips with live GPS from the driver&apos;s phone, e-way bill alerts and customer links.</span>
+            <span className="text-sm text-muted">Sending and receiving trips with live GPS from the driver&apos;s phone, e-way bill alerts and customer links.</span>
             {live.enabled ? (
-              <Link href="/live" className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
+              <Link href="/live/trips" className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
                 Open <ArrowRight size={15} />
               </Link>
             ) : live.available ? (

@@ -18,6 +18,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Driver links https://rahdari.in/d/<token> open in the app when it is
+                 installed, so location sharing can continue in the background.
+                 autoVerify needs public/.well-known/assetlinks.json on rahdari.in with
+                 the release (and Play app-signing) SHA-256; until that is right the
+                 link is simply unverified: Android then opens it in the browser, and
+                 the driver can still pick Rahdari via Settings > Apps > Rahdari >
+                 Open by default (or an "Open with" prompt on older Android). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="rahdari.in" android:pathPrefix="/d/" />
+            </intent-filter>
         </activity>
 
         <!-- Push notifications (Firebase Cloud Messaging). The channel id matches the
@@ -45,6 +59,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ asks before showing notifications. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Driver location sharing in the background (@capacitor-community/background-geolocation:
+         a foreground service of type "location" with an ongoing notification). The plugin
+         merges the same entries; they are listed here so the policy-relevant set is visible.
+         ACCESS_BACKGROUND_LOCATION is declared at the owner's request; the foreground-service
+         design does not strictly need it (see mobile/README.md). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Saving exports to Downloads needs this only on Android 9 and older. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 

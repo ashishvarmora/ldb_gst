@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, MessageCircle, Navigation, Phone, Plus } from "lucide-react";
+import { ExternalLink, MessageCircle, Navigation, Phone } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { Field, Input, Select } from "@/components/form";
@@ -91,7 +91,7 @@ export default async function DriverPage({
   const emptyText: Record<string, string> = {
     waiting: "Link not opened yet. Send it on WhatsApp; he taps Start sharing.",
     stopped: "The driver stopped sharing. Call him, or send the same link again.",
-    expired: "Sharing ended (one-time driver, trip done).",
+    expired: "Sharing ended (trip-only driver, trip done).",
     off: "You switched this driver's link off.",
     idle: "No location yet.",
     recent: "No location yet.",
@@ -99,9 +99,9 @@ export default async function DriverPage({
   };
 
   return (
-    <div className="live-page mx-auto max-w-3xl space-y-4">
+    <div className="live-page mx-auto max-w-3xl space-y-3">
       {linkOn ? <AutoRefresh ms={30_000} /> : null}
-      <BackLink href="/live" label="Drivers" />
+      <BackLink href="/live/masters/drivers" label="Drivers" />
 
       <header className="live-driver-head">
         <div className="min-w-0">
@@ -178,10 +178,10 @@ export default async function DriverPage({
           <h2 className="live-h2">Location link</h2>
           <p className="mt-1 text-sm text-muted">
             {driver.kind === "own"
-              ? "Own driver: shares until he taps Stop."
+              ? "Our driver: one link for all his trips; shares until he taps Stop."
               : driver.share_expires_at
-                ? `One-time driver: sharing ends ${fmtIst(driver.share_expires_at)}.`
-                : `One-time driver: sharing ends ${profile.one_time_expire_hours} h after his trip is done.`}
+                ? `Trip-only driver: sharing ends ${fmtIst(driver.share_expires_at)}.`
+                : `Trip-only driver: sharing ends ${profile.one_time_expire_hours} h after his trip is done.`}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {linkOn && link ? (
@@ -221,18 +221,14 @@ export default async function DriverPage({
         <section className="panel p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="live-h2">Current trip</h2>
-            {!trip && !archived ? (
-              <Link href={`/live/new?driver=${driver.id}&trip=1`} className={buttonClass("secondary", "sm")}>
-                <Plus size={14} /> Add trip
-              </Link>
-            ) : null}
+
           </div>
           {trip ? (
             <div className="mt-3">
               <TripCard trip={trip} places={byId} now={now} />
             </div>
           ) : (
-            <p className="mt-2 text-sm text-muted">No trip. Location is tracked without one.</p>
+            <p className="mt-2 text-sm text-muted">No open trip. Pick him on a trip to track a delivery.</p>
           )}
         </section>
 
@@ -257,7 +253,9 @@ export default async function DriverPage({
                       </option>
                     ))}
                 </Select>
-                <Input name="number" placeholder="or type a new number: GJ36X1234" autoCapitalize="characters" className="font-mono uppercase" aria-label="New truck number" />
+                <Link href="/live/masters/trucks?add=1" className="text-xs font-semibold text-brand-600">
+                  + Add a new truck in Masters
+                </Link>
                 <label className="flex items-center gap-2 text-sm text-ink">
                   <input type="checkbox" name="force" className="size-4" /> If it is with another driver, move it to {driver.name}
                 </label>
@@ -306,15 +304,6 @@ export default async function DriverPage({
             </Field>
             <Field label="Mobile" name="phone">
               <Input name="phone" inputMode="tel" defaultValue={indianMobileDigits(driver.phone) ?? ""} />
-            </Field>
-            <Field label="Type" name="kind">
-              <Select name="kind" defaultValue={driver.kind}>
-                <option value="own">Own driver</option>
-                <option value="one_time">One-time (dealer / supplier)</option>
-              </Select>
-            </Field>
-            <Field label="Dealer / supplier" name="company" hint="For one-time drivers.">
-              <Input name="company" defaultValue={driver.company ?? ""} />
             </Field>
             <Field label="Licence no." name="license_no">
               <Input name="license_no" defaultValue={driver.license_no ?? ""} />

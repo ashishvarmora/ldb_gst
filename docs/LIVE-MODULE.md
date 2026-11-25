@@ -18,7 +18,7 @@ customer track token, cached last position/ETA) · `live_trip_events` (timeline 
 `live_locations` (points per trip, 30-day retention via `purge_live_locations()`).
 
 ## Routes
-`/apps` · `/live` (Today) · `/live/trips` (+ filters/search) · `/live/trips/new` · `/live/trips/[id]` · `/live/trips/[id]/edit` ·
+`/apps` · `/live` (-> Trips, 0082) · `/live/trips` (+ filters/search) · `/live/trips/new` · `/live/trips/[id]` · `/live/trips/[id]/edit` ·
 `/live/places` · `/live/fleet` · public `/d/[token]` (driver) · public `/track/[token]` (customer) ·
 `POST /api/driver/[token]/location` · `POST /api/driver/[token]/status`.
 
@@ -61,3 +61,16 @@ Tracking follows the **driver's phone**. The driver owns the link (`live_drivers
 - **Positions**: `live_locations.driver_id` (+ `trip_id` when on a trip). Driver row caches last position.
 - **Token resolution** (`src/lib/live/driver.ts`): driver token -> old trip token -> its driver -> 0079 trip-only -> 0078 truck link.
 - **Pages**: `/live` Drivers (Live / Last seen / Idle), `/live/new` one-screen create (driver required; Truck and Trip toggles), `/live/drivers/[id]`, `/live/trips` (+ `/live/today` summary), `/live/masters` (+ drivers, trucks, `/live/places`), `/live/profile`.
+
+## 0082 - trips-first (25 Nov 2026)
+
+Everything is managed through **trips**. No "Track a driver" screen, no floating button.
+
+- **Direction** (`live_trips.direction`, default `outgoing`; old trips = outgoing):
+  - **Sending** (outgoing): driver + truck picked from Masters. From = our warehouse (default warehouse preselected), To = saved customer place, or name + exact location (address search, map pick, Google Maps link, or GPS) + address; `party_type` customer/dealer/internal/other.
+  - **Receiving** (incoming): supplier does not use the app. Driver name + mobile, truck number and supplier name/place/location are typed on the trip (`driver_name/driver_phone/vehicle_no`, `party_name`, `from_name/from_address/from_lat/from_lng`); To = our warehouse. The driver row is kind `one_time` (shown as "Trip-only"), hidden from masters, link expires after the trip. The typed origin is used as a 500 m geofence by automation. If the supplier uses Rahdari he can send his own `/track/<token>` link instead.
+- **Create** = `/live/trips/new`: direction + trip name (required; T-number auto, both fixed). Then `/live/trips/[id]/edit?setup=1`: Driver (required to start tracking), Truck (toggle), Trip details (toggle; inside required: purpose, From, To; times with a rules ETA estimate = straight line x 1.25 at 40 km/h; "More details" = goods, documents, contact, notes; AI paste-to-fill).
+- **Masters** = the only place to add/edit/archive own drivers (kind `own` only), trucks, warehouses. "Add new" beside a picker goes to the master with `?add=1&return=<path>`; on save it redirects back with `picked_driver|picked_vehicle|picked_place=<id>` (return paths limited to `/live/...`, `safeReturn()` in server.ts).
+- **Nav**: Trips (home; `/live` redirects) · New trip · Masters · Profile (`/portal/profile`, the common profile). Live business settings moved to `/portal/profile/live` (section "Live tracking" on the profile only when the account has the module). `/live/profile` and `/live/new` redirect.
+- **Map picker**: `src/app/live/MapPicker.tsx`, plain OSM tiles (img-src `tile.openstreetmap.org` added to the report-only CSP).
+- **Before 0082 is applied**: sending trips work (new columns are stripped by `strip82()`), receiving trips are refused with a clear message, direction filter is ignored.

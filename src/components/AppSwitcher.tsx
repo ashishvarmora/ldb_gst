@@ -25,7 +25,7 @@ const APPS = [
   },
   {
     key: "live",
-    href: "/live",
+    href: "/live/trips",
     name: "Live tracking",
     hint: "Drivers' phone location, trips",
     icon: Navigation,

@@ -231,6 +231,27 @@ Building on your own PC instead: copy the file to
 If the test says the keys were refused, the service account and the
 `google-services.json` are from different Firebase projects.
 
+## 7. Driver location in the background (Android)
+
+Driver links `https://rahdari.in/d/<token>` open in the app (App Link filter in
+`AndroidManifest.xml`; `MainActivity.openDriverLink` points the WebView at the page).
+In the app, Start sharing uses `@capacitor-community/background-geolocation`
+(foreground service + ongoing notification) instead of the browser's GPS, so sharing
+continues with the phone locked until Stop or until the server answers 410.
+Bridge: `src/lib/native-bg-location.ts`. `android.useLegacyBridge: true` in
+`capacitor.config.json` is required by the plugin (updates otherwise stop after ~5 min).
+
+Owner to-do:
+- **assetlinks**: put the SHA-256 of the release keystore (`keytool -list -v -keystore release.jks`)
+  and, if using Play App Signing, the Play "App signing key" SHA-256 (Play Console > Setup > App
+  integrity) into `public/.well-known/assetlinks.json`, deploy, then reinstall the app.
+  Until then links open in Chrome; the driver page shows an "Open in app" link.
+- **Play Console**: App content > Location permissions: declare background location for
+  "live trip tracking for the transporter while the driver is on a trip", with a short video of
+  the disclosure > permission > notification flow. If Play rejects ACCESS_BACKGROUND_LOCATION,
+  remove that line from the manifest: the foreground service works without it.
+- Set `NEXT_PUBLIC_ANDROID_APP_URL` (Vercel) to the Play listing / APK page once public.
+
 ## How the website knows it's in the app
 
 The app adds `RahdariApp/1.0` to its user agent (`appendUserAgent`).

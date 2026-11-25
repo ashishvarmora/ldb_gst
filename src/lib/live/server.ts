@@ -206,6 +206,8 @@ export type TripFilter = {
   from?: string | null; // ISO day start
   to?: string | null;
   place?: string | null;
+  /** 0082: "outgoing" | "incoming"; ignored before 0082 is applied. */
+  direction?: string | null;
   page?: number;
 };
 
@@ -218,6 +220,9 @@ export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ row
   if (f.from) q = q.gte("created_at", f.from);
   if (f.to) q = q.lt("created_at", f.to);
   if (f.place && /^[0-9a-f-]{36}$/i.test(f.place)) q = q.or(`from_place_id.eq.${f.place},to_place_id.eq.${f.place}`);
+  const has82 = await liveSchema82();
+  if (has82 && f.direction === "incoming") q = q.eq("direction", "incoming");
+  if (has82 && f.direction === "outgoing") q = q.eq("direction", "outgoing");
   const term = (f.q ?? "").trim();
   if (term) {
     const safe = term.replace(/[^A-Za-z0-9 ./-]/g, "").slice(0, 40);
@@ -232,6 +237,7 @@ export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ row
       `driver_name.ilike.%${safe}%`,
       `trip_name.ilike.%${safe}%`,
       `material.ilike.%${safe}%`,
+      ...(has82 ? [`party_name.ilike.%${safe}%`] : []),
     ];
     if (veh.length >= 3) ors.push(`vehicle_no.ilike.%${veh}%`);
     if (digits.length >= 4) ors.push(`eway_bill_no.ilike.%${digits}%`);
@@ -500,4 +506,25 @@ export async function liveSchemaReady(): Promise<boolean> {
   if (!error) schema81 = true;
   else if (!isMissingRelation(error)) logLive("schema check", error);
   return schema81 || !isMissingRelation(error);
+}
+
+/** True once migration 0082 (trip direction, trip-only incoming fields) is applied. */
+let schema82 = false;
+export async function liveSchema82(): Promise<boolean> {
+  if (schema82) return true;
+  const { error } = await getSupabaseAdmin().from("live_trips").select("direction,inline_driver").limit(1);
+  if (!error) schema82 = true;
+  return schema82;
+}
+
+/** Only a same-site /live path may be a "come back here" target. */
+export function safeReturn(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  if (!/^\/live(\/[A-Za-z0-9/_-]*)?(\?[A-Za-z0-9=&_%.-]*)?$/.test(raw) || raw.startsWith("//")) return null;
+  return raw.slice(0, 200);
+}
+
+/** Append ?key=value (or &key=value) to a return path. */
+export function withParam(path: string, key: string, value: string): string {
+  return `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
 }

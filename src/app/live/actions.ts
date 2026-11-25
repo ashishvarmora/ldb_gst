@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { extractDispatch, type DispatchExtract } from "@/lib/live-ai";
 import { afterTripClosed, changeStatus, recordDriverEvent, recordEvent } from "@/lib/live/automation";
-import { isMissingRelation, logLive, newToken } from "@/lib/live/server";
+import { isMissingRelation, liveSchema82, logLive, newToken, safeReturn, withParam } from "@/lib/live/server";
 import {
   NEXT_STATUSES,
   PLACE_KINDS,
@@ -29,6 +29,8 @@ import {
   type LiveTrip,
   type LiveVehicle,
   type PlaceKind,
+  type PartyType,
+  type TripDirection,
   type TripStatus,
   type VehicleOwnerType,
 } from "@/lib/live/shared";
@@ -53,7 +55,7 @@ async function actor(requireEnabled = true): Promise<Actor | ActionResult> {
   return { userId: session.id, ownerId: session.id };
 }
 
-/* Driver-first (0081): the create flow is createTracking(); trips no longer
+/* Trips-first (0082): createTrip() (name + direction) then updateTrip() (setup); trips no longer
    have their own driver link (the driver's link is used). */
 
 function isActor(a: Actor | ActionResult): a is Actor {
@@ -184,10 +186,12 @@ export async function savePlace(_prev: ActionResult | null, fd: FormData): Promi
   };
   const admin = getSupabaseAdmin();
   const res = id
-    ? await admin.from("live_places").update(row).eq("id", id).eq("owner_id", a.ownerId)
-    : await admin.from("live_places").insert(row);
+    ? await admin.from("live_places").update(row).eq("id", id).eq("owner_id", a.ownerId).select("id").maybeSingle<{ id: string }>()
+    : await admin.from("live_places").insert(row).select("id").maybeSingle<{ id: string }>();
   if (res.error) return dbError(res.error, "place");
   revalidatePath("/live", "layout");
+  const back = safeReturn(str(fd, "return", 200));
+  if (back && res.data?.id) redirect(withParam(back, "picked_place", res.data.id));
   return { ok: true, message: id ? "Place updated." : "Place added." };
 }
 
@@ -432,6 +436,9 @@ export async function saveVehicle(_prev: ActionResult | null, fd: FormData): Pro
   } else {
     const saved = await upsertVehicleRow(a.ownerId, v.number, row);
     if (!saved) return { ok: false, error: "Could not save. Please try again." };
+    revalidatePath("/live", "layout");
+    const back = safeReturn(str(fd, "return", 200));
+    if (back) redirect(withParam(back, "picked_vehicle", saved.id));
   }
   revalidatePath("/live", "layout");
   return { ok: true, message: id ? "Truck updated." : "Truck saved." };
@@ -531,7 +538,7 @@ async function findOrCreateDriver(ownerId: string, v: DriverInput): Promise<{ dr
     logLive("driver insert", error);
     return { error: isMissingRelation(error) ? "Live tracking is being set up (database update 0081 pending)." : "Could not save the driver." };
   }
-  await recordDriverEvent(data, { kind: "driver", title: `Driver added (${v.kind === "own" ? "own" : "one-time"})`, actor: "owner" });
+  await recordDriverEvent(data, { kind: "driver", title: `Driver added (${v.kind === "own" ? "own" : "trip-only"})`, actor: "owner" });
   return { driver: data, reused: false };
 }
 
@@ -541,16 +548,25 @@ export async function saveDriver(_prev: ActionResult | null, fd: FormData): Prom
   const id = uuidOrNull(fd, "id");
   const input = driverInput(fd);
   if (!input.ok) return input;
-  const v = input.v;
+  // 0082: masters hold our own drivers only (trip-only drivers are typed on incoming trips).
+  let v: DriverInput = { ...input.v, kind: "own", company: null };
   const admin = getSupabaseAdmin();
   if (!id) {
+    if (!v.phone) return { ok: false, error: "Enter the driver's mobile - his tracking link goes to it on WhatsApp." };
     const r = await findOrCreateDriver(a.ownerId, v);
     if ("error" in r) return { ok: false, error: r.error };
+    if (r.reused && r.driver.kind !== "own") {
+      await admin.from("live_drivers").update({ kind: "own", company: null, share_expires_at: null, name: v.name }).eq("id", r.driver.id);
+    }
     revalidatePath("/live", "layout");
+    const back = safeReturn(str(fd, "return", 200));
+    if (back) redirect(withParam(back, "picked_driver", r.driver.id));
     return { ok: true, message: r.reused ? `This mobile is already saved as ${r.driver.name}. Using that driver.` : "Driver saved." };
   }
   const driver = await ownDriver(a.ownerId, id);
   if (!driver) return { ok: false, error: "Driver not found." };
+  // Editing never changes the kind (a trip-only driver stays trip-only).
+  v = { ...v, kind: driver.kind, company: driver.company };
   const patch: Record<string, unknown> = {
     name: v.name,
     phone: v.phone,
@@ -704,31 +720,69 @@ export async function unassignTruck(_prev: ActionResult | null, fd: FormData): P
 type TripFields = Record<string, unknown>;
 
 const PURPOSE_SET = new Set<string>(PURPOSES);
+const PARTY_SET = new Set<string>(["dealer", "customer", "internal", "supplier", "other"]);
+const COLS_82 = ["direction", "party_type", "party_name", "from_address", "to_address", "inline_driver"];
+
+/** Before 0082 is applied the new columns do not exist: leave them out. */
+async function strip82<T extends Record<string, unknown>>(row: T): Promise<T> {
+  if (await liveSchema82()) return row;
+  const out = { ...row };
+  for (const k of COLS_82) delete out[k];
+  return out;
+}
 
 /**
- * Trip details from the form. REQUIRED when trip details are on: a purpose and
- * at least one end (from or to). Everything else is optional.
+ * Trip details from the form (the "Trip details" section is on).
+ *
+ * OUTGOING (we send): From = one of our warehouses (required), To = who it
+ *   goes to: a saved customer place, or a name (required) + exact location
+ *   (map pick / address search / Google Maps link) + address.
+ * INCOMING (we receive): supplier name (required) and his place, typed on the
+ *   trip only (name, address, location); To = our warehouse (required).
+ * Purpose is required. Everything else is optional.
  */
 async function readTripFields(
   fd: FormData,
   ownerId: string,
-  requirePurpose = true,
+  direction: TripDirection,
+  requireCore = true,
 ): Promise<{ ok: true; row: TripFields } | { ok: false; error: string }> {
   const rawPurpose = str(fd, "purpose", 12);
   const purpose = rawPurpose && PURPOSE_SET.has(rawPurpose) ? rawPurpose : null;
-  if (!purpose && requirePurpose) return { ok: false, error: "Trip: pick what the trip is for (dispatch, pickup...)." };
+  if (!purpose && requireCore) return { ok: false, error: "Trip: pick what the trip is for (dispatch, pickup...)." };
+  const rawParty = str(fd, "party_type", 12);
+  const party_type = (rawParty && PARTY_SET.has(rawParty) ? rawParty : null) as PartyType | null;
 
-  const admin = getSupabaseAdmin();
-  const from_place_id = uuidOrNull(fd, "from_place_id");
-  const from_name = from_place_id ? null : str(fd, "from_name", 120);
-  let to_place_id = uuidOrNull(fd, "to_place_id");
-  let to_name = to_place_id ? null : str(fd, "to_name", 120);
-  const to_city = str(fd, "to_city", 80);
+  const fromLocRaw = str(fd, "from_location", 500);
+  const fromLoc = parseLatLng(fromLocRaw);
+  if (fromLocRaw && !fromLoc) return { ok: false, error: "From location not understood. Pick it on the map, search the address, or paste a full Google Maps link." };
   const toLocRaw = str(fd, "to_location", 500);
   const toLoc = parseLatLng(toLocRaw);
-  if (toLocRaw && !toLoc) return { ok: false, error: "Destination location not understood. Paste 'lat, lng' or a full Google Maps link." };
-  if (!from_place_id && !from_name && !to_place_id && !to_name && !to_city) {
-    return { ok: false, error: "Trip: fill From or To (at least one)." };
+  if (toLocRaw && !toLoc) return { ok: false, error: "Destination location not understood. Pick it on the map, search the address, or paste a full Google Maps link." };
+
+  const admin = getSupabaseAdmin();
+  let from_place_id: string | null = null;
+  let from_name: string | null = null;
+  let from_address: string | null = null;
+  let party_name: string | null = null;
+  let to_place_id = uuidOrNull(fd, "to_place_id");
+  let to_name: string | null = null;
+  let to_address: string | null = null;
+  const to_city = str(fd, "to_city", 80);
+
+  if (direction === "incoming") {
+    party_name = str(fd, "party_name", 120);
+    from_name = str(fd, "from_name", 120) ?? party_name;
+    from_address = str(fd, "from_address", 300);
+    if (requireCore && !party_name) return { ok: false, error: "Trip: enter who is sending (supplier / dealer name)." };
+    if (requireCore && !to_place_id) return { ok: false, error: "Trip: pick your warehouse it is coming to." };
+  } else {
+    from_place_id = uuidOrNull(fd, "from_place_id");
+    from_name = from_place_id ? null : str(fd, "from_name", 120);
+    to_name = to_place_id ? null : str(fd, "to_name", 120);
+    to_address = to_place_id ? null : str(fd, "to_address", 300);
+    if (requireCore && !from_place_id && !from_name) return { ok: false, error: "Trip: pick the warehouse it leaves from." };
+    if (requireCore && !to_place_id && !to_name) return { ok: false, error: "Trip: enter who it is going to (name)." };
   }
 
   const ids = [from_place_id, to_place_id].filter(Boolean) as string[];
@@ -737,10 +791,11 @@ async function readTripFields(
     const ok = new Set((data ?? []).map((r: { id: string }) => r.id));
     if (ids.some((i) => !ok.has(i))) return { ok: false, error: "That place is not in your list." };
   }
-  if (!to_place_id && to_name && fd.get("save_to_place") === "on") {
+  // Outgoing: keep the customer for next time (a customer place, not a master).
+  if (direction === "outgoing" && !to_place_id && to_name && fd.get("save_to_place") === "on") {
     const { data } = await admin
       .from("live_places")
-      .insert({ owner_id: ownerId, kind: "customer", name: to_name, city: to_city, lat: toLoc?.lat ?? null, lng: toLoc?.lng ?? null, radius_m: 500 })
+      .insert({ owner_id: ownerId, kind: "customer", name: to_name, address: to_address, city: to_city, lat: toLoc?.lat ?? null, lng: toLoc?.lng ?? null, radius_m: 500 })
       .select("id")
       .maybeSingle<{ id: string }>();
     if (data?.id) to_place_id = data.id;
@@ -752,7 +807,7 @@ async function readTripFields(
 
   const rawConsPhone = str(fd, "consignee_phone", 20);
   const consignee_phone = rawConsPhone ? normaliseIndianMobile(rawConsPhone) : null;
-  if (rawConsPhone && !consignee_phone) return { ok: false, error: `Customer mobile: ${PHONE_ERROR}` };
+  if (rawConsPhone && !consignee_phone) return { ok: false, error: `Contact mobile: ${PHONE_ERROR}` };
   const ewayRaw = str(fd, "eway_bill_no", 20);
   const eway_bill_no = ewayRaw ? normalizeEway(ewayRaw) : null;
   if (ewayRaw && !eway_bill_no) return { ok: false, error: "E-way bill number must be 12 digits." };
@@ -767,13 +822,19 @@ async function readTripFields(
     ok: true,
     row: {
       purpose,
+      party_type,
+      party_name,
       from_place_id,
       from_name,
+      from_address,
+      from_lat: direction === "incoming" ? (fromLoc?.lat ?? null) : null,
+      from_lng: direction === "incoming" ? (fromLoc?.lng ?? null) : null,
       to_place_id,
       to_name,
+      to_address,
       to_city,
-      to_lat: toLoc?.lat ?? null,
-      to_lng: toLoc?.lng ?? null,
+      to_lat: to_place_id ? null : (toLoc?.lat ?? null),
+      to_lng: to_place_id ? null : (toLoc?.lng ?? null),
       consignee_name: str(fd, "consignee_name", 120),
       consignee_phone,
       transporter: str(fd, "transporter", 120),
@@ -798,8 +859,12 @@ async function readTripFields(
 const RULE_FIELD: Record<string, string> = {
   from_place_id: "from",
   from_name: "from",
+  from_address: "from",
+  from_lat: "from",
+  from_lng: "from",
   to_place_id: "to",
   to_name: "to",
+  to_address: "to",
   to_city: "to",
   to_lat: "to",
   to_lng: "to",
@@ -807,8 +872,12 @@ const RULE_FIELD: Record<string, string> = {
 
 const FIELD_LABEL: Record<string, string> = {
   purpose: "Purpose",
+  party_type: "Party type",
+  party_name: "Supplier",
   from: "From",
   to: "Destination",
+  truck: "Truck",
+  driver: "Driver",
   material: "Material",
   quantity: "Quantity",
   quantity_unit: "Unit",
@@ -822,117 +891,72 @@ const FIELD_LABEL: Record<string, string> = {
   promised_delivery_at: "Expected arrival",
   eway_bill_no: "E-way bill",
   eway_valid_until: "E-way validity",
-  consignee_name: "Customer contact",
-  consignee_phone: "Customer mobile",
+  consignee_name: "Contact",
+  consignee_phone: "Contact mobile",
   notes: "Notes",
 };
 
 const asText = (v: unknown): string => (v == null ? "" : String(v));
 
 /* -------------------------------------------------------------------------- */
-/* create: driver (required) + truck (optional) + trip (optional), one screen  */
+/* create: direction + trip name first; everything else on the setup screen   */
 /* -------------------------------------------------------------------------- */
 
-export async function createTracking(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+const COPY_COLS = [
+  "purpose", "from_place_id", "from_name", "from_lat", "from_lng", "to_place_id", "to_name", "to_city", "to_lat", "to_lng",
+  "consignee_name", "consignee_phone", "transporter", "material", "quantity_unit", "party_type", "party_name", "from_address", "to_address",
+] as const;
+
+export async function createTrip(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const a = await actor();
   if (!isActor(a)) return a;
   const admin = getSupabaseAdmin();
-
-  // 1. Driver (required)
-  let driver: LiveDriver | null = null;
-  let reusedNote = "";
-  if (str(fd, "driver_mode", 10) === "existing") {
-    driver = await ownDriver(a.ownerId, uuidOrNull(fd, "driver_id"));
-    if (!driver || driver.archived_at) return { ok: false, error: "Pick a driver from your list." };
-  } else {
-    const input = driverInput(fd, "d_");
-    if (!input.ok) return input;
-    if (!input.v.phone) return { ok: false, error: "Enter the driver's mobile - the link goes to it on WhatsApp." };
-    const r = await findOrCreateDriver(a.ownerId, input.v);
-    if ("error" in r) return { ok: false, error: r.error };
-    driver = r.driver;
-    if (r.reused) reusedNote = "reused";
+  const direction: TripDirection = str(fd, "direction", 10) === "incoming" ? "incoming" : "outgoing";
+  const name = str(fd, "trip_name", 80);
+  if (!name) return { ok: false, error: "Give the trip a name, e.g. Rajkot order 448." };
+  if (direction === "incoming" && !(await liveSchema82())) {
+    return { ok: false, error: "Receiving trips need a database update (migration 0082). Sending trips work now." };
   }
 
-  const tripOn = fd.get("trip_on") === "on";
-  const truckOn = fd.get("truck_on") === "on";
+  const { data: prof } = await admin.from("live_profiles").select("default_place_id").eq("owner_id", a.ownerId).maybeSingle<{ default_place_id: string | null }>();
+  const home = prof?.default_place_id ?? null;
+  const copy = await ownTrip(a.ownerId, uuidOrNull(fd, "copy"));
 
-  // Two trips for one driver at once: not allowed.
-  if (tripOn) {
-    const busy = await openTripOf(a.ownerId, driver.id);
-    if (busy) return { ok: false, error: `${driver.name} is already on ${tripNo(busy.trip_seq)}. Close it first, or pick another driver.` };
+  let row: Record<string, unknown> = {
+    owner_id: a.ownerId,
+    trip_name: name,
+    status: "planned",
+    driver_token: null,
+    share_status: "invited",
+    direction,
+    purpose: direction === "incoming" ? "pickup" : "dispatch",
+    party_type: direction === "incoming" ? "supplier" : "customer",
+    from_place_id: direction === "outgoing" ? home : null,
+    to_place_id: direction === "incoming" ? home : null,
+  };
+  if (copy && (copy.direction ?? "outgoing") === direction) {
+    const src = copy as unknown as Record<string, unknown>;
+    for (const c of COPY_COLS) if (src[c] !== undefined) row[c] = src[c];
   }
-  const tripFields = tripOn ? await readTripFields(fd, a.ownerId) : null;
-  if (tripFields && !tripFields.ok) return tripFields;
-
-  // 2. Truck (optional, informational)
-  let vehicle: LiveVehicle | null = null;
-  if (truckOn) {
-    if (str(fd, "truck_mode", 10) === "existing") {
-      vehicle = await ownVehicle(a.ownerId, uuidOrNull(fd, "vehicle_id"));
-      if (!vehicle) return { ok: false, error: "Pick a truck from your list." };
-    } else {
-      const v = vehicleRowFrom(fd, "t_");
-      if (!v.ok) return v;
-      vehicle = await upsertVehicleRow(a.ownerId, v.number, v.row);
-      if (!vehicle) return { ok: false, error: "Could not save the truck." };
-    }
-    const r = await setAssignment(a.ownerId, driver, vehicle, { force: fd.get("force") === "on", userId: a.userId });
-    if (!r.ok) return r;
+  if (row.to_place_id) {
+    const { data } = await admin.from("live_places").select("name").eq("id", row.to_place_id as string).maybeSingle<{ name: string }>();
+    row.to_name = data?.name ?? row.to_name ?? null;
   }
-
-  await reactivateSharing(driver, a.userId, null);
-
-  // 3. Trip (optional)
-  if (tripFields?.ok) {
-    if (!vehicle) vehicle = await (async () => {
-      const { data: asg } = await admin.from("live_assignments").select("vehicle_id").eq("driver_id", driver!.id).is("ended_at", null).maybeSingle<{ vehicle_id: string }>();
-      return asg ? ownVehicle(a.ownerId, asg.vehicle_id) : null;
-    })();
-    const startNow = fd.get("start_now") === "on";
-    const nowIso = new Date().toISOString();
-    const { data: trip, error } = await admin
-      .from("live_trips")
-      .insert({
-        ...tripFields.row,
-        owner_id: a.ownerId,
-        trip_name: str(fd, "trip_name", 80),
-        driver_id: driver.id,
-        driver_name: driver.name,
-        driver_phone: driver.phone,
-        vehicle_id: vehicle?.id ?? null,
-        vehicle_no: vehicle?.number ?? null,
-        status: startNow ? "in_transit" : "planned",
-        started_at: startNow ? nowIso : null,
-        // Kept for compat; the driver's own link is what gets sent.
-        driver_token: null,
-        share_status: driver.share_status === "active" ? "active" : "invited",
-        share_consent_at: driver.share_consent_at,
-        share_last_seen_at: driver.share_last_seen_at,
-      })
-      .select("*")
-      .maybeSingle<LiveTrip>();
-    if (error || !trip) {
-      if ((error as { code?: string } | null)?.code === "23505") return { ok: false, error: `${driver.name} already has an open trip.` };
-      return dbError(error, "create trip");
-    }
-    await recordEvent(trip, {
-      kind: "status",
-      title: startNow ? "Trip created and started" : "Trip created",
-      actor: "owner",
-      actorUserId: a.userId,
-    });
-    await admin.from("live_assignments").update({ trip_id: trip.id }).eq("driver_id", driver.id).is("ended_at", null);
-    revalidatePath("/live", "layout");
-    redirect(`/live/trips/${trip.id}?created=1`);
-  }
-
+  row = await strip82(row);
+  const { data: trip, error } = await admin.from("live_trips").insert(row).select("*").maybeSingle<LiveTrip>();
+  if (error || !trip) return dbError(error, "create trip");
+  await recordEvent(trip, {
+    kind: "status",
+    title: direction === "incoming" ? "Trip created (we are receiving)" : "Trip created (we are sending)",
+    actor: "owner",
+    actorUserId: a.userId,
+  });
   revalidatePath("/live", "layout");
-  redirect(`/live/drivers/${driver.id}?sent=1${reusedNote ? "&reused=1" : ""}`);
+  redirect(`/live/trips/${trip.id}/edit?setup=1`);
 }
 
 /* -------------------------------------------------------------------------- */
-/* trip edit with phase rules + per-field audit                                */
+/* trip setup / edit with phase rules + per-field audit                        */
 /* -------------------------------------------------------------------------- */
 
 export async function updateTrip(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -941,38 +965,75 @@ export async function updateTrip(_prev: ActionResult | null, fd: FormData): Prom
   const trip = await ownTrip(a.ownerId, uuidOrNull(fd, "id"));
   if (!trip) return { ok: false, error: "Trip not found." };
   if (tripPhase(trip.status) === "closed") return { ok: false, error: "A closed trip cannot be edited. Add a note, or reopen it first." };
-
-  // An older trip (before 0081) may have no purpose; once started it stays so.
-  const form = await readTripFields(fd, a.ownerId, tripFieldEditable(trip.status, "purpose"));
-  if (!form.ok) return form;
+  const direction: TripDirection = trip.direction === "incoming" ? "incoming" : "outgoing";
   const admin = getSupabaseAdmin();
+  const started = tripPhase(trip.status) === "started";
 
-  // Field rules: what may change in this phase.
   const patch: Record<string, unknown> = {};
   const changed = new Map<string, { old: string; new: string }>();
-  for (const [col, val] of Object.entries(form.row)) {
-    const before = (trip as unknown as Record<string, unknown>)[col];
-    if (asText(before) === asText(val)) continue;
-    const rule = RULE_FIELD[col] ?? col;
-    // Locked in this phase: never written (the form shows it read-only).
-    if (!tripFieldEditable(trip.status, rule)) continue;
-    patch[col] = val;
-    const label = rule;
-    const prev = changed.get(label);
-    changed.set(label, {
-      old: prev ? prev.old : rule === "to" ? destinationText(trip) : rule === "from" ? (trip.from_name ?? asText(trip.from_place_id)) : asText(before),
-      new: rule === "to" ? asText(form.row.to_name ?? form.row.to_city) : rule === "from" ? asText(form.row.from_name ?? form.row.from_place_id) : asText(val),
-    });
+
+  // Trip details (only when the section is on; off = leave as it is).
+  if (fd.get("details_on") === "on") {
+    // An older trip (before 0081) may have no purpose; once started it stays so.
+    const form = await readTripFields(fd, a.ownerId, direction, tripFieldEditable(trip.status, "purpose"));
+    if (!form.ok) return form;
+    const row = await strip82(form.row);
+    for (const [col, val] of Object.entries(row)) {
+      const before = (trip as unknown as Record<string, unknown>)[col];
+      if (asText(before) === asText(val)) continue;
+      const rule = RULE_FIELD[col] ?? col;
+      if (!tripFieldEditable(trip.status, rule)) continue;
+      patch[col] = val;
+      const prev = changed.get(rule);
+      changed.set(rule, {
+        old: prev ? prev.old : rule === "to" ? destinationText(trip) : rule === "from" ? (trip.from_name ?? asText(trip.from_place_id)) : asText(before),
+        new: rule === "to" ? asText(row.to_name ?? row.to_city) : rule === "from" ? asText(row.from_name ?? row.from_place_id) : asText(val),
+      });
+    }
   }
 
-  // Driver change (dynamic: allowed before and after start).
-  const newDriverId = uuidOrNull(fd, "driver_id");
+  // Driver. Outgoing: from the Drivers master. Incoming: typed on the trip only.
   let newDriver: LiveDriver | null = null;
-  if (newDriverId && newDriverId !== trip.driver_id) {
-    newDriver = await ownDriver(a.ownerId, newDriverId);
-    if (!newDriver || newDriver.archived_at) return { ok: false, error: "Pick a driver from your list." };
+  if (direction === "incoming") {
+    const dn = str(fd, "in_driver_name", 80);
+    const rawPhone = str(fd, "in_driver_phone", 20);
+    const phone = rawPhone ? normaliseIndianMobile(rawPhone) : null;
+    if (rawPhone && !phone) return { ok: false, error: `Driver mobile: ${PHONE_ERROR}` };
+    if (phone && phone !== trip.driver_phone) {
+      if (!dn) return { ok: false, error: "Enter the driver's name." };
+      const company = (patch.party_name as string | undefined) ?? trip.party_name ?? null;
+      const r = await findOrCreateDriver(a.ownerId, { name: dn, phone, kind: "one_time", company });
+      if ("error" in r) return { ok: false, error: r.error };
+      if (r.reused && r.driver.kind === "one_time" && r.driver.name !== dn) {
+        await admin.from("live_drivers").update({ name: dn, company }).eq("id", r.driver.id);
+        r.driver.name = dn;
+      }
+      newDriver = r.driver;
+    } else if (dn && trip.driver_id && dn !== trip.driver_name) {
+      await admin.from("live_drivers").update({ name: dn }).eq("id", trip.driver_id).eq("kind", "one_time");
+      patch.driver_name = dn;
+      changed.set("driver", { old: trip.driver_name ?? "", new: dn });
+    }
+    if (fd.has("in_truck_no")) {
+      const tn = normalizeVehicleNo(str(fd, "in_truck_no", 20)) || null;
+      if (tn && !/^[A-Z0-9]{4,12}$/.test(tn)) return { ok: false, error: "Truck number looks wrong, e.g. GJ36X1234." };
+      if ((tn ?? "") !== (trip.vehicle_no ?? "")) {
+        patch.vehicle_no = tn;
+        patch.vehicle_id = null;
+        changed.set("truck", { old: trip.vehicle_no ?? "", new: tn ?? "" });
+      }
+    }
+  } else {
+    const newDriverId = uuidOrNull(fd, "driver_id");
+    if (newDriverId && newDriverId !== trip.driver_id) {
+      newDriver = await ownDriver(a.ownerId, newDriverId);
+      if (!newDriver || newDriver.archived_at) return { ok: false, error: "Pick a driver from your list." };
+    }
+  }
+
+  if (newDriver && newDriver.id !== trip.driver_id) {
     const busy = await openTripOf(a.ownerId, newDriver.id, trip.id);
-    if (busy) return { ok: false, error: `${newDriver.name} is already on ${tripNo(busy.trip_seq)}.` };
+    if (busy) return { ok: false, error: `${newDriver.name} is already on ${tripNo(busy.trip_seq)}. Close it first.` };
     Object.assign(patch, {
       driver_id: newDriver.id,
       driver_name: newDriver.name,
@@ -980,19 +1041,21 @@ export async function updateTrip(_prev: ActionResult | null, fd: FormData): Prom
       share_status: newDriver.share_status === "active" ? "active" : "invited",
       share_last_seen_at: newDriver.share_last_seen_at,
       share_consent_at: newDriver.share_consent_at,
+      inline_driver: direction === "incoming",
     });
+  } else {
+    newDriver = null;
   }
 
   if (Object.keys(patch).length) {
     patch.updated_at = new Date().toISOString();
-    const { error } = await admin.from("live_trips").update(patch).eq("id", trip.id).eq("owner_id", a.ownerId);
+    const { error } = await admin.from("live_trips").update(await strip82(patch)).eq("id", trip.id).eq("owner_id", a.ownerId);
     if (error) {
       if ((error as { code?: string }).code === "23505") return { ok: false, error: "That driver already has an open trip." };
       return dbError(error, "update trip");
     }
   }
 
-  const started = tripPhase(trip.status) === "started";
   for (const [field, v] of changed) {
     await recordEvent(trip, {
       kind: "edit",
@@ -1007,14 +1070,14 @@ export async function updateTrip(_prev: ActionResult | null, fd: FormData): Prom
   }
 
   if (newDriver) {
-    const oldName = trip.driver_name ?? "-";
+    const oldName = trip.driver_name ?? "";
     await recordEvent(
       { ...trip, driver_id: newDriver.id },
       {
         kind: "assign",
-        title: `Driver changed ${oldName} → ${newDriver.name}${started ? " during the trip" : ""}`,
+        title: oldName ? `Driver changed ${oldName} → ${newDriver.name}${started ? " during the trip" : ""}` : `Driver ${newDriver.name} added`,
         field: "driver",
-        oldValue: oldName,
+        oldValue: oldName || null,
         newValue: newDriver.name,
         actor: "owner",
         actorUserId: a.userId,
@@ -1030,19 +1093,36 @@ export async function updateTrip(_prev: ActionResult | null, fd: FormData): Prom
     await reactivateSharing(newDriver, a.userId, null);
   }
 
-  // Truck change (dynamic). Goes through the one-driver-one-truck rule.
-  const effectiveDriver = newDriver ?? (trip.driver_id ? await ownDriver(a.ownerId, trip.driver_id) : null);
-  const vehicleId = uuidOrNull(fd, "vehicle_id");
-  const wantNone = fd.get("vehicle_id") === "none";
-  if (effectiveDriver && (wantNone ? trip.vehicle_id : vehicleId && vehicleId !== trip.vehicle_id)) {
-    const vehicle = wantNone ? null : await ownVehicle(a.ownerId, vehicleId);
-    if (!wantNone && !vehicle) return { ok: false, error: "Pick a truck from your list." };
-    const r = await setAssignment(a.ownerId, effectiveDriver, vehicle, { force: fd.get("force") === "on", userId: a.userId });
-    if (!r.ok) return r;
+  // Outgoing truck (from the Trucks master). Goes through the one-driver-one-truck rule.
+  if (direction === "outgoing" && fd.has("vehicle_id")) {
+    const effectiveDriver = newDriver ?? (trip.driver_id ? await ownDriver(a.ownerId, trip.driver_id) : null);
+    const vehicleId = uuidOrNull(fd, "vehicle_id");
+    const wantNone = fd.get("vehicle_id") === "none" || fd.get("vehicle_id") === "";
+    if (wantNone ? trip.vehicle_id : vehicleId && vehicleId !== trip.vehicle_id) {
+      const vehicle = wantNone ? null : await ownVehicle(a.ownerId, vehicleId);
+      if (!wantNone && !vehicle) return { ok: false, error: "Pick a truck from your list." };
+      if (effectiveDriver) {
+        const r = await setAssignment(a.ownerId, effectiveDriver, vehicle, { force: fd.get("force") === "on", userId: a.userId });
+        if (!r.ok) return r;
+      } else {
+        await admin.from("live_trips").update({ vehicle_id: vehicle?.id ?? null, vehicle_no: vehicle?.number ?? null }).eq("id", trip.id);
+        await recordEvent(trip, {
+          kind: "edit",
+          title: "Truck changed",
+          detail: `${prettyVehicle(trip.vehicle_no) || "-"} → ${prettyVehicle(vehicle?.number) || "-"}`,
+          field: "truck",
+          oldValue: trip.vehicle_no,
+          newValue: vehicle?.number ?? null,
+          actor: "owner",
+          actorUserId: a.userId,
+        });
+      }
+    }
   }
 
+  if (newDriver) await admin.from("live_assignments").update({ trip_id: trip.id }).eq("driver_id", newDriver.id).is("ended_at", null);
   revalidatePath("/live", "layout");
-  redirect(`/live/trips/${trip.id}`);
+  redirect(`/live/trips/${trip.id}${newDriver ? "?created=1" : ""}`);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1159,5 +1239,6 @@ export async function saveLiveProfile(_prev: ActionResult | null, fd: FormData):
     );
   if (error) return dbError(error, "live profile");
   revalidatePath("/live", "layout");
+  revalidatePath("/portal/profile", "layout");
   return { ok: true, message: "Saved." };
 }

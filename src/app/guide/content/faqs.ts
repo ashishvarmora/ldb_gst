@@ -397,4 +397,16 @@ export const FAQS: GuideFaq[] = [
     category: "trouble",
     keywords: ["proof", "evidence", "court", "saboot", "legal", "reliable", "delay"],
   },
+  {
+    q: "Where do I add a driver, truck or warehouse for Live tracking?",
+    a: "In Live tracking > Masters - the only place to add, edit or archive them. On a trip, Add new next to a picker takes you there and back. See [Live tracking](/guide/trucks/live-tracking-trips).",
+    category: "trucks",
+    keywords: ["live", "driver add", "masters", "warehouse", "godown", "truck add"],
+  },
+  {
+    q: "Where are the Live tracking business settings?",
+    a: "In your common [Profile](/portal/profile), under Live tracking: business name, default warehouse and notifications.",
+    category: "account",
+    keywords: ["live", "settings", "profile", "gstin", "default warehouse"],
+  },
 ];

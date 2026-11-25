@@ -227,7 +227,7 @@ export default async function LiveDashboard() {
           <h1>Today</h1>
           <p>{new Date(now).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long" })}</p>
         </div>
-        <Link href="/live/new?trip=1" className="live-cta hidden lg:inline-flex">
+        <Link href="/live/trips/new" className="live-cta live-cta-sm hidden lg:inline-flex">
           + New trip
         </Link>
       </header>

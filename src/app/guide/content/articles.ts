@@ -2020,4 +2020,63 @@ export const ARTICLES: GuideArticle[] = [
       },
     ],
   },
+  /* ======================================================================== */
+  /* live tracking (GPS from the driver's phone, /live)                        */
+  /* ======================================================================== */
+  {
+    slug: "live-tracking-trips",
+    title: "Live tracking: trips, driver link and masters",
+    summary:
+      "Track a truck by the driver's phone. Everything starts from a trip - sending or receiving.",
+    category: "trucks",
+    minutes: 3,
+    keywords: ["live", "gps", "driver", "location", "trip", "supplier", "dealer", "masters", "link", "whatsapp", "gaadi kaha hai"],
+    blocks: [
+      {
+        kind: "p",
+        text: "Live tracking shows where a truck is from the driver's phone. The driver gets a link on WhatsApp, opens it, and taps Start sharing. No app and no device are needed. It is separate from toll tracking and uses the same login.",
+      },
+      { kind: "h", text: "Everything is a trip" },
+      {
+        kind: "steps",
+        items: [
+          "Tap New trip. Choose We are sending or We are receiving, and give the trip a name. The trip number is given automatically; name and number never change.",
+          "Add the driver - this is the only thing needed to start tracking.",
+          "Optionally switch on Truck and Trip details: where from, where to, purpose, times, goods and documents.",
+          "Send the driver his link on WhatsApp. When he starts sharing, the trip shows his position, distance left and ETA.",
+        ],
+      },
+      { kind: "h", text: "Sending or receiving" },
+      {
+        kind: "bullets",
+        items: [
+          "Sending (to a dealer, customer or your own site): pick your driver and truck from Masters. From is your warehouse; To is the customer - enter the name and the exact location by searching the address, picking it on the map, or pasting a Google Maps link.",
+          "Receiving (a supplier sends to you and does not use the app): type the supplier's driver name and mobile, the truck number and the supplier's place on the trip itself. This is saved on the trip only, not in your masters. To is your warehouse.",
+          "If the supplier also uses Rahdari, he can create the trip himself and simply send you his tracking link.",
+        ],
+      },
+      { kind: "h", text: "Masters" },
+      {
+        kind: "p",
+        text: "Masters is the only place to add, edit or archive your own drivers, trucks and warehouses. Trips just pick from them; the Add new button next to a picker opens the master and brings you back with the new item selected. The Drivers list also shows each driver's live status and when he was last seen.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "Automatic updates",
+        text: "With the locations saved, the trip marks loading, left and arrived by itself, warns when a truck is likely late, has no GPS for a while, or the e-way bill is about to expire. Every change is kept in the trip's activity log.",
+      },
+      { kind: "cta", href: "/live/trips", label: "Open Live tracking" },
+    ],
+    faqs: [
+      {
+        q: "Does the driver need to install an app?",
+        a: "No. He opens the link from WhatsApp in his phone's browser and taps Start sharing. He can stop sharing any time.",
+      },
+      {
+        q: "How do I track a truck a supplier is sending me?",
+        a: "Create a trip with We are receiving and type his driver's name and mobile on the trip. The driver's link stops by itself after the trip.",
+      },
+    ],
+  },
 ];

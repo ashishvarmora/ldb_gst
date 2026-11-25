@@ -16,10 +16,7 @@
 
 .live-back { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; font-size: 14px; font-weight: 600; color: var(--app-muted, #64748b); }
 
-/* floating New trip on a phone, above the bottom bar */
-.live-fab { position: fixed; z-index: 41; right: 16px; bottom: calc(var(--sab, 0px) + 84px); display: inline-flex; align-items: center; gap: 6px; height: 50px; padding: 0 18px 0 14px; border-radius: 999px; background: #ef7415; color: #fff; font-weight: 800; font-size: 15px; box-shadow: 0 10px 24px -8px #ef741599; }
 
-.live-new-trip-side { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; margin: -18px 0 18px; border-radius: 14px; background: #ef7415; color: #fff; font-weight: 700; font-size: 14px; }
 .live-switch-side { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 12px 14px; border-radius: 14px; background: var(--app-paper, #f5f7fa); font-size: 13px; font-weight: 650; color: var(--app-muted, #64748b); }
 .live-switch-side small { display: block; font-weight: 500; font-size: 11px; }
 
@@ -250,3 +247,64 @@
 
 .live-tl-assign .live-tl-dot, .live-tl-edit .live-tl-dot { background: #8241e6; }
 .live-tl-share .live-tl-dot { background: #15803d; }
+
+/* ---- 0082 trips-first: compact sizes (match /portal), direction, pickers -- */
+
+.live-page-head h1, .live-driver-head h1 { font-size: 1.3rem; }
+.live-page-head p { font-size: 13px; }
+.live-cta { min-height: 40px; padding: 0 16px; font-size: 14px; }
+.live-cta-sm { min-height: 34px; padding: 0 12px; font-size: 13px; }
+.live-back { min-height: 32px; font-size: 13px; }
+.live-h2, .live-form-block > h2, .live-form-block > summary, .live-section-title h2, .live-section-title > span { font-size: 14px; }
+.live-form-block { padding: 14px; }
+.live-toggle { min-height: 42px; gap: 10px; }
+.live-toggle strong { font-size: 14px; }
+.live-toggle small { font-size: 12px; }
+.live-toggle-icon { width: 32px; height: 32px; border-radius: 10px; }
+.live-chip-radio span { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
+.live-seg button { min-height: 30px; padding: 0 10px; font-size: 12.5px; }
+.live-paste { padding: 10px 12px; border-radius: 14px; }
+.live-paste summary { font-size: 13px; }
+.live-more summary { font-size: 13px; }
+.live-menu > a { min-height: 54px; }
+.live-menu strong { font-size: 14px; }
+.live-menu small { font-size: 12px; }
+.live-warn { font-size: 12.5px; }
+.live-locked { min-height: 40px; font-size: 13px; }
+
+.live-sec-title { display: flex; align-items: center; gap: 6px; }
+.live-req { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: #fff1e6; color: #c2570c; font-size: 10.5px; font-weight: 700; }
+.live-note { padding: 8px 12px; border-radius: 12px; background: #eef4ff; color: #1e3a8a; font-size: 12px; }
+
+.live-dir { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; white-space: nowrap; vertical-align: middle; }
+.live-dir-outgoing { background: #fff1e6; color: #c2570c; }
+.live-dir-incoming { background: #e8f7ee; color: #15803d; }
+
+.live-dir-pick { display: grid; gap: 8px; }
+.live-dir-card { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid var(--c-line, #e6ecf2); background: #fff; cursor: pointer; }
+.live-dir-card input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.live-dir-card[data-on] { border-color: #ef7415; box-shadow: 0 0 0 1px #ef7415; }
+.live-dir-card strong { display: block; font-size: 14px; color: var(--c-strong, #0f1b2d); }
+.live-dir-card small { display: block; font-size: 12px; color: var(--app-muted, #64748b); }
+.live-dir-icon { display: inline-flex; flex-shrink: 0; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 10px; }
+.live-dir-card:has(input:focus-visible) { outline: 2px solid #1558b8; outline-offset: 2px; }
+@media (min-width: 640px) { .live-dir-pick { grid-template-columns: 1fr 1fr; } }
+
+.live-pick-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.live-addnew { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; min-height: 36px; padding: 0 10px; border-radius: 10px; border: 1px dashed #93b4e6; color: #1558b8; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.live-btn-sm { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--c-line, #e6ecf2); background: #fff; color: var(--c-ink, #334155); font-size: 12px; font-weight: 650; white-space: nowrap; }
+.live-btn-sm:disabled { opacity: .55; }
+.live-btn-brand { border-color: #ef7415; background: #ef7415; color: #fff; }
+
+.live-loc-row { display: flex; gap: 6px; min-width: 0; }
+.live-eta-hint { display: flex; gap: 6px; padding: 8px 10px; border-radius: 12px; background: #f5f3ff; color: #4c1d95; font-size: 12px; }
+
+.live-picker-map { position: relative; margin-top: 8px; overflow: hidden; border-radius: 12px; border: 1px solid var(--c-line, #e6ecf2); background: #e5eef5; }
+.live-picker-surface { position: absolute; inset: 0; touch-action: none; cursor: crosshair; user-select: none; }
+.live-picker-surface img { position: absolute; max-width: none; pointer-events: none; }
+.live-picker-pin { position: absolute; transform: translate(-50%, -100%); color: #dc2626; filter: drop-shadow(0 2px 2px #0006); pointer-events: none; }
+.live-picker-zoom { position: absolute; top: 8px; right: 8px; display: grid; overflow: hidden; border-radius: 8px; background: #fff; box-shadow: 0 1px 4px #0003; }
+.live-picker-zoom button { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; color: #334155; }
+.live-picker-zoom button + button { border-top: 1px solid #e2e8f0; }
+.live-picker-credit { position: absolute; right: 4px; bottom: 2px; padding: 0 4px; border-radius: 4px; background: #ffffffcc; font-size: 9px; color: #475569; }
+.live-picker-tip { position: absolute; left: 8px; top: 8px; padding: 3px 8px; border-radius: 999px; background: #0f1b2dcc; color: #fff; font-size: 11px; pointer-events: none; }

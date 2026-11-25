@@ -8,15 +8,14 @@ export const metadata = { title: "Live tracking - Masters" };
 export const dynamic = "force-dynamic";
 
 /**
- * Masters: the fixed data the account owns. Set once, picked on every trip.
+ * Masters: the fixed data the account owns - the ONLY place to add / edit /
+ * archive our drivers, trucks and warehouses (0082). Trips pick from here.
  * Trips are not here - they are day-to-day work and have their own tab.
  */
 async function count(table: string, ownerId: string): Promise<number> {
-  const { count: n } = await getSupabaseAdmin()
-    .from(table)
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", ownerId)
-    .is("archived_at", null);
+  let q = getSupabaseAdmin().from(table).select("id", { count: "exact", head: true }).eq("owner_id", ownerId).is("archived_at", null);
+  if (table === "live_drivers") q = q.eq("kind", "own");
+  const { count: n } = await q;
   return n ?? 0;
 }
 
@@ -24,16 +23,16 @@ export default async function MastersPage() {
   const { ownerId } = await requireLiveSession();
   const [places, trucks, drivers] = await Promise.all([count("live_places", ownerId), count("live_vehicles", ownerId), count("live_drivers", ownerId)]);
   const items = [
-    { href: "/live/masters/drivers", icon: UserRound, title: "Drivers", sub: "Own and one-time drivers, their links", n: drivers },
-    { href: "/live/masters/trucks", icon: Truck, title: "Trucks", sub: "Own, dealer, supplier, transporter", n: trucks },
-    { href: "/live/places", icon: Warehouse, title: "Warehouses & places", sub: "Factories, godowns, customers", n: places },
+    { href: "/live/masters/drivers", icon: UserRound, title: "Drivers", sub: "Your drivers, live status and last seen", n: drivers },
+    { href: "/live/masters/trucks", icon: Truck, title: "Trucks", sub: "Your trucks and hired trucks", n: trucks },
+    { href: "/live/places", icon: Warehouse, title: "Warehouses & places", sub: "Factories, godowns, saved customers", n: places },
   ];
   return (
-    <div className="live-page mx-auto max-w-2xl space-y-4">
+    <div className="live-page mx-auto max-w-2xl space-y-3">
       <header className="live-page-head">
         <div>
           <h1>Masters</h1>
-          <p>Set once, used on every trip.</p>
+          <p>The only place to add your drivers, trucks and warehouses. Trips pick from here.</p>
         </div>
       </header>
       <nav className="live-menu" aria-label="Masters">

@@ -79,7 +79,7 @@ export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<st
     <Link href={`/live/trips/${trip.id}`} className="live-trip-card">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="live-trip-vehicle">{trip.driver_name || prettyVehicle(trip.vehicle_no) || "No driver"}</p>
+          <p className="live-trip-vehicle">{trip.driver_name || prettyVehicle(trip.vehicle_no) || "No driver yet"}</p>
           <p className="live-trip-no">
             {tripNo(trip.trip_seq)}
             {trip.trip_name ? ` · ${trip.trip_name}` : ""}
@@ -91,12 +91,15 @@ export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<st
       <p className="live-trip-route">
         <MapPin size={14} className="shrink-0" />
         <span className="min-w-0 truncate">
-          {from || trip.from_name ? `${from?.name ?? trip.from_name} → ` : ""}
+          {from || trip.party_name || trip.from_name ? `${from?.name ?? trip.party_name ?? trip.from_name} → ` : ""}
           <strong>{destinationText(trip, to?.name)}</strong>
         </span>
       </p>
       <div className="live-trip-meta">
-        <SignalPill trip={trip} now={now} />
+        <span className={cx("live-dir", trip.direction === "incoming" ? "live-dir-incoming" : "live-dir-outgoing")}>
+          {trip.direction === "incoming" ? "Receiving" : "Sending"}
+        </span>
+        {trip.driver_id ? <SignalPill trip={trip} now={now} /> : null}
         {open && trip.distance_left_km != null && trip.status !== "arrived" ? <span>{Math.round(trip.distance_left_km)} km left</span> : null}
         {open && trip.eta_at && trip.status === "in_transit" ? <span>ETA {fmtIst(trip.eta_at)}</span> : null}
         {trip.status === "delivered" && trip.delivered_at ? <span>Delivered {fmtIst(trip.delivered_at)}</span> : null}
@@ -179,11 +182,12 @@ export function DriverSignalPill({ driver, now }: { driver: LiveDriver; now: num
   );
 }
 
+/** Own drivers need no chip; a receiving trip's driver is "Trip-only" (0082). */
 export function KindChip({ driver }: { driver: Pick<LiveDriver, "kind" | "company"> }) {
-  if (driver.kind !== "one_time") return <span className="live-kind live-kind-own">Own</span>;
+  if (driver.kind !== "one_time") return null;
   return (
     <span className="live-kind live-kind-once" title={driver.company ?? undefined}>
-      One-time{driver.company ? ` · ${driver.company}` : ""}
+      Trip-only{driver.company ? ` · ${driver.company}` : ""}
     </span>
   );
 }

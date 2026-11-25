@@ -30,7 +30,13 @@ export type TripPrefill = Record<
   | "freight_inr"
   | "planned_dispatch_at"
   | "promised_delivery_at"
-  | "notes",
+  | "notes"
+  /* 0082 */
+  | "party_type"
+  | "party_name"
+  | "from_address"
+  | "from_location"
+  | "to_address",
   string
 >;
 
@@ -61,6 +67,11 @@ export function tripPrefill(trip: Partial<LiveTrip> | null, defaultFromId?: stri
     planned_dispatch_at: toLocalInput(trip?.planned_dispatch_at),
     promised_delivery_at: toLocalInput(trip?.promised_delivery_at),
     notes: s(trip?.notes),
+    party_type: s(trip?.party_type),
+    party_name: s(trip?.party_name),
+    from_address: s(trip?.from_address),
+    from_location: trip?.from_lat != null && trip?.from_lng != null ? `${trip.from_lat}, ${trip.from_lng}` : "",
+    to_address: s(trip?.to_address),
   };
 }
 
