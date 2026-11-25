@@ -12,6 +12,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { runTrackingSweep } from "@/lib/tracking";
 import type { ActionResult } from "@/lib/types";
 
+import { WHATSAPP_AMOUNTS, chargedFor, unitsForAmount } from "./whatsapp-amounts";
+
 /**
  * Each form on the settings page saves its own keys. They have to stay separate
  * lists: a spec whose field is not in the submitted form reads as blank, and
@@ -115,7 +117,7 @@ const ADMIN_PUSH_SPECS: SettingSpec[] = [
 ];
 
 /* WhatsApp to customers costs credits (0076). The amount is the
-   'whatsapp_alert' credit rate, edited on Plans -> Rules like every rate. */
+   'whatsapp_alert' credit rate, saved by the same action as this switch. */
 const WHATSAPP_CHARGE_SPECS: SettingSpec[] = [
   { key: "whatsapp_charge_enabled", label: "Charge credits for WhatsApp alerts", kind: "bool" },
 ];
@@ -406,7 +408,13 @@ export async function saveCustomerMailSettings(
   };
 }
 
-/** The ON/OFF switch for charging customers per WhatsApp message. */
+/**
+ * Charging customers per WhatsApp message: the ON/OFF switch and the amount,
+ * saved together. The switch is app_settings.whatsapp_charge_enabled; the
+ * amount is the 'whatsapp_alert' credit rate, stored the way every rate is
+ * (units_per_credit = 1 / amount). The amount is posted only while the switch
+ * is on - switching off leaves the stored rate alone.
+ */
 export async function saveWhatsAppChargeSettings(
   _prev: ActionResult | null,
   fd: FormData,
@@ -415,9 +423,70 @@ export async function saveWhatsAppChargeSettings(
 
   const parsed = readSpecs(fd, WHATSAPP_CHARGE_SPECS);
   if ("error" in parsed) return { ok: false, error: parsed.error };
+  const enabled = parsed.values.whatsapp_charge_enabled === true;
+
+  // Validate the amount before writing anything, so a bad amount never leaves
+  // the switch saved on its own.
+  let amount: number | null = null;
+  let units: number | null = null;
+  const rawAmount = fd.get("whatsapp_amount");
+  if (enabled && typeof rawAmount === "string" && rawAmount.trim() !== "") {
+    const value = Number(rawAmount);
+    if (!(WHATSAPP_AMOUNTS as readonly number[]).includes(value)) {
+      return {
+        ok: false,
+        error: `Credits per WhatsApp message must be one of ${WHATSAPP_AMOUNTS.join(", ")}.`,
+      };
+    }
+    units = unitsForAmount(value);
+    // Belt and braces: what spend_credits() will charge must be what was picked.
+    if (chargedFor(units) !== value) {
+      return { ok: false, error: `${value} credit cannot be stored exactly. Pick another amount.` };
+    }
+    amount = value;
+  }
+
+  const admin = getSupabaseAdmin();
+  let rateBefore: { units_per_credit: number } | null = null;
+  if (units !== null) {
+    const { data } = await admin
+      .from("credit_rates")
+      .select("units_per_credit")
+      .eq("action", "whatsapp_alert")
+      .maybeSingle<{ units_per_credit: number }>();
+    if (!data) {
+      return {
+        ok: false,
+        error: "The WhatsApp credit rate does not exist yet (migration 0076). Nothing was saved.",
+      };
+    }
+    rateBefore = data;
+  }
 
   const result = await persist(actor, parsed.values, "settings.update_whatsapp_charge");
   if (!result.ok) return result;
+
+  if (units !== null && rateBefore && Number(rateBefore.units_per_credit) !== units) {
+    const patch = { units_per_credit: units, updated_at: new Date().toISOString() };
+    const { error } = await admin.from("credit_rates").update(patch).eq("action", "whatsapp_alert");
+    if (error) return { ok: false, error: `The switch was saved, but the amount was not: ${error.message}` };
+
+    await writeAudit(actor, {
+      action: "credit_rate.update",
+      entity: "credit_rate",
+      entityId: "whatsapp_alert",
+      entityLabel: "WhatsApp alert",
+      meta: {
+        source: "settings.whatsapp_charge",
+        changes: diffFields(
+          { units_per_credit: Number(rateBefore.units_per_credit) },
+          { units_per_credit: units },
+        ),
+        credits_per_message: amount,
+      },
+    });
+    revalidatePath("/admin/plans");
+  }
 
   // Customers read the amount (or its absence) on these pages.
   revalidatePath("/portal/notifications");
@@ -426,10 +495,11 @@ export async function saveWhatsAppChargeSettings(
 
   return {
     ok: true,
-    message:
-      parsed.values.whatsapp_charge_enabled === true
-        ? "Saved. Each WhatsApp alert to a customer now uses credits, from the next alert onwards."
-        : "Saved. WhatsApp alerts are free for customers.",
+    message: enabled
+      ? amount !== null
+        ? `Saved. Each WhatsApp alert to a customer now costs ${amount} credit, from the next alert onwards.`
+        : "Saved. Each WhatsApp alert to a customer now uses credits, from the next alert onwards."
+      : "Saved. WhatsApp alerts are free for customers.",
   };
 }
 

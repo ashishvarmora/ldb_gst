@@ -1,10 +1,8 @@
 import Link from "next/link";
-import { MapPin } from "lucide-react";
 
 import { TrackingToggle } from "@/components/TrackingToggle";
 import { TruckMenu } from "@/components/TruckMenu";
 import { Badge, Mono, cx, type BadgeTone } from "@/components/ui";
-import type { Destination, TripProgress } from "@/lib/destination";
 import { fmtAgo, fmtRelative, fmtWhen } from "@/lib/format";
 import { pauseCopyFor, truckChip } from "@/lib/pause";
 import type { TrackedTruck, TruckAlertWithTemplate, TruckStatus } from "@/lib/types";
@@ -94,12 +92,9 @@ const RAIL: Record<BadgeTone, string> = {
 export function TruckCard({
   truck,
   alerts = [],
-  trip = null,
 }: {
   truck: TruckRowTruck;
   alerts?: Pick<TruckRowAlert, "is_enabled" | "halt_active" | "template_kind">[];
-  /** Destination and distance left (24 Nov 2026); null = no third line. */
-  trip?: { destination: Destination; progress: TripProgress | null } | null;
 }) {
   const chip = truckChip(truck, alerts);
   const pausedCopy = pauseCopyFor(truck);
@@ -136,25 +131,6 @@ export function TruckCard({
               <span className="truck-row-place">No crossing recorded yet</span>
             )}
           </p>
-          {/* Only with a destination: "≈ 182 km to Mundra" plus a warning
-              chip. Approximate - the (i) on the truck page explains. */}
-          {trip ? (
-            <p className="truck-row-trip" title="Approximate distance by road from the last toll crossing">
-              <MapPin size={12} aria-hidden className="truck-trip-icon shrink-0" />
-              <span className="truck-row-trip-text">
-                {trip.progress
-                  ? trip.progress.near
-                    ? `Near ${trip.destination.name}`
-                    : `≈ ${trip.progress.kmLeft.toLocaleString("en-IN")} km to ${trip.destination.name}`
-                  : `Going to ${trip.destination.name}`}
-              </span>
-              {trip.progress?.movingAway ? (
-                <Badge tone="warn" className="shrink-0">
-                  Moving away
-                </Badge>
-              ) : null}
-            </p>
-          ) : null}
         </div>
 
         <div className="truck-row-controls">

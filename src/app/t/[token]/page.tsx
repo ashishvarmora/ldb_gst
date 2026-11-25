@@ -3,14 +3,8 @@ import { Link2Off, MapPin } from "lucide-react";
 
 import { PublicShell, publicSettings } from "@/components/SiteFooter";
 import { directionLabel } from "@/components/Timeline";
-import { TripLine } from "@/components/TripLine";
 import { Mono } from "@/components/ui";
-import {
-  destinationOf,
-  maskPlate,
-  tripProgress,
-  type DestinationColumns,
-} from "@/lib/destination";
+import { maskPlate } from "@/lib/destination";
 import { fmtAgo, fmtWhen, fmtWhenAgo } from "@/lib/format";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -23,8 +17,9 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * out; the portal's own guards live in the portal layout, which this route is
  * not under.
  *
- * What is shown, and only this: the masked plate, the latest crossing, the
- * destination with distance left, and the last 10 crossings. Never the label,
+ * What is shown, and only this: the masked plate, the latest crossing and the
+ * last 10 crossings. No destination or distance (24 Nov 2026: that moved to
+ * the separate Live module; this is the toll module's link). Never the label,
  * the owner's name, phone, email, alerts or credits. Nothing here costs a
  * credit or sends a message - it only reads rows already stored.
  *
@@ -52,12 +47,10 @@ type ShareRow = {
   expires_at: string;
 };
 
-type TruckRow = { truck_number: string } & DestinationColumns;
+type TruckRow = { truck_number: string };
 
 type CrossingRow = {
   loc_name: string | null;
-  lat: number | null;
-  lng: number | null;
   direction: string | null;
   event_time: string | null;
 };
@@ -77,7 +70,7 @@ async function loadTrip(token: string) {
 
   const { data: truck } = await admin
     .from("tracked_trucks")
-    .select("truck_number,destination_name,destination_lat,destination_lng")
+    .select("truck_number")
     .eq("id", share.tracked_truck_id)
     .eq("user_id", share.user_id)
     .maybeSingle<TruckRow>();
@@ -85,7 +78,7 @@ async function loadTrip(token: string) {
 
   const { data: events } = await admin
     .from("truck_events")
-    .select("loc_name,lat,lng,direction,event_time")
+    .select("loc_name,direction,event_time")
     .eq("user_id", share.user_id)
     .eq("truck_number", truck.truck_number)
     .order("event_time", { ascending: false, nullsFirst: false })
@@ -118,8 +111,6 @@ export default async function TripPage({ params }: { params: Promise<{ token: st
   }
 
   const { truck, events, share } = trip;
-  const destination = destinationOf(truck);
-  const progress = tripProgress(destination, events);
   const latest = events[0] ?? null;
   const heading = latest ? directionLabel(latest.direction) : null;
 
@@ -147,8 +138,6 @@ export default async function TripPage({ params }: { params: Promise<{ token: st
               </dd>
             </div>
           </dl>
-
-          <TripLine destination={destination} progress={progress} className="mt-2" />
         </section>
 
         <section className="trip-public-card" aria-label="Recent toll crossings">

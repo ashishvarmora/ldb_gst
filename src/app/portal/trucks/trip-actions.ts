@@ -6,13 +6,13 @@ import { revalidatePath } from "next/cache";
 import { reportError } from "@/lib/errors";
 import { done, fail, str } from "@/lib/forms";
 import { assertPortalUser } from "@/lib/officer";
-import { findPlace } from "@/lib/places";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { recordTruckActivity } from "@/lib/truck-activity";
 import type { ActionResult } from "@/lib/types";
 
 /*
- * Destination and trip links (owner, 24 Nov 2026) - see migration 0077.
+ * Trip links (owner, 24 Nov 2026) - see migration 0077. Setting a destination
+ * moved to the Live module the same day; the columns stay, unused here.
  * Kept apart from actions.ts so the truck's tracking/alert actions stay as
  * they were. Nothing here costs credits or sends a message.
  */
@@ -45,76 +45,8 @@ function notMigrated(error: { code?: string; message?: string } | null): boolean
     error.code === "42P01" ||
     error.code === "PGRST204" ||
     error.code === "PGRST205" ||
-    /destination_|truck_shares/.test(error.message ?? "")
+    /truck_shares/.test(error.message ?? "")
   );
-}
-
-/**
- * Sets (or, with an empty box, clears) where the truck is heading. The name
- * must be one the picker offered: a town from src/lib/places.ts or a toll
- * plaza with a known position.
- */
-export async function setTruckDestination(
-  _prev: ActionResult | null,
-  fd: FormData,
-): Promise<ActionResult> {
-  const session = await assertPortalUser();
-  const admin = getSupabaseAdmin();
-
-  const truckId = str(fd, "truck_id");
-  if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
-  const truck = await ownTruck(truckId, session.id);
-  if (!truck) return fail("That truck is not on your list.");
-
-  const typed = (str(fd, "destination") ?? "").slice(0, 120);
-
-  let destination: { name: string; lat: number; lng: number } | null = null;
-  if (typed) {
-    const place = findPlace(typed);
-    if (place) {
-      destination = { name: place.name, lat: place.lat, lng: place.lng };
-    } else {
-      const { data: plaza } = await admin
-        .from("toll_plazas")
-        .select("name, lat, lng")
-        .ilike("name", typed.replace(/[%_\\]/g, (c) => `\\${c}`))
-        .not("lat", "is", null)
-        .not("lng", "is", null)
-        .limit(1)
-        .maybeSingle<{ name: string; lat: number; lng: number }>();
-      if (plaza) destination = { name: plaza.name, lat: plaza.lat, lng: plaza.lng };
-    }
-    if (!destination) {
-      return fail(`"${typed}" is not in the list. Start typing and pick a town, port or toll plaza from the suggestions.`);
-    }
-  }
-
-  const { error } = await admin
-    .from("tracked_trucks")
-    .update({
-      destination_name: destination?.name ?? null,
-      destination_lat: destination?.lat ?? null,
-      destination_lng: destination?.lng ?? null,
-      destination_set_at: destination ? new Date().toISOString() : null,
-    })
-    .eq("id", truck.id)
-    .eq("user_id", session.id);
-
-  if (error) {
-    if (notMigrated(error)) return fail(NOT_READY);
-    return fail(reportError("saving a truck destination", error, "Could not save the destination."));
-  }
-
-  await recordTruckActivity({
-    userId: session.id,
-    truckId: truck.id,
-    truckNumber: truck.truck_number,
-    kind: "settings_changed",
-    detail: { changes: [destination ? `destination set to ${destination.name}` : "destination removed"] },
-  });
-
-  refresh(truck.id);
-  return done(destination ? `Destination set to ${destination.name}.` : "Destination removed.");
 }
 
 /**

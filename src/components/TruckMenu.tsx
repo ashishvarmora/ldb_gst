@@ -3,7 +3,6 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2, PauseCircle, PlayCircle, Settings2, Trash2 } from "lucide-react";
 
 import { removeTruck, setTruckPaused } from "@/app/portal/trucks/actions";
@@ -82,15 +81,15 @@ function PauseItem({
   onDone: () => void;
 }) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(setTruckPaused, null);
-  const router = useRouter();
   /* A ref, so the effect runs once per result and not on every render. */
   const done = useRef(onDone);
   done.current = onDone;
   useEffect(() => {
     if (!state?.ok) return;
     done.current();
-    router.refresh();
-  }, [state, router]);
+    /* No router.refresh(): setTruckPaused() revalidates, so the response
+       already carries the re-rendered page (24 Nov 2026). */
+  }, [state]);
 
   return (
     <form action={formAction}>

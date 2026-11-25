@@ -1,39 +1,50 @@
 "use client";
 
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Send } from "lucide-react";
+import { AlertTriangle, ChevronDown, Send } from "lucide-react";
 
 import { addTruck } from "./actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Field, FormActions, Input, Select } from "@/components/form";
+import { FormActions, Input } from "@/components/form";
 import { LabelWithInfo } from "@/components/InfoTip";
-import { AlertChooser, FailureLimitField } from "@/components/TruckAlertForm";
+import {
+  AlertChooser,
+  AutoPauseField,
+  FailureLimitField,
+  SUGGESTED_FAILURE_LIMIT,
+} from "@/components/TruckAlertForm";
+import { Mono } from "@/components/ui";
 import type { AlertRuleTemplate } from "@/lib/types";
 
 /**
- * Adding a truck and choosing its first alert, in one step.
+ * Adding a truck and choosing its first alert, in one step - the ONE form for
+ * it, used by My trucks and by the search result's "Track automatically"
+ * sheet (which used to add a truck with no alert and tell you to go back and
+ * pick one: the exact two-step gap this form was built to close).
  *
- * Adding used to stop at the number, and a truck with no alert is never
- * checked - so the most common first experience of the platform was silence.
- * The alert is not an extra here: it is the reason the truck is on the list.
+ * FIELD DECISIONS (24 Nov 2026 pass - the full table is in the hand-off):
  *
- * The order is the order the questions actually arrive in. The number is the
- * only thing that must be typed, so it is first and alone. The remark is
- * optional and sits under it rather than beside it - a two-column row on a
- * phone makes both boxes too narrow to read a registration number in. Then
- * what to be told, then where it will reach you, then how long to keep going.
+ *   on the face, in the order the questions arrive
+ *     Truck number         required, no default (or fixed, from a search)
+ *     What alert           required, lands on "Only when it moves"
+ *     Check every          required, EMPTY (owner) + one-tap picks
+ *       or Halt hours x2   required, EMPTY (owner) + one-tap picks
+ *     Toll plaza           required for the plaza alert only
+ *     Sent on Telegram     a status line, and a warning only when broken
  *
- * NOT ONE PARAGRAPH OF PROSE ON THE FIRST SCREEN. Every field used to carry a
- * hint under it and the alert fields were followed by a panel restating them,
- * which made a five-question form 927px tall on a 390px phone - it scrolled
- * before the submit button was reachable. Everything explanatory is behind the
- * (i) beside its own label or behind "More settings"; the only prose that
- * survives on the face of the form is the warning below, which is not an
- * explanation but a consequence.
+ *   under "More settings", with its current values on the collapsed line
+ *     Remark               optional
+ *     Stop checking after  optional, empty = no end time
+ *     Failed checks        required, prefilled 10 (visible, editable)
+ *
+ * Nothing on the face needs reading before the first tap: every explanation
+ * is behind the (i) beside its own label.
  */
 export function AddTruckForm({
   templates,
   telegram,
+  truckNumber,
 }: {
   templates: AlertRuleTemplate[];
   /**
@@ -42,116 +53,126 @@ export function AddTruckForm({
    * and this is a Client Component. See DeliveryRow for what each value means.
    */
   telegram: TelegramReadiness;
+  /** From a search result: the number is already known and not editable. */
+  truckNumber?: string;
 }) {
   return (
     <ActionForm action={addTruck} closeOnSuccess={false}>
-      <div className="space-y-4">
-        <div>
-          <LabelWithInfo
-            label="Truck number"
-            htmlFor="truck_number"
-            required
-            info={
-              <>
-                The registration number as it appears on the truck. Spaces, dashes and capital
-                letters do not matter.
-              </>
-            }
-          />
-          <Input
-            id="truck_number"
-            name="truck_number"
-            required
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            placeholder="GJ02AT8546"
-            className="mt-1.5 font-mono text-base placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
-          />
-        </div>
+      <div className="add-truck-form">
+        {truckNumber ? (
+          <p className="add-truck-fixed">
+            <span className="text-muted">Truck</span>
+            <Mono className="font-semibold tracking-wide text-strong">{truckNumber}</Mono>
+            <input type="hidden" name="truck_number" value={truckNumber} />
+          </p>
+        ) : (
+          <div>
+            <LabelWithInfo
+              label="Truck number"
+              htmlFor="truck_number"
+              required
+              info={
+                <>
+                  The registration number as it appears on the truck. Spaces, dashes and capital
+                  letters do not matter.
+                </>
+              }
+            />
+            <Input
+              id="truck_number"
+              name="truck_number"
+              required
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              enterKeyHint="next"
+              placeholder="GJ02AT8546"
+              className="mt-1.5 font-mono text-base placeholder:font-sans placeholder:tracking-normal placeholder:normal-case"
+            />
+          </div>
+        )}
 
-        {/* No (i) and no hint. "Whatever helps you recognise it later" is the
-            whole of what a remark is, and the word plus the placeholder say it
-            without a row of their own. */}
-        <Field label="Remark (optional)" name="label">
-          <Input name="label" placeholder="Supplier vehicle" />
-        </Field>
-
-        {/*
-          Where the alert goes, inside the alert's own section and under no
-          rule of its own. It is not a fifth question - it is the rest of the
-          answer to the two above it, and a horizontal rule between them read
-          as a new topic while costing sixteen pixels on the screen this change
-          exists to shorten.
-        */}
-        <div className="border-t border-divider pt-4">
+        <div className="add-truck-alert">
           <AlertChooser templates={templates} />
           {templates.length > 0 ? <DeliveryRow state={telegram} /> : null}
         </div>
 
-        {/*
-          On the first screen rather than behind "More settings", because it is
-          the answer to the mistake this product actually causes: somebody puts
-          a lorry on automatic checking to follow it for an afternoon, does not
-          come back, and pays for a check every hour for a fortnight. Asking the
-          question while they are still thinking about the journey costs one
-          box; asking it later costs them credits.
-
-          Blank is a real answer and the default one - plenty of trucks are
-          meant to be watched indefinitely.
-        */}
-        <div className="border-t border-divider pt-4">
-          <LabelWithInfo
-            label="Stop checking after"
-            htmlFor="auto_pause_amount"
-            info={
-              <>
-                Use this if you only need to follow the truck for a while. When the time is up,
-                tracking pauses and you are notified. Its history is kept and its tracking slot is
-                freed.
-                <span className="mt-1.5 block text-faint">
-                  Leave it empty to keep checking until you pause it yourself.
-                </span>
-              </>
-            }
-          />
-          <div className="mt-1.5 flex gap-2">
-            <Input
-              id="auto_pause_amount"
-              name="auto_pause_amount"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={8760}
-              step={1}
-              placeholder="Keep going"
-              className="flex-1"
-            />
-            <Select name="auto_pause_unit" defaultValue="hours" className="w-28 shrink-0">
-              <option value="hours">hours</option>
-              <option value="days">days</option>
-            </Select>
-          </div>
-        </div>
-
-        {/*
-          REQUIRED since 20 Nov 2026, so it is on the face of the form rather
-          than behind "More settings" (a field that is not rendered cannot be
-          required). No platform default is offered or written. The
-          stopped-moving pause that used to sit beside it now lives in the
-          halt alert above.
-        */}
-        <div className="border-t border-divider pt-4">
-          <FailureLimitField />
-        </div>
+        <MoreSettings />
       </div>
 
       <FormActions>
-        <SubmitButton pendingLabel="Adding…">
+        <SubmitButton pendingLabel="Adding…" className="add-truck-submit">
           {templates.length > 0 ? "Add truck and start watching" : "Add truck"}
         </SubmitButton>
       </FormActions>
     </ActionForm>
+  );
+}
+
+/**
+ * The three settings a first-time user should not have to think about, folded
+ * - but never hidden: the collapsed line reads back what will be saved
+ * ("No end time · pauses after 10 failed checks"), so the prefilled failure
+ * limit is on screen without opening anything.
+ *
+ * The failure limit is required, so the fold opens itself if the browser finds
+ * that box invalid on submit (an invalid control inside a closed <details>
+ * cannot be focused, and Chrome would otherwise refuse the submit silently).
+ */
+function MoreSettings() {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const [failures, setFailures] = useState(String(SUGGESTED_FAILURE_LIMIT));
+  const [end, setEnd] = useState<{ amount: string; unit: string }>({ amount: "", unit: "hours" });
+  const [remark, setRemark] = useState("");
+
+  const endNumber = Number(end.amount);
+  const endText =
+    end.amount.trim() !== "" && endNumber > 0
+      ? `stops after ${endNumber} ${end.unit === "days" ? (endNumber === 1 ? "day" : "days") : endNumber === 1 ? "hour" : "hours"}`
+      : "no end time";
+  const failNumber = Number(failures);
+  const failText =
+    failures.trim() !== "" && Number.isInteger(failNumber) && failNumber >= 1
+      ? `pauses after ${failNumber} failed check${failNumber === 1 ? "" : "s"}`
+      : "failed-check limit needed";
+
+  return (
+    <details
+      ref={ref}
+      className="add-truck-more"
+      onInvalidCapture={() => {
+        if (ref.current) ref.current.open = true;
+      }}
+    >
+      <summary className="add-truck-more-toggle">
+        <span className="min-w-0">
+          <span className="add-truck-more-title">More settings</span>
+          <span className="add-truck-more-values">
+            {remark.trim() ? `“${remark.trim()}” · ` : ""}
+            {endText} · {failText}
+          </span>
+        </span>
+        <ChevronDown size={16} aria-hidden className="add-truck-more-chevron" />
+      </summary>
+
+      <div className="add-truck-more-body">
+        <div>
+          <label className="field-label" htmlFor="add-truck-label">
+            Remark <span className="font-normal text-faint">(optional)</span>
+          </label>
+          <Input
+            id="add-truck-label"
+            name="label"
+            placeholder="e.g. Supplier vehicle"
+            value={remark}
+            maxLength={80}
+            onChange={(event) => setRemark(event.target.value)}
+          />
+        </div>
+        <AutoPauseField onValue={setEnd} />
+        <FailureLimitField onValue={setFailures} />
+      </div>
+    </details>
   );
 }
 
@@ -174,16 +195,9 @@ export type TelegramReadiness = "ready" | "no-chat-id" | "switched-off";
  * The trap is real and it is silent: with no chat id saved, an alert is still
  * evaluated, still costs its credit and still lands in alert_logs - so it
  * appears in the bell inside the app - but dispatchAlerts() records
- * `delivered: false` against it and no message is ever sent. Nothing on any
- * screen told somebody that before the alert they had just set up failed to
- * arrive.
- *
- * So the channel line is always on - it is the answer to "where does this
- * reach me", and it is where WhatsApp gets its "soon" - and the warning
- * appears only when the account is actually in the broken state. A permanent
- * "make sure Telegram is set up" note would be one more paragraph on a form
- * whose whole problem was paragraphs, and it would be false for every account
- * that has already connected.
+ * `delivered: false` against it and no message is ever sent. So the channel
+ * line is always on, and the warning appears only when the account is
+ * actually in the broken state.
  */
 function DeliveryRow({ state }: { state: TelegramReadiness }) {
   return (
@@ -191,13 +205,10 @@ function DeliveryRow({ state }: { state: TelegramReadiness }) {
       <p className="flex items-center gap-1.5 text-xs text-muted">
         <Send size={13} aria-hidden className="shrink-0 text-brand-500" />
         <span className="min-w-0">
-          Sent to you on <span className="font-medium text-ink">Telegram</span>
-                  </span>
+          Sent to you in the app and on <span className="font-medium text-ink">Telegram</span>
+        </span>
       </p>
 
-      {/* Two sentences, not three. Every extra clause here is another line on a
-          phone, and the consequence is already whole: it is recorded, and it is
-          not sent. */}
       {state === "ready" ? null : (
         <p className="flex items-start gap-2 rounded-lg border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs leading-relaxed text-warn-500">
           <AlertTriangle size={13} aria-hidden className="mt-0.5 shrink-0" />

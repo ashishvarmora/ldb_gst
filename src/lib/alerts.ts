@@ -78,8 +78,9 @@ export function alertCadence(alert: {
 }): string {
   if (alert.kind === "halt") {
     return [
-      alert.haltAfterHours ? `after ${hoursLabel(alert.haltAfterHours)}` : null,
-      alert.pauseAfterHours ? `pause after ${hoursLabel(alert.pauseAfterHours)}` : null,
+      alert.haltAfterHours ? `alert after ${hoursLabel(alert.haltAfterHours)}` : null,
+      /* Says WHAT is paused: the whole truck, not this alert (24 Nov 2026). */
+      alert.pauseAfterHours ? `pauses tracking after ${hoursLabel(alert.pauseAfterHours)}` : null,
     ]
       .filter(Boolean)
       .join(" · ");

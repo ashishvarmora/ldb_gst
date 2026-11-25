@@ -10,12 +10,6 @@ import { MoreMenu } from "@/components/MoreMenu";
 import { TruckCard, type TruckRowAlert, type TruckRowTruck } from "@/components/TruckCard";
 import { EmptyState, PageHeader, Panel, buttonClass, cx } from "@/components/ui";
 import { getSignedInUser } from "@/lib/auth";
-import {
-  destinationOf,
-  tripProgress,
-  type Destination,
-  type DestinationColumns,
-} from "@/lib/destination";
 import { AUTO_PAUSE_RULES, PAUSE_HELP_LINE, truckChip } from "@/lib/pause";
 import { requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -96,7 +90,6 @@ export default async function TrucksPage({
     { data: alerts },
     { data: templates },
     telegram,
-    { data: destinationRows },
   ] = await Promise.all([
       requirePortalSession(),
       searchParams,
@@ -116,13 +109,6 @@ export default async function TrucksPage({
         .order("sort_order", { ascending: true }),
       /* Cached with the layout's own read of the same thing - no extra trip. */
       loadAlertDelivery(userId),
-      /* Trucks with a destination (0077). Its own read so the row query above
-         keeps working before the migration; an error reads as "none". */
-      admin
-        .from("tracked_trucks")
-        .select("id,destination_name,destination_lat,destination_lng")
-        .eq("user_id", userId)
-        .not("destination_name", "is", null),
     ]);
 
   const filter = parseFilter(params.filter);
@@ -165,37 +151,8 @@ export default async function TrucksPage({
   const page = Math.min(Math.max(Number(params.page) || 1, 1), pageCount);
   const shown = matching.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  /*
-   * Distance left, only for the rows on screen that have a destination: their
-   * two latest crossings with a position, read in parallel. A page with no
-   * destination set makes no extra read at all.
-   */
-  const destinations = new Map<string, Destination>();
-  for (const row of (destinationRows ?? []) as ({ id: string } & DestinationColumns)[]) {
-    const destination = destinationOf(row);
-    if (destination) destinations.set(row.id, destination);
-  }
-  const withTrip = shown.filter((truck) => destinations.has(truck.id));
-  const tripCrossings = await Promise.all(
-    withTrip.map((truck) =>
-      admin
-        .from("truck_events")
-        .select("lat,lng,event_time,loc_name")
-        .eq("user_id", userId)
-        .eq("truck_number", truck.truck_number)
-        .not("lat", "is", null)
-        .not("lng", "is", null)
-        .order("event_time", { ascending: false, nullsFirst: false })
-        .limit(2)
-        .then(({ data }) => (data ?? []) as { lat: number; lng: number; event_time: string | null; loc_name: string | null }[]),
-    ),
-  );
-  const trips = new Map(
-    withTrip.map((truck, index) => {
-      const destination = destinations.get(truck.id)!;
-      return [truck.id, { destination, progress: tripProgress(destination, tripCrossings[index]) }];
-    }),
-  );
+  /* Destination / distance left moved to the Live module (24 Nov 2026), so
+     the list is one wave of reads again - no per-row crossing reads. */
 
   const slots = truckSlotsLeft(overview);
   const canAdd = slots > 0 && Boolean(overview.plan_id);
@@ -372,12 +329,7 @@ export default async function TrucksPage({
           ) : (
             <div className="fleet-rows">
               {shown.map((truck) => (
-                <TruckCard
-                  key={truck.id}
-                  truck={truck}
-                  alerts={byTruck.get(truck.id) ?? []}
-                  trip={trips.get(truck.id) ?? null}
-                />
+                <TruckCard key={truck.id} truck={truck} alerts={byTruck.get(truck.id) ?? []} />
               ))}
             </div>
           )}

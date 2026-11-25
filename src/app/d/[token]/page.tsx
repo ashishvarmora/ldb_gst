@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { DriverShare } from "./DriverShare";
-import { loadDriverPage } from "@/lib/live-location";
+import { loadDriverView } from "@/lib/live/driver";
 
 /**
  * /d/<token> - the page a driver opens from the owner's WhatsApp message.
@@ -9,6 +9,10 @@ import { loadDriverPage } from "@/lib/live-location";
  * Public, no login: the token is the credential. Shows only the truck number,
  * the name the owner chose to be shown as, and the driver's own name if the
  * owner typed one. Never indexed.
+ *
+ * Two kinds of link (src/lib/live/driver.ts): a live-module trip (0079) - then
+ * the driver also sees where to go and gets Started / Reached / Delivered
+ * buttons - or an old truck-page link (0078), which works exactly as before.
  */
 export const dynamic = "force-dynamic";
 
@@ -20,7 +24,7 @@ export const metadata: Metadata = {
 
 export default async function DriverPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const data = await loadDriverPage(token);
+  const data = await loadDriverView(token);
 
   if (data.kind !== "ok") {
     return (
@@ -48,7 +52,9 @@ export default async function DriverPage({ params }: { params: Promise<{ token: 
       truckNumber={data.truckNumber}
       ownerLabel={data.ownerLabel}
       driverName={data.driverName}
-      wasSharing={data.status === "active"}
+      wasSharing={data.sharing}
+      trip={data.trip}
+      closed={data.closed}
     />
   );
 }

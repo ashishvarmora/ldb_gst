@@ -44,12 +44,20 @@ export function ActionForm({
   className,
   closeOnSuccess = true,
   resetOnSuccess = false,
+  refresh = true,
 }: {
   action: FormAction;
   children: ReactNode;
   className?: string;
   closeOnSuccess?: boolean;
   resetOnSuccess?: boolean;
+  /**
+   * false for an action that calls revalidatePath(): Next already sends the
+   * re-rendered page back in the action's own response, so router.refresh()
+   * on top was a SECOND full server render of the same page after every save
+   * (24 Nov 2026 - on the truck page that is ~13 queries for nothing).
+   */
+  refresh?: boolean;
 }) {
   const [state, formAction, isPending] = useActionState<ActionResult | null, FormData>(
     action,
@@ -63,8 +71,8 @@ export function ActionForm({
     if (!state?.ok) return;
     if (resetOnSuccess) formRef.current?.reset();
     if (closeOnSuccess) closeModal();
-    router.refresh();
-  }, [state, closeOnSuccess, resetOnSuccess, closeModal, router]);
+    if (refresh) router.refresh();
+  }, [state, closeOnSuccess, resetOnSuccess, refresh, closeModal, router]);
 
   /*
    * KEEP WHAT WAS TYPED (16 Nov 2026). React 19 resets every uncontrolled
@@ -178,18 +186,21 @@ export function InlineActionForm({
   hidden,
   children,
   className,
+  refresh = true,
 }: {
   action: FormAction;
   hidden?: Record<string, string>;
   children: ReactNode;
   className?: string;
+  /** See ActionForm: false when the action revalidates the page itself. */
+  refresh?: boolean;
 }) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(action, null);
   const router = useRouter();
 
   useEffect(() => {
-    if (state?.ok) router.refresh();
-  }, [state, router]);
+    if (state?.ok && refresh) router.refresh();
+  }, [state, refresh, router]);
 
   return (
     <form action={formAction} className={cx("inline-flex flex-col items-end gap-1", className)}>
