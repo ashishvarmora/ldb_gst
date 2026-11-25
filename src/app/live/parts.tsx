@@ -15,8 +15,14 @@ import {
   signalState,
   tripNo,
   untilShort,
+  driverSignal,
+  SIGNAL_LABEL,
+  type DriverSignal,
+  type LiveDriver,
   type LivePlace,
   type LiveTrip,
+  type LiveVehicle,
+  type TripEvent,
   type TripStatus,
 } from "@/lib/live/shared";
 
@@ -73,10 +79,11 @@ export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<st
     <Link href={`/live/trips/${trip.id}`} className="live-trip-card">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="live-trip-vehicle">{prettyVehicle(trip.vehicle_no) || "No vehicle yet"}</p>
+          <p className="live-trip-vehicle">{trip.driver_name || prettyVehicle(trip.vehicle_no) || "No driver yet"}</p>
           <p className="live-trip-no">
             {tripNo(trip.trip_seq)}
-            {trip.invoice_no ? ` · Inv ${trip.invoice_no}` : ""}
+            {trip.trip_name ? ` · ${trip.trip_name}` : ""}
+            {trip.vehicle_no && trip.driver_name ? ` · ${prettyVehicle(trip.vehicle_no)}` : ""}
           </p>
         </div>
         <StatusPill status={trip.status} />
@@ -84,17 +91,19 @@ export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<st
       <p className="live-trip-route">
         <MapPin size={14} className="shrink-0" />
         <span className="min-w-0 truncate">
-          {from ? `${from.name} → ` : ""}
+          {from || trip.party_name || trip.from_name ? `${from?.name ?? trip.party_name ?? trip.from_name} → ` : ""}
           <strong>{destinationText(trip, to?.name)}</strong>
         </span>
       </p>
       <div className="live-trip-meta">
-        <SignalPill trip={trip} now={now} />
+        <span className={cx("live-dir", trip.direction === "incoming" ? "live-dir-incoming" : "live-dir-outgoing")}>
+          {trip.direction === "incoming" ? "Receiving" : "Sending"}
+        </span>
+        {trip.driver_id ? <SignalPill trip={trip} now={now} /> : null}
         {open && trip.distance_left_km != null && trip.status !== "arrived" ? <span>{Math.round(trip.distance_left_km)} km left</span> : null}
         {open && trip.eta_at && trip.status === "in_transit" ? <span>ETA {fmtIst(trip.eta_at)}</span> : null}
         {trip.status === "delivered" && trip.delivered_at ? <span>Delivered {fmtIst(trip.delivered_at)}</span> : null}
         {trip.status === "planned" && trip.planned_dispatch_at ? <span>Dispatch {fmtIst(trip.planned_dispatch_at)}</span> : null}
-        {trip.driver_name ? <span className="truncate">{trip.driver_name}</span> : null}
       </div>
       {issues.length ? (
         <div className="live-trip-issues">
@@ -142,5 +151,118 @@ export function SectionTitle({ title, href, link }: { title: string; href?: stri
         </Link>
       ) : null}
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0081: driver-first                                                          */
+/* -------------------------------------------------------------------------- */
+
+const SIGNAL_TONE: Record<DriverSignal, string> = {
+  live: "good",
+  recent: "brand",
+  idle: "warn",
+  waiting: "neutral",
+  stopped: "warn",
+  expired: "neutral",
+  off: "neutral",
+};
+
+export function DriverSignalPill({ driver, now }: { driver: LiveDriver; now: number }) {
+  const s = driverSignal(driver, now);
+  const text =
+    s === "recent" || s === "idle"
+      ? `${s === "idle" ? "No signal · " : ""}${agoShort(driver.share_last_seen_at ?? driver.last_point_at, now)}`
+      : SIGNAL_LABEL[s];
+  return (
+    <span className={cx("live-dsig", `live-dsig-${SIGNAL_TONE[s]}`)} suppressHydrationWarning>
+      <span className="live-dsig-dot" aria-hidden />
+      {text}
+    </span>
+  );
+}
+
+/** Own drivers need no chip; a receiving trip's driver is "Trip-only" (0082). */
+export function KindChip({ driver }: { driver: Pick<LiveDriver, "kind" | "company"> }) {
+  if (driver.kind !== "one_time") return null;
+  return (
+    <span className="live-kind live-kind-once" title={driver.company ?? undefined}>
+      Trip-only{driver.company ? ` · ${driver.company}` : ""}
+    </span>
+  );
+}
+
+export function DriverCard({
+  driver,
+  vehicle,
+  trip,
+  places,
+  now,
+}: {
+  driver: LiveDriver;
+  vehicle: LiveVehicle | null;
+  trip: LiveTrip | null;
+  places: Map<string, LivePlace>;
+  now: number;
+}) {
+  const s = driverSignal(driver, now);
+  const to = trip?.to_place_id ? places.get(trip.to_place_id) : null;
+  return (
+    <Link href={`/live/drivers/${driver.id}`} className="live-driver-card">
+      <span className={cx("live-avatar", `live-avatar-${SIGNAL_TONE[s]}`)} aria-hidden>
+        {driver.name.trim().charAt(0).toUpperCase() || "D"}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="live-driver-top">
+          <strong className="truncate">{driver.name}</strong>
+          <KindChip driver={driver} />
+        </span>
+        <span className="live-driver-sub">
+          {vehicle ? <span className="font-mono">{prettyVehicle(vehicle.number)}</span> : <span>No truck</span>}
+          <span aria-hidden>·</span>
+          {trip ? (
+            <span className="truncate">
+              {tripNo(trip.trip_seq)} → {destinationText(trip, to?.name)}
+            </span>
+          ) : (
+            <span>No trip</span>
+          )}
+        </span>
+        <DriverSignalPill driver={driver} now={now} />
+      </span>
+      <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+    </Link>
+  );
+}
+
+/** Activity row text: "who · when", plus old -> new when a field changed. */
+export function ActivityList({ events, showTrip = false }: { events: TripEvent[]; showTrip?: boolean }) {
+  if (!events.length) return <p className="live-empty">Nothing recorded yet.</p>;
+  return (
+    <ol className="live-timeline">
+      {events.map((e) => (
+        <li key={e.id} className={`live-tl-${e.kind}`}>
+          <span className="live-tl-dot" aria-hidden />
+          <div className="min-w-0">
+            <p className="live-tl-title">{e.title}</p>
+            {e.field && (e.old_value || e.new_value) && !e.detail ? (
+              <p className="live-tl-detail">
+                {e.old_value || "-"} → {e.new_value || "-"}
+              </p>
+            ) : null}
+            {e.detail ? <p className="live-tl-detail">{e.detail}</p> : null}
+            <p className="live-tl-when">
+              {fmtIst(e.created_at)} · {e.actor === "owner" ? "You" : e.actor === "driver" ? "Driver" : "Auto"}
+              {showTrip && e.trip_id ? (
+                <>
+                  {" · "}
+                  <Link href={`/live/trips/${e.trip_id}`}>trip</Link>
+                </>
+              ) : null}
+            </p>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

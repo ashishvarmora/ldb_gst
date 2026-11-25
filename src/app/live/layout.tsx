@@ -7,7 +7,7 @@ import { NavProgress } from "@/components/NavProgress";
 import { PushAutoOn } from "@/components/PushAutoOn";
 import { publicSettings } from "@/components/SiteFooter";
 import { integrationHealth } from "@/lib/env";
-import { requireLiveSession } from "@/lib/live/server";
+import { liveSchemaReady, requireLiveSession } from "@/lib/live/server";
 
 import { LiveBottomNav, LiveSidebar } from "./LiveNav";
 import { EnableLive } from "./EnableLive";
@@ -25,7 +25,7 @@ import "./live.css";
 export const metadata = { robots: { index: false, follow: false } };
 
 export default async function LiveLayout({ children }: { children: React.ReactNode }) {
-  const [live, { brandName }] = await Promise.all([requireLiveSession(), publicSettings()]);
+  const [live, { brandName }, ready81] = await Promise.all([requireLiveSession(), publicSettings(), liveSchemaReady()]);
 
   return (
     <div className="theme-light portal-shell live-shell flex min-h-screen">
@@ -60,6 +60,13 @@ export default async function LiveLayout({ children }: { children: React.ReactNo
               <Link href="/portal" className="mt-4 inline-block text-sm font-semibold text-brand-600">
                 Back to Toll tracking
               </Link>
+            </div>
+          ) : live.enabled && !ready81 ? (
+            <div className="panel mx-auto max-w-lg p-6 text-center">
+              <h1 className="text-xl font-bold text-strong">Live tracking is being upgraded</h1>
+              <p className="mt-2 text-sm text-muted">
+                Driver-first tracking needs a database update (migration 0081). Driver links keep working meanwhile.
+              </p>
             </div>
           ) : live.enabled ? (
             children

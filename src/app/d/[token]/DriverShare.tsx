@@ -6,6 +6,16 @@ import { BatteryMedium, MapPin, Square, Truck, WifiOff } from "lucide-react";
 import { REPORT_EVERY_MS, agoText } from "@/lib/live-location-shared";
 import type { DriverTripInfo } from "@/lib/live/driver";
 import { DriverTripCard } from "./DriverTripCard";
+// [native-app bg location] Android app hand-off - see src/lib/native-bg-location.ts
+import {
+  isAndroidBrowser,
+  nativeBgLocation,
+  nativePostJson,
+  openInAppHref,
+  openNativeSettings,
+  startNativeWatch,
+  stopNativeWatch,
+} from "@/lib/native-bg-location";
 
 /**
  * The driver's side: one big Start button, one big Stop button.
@@ -81,7 +91,7 @@ export function DriverShare({
   wasSharing: boolean;
   /** Live-module trip (0079) behind this link, or null for an old truck link. */
   trip?: DriverTripInfo | null;
-  /** Trip already delivered/cancelled: nothing to share. */
+  /** Sharing has ended (one-time driver after his trip): nothing to share. */
   closed?: boolean;
 }) {
   const QUEUE_KEY = `rx-d-q-${token}`;
@@ -106,6 +116,10 @@ export function DriverShare({
   const consentSent = useRef(false);
   const wakeLock = useRef<WakeLockSentinel | null>(null);
   const sharingRef = useRef(false);
+  // [native-app bg location] watcher id while the Android app's background service is used
+  const nativeWatch = useRef<string | null>(null);
+  const [inApp, setInApp] = useState(false);
+  const [androidWeb, setAndroidWeb] = useState(false);
 
   const persistQueue = useCallback(() => {
     writeStore(QUEUE_KEY, queue.current.length ? queue.current : null);
@@ -116,6 +130,8 @@ export function DriverShare({
     sharingRef.current = false;
     if (watchId.current !== null) navigator.geolocation?.clearWatch(watchId.current);
     watchId.current = null;
+    stopNativeWatch(nativeWatch.current); // [native-app bg location]
+    nativeWatch.current = null;
     if (timer.current) clearInterval(timer.current);
     timer.current = null;
     wakeLock.current?.release().catch(() => {});
@@ -126,6 +142,11 @@ export function DriverShare({
   const post = useCallback(
     async (body: Record<string, unknown>): Promise<Response | null> => {
       try {
+        // [native-app bg location] native HTTP is not throttled while the app is in the background
+        if (nativeBgLocation()) {
+          const res = await nativePostJson(`/api/driver/${encodeURIComponent(token)}/location`, body);
+          if (res) return res;
+        }
         return await fetch(`/api/driver/${encodeURIComponent(token)}/location`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -193,7 +214,8 @@ export function DriverShare({
   }, []);
 
   const start = useCallback(() => {
-    if (!("geolocation" in navigator)) {
+    const native = nativeBgLocation(); // [native-app bg location]
+    if (!native && !("geolocation" in navigator)) {
       setPhase("unsupported");
       return;
     }
@@ -202,27 +224,44 @@ export function DriverShare({
     sharingRef.current = true;
     writeStore(ON_KEY, true);
 
-    watchId.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const fix: Fix = {
+    const onFix = (fix: Fix) => {
+      latest.current = fix;
+      setLastFix(fix);
+      setPhase((p) => (p === "starting" ? "sharing" : p));
+
+      const prev = lastQueued.current;
+      const moved = !prev || metersBetween(prev, fix) >= MOVE_METERS;
+      if (moved && Date.now() - lastPostAt.current >= MIN_GAP_MS) {
+        enqueue(fix);
+        void flush();
+      }
+    };
+
+    if (native) {
+      // [native-app bg location] foreground service + ongoing notification; keeps going when locked
+      const label = truckNumber || trip?.tripNo || driverName || "this trip";
+      void startNativeWatch(label, ownerLabel, onFix, (kind) => {
+        if (kind === "gps-off" || kind === "failed") {
+          setMessage("GPS not available right now. Turn on Location. / लोकेशन (GPS) चालू करें।");
+          if (kind === "failed") return;
+        }
+        stopWatching();
+        writeStore(ON_KEY, null);
+        setPhase(kind === "denied" ? "denied" : "idle");
+      }).then((id) => {
+        if (id && !sharingRef.current) stopNativeWatch(id); // Stop tapped while starting
+        else if (id) nativeWatch.current = id;
+      });
+    } else watchId.current = navigator.geolocation.watchPosition(
+      (pos) =>
+        onFix({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
           speed: pos.coords.speed ?? null,
           heading: pos.coords.heading ?? null,
           t: pos.timestamp || Date.now(),
-        };
-        latest.current = fix;
-        setLastFix(fix);
-        setPhase((p) => (p === "starting" ? "sharing" : p));
-
-        const prev = lastQueued.current;
-        const moved = !prev || metersBetween(prev, fix) >= MOVE_METERS;
-        if (moved && Date.now() - lastPostAt.current >= MIN_GAP_MS) {
-          enqueue(fix);
-          void flush();
-        }
-      },
+        }),
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           stopWatching();
@@ -249,7 +288,7 @@ export function DriverShare({
     }, REPORT_EVERY_MS);
 
     void acquireWakeLock();
-  }, [ON_KEY, acquireWakeLock, enqueue, flush, stopWatching]);
+  }, [ON_KEY, acquireWakeLock, enqueue, flush, stopWatching, truckNumber, trip, driverName, ownerLabel]);
 
   const stop = useCallback(async () => {
     stopWatching();
@@ -263,6 +302,8 @@ export function DriverShare({
     queue.current = readStore<Fix[]>(QUEUE_KEY, []);
     setQueued(queue.current.length);
     setOnline(navigator.onLine);
+    setInApp(nativeBgLocation() !== null); // [native-app bg location]
+    setAndroidWeb(isAndroidBrowser());
     if (!closed && readStore<boolean>(ON_KEY, false)) start();
     return () => stopWatching();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,15 +331,12 @@ export function DriverShare({
     };
   }, [acquireWakeLock, flush]);
 
-  const onTripClosed = useCallback(
-    (text: string) => {
-      stopWatching();
-      writeStore(ON_KEY, null);
-      setPhase("revoked");
-      setMessage(text);
-    },
-    [ON_KEY, stopWatching],
-  );
+  /* Driver-first (0081): a delivered trip does NOT stop sharing. An own
+     driver shares until he taps Stop; a one-time driver's link ends by itself
+     a while later and the server then answers 410, which stops the page. */
+  const onTripClosed = useCallback((text: string) => {
+    setMessage(text);
+  }, []);
 
   const sharing = phase === "sharing" || phase === "starting";
   const speedKmh = lastFix?.speed != null && lastFix.speed >= 0 ? Math.round(lastFix.speed * 3.6) : null;
@@ -310,8 +348,17 @@ export function DriverShare({
           <Truck size={22} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-xs text-muted">Truck / ट्रक</p>
-          <h1 className="font-mono text-2xl font-bold tracking-wide text-strong">{truckNumber}</h1>
+          {truckNumber ? (
+            <>
+              <p className="text-xs text-muted">Truck / ट्रक</p>
+              <h1 className="font-mono text-2xl font-bold tracking-wide text-strong">{truckNumber}</h1>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted">Driver / ड्राइवर</p>
+              <h1 className="text-2xl font-bold text-strong">{driverName || "Location sharing"}</h1>
+            </>
+          )}
         </div>
       </header>
 
@@ -406,6 +453,11 @@ export function DriverShare({
             <p className="rounded-xl border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
               Location permission is blocked. Allow Location for this site in your browser settings, then tap Start
               again. / ब्राउज़र सेटिंग में इस साइट के लिए Location की अनुमति दें।
+              {inApp ? (
+                <button type="button" onClick={openNativeSettings} className="mt-2 block font-semibold underline">
+                  Open app settings / ऐप सेटिंग खोलें
+                </button>
+              ) : null}
             </p>
           ) : null}
           {phase === "unsupported" ? (
@@ -434,12 +486,30 @@ export function DriverShare({
       <section className="space-y-2 text-sm text-muted">
         <p className="flex items-start gap-2">
           <BatteryMedium size={16} className="mt-0.5 shrink-0" aria-hidden />
-          <span>
-            Keep this page open. The screen can be dimmed{wakeLockOn ? " (screen is kept awake)" : ""}. If the phone
-            locks or you switch apps, sharing pauses until you come back. / यह पेज खुला रखें। फ़ोन लॉक होने पर
-            शेयरिंग रुक जाती है।
-          </span>
+          {inApp ? (
+            <span>
+              Sharing continues when the phone is locked or the app is closed. A notification shows while it is on;
+              tap Stop sharing here to end it. / फ़ोन लॉक होने या ऐप बंद होने पर भी शेयरिंग चलती रहती है। बंद
+              करने के लिए Stop दबाएँ।
+            </span>
+          ) : (
+            <span>
+              Keep this page open. The screen can be dimmed{wakeLockOn ? " (screen is kept awake)" : ""}. If the phone
+              locks or you switch apps, sharing pauses until you come back. / यह पेज खुला रखें। फ़ोन लॉक होने पर
+              शेयरिंग रुक जाती है।
+            </span>
+          )}
         </p>
+        {androidWeb && !closed ? (
+          /* [native-app bg location] hint: the app keeps sharing when the phone is locked */
+          <p className="rounded-xl border border-line bg-sunken px-3 py-2">
+            Use the Rahdari app for background sharing (Android) - it keeps sharing when the phone is locked. / फ़ोन
+            लॉक होने पर भी शेयरिंग के लिए Rahdari ऐप इस्तेमाल करें।{" "}
+            <a href={openInAppHref(`/d/${encodeURIComponent(token)}`)} className="font-semibold text-brand-600 underline">
+              Open in app / ऐप में खोलें
+            </a>
+          </p>
+        ) : null}
         <p>Keep the phone on charge if you can. / हो सके तो फ़ोन चार्ज पर रखें।</p>
         <p className="text-xs text-faint">
           Only your location, accuracy and speed are sent - nothing else from your phone. Rahdari.

@@ -2,6 +2,7 @@ import { after } from "next/server";
 
 import { recordActivity } from "@/lib/audit";
 import { consumeHold, creditRefusalMessage, holdSearchCredits, releaseHold } from "@/lib/credits";
+import "@/lib/low-credit"; // registers the low-balance warning hook used by credits.ts
 import { reportError } from "@/lib/errors";
 import { fetchTruckEvents, type LdbResult } from "@/lib/ldb";
 import { fmtDateTime } from "@/lib/format";

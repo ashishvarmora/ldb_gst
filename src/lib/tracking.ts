@@ -8,6 +8,7 @@ import {
   type Position,
 } from "@/lib/alerts";
 import { CREDIT_ACTIONS, spendCredits } from "@/lib/credits";
+import "@/lib/low-credit"; // registers the low-balance warning hook used by credits.ts
 import { istDaysAgo, istToday } from "@/lib/format";
 import { fetchTruckEvents } from "@/lib/ldb";
 import { maybeExportAndPurge, type BackupSummary } from "@/lib/backup";
@@ -26,6 +27,8 @@ import {
   noticeParams,
   sendWhatsAppAlert,
   siteLink,
+  truckAlertTemplate,
+  type PreferredTemplate,
   whatsappAlertParams,
   whatsappAlertText,
   whatsappConfigured,
@@ -321,6 +324,8 @@ async function deliverAlert({
    */
   whatsapp: {
     params: string[];
+    /** rahdari_truck_alert, tried before the trip-update chain. */
+    preferred?: PreferredTemplate | null;
     text: string;
     /** Charged to this truck in the ledger (null for account-wide notices). */
     truckNumber: string | null;
@@ -381,6 +386,7 @@ async function deliverAlert({
           to: context.whatsapp!.phone,
           text: whatsapp!.text,
           params: whatsapp!.params,
+          preferred: whatsapp!.preferred ?? null,
           purpose: "alert",
           userId: context.userId,
         })
@@ -505,7 +511,34 @@ function whatsappForDraft(draft: AlertDraft, truckNumber: string, truckId: strin
     guessed: draft.guessed,
     url: siteLink(`/portal/trucks/${truckId}`),
   };
-  return { params: whatsappAlertParams(input), text: whatsappAlertText(input), truckNumber };
+  return {
+    params: whatsappAlertParams(input),
+    preferred: truckAlertTemplate(input, truckId),
+    text: whatsappAlertText(input),
+    truckNumber,
+  };
+}
+
+/**
+ * "Credits running low" (src/lib/low-credit.ts decides when): the bell, app
+ * push and Telegram only - never WhatsApp, which would itself spend credits.
+ */
+export async function sendLowCreditNotice(userId: string, balance: number, threshold: number): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const context = await loadOfficerContext(admin, userId);
+  const left = balance.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  await sendSystemAlert({
+    admin,
+    context,
+    truckNumber: null,
+    kind: "low_credits",
+    title: "Credits running low",
+    message:
+      `Your balance is ${left} credits, under about a day of your usual use ` +
+      `(${threshold.toLocaleString("en-IN", { maximumFractionDigits: 2 })}). Top up so tracking does not pause: ` +
+      siteLink("/portal/plan"),
+    pushUrl: "/portal/plan",
+  });
 }
 
 /**
@@ -525,6 +558,7 @@ async function sendSystemAlert({
   title,
   message,
   whatsappLink,
+  pushUrl = "/portal/notifications",
 }: {
   admin: Admin;
   context: OfficerContext;
@@ -538,6 +572,8 @@ async function sendSystemAlert({
    * credits, plan ending tomorrow / ended, repeated failures).
    */
   whatsappLink?: { label: string; url: string };
+  /** Where tapping the phone notification goes (default: the bell). */
+  pushUrl?: string;
 }): Promise<void> {
   const heading = truckNumber ? `${title}\n${truckNumber}` : title;
 
@@ -560,7 +596,7 @@ async function sendSystemAlert({
        * notifications list is where the whole thing is readable. Account-wide
        * ones have no truck to open anyway.
        */
-      url: "/portal/notifications",
+      url: pushUrl,
     },
     whatsapp: whatsappLink
       ? {

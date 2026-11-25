@@ -36,11 +36,27 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_MAX_TOKENS = 800;
 const MAX_PROMPT_CHARS = 24_000;
 
-/** Which provider is configured, first one wins: Gemini, then Groq. */
+/**
+ * Every configured key, in the order tried: Gemini keys, then Groq keys.
+ * GEMINI_API_KEY / GROQ_API_KEY may each hold several keys separated by
+ * commas; a key that fails (429, timeout, error) hands the call to the next.
+ */
+type AiKey = { provider: AiProvider; key: string };
+function splitKeys(raw: string | undefined): string[] {
+  return (raw ?? "").split(",").map((k) => k.trim()).filter(Boolean);
+}
+function aiKeys(): AiKey[] {
+  return [
+    ...splitKeys(env.geminiApiKey).map((key) => ({ provider: "gemini" as const, key })),
+    ...splitKeys(env.groqApiKey).map((key) => ({ provider: "groq" as const, key })),
+  ];
+}
+/** A key that just answered 429 rests for a minute; the others carry on. */
+const keyCooldown = new Map<string, number>();
+
+/** Which provider would be tried first. */
 export function aiProvider(): AiProvider | null {
-  if (env.geminiApiKey) return "gemini";
-  if (env.groqApiKey) return "groq";
-  return null;
+  return aiKeys()[0]?.provider ?? null;
 }
 
 export function aiAvailable(): boolean {
@@ -137,7 +153,7 @@ type CallArgs = {
   json: boolean;
 };
 
-async function callGemini(a: CallArgs): Promise<string | null> {
+async function callGemini(a: CallArgs, apiKey: string): Promise<string | null> {
   const model = env.geminiModel;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body: Record<string, unknown> = {
@@ -157,7 +173,7 @@ async function callGemini(a: CallArgs): Promise<string | null> {
       headers: {
         "content-type": "application/json",
         // header rather than ?key= so the key never lands in a logged URL
-        "x-goog-api-key": env.geminiApiKey,
+        "x-goog-api-key": apiKey,
       },
       body: JSON.stringify(body),
     },
@@ -165,7 +181,7 @@ async function callGemini(a: CallArgs): Promise<string | null> {
   );
   if (!res) return failNull("gemini", "timeout/network");
   if (!res.ok) {
-    if (res.status === 429) cooldownUntil = Date.now() + 60_000;
+    if (res.status === 429) keyCooldown.set(apiKey, Date.now() + 60_000);
     return failNull("gemini", `http ${res.status}`);
   }
   const data = (await res.json().catch(() => null)) as {
@@ -177,7 +193,7 @@ async function callGemini(a: CallArgs): Promise<string | null> {
   return text;
 }
 
-async function callGroq(a: CallArgs): Promise<string | null> {
+async function callGroq(a: CallArgs, apiKey: string): Promise<string | null> {
   const messages: { role: string; content: string }[] = [];
   if (a.system) messages.push({ role: "system", content: a.system });
   messages.push({ role: "user", content: a.prompt });
@@ -187,7 +203,7 @@ async function callGroq(a: CallArgs): Promise<string | null> {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${env.groqApiKey}`,
+        authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: env.groqModel,
@@ -201,7 +217,7 @@ async function callGroq(a: CallArgs): Promise<string | null> {
   );
   if (!res) return failNull("groq", "timeout/network");
   if (!res.ok) {
-    if (res.status === 429) cooldownUntil = Date.now() + 60_000;
+    if (res.status === 429) keyCooldown.set(apiKey, Date.now() + 60_000);
     return failNull("groq", `http ${res.status}`);
   }
   const data = (await res.json().catch(() => null)) as {
@@ -240,14 +256,19 @@ async function run(a: CallArgs): Promise<string | null> {
     logFail(provider, "rate guard: skipped");
     return null;
   }
-  try {
-    const prompt = a.prompt.length > MAX_PROMPT_CHARS ? a.prompt.slice(0, MAX_PROMPT_CHARS) : a.prompt;
-    const args = { ...a, prompt };
-    return provider === "gemini" ? await callGemini(args) : await callGroq(args);
-  } catch (e) {
-    logFail(provider, `error ${(e as Error)?.name ?? "unknown"}`);
-    return null;
+  const prompt = a.prompt.length > MAX_PROMPT_CHARS ? a.prompt.slice(0, MAX_PROMPT_CHARS) : a.prompt;
+  const args = { ...a, prompt };
+  const now = Date.now();
+  for (const { provider: p, key } of aiKeys()) {
+    if ((keyCooldown.get(key) ?? 0) > now) continue;
+    try {
+      const out = p === "gemini" ? await callGemini(args, key) : await callGroq(args, key);
+      if (out) return out;
+    } catch (e) {
+      logFail(p, `error ${(e as Error)?.name ?? "unknown"}`);
+    }
   }
+  return null;
 }
 
 /* ---------------- public API ---------------- */

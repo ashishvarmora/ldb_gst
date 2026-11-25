@@ -168,6 +168,7 @@ export async function sendWhatsAppTemplate({
   to,
   template,
   bodyParams,
+  buttonParam,
   purpose,
   userId = null,
   lang = env.whatsappTemplateLang,
@@ -175,6 +176,8 @@ export async function sendWhatsAppTemplate({
   to: string;
   template: string;
   bodyParams: string[];
+  /** Dynamic suffix of the template's first URL button, when it has one. */
+  buttonParam?: string;
   purpose: "alert" | "test" | "otp";
   userId?: string | null;
   lang?: string;
@@ -193,7 +196,12 @@ export async function sendWhatsAppTemplate({
     template: {
       name: template,
       language: { code: lang },
-      components: [{ type: "body", parameters: bodyParams.map((text) => ({ type: "text", text: cleanParam(text) })) }],
+      components: [
+        { type: "body", parameters: bodyParams.map((text) => ({ type: "text", text: cleanParam(text) })) },
+        ...(buttonParam
+          ? [{ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: cleanParam(buttonParam) }] }]
+          : []),
+      ],
     },
   });
 
@@ -264,10 +272,43 @@ async function inReplyWindow(number: string): Promise<boolean> {
 const TEMPLATE_UNUSABLE = new Set([132001, 132015, 132016, 132007]);
 
 /**
+ * Templates Meta just refused as unusable, per server instance, so a preferred
+ * template still waiting for approval costs one failed call an hour rather
+ * than one per alert. Cleared by a successful send.
+ */
+const unusableUntil = new Map<string, number>();
+const UNUSABLE_TTL_MS = 60 * 60 * 1000;
+
+function templateLooksUsable(name: string): boolean {
+  const until = unusableUntil.get(name);
+  if (until === undefined) return true;
+  if (Date.now() > until) {
+    unusableUntil.delete(name);
+    return true;
+  }
+  return false;
+}
+
+/** One template send that remembers an "unusable" answer. */
+async function tryTemplate(args: Parameters<typeof sendWhatsAppTemplate>[0]): Promise<WhatsAppResult> {
+  const result = await sendWhatsAppTemplate(args);
+  if (result.ok) unusableUntil.delete(args.template);
+  else if (result.code !== undefined && TEMPLATE_UNUSABLE.has(result.code)) {
+    unusableUntil.set(args.template, Date.now() + UNUSABLE_TTL_MS);
+  }
+  return result;
+}
+
+/** A richer template tried before the trip-update chain (e.g. rahdari_truck_alert). */
+export type PreferredTemplate = { template: string; bodyParams: string[]; buttonParam?: string };
+
+/**
  * The one way alerts go out on WhatsApp:
  *   1. inside the 24-hour window -> plain `text` (richer, no template needed);
- *   2. otherwise -> the trip-update template, then each fallback template in
- *      turn (WA_TEMPLATE_FALLBACKS) until one is approved.
+ *   2. otherwise -> `preferred` when given (rahdari_truck_alert /
+ *      rahdari_admin_daily), then the trip-update template, then each fallback
+ *      template in turn (WA_TEMPLATE_FALLBACKS) until one is approved. A
+ *      template refused as unapproved is skipped for an hour on this instance.
  */
 export async function sendWhatsAppAlert({
   to,
@@ -275,12 +316,15 @@ export async function sendWhatsAppAlert({
   params,
   purpose,
   userId = null,
+  preferred = null,
 }: {
   to: string;
   text: string;
   params: string[];
   purpose: "alert" | "test";
   userId?: string | null;
+  /** Tried first outside the reply window; on "not approved" the chain below takes over. */
+  preferred?: PreferredTemplate | null;
 }): Promise<WhatsAppResult> {
   if (!whatsappConfigured()) {
     return { ok: false, skipped: true, error: "WhatsApp alerts are not switched on yet." };
@@ -297,8 +341,13 @@ export async function sendWhatsAppAlert({
     (t, i, all) => t && all.indexOf(t) === i,
   );
   let last: WhatsAppResult = { ok: false, error: "No WhatsApp template is configured." };
+  if (preferred?.template && templateLooksUsable(preferred.template)) {
+    last = await tryTemplate({ to: number, ...preferred, purpose, userId });
+    if (last.ok || last.skipped || !(last.code !== undefined && TEMPLATE_UNUSABLE.has(last.code))) return last;
+  }
   for (const template of templates) {
-    last = await sendWhatsAppTemplate({ to: number, template, bodyParams: params, purpose, userId });
+    if (!templateLooksUsable(template) && template !== templates[templates.length - 1]) continue;
+    last = await tryTemplate({ to: number, template, bodyParams: params, purpose, userId });
     if (last.ok || last.skipped || !(last.code !== undefined && TEMPLATE_UNUSABLE.has(last.code))) return last;
   }
   return last;
@@ -421,6 +470,32 @@ export function whatsappAlertParams(a: WhatsAppAlertInput): string[] {
     when = null; // "now": the halt is the news, not the old crossing
   } else status = `crossed ${where}`;
   return [a.truckNumber, status.slice(0, 200), whatsappTime(when)];
+}
+
+/**
+ * The same alert for rahdari_truck_alert:
+ *   "Rahdari update for truck {{1}}: {{2}}.
+
+Place: {{3}}
+Time: {{4}} IST ..."
+ * plus the "Open truck" button, whose url suffix is the tracked truck's id.
+ */
+export function truckAlertTemplate(a: WhatsAppAlertInput, truckId: string): PreferredTemplate {
+  const where = placeWithDirection(a.location, a.direction);
+  let status: string;
+  let when = a.eventTime ?? null;
+  if (a.kind === "plaza_crossing") status = a.guessed ? "reached the plaza closest to the one you named" : "reached the plaza you asked for";
+  else if (a.kind === "location_change") status = "moved to a new toll plaza";
+  else if (a.kind === "halt" && a.phase === "moving_again") status = "moving again";
+  else if (a.kind === "halt") {
+    status = `halted, no toll crossing for ${a.idleText ?? "a while"}`;
+    when = null;
+  } else status = "crossed a toll plaza";
+  return {
+    template: env.whatsappTruckAlertTemplate,
+    bodyParams: [a.truckNumber, status.slice(0, 200), where.slice(0, 200), whatsappTime(when)],
+    buttonParam: truckId,
+  };
 }
 
 /**

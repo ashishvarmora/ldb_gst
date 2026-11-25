@@ -1,4 +1,15 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+/*
+ * The low-balance warning (low-credit.ts) is server-only, and this file is
+ * also imported by client components (price ladders, labels). So it is not
+ * imported here: low-credit.ts registers itself on globalThis when a server
+ * spending path loads it (manual-search.ts, tracking.ts), and this calls it
+ * if present. In the browser it is simply absent.
+ */
+function noteSpend(userId: string, balance?: number | null): void {
+  const hook = (globalThis as { __rahdariNoteSpend?: (u: string, b?: number | null) => void }).__rahdariNoteSpend;
+  if (hook) hook(userId, balance);
+}
 import type { CreditPack, CreditRate, CreditVerdict, Plan } from "@/lib/types";
 
 /**
@@ -207,7 +218,10 @@ export async function spendCredits({
   });
 
   if (error) return { allowed: false, reason: "unknown_action" };
-  return (data ?? { allowed: false }) as CreditVerdict;
+  const verdict = (data ?? { allowed: false }) as CreditVerdict;
+  // Low-balance warning: fire and forget, never in the way of the spend.
+  if (verdict.allowed && !verdict.free) noteSpend(userId, verdict.balance ?? null);
+  return verdict;
 }
 
 /**
@@ -251,6 +265,7 @@ export async function consumeHold(admin: Admin, userId: string, hold: CreditHold
   if (!hold.hold_id) return true; // free action: nothing was held
   const { data, error } = await admin.rpc("consume_hold", { p_user: userId, p_hold: hold.hold_id });
   const ok = !error && (data as { ok?: boolean } | null)?.ok === true;
+  if (ok) noteSpend(userId); // low-balance warning, fire and forget
   if (!ok) {
     // Errs in the customer's favour: the hold expires and nothing is charged.
     console.error("[credits] consume_hold failed:", hold.hold_id, error?.message ?? JSON.stringify(data));

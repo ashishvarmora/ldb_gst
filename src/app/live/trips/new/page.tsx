@@ -1,25 +1,32 @@
-import { loadDrivers, loadPlaces, loadVehicles, requireLiveSession } from "@/lib/live/server";
+import { loadTrip, requireLiveSession, UUID_RE } from "@/lib/live/server";
+import { tripDirection, tripNo } from "@/lib/live/shared";
 
-import { createTrip } from "../../actions";
 import { BackLink } from "../../BackLink";
-import { TripForm } from "../TripForm";
+import { NewTripForm } from "./NewTripForm";
 
 export const metadata = { title: "Live tracking - New trip" };
 export const dynamic = "force-dynamic";
 
-export default async function NewTripPage() {
+/**
+ * /live/trips/new - step 1: sending or receiving, and the trip name. The trip
+ * number is given now and never changes. Step 2 (driver, truck, details) is
+ * the setup screen. ?copy=<tripId> = same route again; ?dir=incoming preselects.
+ */
+export default async function NewTripPage({ searchParams }: { searchParams: Promise<{ copy?: string; dir?: string }> }) {
+  const sp = await searchParams;
   const { ownerId } = await requireLiveSession();
-  const [places, vehicles, drivers] = await Promise.all([loadPlaces(ownerId), loadVehicles(ownerId), loadDrivers(ownerId)]);
+  const copy = sp.copy && UUID_RE.test(sp.copy) ? await loadTrip(ownerId, sp.copy) : null;
+  const dir = copy ? tripDirection(copy) : sp.dir === "incoming" ? "incoming" : "outgoing";
   return (
-    <div className="live-page mx-auto max-w-3xl space-y-4">
+    <div className="live-page mx-auto max-w-xl space-y-3">
       <BackLink href="/live/trips" label="Trips" />
       <header className="live-page-head">
         <div>
           <h1>New trip</h1>
-          <p>Vehicle and destination are enough to start. Add the rest any time.</p>
+          <p>{copy ? `Same route as ${tripNo(copy.trip_seq)}.` : "Name it first. Driver and details come next."}</p>
         </div>
       </header>
-      <TripForm action={createTrip} trip={null} places={places} vehicles={vehicles} drivers={drivers} />
+      <NewTripForm defaultDirection={dir} copyId={copy?.id ?? null} />
     </div>
   );
 }

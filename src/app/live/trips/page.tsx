@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Plus, Route, Search } from "lucide-react";
 
 import { cx } from "@/components/ui";
 import { loadPlaces, placeMap, requireLiveSession, searchTrips } from "@/lib/live/server";
-import { istDayStart } from "@/lib/live/shared";
+import { istDayStart, prettyVehicle } from "@/lib/live/shared";
 
 import { TripCard } from "../parts";
+import { AutoRefresh, FleetMap, type MapTruck } from "../widgets";
 
 export const metadata = { title: "Live tracking - Trips" };
 export const dynamic = "force-dynamic";
@@ -27,7 +28,13 @@ const DAYS = [
   { key: "30", label: "30 days" },
 ];
 
-type Search = { status?: string; q?: string; days?: string; place?: string; page?: string };
+const DIRS = [
+  { key: "", label: "All" },
+  { key: "outgoing", label: "Sending" },
+  { key: "incoming", label: "Receiving" },
+];
+
+type Search = { status?: string; q?: string; days?: string; place?: string; dir?: string; page?: string };
 
 function href(base: Search, patch: Partial<Search>) {
   const p = new URLSearchParams();
@@ -47,21 +54,39 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
   const page = Math.max(0, Number(sp.page) || 0);
 
   const [{ rows, more }, places] = await Promise.all([
-    searchTrips(ownerId, { status, q: sp.q, from, place: sp.place, page }),
+    searchTrips(ownerId, { status, q: sp.q, from, place: sp.place, direction: sp.dir, page }),
     loadPlaces(ownerId),
   ]);
   const byId = placeMap(places);
-  const base: Search = { status, q: sp.q, days: sp.days, place: sp.place };
+  const base: Search = { status, q: sp.q, days: sp.days, place: sp.place, dir: sp.dir };
+  const onMap: MapTruck[] = rows
+    .filter((t) => t.last_lat != null && t.last_lng != null && ["loading", "in_transit", "arrived"].includes(t.status))
+    .slice(0, 30)
+    .map((t) => ({
+      id: t.id,
+      label: t.driver_name || prettyVehicle(t.vehicle_no) || t.trip_name || "Trip",
+      sub: `${t.trip_name ?? ""}${t.vehicle_no ? ` · ${prettyVehicle(t.vehicle_no)}` : ""}`,
+      lat: t.last_lat!,
+      lng: t.last_lng!,
+      at: t.last_point_at,
+      tone: t.status === "in_transit" ? "good" : "neutral",
+    }));
 
   return (
-    <div className="live-page mx-auto max-w-5xl space-y-4">
+    <div className="live-page mx-auto max-w-5xl space-y-3">
+      {status === "open" ? <AutoRefresh ms={30_000} /> : null}
       <header className="live-page-head">
         <div>
           <h1>Trips</h1>
-          <p>Every dispatch, newest first.</p>
+          <p>
+            Sending and receiving, all tracked here.{" "}
+            <Link href="/live/today" className="font-semibold text-brand-600">
+              Today&apos;s summary
+            </Link>
+          </p>
         </div>
-        <Link href="/live/trips/new" className="live-cta hidden lg:inline-flex">
-          + New trip
+        <Link href="/live/trips/new" className="live-cta live-cta-sm hidden lg:inline-flex">
+          <Plus size={15} /> New trip
         </Link>
       </header>
 
@@ -86,7 +111,17 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
         ))}
       </nav>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {DIRS.map((d) => (
+          <Link
+            key={d.key || "alldir"}
+            href={href(base, { dir: d.key || undefined, page: undefined })}
+            className={cx("live-chip-filter", (sp.dir ?? "") === d.key && "is-on")}
+          >
+            {d.label}
+          </Link>
+        ))}
+        <span className="mx-0.5 h-4 w-px bg-divider" aria-hidden />
         {DAYS.map((d) => (
           <Link
             key={d.key || "any"}
@@ -101,6 +136,7 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
             <input type="hidden" name="status" value={status} />
             {sp.q ? <input type="hidden" name="q" value={sp.q} /> : null}
             {sp.days ? <input type="hidden" name="days" value={sp.days} /> : null}
+            {sp.dir ? <input type="hidden" name="dir" value={sp.dir} /> : null}
             <select name="place" defaultValue={sp.place ?? ""} className="field live-place-select" aria-label="Filter by place">
               <option value="">All places</option>
               {places.map((p) => (
@@ -116,6 +152,15 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
         ) : null}
       </div>
 
+      {onMap.length ? (
+        <details className="panel live-map-details">
+          <summary>Map ({onMap.length})</summary>
+          <div className="p-2 pt-0">
+            <FleetMap trucks={onMap} />
+          </div>
+        </details>
+      ) : null}
+
       {rows.length ? (
         <div className="live-trip-grid">
           {rows.map((t) => (
@@ -123,11 +168,14 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
           ))}
         </div>
       ) : (
-        <div className="panel p-8 text-center">
-          <p className="font-semibold text-strong">No trips here</p>
-          <p className="mt-1 text-sm text-muted">{sp.q ? "Nothing matches that search." : "Create a trip for each truck you dispatch."}</p>
-          <Link href="/live/trips/new" className="live-cta mt-4 inline-flex">
-            + New trip
+        <div className="panel p-6 text-center">
+          <Route size={22} className="mx-auto text-faint" />
+          <p className="mt-2 text-sm font-semibold text-strong">No trips here</p>
+          <p className="mt-1 text-xs text-muted">
+            {sp.q ? "Nothing matches that search." : "Make a trip for each truck you send or receive. Add the driver, send him the link, and see it move."}
+          </p>
+          <Link href="/live/trips/new" className="live-cta live-cta-sm mt-3 inline-flex">
+            <Plus size={15} /> New trip
           </Link>
         </div>
       )}

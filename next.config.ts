@@ -65,7 +65,8 @@ const REPORT_ONLY_CSP = [
   // Tailwind v4 emits a stylesheet, but Razorpay's checkout injects its own
   // styles into our document, so 'unsafe-inline' here is not optional.
   "style-src 'self' 'unsafe-inline'",
-  join("img-src 'self' data: blob:", RAZORPAY_IMG),
+  // tile.openstreetmap.org: the Live trip location picker (src/app/live/MapPicker.tsx).
+  join("img-src 'self' data: blob:", RAZORPAY_IMG, "https://tile.openstreetmap.org"),
   "font-src 'self' data:",
   join("connect-src 'self'", SUPABASE_ORIGIN, RAZORPAY_CONNECT),
   // openstreetmap: the live-location map on the truck page (LiveLocationCard).

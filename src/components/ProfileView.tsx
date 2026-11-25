@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, BellRing, BookOpen, ChevronRight, Coins, CreditCard, Gift, Headset, History, LayoutDashboard, Layers, Settings, ShieldCheck, UserRound, Wallet } from "lucide-react";
+import { ArrowRight, BellRing, BookOpen, Building2, ChevronRight, Coins, CreditCard, Database, Gift, Headset, History, LayoutDashboard, Layers, Navigation, Settings, ShieldCheck, UserRound, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { TOPUP_HREF } from "@/lib/credits";
 
-export type ProfileModel = { name: string; email: string; initials: string; credits: string; planName: string; planActive: boolean; referralsEnabled: boolean; isAdmin: boolean };
+/** live: set when the account has the Live tracking module (0082: its settings live in this common profile). */
+export type ProfileModel = { name: string; email: string; initials: string; credits: string; planName: string; planActive: boolean; referralsEnabled: boolean; isAdmin: boolean; live?: { businessName: string | null } | null };
 
 export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOut?: ReactNode }) {
   const sections = [
@@ -18,6 +19,11 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
       { href: "/portal/activity", title: "Activity", detail: "Search and tracking usage", icon: History, tone: "violet" },
       ...(m.referralsEnabled ? [{ href: "/portal/referrals", title: "Invite & earn", detail: "Earn credits when a friend pays", icon: Gift, tone: "orange" }] : []),
     ] },
+    ...(m.live ? [{ title: "Live tracking", items: [
+      { href: "/portal/profile/live", title: "Live tracking settings", detail: m.live.businessName ? `${m.live.businessName} · trips, notifications` : "Business, default warehouse, notifications", icon: Building2, tone: "orange" },
+      { href: "/live/masters", title: "Masters", detail: "Drivers, trucks, warehouses", icon: Database, tone: "mint" },
+      { href: "/live/trips", title: "Open Live tracking", detail: "Sending and receiving trips", icon: Navigation, tone: "blue" },
+    ] }] : []),
     { title: "Profile and settings", items: [
       { href: "/portal/profile/edit", title: "Profile details", detail: "Name, mobile, company and sign-in", icon: UserRound, tone: "blue" },
       { href: "/portal/notifications", title: "Notifications", detail: "App, WhatsApp and Telegram alerts", icon: BellRing, tone: "violet" },

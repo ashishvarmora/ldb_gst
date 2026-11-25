@@ -10,7 +10,8 @@
     "allowNavigation": ["rahdari.in", "*.rahdari.in", "*.razorpay.com"]
   },
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "useLegacyBridge": true
   },
   "ios": {
     "contentInset": "never",

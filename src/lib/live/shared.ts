@@ -5,6 +5,15 @@
 
 export type TripStatus = "planned" | "loading" | "in_transit" | "arrived" | "delivered" | "cancelled";
 export type ShareStatus = "invited" | "active" | "stopped" | "revoked";
+/** Driver-level link state (0081). "expired" = one-time driver, trip done + N h. */
+export type DriverShareStatus = ShareStatus | "expired";
+export type DriverKind = "own" | "one_time";
+export type VehicleOwnerType = "own" | "dealer" | "supplier" | "transporter";
+export type TripPurpose = "dispatch" | "pickup" | "transfer" | "return" | "other";
+export type BusinessType = "manufacturer" | "trader" | "distributor" | "transporter" | "other";
+/** 0082: outgoing = we send; incoming = a supplier sends to us (trip-only driver/truck/from). */
+export type TripDirection = "outgoing" | "incoming";
+export type PartyType = "dealer" | "customer" | "internal" | "supplier" | "other";
 export type PlaceKind = "factory" | "warehouse" | "branch" | "customer" | "other";
 
 export const TRIP_STATUSES: TripStatus[] = ["planned", "loading", "in_transit", "arrived", "delivered", "cancelled"];
@@ -98,6 +107,19 @@ export type LiveTrip = {
   eta_at: string | null;
   seen_at_origin_at: string | null;
   legacy_driver_id: string | null;
+  /* 0081 */
+  purpose?: TripPurpose | null;
+  trip_name?: string | null;
+  from_name?: string | null;
+  from_lat?: number | null;
+  from_lng?: number | null;
+  /* 0082 */
+  direction?: TripDirection | null;
+  party_type?: PartyType | null;
+  party_name?: string | null;
+  from_address?: string | null;
+  to_address?: string | null;
+  inline_driver?: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -133,6 +155,8 @@ export type LiveVehicle = {
   notes: string | null;
   archived_at: string | null;
   created_at: string;
+  /* 0081 */
+  owner_type?: VehicleOwnerType | null;
 };
 
 export type LiveDriver = {
@@ -145,11 +169,54 @@ export type LiveDriver = {
   notes: string | null;
   archived_at: string | null;
   created_at: string;
+  /* 0081: the driver is the tracked thing */
+  kind: DriverKind;
+  company: string | null;
+  share_token: string | null;
+  share_status: DriverShareStatus;
+  share_consent_at: string | null;
+  share_last_seen_at: string | null;
+  share_expires_at: string | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  last_speed_kmh: number | null;
+  last_accuracy_m: number | null;
+  last_point_at: string | null;
+};
+
+export type LiveAssignment = {
+  id: string;
+  owner_id: string;
+  driver_id: string;
+  vehicle_id: string;
+  trip_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  ended_reason: string | null;
+  actor: "owner" | "driver" | "system";
+};
+
+export type LiveProfile = {
+  owner_id: string;
+  business_name: string | null;
+  gstin: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  business_type: BusinessType | null;
+  default_place_id: string | null;
+  one_time_expire_hours: number;
+  notify_status: boolean;
+  notify_alerts: boolean;
 };
 
 export type TripEvent = {
   id: number;
-  trip_id: string;
+  trip_id: string | null;
+  driver_id?: string | null;
+  vehicle_id?: string | null;
+  field?: string | null;
+  old_value?: string | null;
+  new_value?: string | null;
   kind: string;
   title: string;
   detail: string | null;
@@ -411,4 +478,170 @@ export function signalState(trip: Pick<LiveTrip, "share_status" | "last_point_at
   if (trip.share_status === "invited") return "waiting";
   const seen = new Date(trip.share_last_seen_at ?? trip.last_point_at ?? 0).getTime();
   return now - seen <= LIVE_WINDOW_MS ? "live" : "recent";
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0081: driver-first                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const DRIVER_KIND_LABEL: Record<DriverKind, string> = {
+  own: "Own",
+  one_time: "Trip-only",
+};
+
+export const VEHICLE_OWNER_LABEL: Record<VehicleOwnerType, string> = {
+  own: "Own",
+  dealer: "Dealer",
+  supplier: "Supplier",
+  transporter: "Transporter",
+};
+
+export const PURPOSE_LABEL: Record<TripPurpose, string> = {
+  dispatch: "Dispatch (we send)",
+  pickup: "Pickup (we collect)",
+  transfer: "Transfer (own sites)",
+  return: "Return",
+  other: "Other",
+};
+export const PURPOSES = Object.keys(PURPOSE_LABEL) as TripPurpose[];
+
+export const DIRECTION_LABEL: Record<TripDirection, string> = {
+  outgoing: "Sending",
+  incoming: "Receiving",
+};
+
+export const OUT_PARTY_TYPES: PartyType[] = ["customer", "dealer", "internal", "other"];
+export const IN_PARTY_TYPES: PartyType[] = ["supplier", "dealer", "other"];
+export const PARTY_TYPE_LABEL: Record<PartyType, string> = {
+  customer: "Customer",
+  dealer: "Dealer",
+  internal: "Own site",
+  supplier: "Supplier",
+  other: "Other",
+};
+
+export function tripDirection(trip: Pick<LiveTrip, "direction">): TripDirection {
+  return trip.direction === "incoming" ? "incoming" : "outgoing";
+}
+
+export const BUSINESS_TYPE_LABEL: Record<BusinessType, string> = {
+  manufacturer: "Manufacturer",
+  trader: "Trader",
+  distributor: "Distributor / dealer",
+  transporter: "Transporter",
+  other: "Other",
+};
+
+/** Own sites (Warehouses master) vs customer/other places. */
+export const OWN_SITE_KINDS: PlaceKind[] = ["factory", "warehouse", "branch"];
+
+/** "No signal" = sharing switched on but no position for this long. */
+export const IDLE_MS = 30 * 60 * 1000;
+
+export type DriverSignal = "live" | "recent" | "idle" | "waiting" | "stopped" | "expired" | "off";
+
+/**
+ * What the Drivers home shows for a driver:
+ *   live    - position in the last 2.5 min
+ *   recent  - sharing, last position < 30 min ago
+ *   idle    - sharing on but nothing for 30+ min (phone off, no network, page closed)
+ *   waiting - link sent, never opened / never shared
+ *   stopped - the driver tapped Stop
+ *   expired - one-time driver, trip done + N h
+ *   off     - you switched his link off
+ */
+export function driverSignal(
+  d: Pick<LiveDriver, "share_status" | "share_last_seen_at" | "last_point_at" | "share_expires_at">,
+  now = Date.now(),
+): DriverSignal {
+  if (d.share_status === "revoked") return "off";
+  if (d.share_status === "expired" || (d.share_expires_at && new Date(d.share_expires_at).getTime() <= now)) return "expired";
+  if (d.share_status === "stopped") return "stopped";
+  if (d.share_status === "invited") return "waiting";
+  const seen = new Date(d.share_last_seen_at ?? d.last_point_at ?? 0).getTime();
+  if (now - seen <= LIVE_WINDOW_MS) return "live";
+  return now - seen <= IDLE_MS ? "recent" : "idle";
+}
+
+export const SIGNAL_LABEL: Record<DriverSignal, string> = {
+  live: "Live",
+  recent: "Last seen",
+  idle: "No signal",
+  waiting: "Link not opened",
+  stopped: "Stopped sharing",
+  expired: "Sharing ended",
+  off: "Link off",
+};
+
+/** Home grouping: Live / Last seen / Idle (everything not reporting now). */
+export function signalGroup(s: DriverSignal): "live" | "seen" | "idle" {
+  if (s === "live") return "live";
+  if (s === "recent") return "seen";
+  return "idle";
+}
+
+/* ---- trip edit rules ----------------------------------------------------- */
+
+/**
+ * Which trip fields can change, by phase. Enforced in src/app/live/actions.ts
+ * (updateTrip); the edit form shows locked fields read-only.
+ *
+ *   LOCKED always: trip number, trip name, created time, actual timestamps.
+ *   BEFORE START (planned, loading): everything below.
+ *   AFTER START (in transit, arrived): only the DYNAMIC fields - who drives,
+ *     which truck, where it is going, when it should arrive, e-way bill
+ *     (Part-B changes with the truck), customer contact, notes.
+ *   CLOSED (delivered, cancelled): nothing; add a note, or reopen first.
+ */
+export const TRIP_FIELDS_DYNAMIC = [
+  "driver_id",
+  "vehicle_id",
+  "to",
+  "promised_delivery_at",
+  "eway_bill_no",
+  "eway_valid_until",
+  "consignee_name",
+  "consignee_phone",
+  "notes",
+] as const;
+
+export const TRIP_FIELDS_BEFORE_START = [
+  ...TRIP_FIELDS_DYNAMIC,
+  "purpose",
+  "from",
+  "material",
+  "quantity",
+  "quantity_unit",
+  "weight_kg",
+  "invoice_no",
+  "invoice_value_inr",
+  "lr_no",
+  "transporter",
+  "freight_inr",
+  "planned_dispatch_at",
+  "party_name",
+  "party_type",
+] as const;
+
+export type TripPhase = "before_start" | "started" | "closed";
+
+export function tripPhase(status: TripStatus): TripPhase {
+  if (status === "planned" || status === "loading") return "before_start";
+  if (status === "in_transit" || status === "arrived") return "started";
+  return "closed";
+}
+
+export function tripFieldEditable(status: TripStatus, field: string): boolean {
+  const phase = tripPhase(status);
+  if (phase === "closed") return false;
+  if (phase === "started") return (TRIP_FIELDS_DYNAMIC as readonly string[]).includes(field);
+  return (TRIP_FIELDS_BEFORE_START as readonly string[]).includes(field);
+}
+
+export function tripTitle(trip: Pick<LiveTrip, "trip_seq" | "trip_name">): string {
+  return trip.trip_name ? `${tripNo(trip.trip_seq)} · ${trip.trip_name}` : tripNo(trip.trip_seq);
+}
+
+export function originText(trip: Pick<LiveTrip, "from_name">, placeName?: string | null): string | null {
+  return placeName || trip.from_name || null;
 }

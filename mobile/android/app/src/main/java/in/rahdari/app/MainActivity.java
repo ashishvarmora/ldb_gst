@@ -22,7 +22,7 @@ import com.getcapacitor.BridgeWebChromeClient;
 
 /**
  * The whole app is https://rahdari.in in a WebView (see capacitor.config.json).
- * Two things a browser does that a bare WebView does not are added here:
+ * Things a browser does that a bare WebView does not are added here:
  *
  *  1. Downloads. The CSV exports and receipts are plain links with a
  *     Content-Disposition header; a WebView ignores them unless told what to do.
@@ -51,6 +51,29 @@ public class MainActivity extends BridgeActivity {
         webView.setDownloadListener(this::download);
         // Extends Capacitor's own client, so file pickers and permission prompts keep working.
         webView.setWebChromeClient(new PopupChromeClient());
+
+        openDriverLink(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openDriverLink(intent);
+    }
+
+    /**
+     * 3. Driver links. https://rahdari.in/d/<token> opened from WhatsApp/SMS lands here
+     *    (App Link intent filter in AndroidManifest.xml). Capacitor itself only starts at
+     *    server.url (/portal), so the WebView is pointed at the driver page; the page then
+     *    shares location through the background-geolocation plugin.
+     */
+    private void openDriverLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        Uri uri = intent.getData();
+        if (uri == null || !"https".equals(uri.getScheme()) || !isOurs(uri)) return;
+        String path = uri.getPath();
+        if (path == null || !path.startsWith("/d/")) return;
+        getBridge().getWebView().loadUrl(uri.toString());
     }
 
     private void download(String url, String userAgent, String contentDisposition, String mimeType, long length) {

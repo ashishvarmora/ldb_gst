@@ -85,6 +85,14 @@ export const env = {
   get whatsappTripTemplate() {
     return process.env.WA_TEMPLATE_TRIP_UPDATE ?? "rahdari_trip_update";
   },
+  /** Preferred truck-alert template (4 body params + "Open truck" url button = tracked truck id). */
+  get whatsappTruckAlertTemplate() {
+    return process.env.WA_TEMPLATE_TRUCK_ALERT ?? "rahdari_truck_alert";
+  },
+  /** Preferred admin daily-summary template (6 body params, static "Open admin" button). */
+  get whatsappAdminDailyTemplate() {
+    return process.env.WA_TEMPLATE_ADMIN_DAILY ?? "rahdari_admin_daily";
+  },
   /** Tried in order when the main template is not approved yet (comma-separated). */
   get whatsappTemplateFallbacks(): string[] {
     return (process.env.WA_TEMPLATE_FALLBACKS ?? "rahdari_trip_alert")

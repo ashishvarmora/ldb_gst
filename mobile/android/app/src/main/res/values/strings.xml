@@ -4,4 +4,7 @@
     <string name="title_activity_main">Rahdari</string>
     <string name="package_name">in.rahdari.app</string>
     <string name="custom_url_scheme">in.rahdari.app</string>
+    <!-- Background location (driver sharing): icon + colour of the ongoing notification. -->
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_stat_notify</string>
+    <string name="capacitor_background_geolocation_notification_color">#0E9F6E</string>
 </resources>
