@@ -14,7 +14,7 @@ import { cx } from "@/components/ui";
  * Live tracking's navigation (v4, docs/LIVE-PLAN-v4.md §8). THREE tabs:
  *   Home     - trips: "We are sending" | "We are receiving"
  *   Masters  - drivers, trucks, warehouses
- *   Profile  - Live's own profile (/live/profile, v5): settings, alerts, history, activity
+ *   Profile  - Live's own profile (/live/profile, v5): settings, alerts, logbook (v6)
  * "Trips" duplicated Home and "New trip" sat idle most of the day, so both
  * went; the one New-trip entry point is the "+" in the Home header (and the
  * sidebar button on desktop). The notch is re-drawn for 3 tabs in live.css.
@@ -29,7 +29,7 @@ const NAV = [
 function isActive(path: string, href: string) {
   if (href === "/live/trips") return path.startsWith("/live/trips") || path === "/live" || path === "/live/today";
   if (href === "/live/masters") return path.startsWith("/live/masters") || path.startsWith("/live/places") || path.startsWith("/live/drivers") || path.startsWith("/live/fleet");
-  if (href === "/live/profile") return path.startsWith("/live/profile") || path.startsWith("/live/history") || path.startsWith("/live/activity");
+  if (href === "/live/profile") return path.startsWith("/live/profile") || path.startsWith("/live/history") || path.startsWith("/live/activity") || path.startsWith("/live/logbook");
   return path === href || path.startsWith(`${href}/`);
 }
 

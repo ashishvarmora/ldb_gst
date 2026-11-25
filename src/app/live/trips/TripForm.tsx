@@ -14,6 +14,7 @@ import {
   PURPOSES,
   PURPOSE_LABEL,
   TRIP_FIELDS_DYNAMIC,
+  fmtIst,
   fromLocalInput,
   parseLatLng,
   prettyVehicle,
@@ -108,7 +109,10 @@ export function TripForm({
     return { km: Math.round(km), hours: km / FALLBACK_KMPH };
   }, [a?.lat, a?.lng, b?.lat, b?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
   const startIso = fromLocalInput(v.planned_dispatch_at);
-  const suggested = est && startIso ? toLocalInput(new Date(new Date(startIso).getTime() + est.hours * 3_600_000).toISOString()) : null;
+  // v6: Planned arrival = planned start + journey hours (read-only; the driver knows his halts).
+  const jh = Number((v.journey_hours || "").replace(",", "."));
+  const arrivalIso = startIso && Number.isFinite(jh) && jh > 0 ? new Date(new Date(startIso).getTime() + jh * 3_600_000).toISOString() : null;
+  const suggested = est ? String(Math.max(0.5, Math.round(est.hours * 2) / 2)) : null;
 
   // Active: did a reason-needing field change?
   const driverKey = (x: TripPrefill) => (x.driver_mode === "custom" ? `c:${x.tmp_driver_name}|${x.tmp_driver_phone}` : `m:${x.driver_id}`);
@@ -443,9 +447,18 @@ export function TripForm({
                   <Input type="datetime-local" name="planned_dispatch_at" value={v.planned_dispatch_at} onChange={(e) => set("planned_dispatch_at", e.target.value)} />
                 )}
               </Field>
-              <Field label="Expected arrival" name="promised_delivery_at" hint="For the 'likely late' alert.">
-                <Input type="datetime-local" name="promised_delivery_at" value={v.promised_delivery_at} onChange={(e) => set("promised_delivery_at", e.target.value)} />
+              <Field label="Journey hours" name="journey_hours" hint="Start to arrival, incl. halts.">
+                <Input
+                  name="journey_hours"
+                  inputMode="decimal"
+                  placeholder="e.g. 14"
+                  value={v.journey_hours}
+                  onChange={(e) => set("journey_hours", e.target.value.replace(/[^0-9.,]/g, "").slice(0, 6))}
+                />
               </Field>
+              <p className="live-arrival-ro">
+                Planned arrival: <strong>{arrivalIso ? fmtIst(arrivalIso) : "-"}</strong>
+              </p>
             </div>
             {est ? (
               <p className="live-eta-hint">
@@ -455,8 +468,8 @@ export function TripForm({
                   {suggested ? (
                     <>
                       {" "}
-                      <button type="button" className="font-semibold text-brand-600" onClick={() => set("promised_delivery_at", suggested)}>
-                        Use as arrival
+                      <button type="button" className="font-semibold text-brand-600" onClick={() => set("journey_hours", suggested)}>
+                        Use {suggested} h
                       </button>
                     </>
                   ) : null}

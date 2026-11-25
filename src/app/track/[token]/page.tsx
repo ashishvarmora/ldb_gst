@@ -18,6 +18,9 @@ import {
   type LiveTrip,
 } from "@/lib/live/shared";
 
+import { Suspense } from "react";
+
+import { RouteTimeline } from "@/app/live/RouteTimeline";
 import { AutoRefresh } from "@/app/live/widgets";
 import "@/app/live/live.css";
 
@@ -36,39 +39,10 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-type Row = Pick<
-  LiveTrip,
-  | "id"
-  | "owner_id"
-  | "trip_seq"
-  | "trip_name"
-  | "status"
-  | "vehicle_no"
-  | "driver_name"
-  | "driver_phone"
-  | "from_place_id"
-  | "from_name"
-  | "to_name"
-  | "to_city"
-  | "to_place_id"
-  | "material"
-  | "quantity"
-  | "quantity_unit"
-  | "weight_kg"
-  | "last_lat"
-  | "last_lng"
-  | "last_point_at"
-  | "distance_left_km"
-  | "eta_at"
-  | "started_at"
-  | "arrived_at"
-  | "delivered_at"
-  | "promised_delivery_at"
-  | "pod_note"
->;
-
-const COLS =
-  "id,owner_id,trip_seq,trip_name,status,vehicle_no,driver_name,driver_phone,from_place_id,from_name,to_name,to_city,to_place_id,material,quantity,quantity_unit,weight_kg,last_lat,last_lng,last_point_at,distance_left_km,eta_at,started_at,arrived_at,delivered_at,promised_delivery_at,pod_note";
+/* v6: the whole row is read on the server (the route timeline needs times, coordinates and the cached
+   route plan); only the fields below are ever rendered. Never invoice value, freight, e-way bill, notes. */
+type Row = LiveTrip;
+type P = { id: string; name: string; lat: number | null; lng: number | null };
 
 export default async function TrackPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -76,11 +50,13 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
   let sender = "";
   let fromName = "";
   let toName = "";
+  let fromPt: { lat: number; lng: number } | null = null;
+  let toPt: { lat: number; lng: number } | null = null;
   let showDriver = true;
   let callDriver = false;
   if (plausibleToken(token)) {
     const admin = getSupabaseAdmin();
-    const { data, error } = await admin.from("live_trips").select(COLS).eq("track_token", token).maybeSingle<Row>();
+    const { data, error } = await admin.from("live_trips").select("*").eq("track_token", token).maybeSingle<Row>();
     if (error) logLive("track page", error);
     trip = data ?? null;
     if (trip) {
@@ -88,12 +64,17 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
       const [owner, lp, pl] = await Promise.all([
         admin.from("profiles").select("office,full_name").eq("id", trip.owner_id).maybeSingle<{ office: string | null; full_name: string | null }>(),
         admin.from("live_profiles").select("*").eq("owner_id", trip.owner_id).maybeSingle<{ business_name: string | null; track_show_driver?: boolean | null; track_call_driver?: boolean | null }>(),
-        ids.length ? admin.from("live_places").select("id,name").in("id", ids) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+        ids.length ? admin.from("live_places").select("id,name,lat,lng").in("id", ids) : Promise.resolve({ data: [] as P[] }),
       ]);
       sender = (lp.data?.business_name || owner.data?.office || owner.data?.full_name || "").trim();
       showDriver = lp.data?.track_show_driver !== false;
       callDriver = lp.data?.track_call_driver === true;
-      const names = new Map(((pl.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+      const rows = new Map(((pl.data ?? []) as P[]).map((p) => [p.id, p]));
+      const names = new Map([...rows.values()].map((p) => [p.id, p.name]));
+      const fp = trip.from_place_id ? rows.get(trip.from_place_id) : null;
+      const tp = trip.to_place_id ? rows.get(trip.to_place_id) : null;
+      fromPt = trip.from_lat != null && trip.from_lng != null ? { lat: trip.from_lat, lng: trip.from_lng } : fp?.lat != null && fp?.lng != null ? { lat: fp.lat, lng: fp.lng } : null;
+      toPt = trip.to_lat != null && trip.to_lng != null ? { lat: trip.to_lat, lng: trip.to_lng } : tp?.lat != null && tp?.lng != null ? { lat: tp.lat, lng: tp.lng } : null;
       fromName = (trip.from_place_id ? names.get(trip.from_place_id) : null) ?? trip.from_name ?? "";
       toName = [(trip.to_place_id ? names.get(trip.to_place_id) : null) ?? trip.to_name, trip.to_city].filter(Boolean).join(", ");
     }
@@ -182,6 +163,12 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
           </div>
         </dl>
       </section>
+
+      {state !== "cancelled" ? (
+        <Suspense fallback={null}>
+          <RouteTimeline trip={trip} from={fromPt ? { ...fromPt, name: fromName || "Start" } : null} to={toPt ? { ...toPt, name: toName || "Destination" } : null} customer />
+        </Suspense>
+      ) : null}
 
       <section className="panel p-3">
         <dl className="live-dl live-dl-tight">

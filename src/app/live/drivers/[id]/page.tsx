@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * v5 driver page: who he is and where he is now. Nothing else.
- * Trips -> /live/history?driver=, events -> /live/activity?driver=, edit / archive / delete -> Masters.
+ * Trips + events -> /live/logbook/drivers/<id> (v6), edit / archive / delete -> Masters.
  */
 export default async function DriverPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; reused?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
@@ -165,13 +165,10 @@ export default async function DriverPage({ params, searchParams }: { params: Pro
       </section>
 
       <nav className="live-linkrow" aria-label="More about this driver">
-        <Link href={`/live/history?driver=${driver.id}&range=all`}>
-          <ListChecks size={14} /> Past trips
+        <Link href={`/live/logbook/drivers/${driver.id}?range=all`}>
+          <ListChecks size={14} /> Logbook
         </Link>
-        <Link href={`/live/activity?driver=${driver.id}`}>
-          <History size={14} /> Activity
-        </Link>
-        <Link href={`/live/activity?driver=${driver.id}&view=day`}>
+        <Link href={`/live/logbook/drivers/${driver.id}?view=day`}>
           <History size={14} /> By day
         </Link>
       </nav>

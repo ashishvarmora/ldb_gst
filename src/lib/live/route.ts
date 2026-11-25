@@ -1,9 +1,9 @@
 import "server-only";
 
-import { routeWaypoints, routeWaypointsBasic } from "@/lib/live-ai";
+import { routePlanAI, routeWaypoints, routeWaypointsBasic } from "@/lib/live-ai";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { liveSchema83, logLive } from "@/lib/live/server";
-import { haversineKm, type LiveTrip, type RouteWaypoint } from "@/lib/live/shared";
+import { liveSchema83, liveSchema85, logLive } from "@/lib/live/server";
+import { haversineKm, roadKm, type LiveTrip, type RoutePlan, type RouteWaypoint } from "@/lib/live/shared";
 
 /** Re-work the road ahead only after the truck moved this far from the cached point. */
 export const ROUTE_REFRESH_KM = 25;
@@ -44,4 +44,34 @@ export async function roadAhead(
     if (error) logLive("route cache", error);
   }
   return { points, source, at, cached: false };
+}
+
+type End = { name: string; lat: number; lng: number };
+
+/** The cached plan still fits when both ends are within 1 km of what it was built for. */
+export function planFits(plan: RoutePlan | null | undefined, from: End, to: End): plan is RoutePlan {
+  return Boolean(
+    plan && plan.v === 1 && Array.isArray(plan.stops) && plan.from && plan.to && haversineKm(plan.from, from) <= 1 && haversineKm(plan.to, to) <= 1,
+  );
+}
+
+/**
+ * v6 "Where is my truck": the trip's main stops From -> To, built ONCE per From/To pair
+ * (AI, validated; rule-based highway hubs as fallback) and cached in live_trips.route_plan (0085).
+ * A From/To change makes planFits() fail, so the next view rebuilds it. readOnly (customer page)
+ * builds it too when missing; once cached, AI is not called again for the same pair.
+ */
+export async function ensureRoutePlan(trip: LiveTrip, from: End, to: End): Promise<RoutePlan> {
+  if (planFits(trip.route_plan, from, to)) return trip.route_plan;
+  // Before 0085 nothing can be cached, so stay on the free rule-based hubs (no AI call per page view).
+  const canCache = await liveSchema85();
+  const ai = canCache ? await routePlanAI(from, to).catch(() => null) : null;
+  const plan: RoutePlan = ai
+    ? { v: 1, from, to, total_km: ai.totalKm, stops: ai.stops, source: "ai", at: new Date().toISOString() }
+    : { v: 1, from, to, total_km: Math.round(roadKm(from, to)), stops: routeWaypointsBasic(from, to), source: "rules", at: new Date().toISOString() };
+  if (canCache) {
+    const { error } = await getSupabaseAdmin().from("live_trips").update({ route_plan: plan }).eq("id", trip.id);
+    if (error) logLive("route plan cache", error);
+  }
+  return plan;
 }

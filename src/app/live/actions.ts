@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { extractDispatch, type DispatchExtract } from "@/lib/live-ai";
 import { changeStatus, recordEvent } from "@/lib/live/automation";
-import { isMissingRelation, liveSchema82, liveSchema83, liveSchema84, logLive, newToken, safeReturn, withParam } from "@/lib/live/server";
+import { isMissingRelation, liveSchema82, liveSchema83, liveSchema84, liveSchema85, logLive, newToken, safeReturn, withParam } from "@/lib/live/server";
 import {
   ALERT_KEYS,
   ALERT_META,
@@ -375,9 +375,9 @@ async function retireTempDriver(driverId: string) {
 function vehicleRowFrom(fd: FormData): { ok: true; number: string; row: Record<string, unknown> } | { ok: false; error: string } {
   const number = normalizeVehicleNo(str(fd, "number", 20));
   if (!/^[A-Z0-9]{4,12}$/.test(number)) return { ok: false, error: "Enter the truck number, e.g. GJ36X1234." };
-  const owner_type = str(fd, "owner_type", 12) === "transporter" ? "transporter" : "own";
-  const row: Record<string, unknown> = { number, owner_type, ownership: owner_type === "own" ? "own" : "market" };
-  row.transporter = owner_type === "own" ? null : str(fd, "transporter", 120);
+  // v6: the master holds only OUR trucks (a regularly hired truck counts as ours). owner_type / ownership /
+  // transporter stay in the table but are no longer written from the form; new rows get the DB default.
+  const row: Record<string, unknown> = { number };
   // v5: vehicle type (preset or "Other" text) and capacity in tonnes (stored as kg).
   if (fd.has("vehicle_type")) {
     const vt = str(fd, "vehicle_type", 40);
@@ -705,9 +705,14 @@ function readMore(fd: FormData): { ok: true; row: Record<string, unknown> } | { 
     if (v === "bad") return { ok: false, error: `${k.replace(/_inr|_kg/, "").replace("_", " ")} must be a number.` };
     nums[k] = v;
   }
+  // v6: journey hours (planned arrival = planned start + hours; see saveTripForm).
+  const jhRaw = str(fd, "journey_hours", 8);
+  const journey_hours = jhRaw ? Number(jhRaw.replace(",", ".")) : null;
+  if (journey_hours != null && (!Number.isFinite(journey_hours) || journey_hours <= 0 || journey_hours > 240)) return { ok: false, error: "Journey hours: between 0.25 and 240." };
   return {
     ok: true,
     row: {
+      journey_hours: journey_hours != null ? Math.round(journey_hours * 100) / 100 : null,
       purpose: rawPurpose && PURPOSE_SET.has(rawPurpose) ? rawPurpose : null,
       party_type: rawParty && PARTY_SET.has(rawParty) ? rawParty : null,
       party_name: str(fd, "party_name", 120),
@@ -725,7 +730,7 @@ function readMore(fd: FormData): { ok: true; row: Record<string, unknown> } | { 
       lr_no: str(fd, "lr_no", 40),
       freight_inr: nums.freight_inr,
       planned_dispatch_at: fromLocalInput(str(fd, "planned_dispatch_at", 30)),
-      promised_delivery_at: fromLocalInput(str(fd, "promised_delivery_at", 30)),
+      promised_delivery_at: null as string | null,
       notes: str(fd, "notes", 1000),
     },
   };
@@ -803,7 +808,8 @@ const FIELD_LABEL: Record<string, string> = {
   transporter: "Transporter",
   freight_inr: "Freight",
   planned_dispatch_at: "Planned start",
-  promised_delivery_at: "Expected arrival",
+  promised_delivery_at: "Planned arrival",
+  journey_hours: "Journey hours",
   eway_bill_no: "E-way bill",
   eway_valid_until: "E-way validity",
   consignee_name: "Contact",
@@ -844,6 +850,16 @@ async function saveTripForm(a: Actor, fd: FormData, trip: LiveTrip | null): Prom
   const more = readMore(fd);
   if (!more.ok) return more;
   const reason = str(fd, "reason", 300);
+  {
+    // v6: planned arrival is derived, never typed: planned start + journey hours.
+    const startIso = (can("planned_dispatch_at") ? (more.row.planned_dispatch_at as string | null) : null) ?? trip?.planned_dispatch_at ?? null;
+    const jh = more.row.journey_hours as number | null;
+    more.row.promised_delivery_at = startIso && jh ? new Date(Date.parse(startIso) + jh * 3_600_000).toISOString() : null;
+    if (!fd.has("journey_hours")) {
+      delete more.row.journey_hours;
+      delete more.row.promised_delivery_at;
+    } else if (!(await liveSchema85())) delete more.row.journey_hours;
+  }
 
   const patch: Record<string, unknown> = {};
   const changed: { field: string; old: string; new: string }[] = [];
@@ -869,6 +885,11 @@ async function saveTripForm(a: Actor, fd: FormData, trip: LiveTrip | null): Prom
   for (const [col, val] of Object.entries(more.row)) {
     if (!can(col)) continue;
     if (asText(before[col]) === asText(val)) continue;
+    // v6: same instant / same number in another spelling ("14.00" vs 14, +00:00 vs Z) is not a change.
+    if (before[col] != null && val != null) {
+      if (col.endsWith("_at") && Date.parse(asText(before[col])) === Date.parse(asText(val))) continue;
+      if (typeof val === "number" && Number(before[col]) === val) continue;
+    }
     patch[col] = val;
     if (trip) changed.push({ field: col, old: asText(before[col]), new: asText(val) });
   }

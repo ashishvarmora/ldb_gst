@@ -220,7 +220,7 @@ export const env = {
     return process.env.GROQ_API_KEY ?? "";
   },
   get groqModel() {
-    return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    return process.env.GROQ_MODEL || "openai/gpt-oss-120b";
   },
   /**
    * Where a password-reset link points. Falls back to the host Vercel provides,

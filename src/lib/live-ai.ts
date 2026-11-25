@@ -755,3 +755,63 @@ export async function routeWaypoints(from: { name?: string | null } & LL, to: { 
     },
   });
 }
+
+/* ======================================================================
+ * 5. Route plan (v6, 0085): the trip's main stops, From -> To, built once
+ * ==================================================================== */
+
+const PLAN_SYSTEM = `You know Indian truck routes (national highways). Given a truck trip's origin and destination, list the main stops a truck would pass, in order: major cities, highway towns and big junctions (bypass towns count), excluding the origin and the destination.
+Return JSON: {"stops":[{"name":"Palanpur","lat":24.17,"lng":72.43,"km":145}],"total_km":620}. km = approximate road km from the origin. 4 to 10 stops for long trips, fewer for short ones (none under 60 km). Only real places with correct coordinates.`;
+
+/**
+ * AI route plan (whole trip). Validated: inside India, near the corridor, in order, km increasing and
+ * plausible against the straight line. Null when no key / invalid; the caller falls back to routeWaypointsBasic.
+ */
+export async function routePlanAI(from: { name?: string | null } & LL, to: { name?: string | null } & LL): Promise<{ stops: RoutePoint[]; totalKm: number } | null> {
+  if (!aiAvailable()) return null;
+  const straight = kmBetween(from, to);
+  if (straight < 60) return { stops: [], totalKm: Math.round(straight * 1.25) };
+  const facts = {
+    origin: from.name ? redact(from.name).slice(0, 60) : undefined,
+    destination: to.name ? redact(to.name).slice(0, 60) : undefined,
+    originPoint: { lat: Number(from.lat.toFixed(3)), lng: Number(from.lng.toFixed(3)) },
+    destinationPoint: { lat: Number(to.lat.toFixed(3)), lng: Number(to.lng.toFixed(3)) },
+  };
+  return aiJson<{ stops: RoutePoint[]; totalKm: number }>(JSON.stringify(facts), {
+    system: PLAN_SYSTEM,
+    maxTokens: 700,
+    validate: (x) => {
+      const list = (x as { stops?: unknown })?.stops;
+      if (!Array.isArray(list) || list.length > 14) return null;
+      const rawTotal = Number((x as { total_km?: unknown })?.total_km);
+      const totalKm = Number.isFinite(rawTotal) && rawTotal >= straight && rawTotal <= straight * 1.9 ? Math.round(rawTotal) : Math.round(straight * 1.25);
+      const ok: (RoutePoint & { t: number })[] = [];
+      for (const c of list) {
+        const name = typeof c?.name === "string" ? c.name.replace(/[^A-Za-z .()-]/g, "").trim().slice(0, 40) : "";
+        const lat = Number(c?.lat);
+        const lng = Number(c?.lng);
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || lat < 6 || lat > 37 || lng < 68 || lng > 98) continue;
+        const a = along(from, to, { lat, lng });
+        if (a.t < 0.02 || a.t > 0.98 || a.offKm > Math.max(60, straight * 0.3)) continue;
+        const direct = kmBetween(from, { lat, lng });
+        if (direct < 20 || kmBetween(to, { lat, lng }) < 20) continue;
+        const aiKm = Number(c?.km);
+        // Road km: AI's figure when plausible (1.0-1.9 x straight line), else straight x 1.25.
+        const km = Number.isFinite(aiKm) && aiKm >= direct && aiKm <= direct * 1.9 + 15 ? Math.round(aiKm) : Math.round(direct * 1.25);
+        if (ok.some((o) => o.name.toLowerCase() === name.toLowerCase())) continue;
+        ok.push({ name, lat: Number(lat.toFixed(3)), lng: Number(lng.toFixed(3)), km, t: a.t });
+      }
+      ok.sort((a, b) => a.t - b.t);
+      // km must increase along the way and stay below the total.
+      const stops: RoutePoint[] = [];
+      for (const s of ok) {
+        const prev = stops[stops.length - 1];
+        if (prev && s.km <= prev.km + 5) continue;
+        if (s.km >= totalKm - 10) continue;
+        stops.push({ name: s.name, lat: s.lat, lng: s.lng, km: s.km });
+      }
+      if (straight > 150 && stops.length < 2) return null;
+      return { stops: stops.slice(0, 10), totalKm };
+    },
+  });
+}

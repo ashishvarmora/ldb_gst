@@ -536,3 +536,38 @@ export function rangeStart(range: string | null | undefined, now = Date.now()): 
   }
   return new Date(now - days * 86_400_000).toISOString();
 }
+
+/** True once migration 0085 (v6: journey hours, cached route plan) is applied. */
+let schema85 = false;
+export async function liveSchema85(): Promise<boolean> {
+  if (schema85) return true;
+  const { error } = await getSupabaseAdmin().from("live_trips").select("journey_hours,route_plan").limit(1);
+  if (!error) schema85 = true;
+  return schema85;
+}
+
+/** v6: positions of one trip since it started, oldest first, thinned to <= max (for the route timeline). */
+export async function loadTripTrack(tripId: string, sinceIso: string | null, max = 1500): Promise<{ lat: number; lng: number; t: number; speed: number | null }[]> {
+  if (!sinceIso) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_locations")
+    .select("lat,lng,speed_kmh,recorded_at")
+    .eq("trip_id", tripId)
+    .gte("recorded_at", sinceIso)
+    .order("recorded_at", { ascending: true })
+    .limit(6000);
+  if (error) {
+    logLive("trip track", error);
+    return [];
+  }
+  const rows = (data ?? []) as { lat: number; lng: number; speed_kmh: number | null; recorded_at: string }[];
+  const step = Math.max(1, Math.ceil(rows.length / max));
+  const out = [];
+  for (let i = 0; i < rows.length; i += step) {
+    const r = rows[i];
+    out.push({ lat: Number(r.lat), lng: Number(r.lng), t: Date.parse(r.recorded_at), speed: r.speed_kmh == null ? null : Number(r.speed_kmh) });
+  }
+  const last = rows[rows.length - 1];
+  if (last && out[out.length - 1]?.t !== Date.parse(last.recorded_at)) out.push({ lat: Number(last.lat), lng: Number(last.lng), t: Date.parse(last.recorded_at), speed: last.speed_kmh == null ? null : Number(last.speed_kmh) });
+  return out;
+}

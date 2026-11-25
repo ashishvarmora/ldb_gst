@@ -9,7 +9,7 @@ import { ACTIVE_STATUSES, VEHICLE_TYPES, customFieldsOf, prettyVehicle, tripNo, 
 import { archiveVehicle, deleteVehicle, restoreVehicle, saveVehicle } from "../../actions";
 import { BackLink } from "../../BackLink";
 import { Sheet } from "../../blocks";
-import { CustomFieldsEditor, IconSubmit, PresetOrOther, SegU } from "../../ui";
+import { CustomFieldsEditor, IconSubmit, PresetOrOther } from "../../ui";
 
 export const metadata = { title: "Live tracking - Trucks" };
 export const dynamic = "force-dynamic";
@@ -17,7 +17,6 @@ export const dynamic = "force-dynamic";
 const BASE = "/live/masters/trucks";
 
 function TruckForm({ v, back }: { v: LiveVehicle | null; back: string | null }) {
-  const own = (v?.owner_type ?? "own") === "own";
   return (
     <ActionForm action={saveVehicle} closeOnSuccess={false} refresh={false} className="live-form">
       {v ? <input type="hidden" name="id" value={v.id} /> : null}
@@ -29,25 +28,7 @@ function TruckForm({ v, back }: { v: LiveVehicle | null; back: string | null }) 
         <input id="t-no" name="number" required defaultValue={v?.number ?? ""} autoCapitalize="characters" placeholder="GJ36X1234" className="field live-field-sm w-full font-mono uppercase" />
       </div>
       <PresetOrOther name="vehicle_type" customName="vehicle_type_custom" presets={VEHICLE_TYPES} value={v?.vehicle_type} label="Vehicle type" placeholder="e.g. Reefer" />
-      <div className="live-f">
-        <span className="live-mini-label">Ownership</span>
-        <SegU
-          name="owner_type"
-          label="Ownership"
-          initial={own ? "own" : "transporter"}
-          options={[
-            { v: "own", label: "Own" },
-            { v: "transporter", label: "Hired" },
-          ]}
-        />
-      </div>
       <div className="live-form-2">
-        <div className="live-f">
-          <label className="live-mini-label" htmlFor="t-tr">
-            Transporter (hired)
-          </label>
-          <input id="t-tr" name="transporter" maxLength={120} defaultValue={v?.transporter ?? ""} className="field live-field-sm w-full" />
-        </div>
         <div className="live-f">
           <label className="live-mini-label" htmlFor="t-cap">
             Capacity (t)
@@ -66,7 +47,7 @@ function TruckForm({ v, back }: { v: LiveVehicle | null; back: string | null }) 
   );
 }
 
-/** Trucks master (v5): compact rows, icon actions, add / edit in a sheet. */
+/** Trucks master (v5; v6: our trucks only, no Own/Hired): compact rows, icon actions, add / edit in a sheet. */
 export default async function TrucksMaster({ searchParams }: { searchParams: Promise<{ archived?: string; edit?: string; add?: string; return?: string }> }) {
   const sp = await searchParams;
   const { ownerId } = await requireLiveSession();
@@ -117,7 +98,6 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
           const t = onTrip.get(v.id);
           const meta = [
             v.vehicle_type,
-            v.owner_type === "own" || !v.owner_type ? "Own" : `Hired${v.transporter ? ` · ${v.transporter}` : ""}`,
             v.capacity_kg != null ? `${v.capacity_kg / 1000} t` : null,
             ...customFieldsOf(v.custom_fields).map(([k, x]) => `${k}: ${x}`),
           ].filter(Boolean);
@@ -138,7 +118,7 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
                 </small>
               </div>
               <div className="live-ibar">
-                <Link href={`/live/history?truck=${v.id}&range=all`} className="live-ib" aria-label={`Trips of ${v.number}`} title="Trips">
+                <Link href={`/live/logbook/trucks/${v.id}?range=all`} className="live-ib" aria-label={`Logbook of ${v.number}`} title="Logbook">
                   <History size={15} />
                 </Link>
                 {showArchived ? (

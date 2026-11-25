@@ -104,7 +104,26 @@ export function filterHref(base: string, f: FilterState, change: Partial<FilterS
  * Search + time chips + icon filters (driver / truck / warehouse). One icon
  * panel open at a time (details name). Everything lives in the URL.
  */
-export function FilterBar({ base, f, drivers, trucks, places, view }: { base: string; f: FilterState; drivers: Opt[]; trucks: Opt[]; places: Opt[]; view?: string }) {
+export function FilterBar({
+  base,
+  f,
+  drivers,
+  trucks,
+  places,
+  view,
+  icons = true,
+  placeholder = "Trip, driver, truck, place",
+}: {
+  base: string;
+  f: FilterState;
+  drivers: Opt[];
+  trucks: Opt[];
+  places: Opt[];
+  view?: string;
+  /** v6: entity lists (trucks / drivers / warehouses) show search + time only. */
+  icons?: boolean;
+  placeholder?: string;
+}) {
   const here = filterHref(base, f, {}, view);
   const icon = (key: "driver" | "truck" | "place", Icon: typeof Truck, label: string, opts: Opt[]) => {
     const on = Boolean(f[key]);
@@ -131,16 +150,16 @@ export function FilterBar({ base, f, drivers, trucks, places, view }: { base: st
       <div className="live-fbar-row">
         <form action={base} className="live-search">
           <Search size={14} aria-hidden />
-          <input name="q" defaultValue={f.q} placeholder="Trip, driver, truck, place" aria-label="Search" maxLength={40} />
+          <input name="q" defaultValue={f.q} placeholder={placeholder} aria-label="Search" maxLength={40} />
           {f.range !== "30d" ? <input type="hidden" name="range" value={f.range} /> : null}
           {f.driver ? <input type="hidden" name="driver" value={f.driver} /> : null}
           {f.truck ? <input type="hidden" name="truck" value={f.truck} /> : null}
           {f.place ? <input type="hidden" name="place" value={f.place} /> : null}
           {view ? <input type="hidden" name="view" value={view} /> : null}
         </form>
-        {icon("driver", UserRound, "Driver", drivers)}
-        {icon("truck", Truck, "Truck", trucks)}
-        {icon("place", Building2, "Warehouse", places)}
+        {icons ? icon("driver", UserRound, "Driver", drivers) : null}
+        {icons ? icon("truck", Truck, "Truck", trucks) : null}
+        {icons ? icon("place", Building2, "Warehouse", places) : null}
       </div>
       <div className="live-fbar-row">
         <CalendarDays size={14} className="shrink-0 text-faint" aria-hidden />
