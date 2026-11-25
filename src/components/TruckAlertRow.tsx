@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { useRouter } from "next/navigation";
 import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { deleteTruckAlert, setTruckAlertEnabled, updateTruckAlert } from "@/app/portal/trucks/actions";
@@ -25,7 +24,7 @@ export type AlertRowData = {
   id: string;
   name: string;
   kind: AlertRuleKind;
-  /** alertCadence(): "every 15 minutes" or "after 4 hours · pause after 12 hours". */
+  /** alertCadence(): "every 15 minutes" or "alert after 4 hours · pauses after 12 hours". */
   summary: string;
   intervalMinutes: number;
   floorMinutes: number;
@@ -112,7 +111,7 @@ export function TruckAlertRow({ alert, truckNumber }: { alert: AlertRowData; tru
 
       {editing ? (
         <div className="alert-row-edit">
-          <ActionForm action={updateTruckAlert} closeOnSuccess={false}>
+          <ActionForm action={updateTruckAlert} closeOnSuccess={false} refresh={false}>
             <input type="hidden" name="alert_id" value={alert.id} />
             {alert.kind === "halt" ? (
               <HaltFields
@@ -149,10 +148,8 @@ function AlertSwitch({ alertId, enabled, name }: { alertId: string; enabled: boo
     setTruckAlertEnabled,
     null,
   );
-  const router = useRouter();
-  useEffect(() => {
-    if (state?.ok) router.refresh();
-  }, [state, router]);
+  /* No router.refresh(): setTruckAlertEnabled() revalidates this page, so
+     the action's own response already carries the re-rendered row. */
 
   return (
     <form action={formAction} className="alert-row-switch">
@@ -193,10 +190,6 @@ function DeleteAlert({
   truckNumber: string;
 }) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(deleteTruckAlert, null);
-  const router = useRouter();
-  useEffect(() => {
-    if (state?.ok) router.refresh();
-  }, [state, router]);
 
   return (
     <form action={formAction}>

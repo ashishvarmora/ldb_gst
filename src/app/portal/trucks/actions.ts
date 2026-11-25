@@ -15,6 +15,7 @@ import {
   needsPlaza,
   type AlertKindMirror,
 } from "@/lib/alerts";
+import { getSignedInUser } from "@/lib/auth";
 import { reportError } from "@/lib/errors";
 import { bool, done, fail, looksLikeTruckNumber, normalizeTruck, str } from "@/lib/forms";
 import { intervalLabel, toMinutes, type IntervalUnit } from "@/lib/intervals";
@@ -42,6 +43,26 @@ import {
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { recordTruckActivity } from "@/lib/truck-activity";
 import type { ActionResult, AlertRuleTemplate, PausedReason, TrackedTruck } from "@/lib/types";
+
+/* -------------------------------------------------------------------------- */
+/* speed (24 Nov 2026)                                                         */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Every action here used to walk its reads one after another: profile, then
+ * overview, then the truck, then the rule, then the plaza, then the existing
+ * alerts - eight to eleven sequential Supabase round trips for "Add truck".
+ * The signed-in user id is known locally from the cookie (getSignedInUser is a
+ * local JWT check), so every read keyed on it now starts at once, beside the
+ * profile check in assertPortalUser(). NOTHING IS WRITTEN until that check has
+ * passed - Promise.all rejects with its error first. Independent writes after
+ * the main one (activity row, halt mirror) also run side by side.
+ */
+async function signedInUserId(): Promise<string> {
+  const user = await getSignedInUser();
+  if (!user) throw new Error("Please sign in again.");
+  return user.id;
+}
 
 /* -------------------------------------------------------------------------- */
 /* shared bits of the alert forms                                              */
@@ -139,7 +160,7 @@ function alertAddedMessage(
   halt?: { haltAfterHours: number; pauseAfterHours: number } | null,
 ): string {
   if (template.kind === "halt" && halt) {
-    return `${template.name} added: alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}.`;
+    return `${template.name} added: alert after ${hoursLabel(halt.haltAfterHours)}, pauses tracking after ${hoursLabel(halt.pauseAfterHours)}.`;
   }
   return clampedFrom !== null
     ? `${template.name} added, checking every ${intervalLabel(template.min_interval_minutes)} (the fastest this alert allows).`
@@ -373,7 +394,27 @@ type PlazaDecision =
  *    confirmation; this is what makes a stale form, a second tab or a direct
  *    call to this action get the same answer.
  */
-async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<PlazaDecision> {
+type PlazaRpc = { data: unknown; error: { message: string } | null };
+
+/**
+ * The catalogue question for a typed plaza, started BEFORE the rule is known.
+ * The plaza box is only rendered for the plaza kind, so a posted "plaza" field
+ * is a good enough signal to ask early and save a round trip; decidePlaza()
+ * still ignores the answer for any other kind.
+ */
+function lookupTypedPlaza(fd: FormData): Promise<PlazaRpc> | null {
+  const typed = str(fd, "plaza");
+  if (!typed) return null;
+  return Promise.resolve(
+    getSupabaseAdmin().rpc("match_plazas", { p_q: typed, p_limit: 1 }),
+  ) as Promise<PlazaRpc>;
+}
+
+async function decidePlaza(
+  fd: FormData,
+  template: AlertRuleTemplate,
+  early: Promise<PlazaRpc> | null = null,
+): Promise<PlazaDecision> {
   if (!needsPlaza(template.kind)) return { ok: true, plaza: null, match: null };
 
   const typed = str(fd, "plaza");
@@ -381,10 +422,7 @@ async function decidePlaza(fd: FormData, template: AlertRuleTemplate): Promise<P
     return { ok: false, error: `"${template.name}" needs a toll plaza. Enter the plaza to watch.` };
   }
 
-  const { data, error } = await getSupabaseAdmin().rpc("match_plazas", {
-    p_q: typed,
-    p_limit: 1,
-  });
+  const { data, error } = await (early ?? lookupTypedPlaza(fd)!);
 
   /*
    * Fails open. If the catalogue cannot be read, the choice is between
@@ -440,7 +478,17 @@ function readAutoPauseAt(fd: FormData): Date | null | undefined | { error: strin
   const amountRaw = str(fd, "auto_pause_amount");
   // A unit with no number is not an answer, and neither is the field being
   // absent. Both mean "no scheduled stop", which is a real choice to store.
-  if (amountRaw === null) return fd.has("auto_pause_amount") ? null : undefined;
+  if (amountRaw === null) {
+    if (!fd.has("auto_pause_amount")) return undefined;
+    /*
+     * The truck page's Settings form posts auto_pause_mode=keep. There an
+     * empty box means "leave the end time alone" - it used to mean "remove
+     * it", so renaming a truck silently cancelled its scheduled stop. Removing
+     * it is now its own tick box (auto_pause_clear).
+     */
+    if (fd.get("auto_pause_mode") === "keep") return bool(fd, "auto_pause_clear") ? null : undefined;
+    return null;
+  }
 
   const amount = Number(amountRaw);
   const unit = str(fd, "auto_pause_unit") === "days" ? "days" : "hours";
@@ -491,7 +539,7 @@ function cadenceWords(
   halt: { haltAfterHours: number; pauseAfterHours: number } | null,
 ): string {
   if (template.kind === "halt" && halt) {
-    return `alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}`;
+    return `alert after ${hoursLabel(halt.haltAfterHours)}, pauses tracking after ${hoursLabel(halt.pauseAfterHours)}`;
   }
   return plaza ? `${plaza}, every ${intervalLabel(minutes)}` : `every ${intervalLabel(minutes)}`;
 }
@@ -501,7 +549,7 @@ function isError(value: unknown): value is { error: string } {
 }
 
 export async function addTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const session = await assertPortalUser();
+  const userId = await signedInUserId();
   const admin = getSupabaseAdmin();
 
   const raw = str(fd, "truck_number");
@@ -512,18 +560,45 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
     return fail(`"${truckNumber}" is not a valid registration number. Example: GJ02AT8546.`);
   }
 
-  const overview = await loadOverview(session.id);
+  /* The fields that need no database are checked before any is asked. */
+  const maxFailures = readFailureLimit(fd);
+  if (isError(maxFailures)) return fail(maxFailures.error);
+
+  const autoPauseAt = readAutoPauseAt(fd);
+  if (isError(autoPauseAt)) return fail(autoPauseAt.error);
+
+  /*
+   * ONE WAVE of reads instead of seven in a row (see signedInUserId above):
+   * the profile check, the overview and the cost of a check (which needs the
+   * plan), this number's existing row and its alerts (only for a re-add), the
+   * chosen rule, and the typed plaza.
+   */
+  const templateId = str(fd, "template_id");
+  const overviewRead = loadOverview(userId);
+  const existingRead = admin
+    .from("tracked_trucks")
+    .select("id, is_active")
+    .eq("user_id", userId)
+    .eq("truck_number", truckNumber)
+    .maybeSingle<{ id: string; is_active: boolean }>()
+    .then(({ data }) => data ?? null);
+  const plazaRead = lookupTypedPlaza(fd);
+
+  const [session, overview, autoCheckCost, existing, existingAlerts, template] = await Promise.all([
+    assertPortalUser(),
+    overviewRead,
+    overviewRead.then((row) => (row?.plan_id ? loadAutoCheckCost(row.plan_id) : 0)),
+    existingRead,
+    /* Re-adding a paused truck keeps its alerts; a genuinely new one has none,
+       so this is only asked when the row already exists. */
+    existingRead.then((row) => (row ? loadTruckAlerts(row.id, userId) : [])),
+    templateId ? loadTemplate(templateId) : Promise.resolve(null),
+  ]);
+
   if (!overview) return fail("Could not load your account. Please sign in again.");
   if (!overview.plan_id) {
     return fail("Choose a plan to start tracking trucks.");
   }
-
-  const { data: existing } = await admin
-    .from("tracked_trucks")
-    .select("id, is_active")
-    .eq("user_id", session.id)
-    .eq("truck_number", truckNumber)
-    .maybeSingle();
 
   if (existing?.is_active) {
     return fail(`${truckNumber} is already being tracked.`);
@@ -536,7 +611,7 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
    * exactly the wrong lesson to teach at that moment. A truck added now would
    * be paused as 'no_credits' by the first sweep that reached it.
    */
-  const noCredits = liveBlockedByCredits(overview, await loadAutoCheckCost(overview.plan_id));
+  const noCredits = liveBlockedByCredits(overview, autoCheckCost);
   if (noCredits) return fail(noCredits);
 
   if (truckSlotsLeft(overview) <= 0) {
@@ -547,8 +622,6 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 
   /* The alert is settled before the truck exists, so a form with a missing
      plaza cannot leave a silent truck behind. */
-  const templateId = str(fd, "template_id");
-  const template = templateId ? await loadTemplate(templateId) : null;
   if (templateId && !template) return fail("That alert is no longer available. Pick another one.");
 
   let plaza: string | null = null;
@@ -558,24 +631,17 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
   let halt: { haltAfterHours: number; pauseAfterHours: number } | null = null;
 
   if (template) {
-    const decided = await decidePlaza(fd, template);
-    if (!decided.ok) return fail(decided.error);
-    plaza = decided.plaza;
-    plazaMatch = decided.match;
-
     const cadence = readCadence(fd, template);
     if (!cadence.ok) return fail(cadence.error);
     minutes = cadence.minutes;
     clampedFrom = cadence.clampedFrom;
     halt = cadence.halt;
+
+    const decided = await decidePlaza(fd, template, plazaRead);
+    if (!decided.ok) return fail(decided.error);
+    plaza = decided.plaza;
+    plazaMatch = decided.match;
   }
-
-  /* Required, 1-50, no admin fallback written (owner, 20 Nov 2026). */
-  const maxFailures = readFailureLimit(fd);
-  if (isError(maxFailures)) return fail(maxFailures.error);
-
-  const autoPauseAt = readAutoPauseAt(fd);
-  if (isError(autoPauseAt)) return fail(autoPauseAt.error);
 
   const payload = {
     user_id: session.id,
@@ -606,72 +672,78 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 
   if (error) return fail(reportError("adding a truck", error, "Could not add that truck."));
 
-  const truckId = saved?.id ?? existing?.id ?? null;
+  const truckId = (saved?.id as string | undefined) ?? existing?.id ?? null;
 
-  if (template && truckId) {
+  if (truckId) {
     /*
      * Re-adding a paused truck keeps its alerts, so the "first" alert may not
      * be new at all - and a second row of one kind is refused by the database
      * since 0048. So the same question is UPDATED rather than inserted: the
      * officer just told this form how often to check, and that answer is the
      * one they meant. The row keeps its id and its bookkeeping, so nothing
-     * re-announces a crossing it has already reported.
-     *
-     * Only looked up for a truck that already existed. A genuinely new one
-     * cannot have an alert yet, and this is the hot path.
+     * re-announces a crossing it has already reported. A re-added halt alert
+     * starts un-halted, so an old "halted" flag cannot produce a stray
+     * "moving again".
      */
-    /* `plaza` is already null for the kinds that do not name one -
-       decidePlaza() is what nulls it, so needsPlaza() is not asked twice. */
-    const existingAlert = existing
-      ? sameQuestion(await loadTruckAlerts(truckId, session.id), alertIdentity(template.kind, plaza))
+    const existingAlert = template
+      ? sameQuestion(existingAlerts, alertIdentity(template.kind, plaza))
       : null;
 
     const haltFields = halt
       ? { halt_after_hours: halt.haltAfterHours, pause_after_hours: halt.pauseAfterHours }
       : {};
 
-    const { error: alertError } = existingAlert
-      ? await admin
-          .from("truck_alerts")
-          .update({ is_enabled: true, interval_minutes: minutes, ...haltFields })
-          .eq("id", existingAlert.id)
-          .eq("user_id", session.id)
-      : await admin.from("truck_alerts").insert({
-          user_id: session.id,
-          tracked_truck_id: truckId,
-          template_id: template.id,
-          is_enabled: true,
-          interval_minutes: minutes,
-          plaza,
-          plaza_match: plazaMatch,
-          ...(halt ? { ...haltFields, halt_active: false, halt_notified_at: null } : {}),
-        });
+    const writeAlert = !template
+      ? Promise.resolve({ error: null })
+      : existingAlert
+        ? admin
+            .from("truck_alerts")
+            .update({
+              is_enabled: true,
+              interval_minutes: minutes,
+              ...haltFields,
+              ...(halt ? { halt_active: false, halt_notified_at: null } : {}),
+            })
+            .eq("id", existingAlert.id)
+            .eq("user_id", session.id)
+        : admin.from("truck_alerts").insert({
+            user_id: session.id,
+            tracked_truck_id: truckId,
+            template_id: template.id,
+            is_enabled: true,
+            interval_minutes: minutes,
+            plaza,
+            plaza_match: plazaMatch,
+            ...(halt ? { ...haltFields, halt_active: false, halt_notified_at: null } : {}),
+          });
+
+    /* The alert and the history line do not depend on each other. */
+    const [{ error: alertError }] = await Promise.all([
+      writeAlert,
+      recordTruckActivity([
+        {
+          userId: session.id,
+          truckId,
+          truckNumber,
+          kind: existing ? "readded" : "added",
+        },
+        ...(template
+          ? [
+              {
+                userId: session.id,
+                truckId,
+                truckNumber,
+                kind: "alert_added" as const,
+                detail: { alert: template.name, summary: cadenceWords(template, minutes, plaza, halt) },
+              },
+            ]
+          : []),
+      ]),
+    ]);
 
     // The truck is already saved, so a failed alert is not worth throwing the
     // whole form away for. Its page says plainly that nothing is watching it.
     if (alertError) reportError("adding the first alert", alertError);
-  }
-
-  if (truckId) {
-    await recordTruckActivity([
-      {
-        userId: session.id,
-        truckId,
-        truckNumber,
-        kind: existing ? "readded" : "added",
-      },
-      ...(template
-        ? [
-            {
-              userId: session.id,
-              truckId,
-              truckNumber,
-              kind: "alert_added" as const,
-              detail: { alert: template.name, summary: cadenceWords(template, minutes, plaza, halt) },
-            },
-          ]
-        : []),
-    ]);
   }
 
   revalidatePath("/portal");
@@ -691,20 +763,24 @@ export async function addTruck(_prev: ActionResult | null, fd: FormData): Promis
 }
 
 export async function updateTruck(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const session = await assertPortalUser();
+  const userId = await signedInUserId();
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
   if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
 
-  const { data: truck } = await admin
-    .from("tracked_trucks")
-    .select("id, truck_number, label, max_consecutive_failures, auto_pause_at")
-    .eq("id", truckId)
-    .eq("user_id", session.id)
-    .maybeSingle<
-      Pick<TrackedTruck, "id" | "truck_number" | "label" | "max_consecutive_failures" | "auto_pause_at">
-    >();
+  /* The profile check and the truck read side by side - one round trip. */
+  const [session, { data: truck }] = await Promise.all([
+    assertPortalUser(),
+    admin
+      .from("tracked_trucks")
+      .select("id, truck_number, label, max_consecutive_failures, auto_pause_at")
+      .eq("id", truckId)
+      .eq("user_id", userId)
+      .maybeSingle<
+        Pick<TrackedTruck, "id" | "truck_number" | "label" | "max_consecutive_failures" | "auto_pause_at">
+      >(),
+  ]);
 
   if (!truck) return fail("That truck is not on your list.");
 
@@ -792,7 +868,7 @@ export async function addTruckAlert(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
-  const session = await assertPortalUser();
+  const userId = await signedInUserId();
   const admin = getSupabaseAdmin();
 
   const truckId = str(fd, "truck_id");
@@ -800,33 +876,38 @@ export async function addTruckAlert(
   if (!truckId) return fail("Something went wrong. Refresh the page and try again.");
   if (!templateId) return fail("Choose an alert first.");
 
-  const { data: truck } = await admin
-    .from("tracked_trucks")
-    .select("id, truck_number")
-    .eq("id", truckId)
-    .eq("user_id", session.id)
-    .maybeSingle<{ id: string; truck_number: string }>();
+  /* One wave: profile check, the truck, the rule, its alerts, the plaza. */
+  const plazaRead = lookupTypedPlaza(fd);
+  const [session, { data: truck }, template, truckAlerts] = await Promise.all([
+    assertPortalUser(),
+    admin
+      .from("tracked_trucks")
+      .select("id, truck_number")
+      .eq("id", truckId)
+      .eq("user_id", userId)
+      .maybeSingle<{ id: string; truck_number: string }>(),
+    loadTemplate(templateId),
+    loadTruckAlerts(truckId, userId),
+  ]);
 
   if (!truck) return fail("That truck is not on your list.");
-
-  const template = await loadTemplate(templateId);
   if (!template) return fail("That alert is no longer available. Pick another one.");
-
-  const decided = await decidePlaza(fd, template);
-  if (!decided.ok) return fail(decided.error);
-  const plaza = decided.plaza;
-  const plazaMatch = decided.match;
 
   const cadence = readCadence(fd, template);
   if (!cadence.ok) return fail(cadence.error);
   const halt = cadence.halt;
+
+  const decided = await decidePlaza(fd, template, plazaRead);
+  if (!decided.ok) return fail(decided.error);
+  const plaza = decided.plaza;
+  const plazaMatch = decided.match;
 
   /* The identity is computed from the CANONICAL plaza, which is what will be
      stored - so the duplicate this refuses is the duplicate the index would.
      It makes no difference to the comparison, since alertIdentity() normalises
      both sides, and every difference to what the refusal then quotes back. */
   const wanted = alertIdentity(template.kind, plaza);
-  const existing = sameQuestion(await loadTruckAlerts(truckId, session.id), wanted);
+  const existing = sameQuestion(truckAlerts, wanted);
   if (existing) {
     return fail(alreadyWatchedMessage(existing, existing.template?.name ?? template.name));
   }
@@ -851,15 +932,16 @@ export async function addTruckAlert(
 
   if (error) return fail(reportError("adding an alert", error, "Could not add that alert."));
 
-  if (halt) await mirrorHaltPause(truckId, session.id, halt.pauseAfterHours);
-
-  await recordTruckActivity({
-    userId: session.id,
-    truckId,
-    truckNumber: truck.truck_number,
-    kind: "alert_added",
-    detail: { alert: template.name, summary: cadenceWords(template, cadence.minutes, plaza, halt) },
-  });
+  await Promise.all([
+    halt ? mirrorHaltPause(truckId, session.id, halt.pauseAfterHours) : null,
+    recordTruckActivity({
+      userId: session.id,
+      truckId,
+      truckNumber: truck.truck_number,
+      kind: "alert_added",
+      detail: { alert: template.name, summary: cadenceWords(template, cadence.minutes, plaza, halt) },
+    }),
+  ]);
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -886,27 +968,30 @@ export async function updateTruckAlert(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
-  const session = await assertPortalUser();
+  const userId = await signedInUserId();
   const admin = getSupabaseAdmin();
 
   const alertId = str(fd, "alert_id");
   if (!alertId) return fail("Something went wrong. Refresh the page and try again.");
 
-  const { data: alert } = await admin
-    .from("truck_alerts")
-    .select(
-      "id, tracked_truck_id, is_enabled, plaza, template:alert_rule_templates(*), truck:tracked_trucks(truck_number)",
-    )
-    .eq("id", alertId)
-    .eq("user_id", session.id)
-    .maybeSingle<{
-      id: string;
-      tracked_truck_id: string;
-      is_enabled: boolean;
-      plaza: string | null;
-      template: AlertRuleTemplate | null;
-      truck: { truck_number: string } | null;
-    }>();
+  const [session, { data: alert }] = await Promise.all([
+    assertPortalUser(),
+    admin
+      .from("truck_alerts")
+      .select(
+        "id, tracked_truck_id, is_enabled, plaza, template:alert_rule_templates(*), truck:tracked_trucks(truck_number)",
+      )
+      .eq("id", alertId)
+      .eq("user_id", userId)
+      .maybeSingle<{
+        id: string;
+        tracked_truck_id: string;
+        is_enabled: boolean;
+        plaza: string | null;
+        template: AlertRuleTemplate | null;
+        truck: { truck_number: string } | null;
+      }>(),
+  ]);
 
   if (!alert?.template) return fail("That alert is not on your list.");
 
@@ -928,22 +1013,23 @@ export async function updateTruckAlert(
   if (error) return fail(reportError("changing an alert", error, "Could not change that alert."));
 
   /* A switched-off halt alert keeps the truck's stopped-moving pause off. */
-  if (halt && alert.is_enabled) {
-    await mirrorHaltPause(alert.tracked_truck_id, session.id, halt.pauseAfterHours);
-  }
-
-  if (alert.truck) {
-    await recordTruckActivity({
-      userId: session.id,
-      truckId: alert.tracked_truck_id,
-      truckNumber: alert.truck.truck_number,
-      kind: "alert_edited",
-      detail: {
-        alert: alert.template.name,
-        summary: cadenceWords(alert.template, cadence.minutes, alert.plaza, halt),
-      },
-    });
-  }
+  await Promise.all([
+    halt && alert.is_enabled
+      ? mirrorHaltPause(alert.tracked_truck_id, session.id, halt.pauseAfterHours)
+      : null,
+    alert.truck
+      ? recordTruckActivity({
+          userId: session.id,
+          truckId: alert.tracked_truck_id,
+          truckNumber: alert.truck.truck_number,
+          kind: "alert_edited",
+          detail: {
+            alert: alert.template.name,
+            summary: cadenceWords(alert.template, cadence.minutes, alert.plaza, halt),
+          },
+        })
+      : null,
+  ]);
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -953,7 +1039,7 @@ export async function updateTruckAlert(
 
   return done(
     halt
-      ? `Saved: alert after ${hoursLabel(halt.haltAfterHours)}, pause after ${hoursLabel(halt.pauseAfterHours)}.`
+      ? `Saved: alert after ${hoursLabel(halt.haltAfterHours)}, pauses tracking after ${hoursLabel(halt.pauseAfterHours)}.`
       : `Now checking every ${intervalLabel(cadence.minutes)}.`,
   );
 }
@@ -962,7 +1048,7 @@ export async function setTruckAlertEnabled(
   _prev: ActionResult | null,
   fd: FormData,
 ): Promise<ActionResult> {
-  const session = await assertPortalUser();
+  const userId = await signedInUserId();
   const admin = getSupabaseAdmin();
 
   const alertId = str(fd, "alert_id");
@@ -975,20 +1061,27 @@ export async function setTruckAlertEnabled(
    * index only constrains the enabled ones. Answered here in words: the raw
    * refusal would be "duplicate key value violates unique constraint", on a
    * button press whose only visible effect is a switch that did not move.
+   * The target and its siblings are read beside the profile check.
    */
-  if (enabled) {
-    const { data: target } = await admin
-      .from("truck_alerts")
-      .select("tracked_truck_id, plaza, template_kind")
-      .eq("id", alertId)
-      .eq("user_id", session.id)
-      .maybeSingle<{ tracked_truck_id: string; plaza: string | null } & AlertKindMirror>();
+  const targetRead = enabled
+    ? admin
+        .from("truck_alerts")
+        .select("tracked_truck_id, plaza, template_kind")
+        .eq("id", alertId)
+        .eq("user_id", userId)
+        .maybeSingle<{ tracked_truck_id: string; plaza: string | null } & AlertKindMirror>()
+        .then(({ data }) => data ?? null)
+    : Promise.resolve(null);
+  const [session, target, siblings] = await Promise.all([
+    assertPortalUser(),
+    targetRead,
+    targetRead.then((row) => (row ? loadTruckAlerts(row.tracked_truck_id, userId) : [])),
+  ]);
 
+  if (enabled) {
     if (target) {
       const rival = sameQuestion(
-        (await loadTruckAlerts(target.tracked_truck_id, session.id)).filter(
-          (row) => row.id !== alertId && row.is_enabled,
-        ),
+        siblings.filter((row) => row.id !== alertId && row.is_enabled),
         alertIdentityOf(target),
       );
       if (rival) {
@@ -1020,23 +1113,24 @@ export async function setTruckAlertEnabled(
 
   /* The halt alert carries the truck's stopped-moving pause: off with it, and
      back to its own hours when it is switched on again. */
-  if (alert.template_kind === "halt") {
-    await mirrorHaltPause(
-      alert.tracked_truck_id,
-      session.id,
-      enabled ? (alert.pause_after_hours ?? null) : null,
-    );
-  }
-
-  if (alert.truck) {
-    await recordTruckActivity({
-      userId: session.id,
-      truckId: alert.tracked_truck_id,
-      truckNumber: alert.truck.truck_number,
-      kind: enabled ? "alert_on" : "alert_off",
-      detail: { alert: alert.template?.name ?? "Alert" },
-    });
-  }
+  await Promise.all([
+    alert.template_kind === "halt"
+      ? mirrorHaltPause(
+          alert.tracked_truck_id,
+          session.id,
+          enabled ? (alert.pause_after_hours ?? null) : null,
+        )
+      : null,
+    alert.truck
+      ? recordTruckActivity({
+          userId: session.id,
+          truckId: alert.tracked_truck_id,
+          truckNumber: alert.truck.truck_number,
+          kind: enabled ? "alert_on" : "alert_off",
+          detail: { alert: alert.template?.name ?? "Alert" },
+        })
+      : null,
+  ]);
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");
@@ -1076,19 +1170,18 @@ export async function deleteTruckAlert(
   if (!alert) return fail("That alert is not on your list.");
 
   /* No halt alert, no stopped-moving pause. */
-  if (alert.template_kind === "halt") {
-    await mirrorHaltPause(alert.tracked_truck_id, session.id, null);
-  }
-
-  if (alert.truck) {
-    await recordTruckActivity({
-      userId: session.id,
-      truckId: alert.tracked_truck_id,
-      truckNumber: alert.truck.truck_number,
-      kind: "alert_removed",
-      detail: { alert: alert.template?.name ?? "Alert" },
-    });
-  }
+  await Promise.all([
+    alert.template_kind === "halt" ? mirrorHaltPause(alert.tracked_truck_id, session.id, null) : null,
+    alert.truck
+      ? recordTruckActivity({
+          userId: session.id,
+          truckId: alert.tracked_truck_id,
+          truckNumber: alert.truck.truck_number,
+          kind: "alert_removed",
+          detail: { alert: alert.template?.name ?? "Alert" },
+        })
+      : null,
+  ]);
 
   revalidatePath("/portal");
   revalidatePath("/portal/dashboard");

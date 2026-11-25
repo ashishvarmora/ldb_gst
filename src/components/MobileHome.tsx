@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, BellRing, BookOpen, ChevronRight, Headset, Layers, MapPin, Plus, Search, ShieldCheck, Truck } from "lucide-react";
+import { ArrowRight, BellRing, BookOpen, ChevronRight, Headset, Layers, MapPin, Navigation, Plus, Search, ShieldCheck, Truck } from "lucide-react";
 import { JourneyCarousel } from "@/components/JourneyCarousel";
 
 export function MobileHome({ firstName, hasTrucks, planActive }: { firstName: string; hasTrucks: boolean; planActive: boolean }) {
   return <div className="app-home">
     <header className="app-welcome"><div><p>{firstName ? `Hello, ${firstName}` : "Welcome to Rahdari"}</p><h1>Welcome back</h1></div><span className="app-welcome-symbol" aria-hidden="true"><MapPin size={24} strokeWidth={1.6} /></span></header>
     <JourneyCarousel />
+    <Link className="app-search-entry" href="/live"><span style={{ background: "#fff1e6", color: "#c2570c" }}><Navigation size={22} /></span><div><strong>Live tracking</strong><small>Trips with live GPS from the driver&apos;s phone</small></div><ArrowRight size={20} /></Link>
     <Link className="app-search-entry" href="/portal/search"><span><Search size={22} /></span><div><strong>Find a truck</strong><small>Search by registration number</small></div><ArrowRight size={20} /></Link>
     <section className="app-quick-section" aria-labelledby="quick-title"><div className="app-section-heading"><h2 id="quick-title">Quick actions</h2></div><nav className="app-quick-grid" aria-label="Quick actions">
       {[{ label: "My trucks", href: "/portal/trucks", icon: Truck, tone: "blue" }, { label: "Add truck", href: "/portal/trucks#add-truck", icon: Plus, tone: "orange" }, { label: "Groups", href: "/portal/cases", icon: Layers, tone: "mint" }, { label: "Alert settings", href: "/portal/notifications", icon: BellRing, tone: "violet" }].map(({ label, href, icon: Icon, tone }) => <Link key={label} href={href}><span className={`app-quick-icon app-tone-${tone}`}><Icon size={24} strokeWidth={1.7} /></span><strong>{label}</strong></Link>)}
@@ -13,6 +14,6 @@ export function MobileHome({ firstName, hasTrucks, planActive }: { firstName: st
     <section className="app-fleet-section" aria-labelledby="fleet-title"><div className="app-section-heading"><h2 id="fleet-title">Your trucks</h2><Link href="/portal/trucks">My trucks<ChevronRight size={15} /></Link></div><div className="app-fleet-prompt"><div className="app-fleet-art" aria-hidden="true"><Truck size={43} strokeWidth={1.5} /><span><MapPin size={16} /></span></div><div><h3>{hasTrucks ? "Your fleet is one tap away." : "Your first truck starts here."}</h3><p>{hasTrucks ? "Open your trucks to see recorded crossings and manage alerts." : "Add a truck to keep its crossing history close at hand."}</p><Link href="/portal/trucks" className="app-inline-action">{hasTrucks ? "Open my trucks" : "Add my first truck"}<ArrowRight size={16} /></Link></div></div></section>
     {!planActive && <Link href="/portal/plan" className="app-plan-prompt"><span className="app-tone-orange"><ShieldCheck size={22} /></span><div><strong>Want automatic tracking?</strong><small>Choose a plan to start tracking your trucks.</small></div><ChevronRight size={18} /></Link>}
     <section aria-labelledby="help-title"><div className="app-section-heading"><h2 id="help-title">Help</h2></div><div className="app-help-grid"><Link href="/portal/guide"><span className="app-tone-blue"><BookOpen size={21} /></span><strong>User guide</strong><small>Learn how tracking works</small><ArrowRight size={17} /></Link><Link href="/portal/support"><span className="app-tone-mint"><Headset size={21} /></span><strong>Chat with support</strong><small>Ask about your account or a truck</small><ArrowRight size={17} /></Link></div></section>
-    <p className="app-home-footnote"><ShieldCheck size={14} /> Rahdari shows toll crossing records, not live GPS.</p>
+    <p className="app-home-footnote"><ShieldCheck size={14} /> Toll tracking shows toll crossing records. For live GPS, open Live tracking.</p>
   </div>;
 }

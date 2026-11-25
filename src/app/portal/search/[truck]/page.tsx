@@ -15,14 +15,14 @@ import {
 
 import { searchAgain } from "../actions";
 import { addTruckToCase } from "@/app/portal/cases/actions";
-import { addTruck } from "@/app/portal/trucks/actions";
+import { AddTruckForm } from "@/app/portal/trucks/AddTruckForm";
+import { loadAlertDelivery } from "@/components/AlertDeliveryBanner";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
-import { Field, FormActions, Input, Select } from "@/components/form";
+import { Field, FormActions, Select } from "@/components/form";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { Pager, pageFromParam } from "@/components/Pager";
 import { SaveTruckButton } from "@/components/SaveTruckButton";
-import { FailureLimitField } from "@/components/TruckAlertForm";
 import { publicSettings } from "@/components/SiteFooter";
 import { directionLabel } from "@/components/Timeline";
 import { Badge, EmptyState, LinkButton, Panel, buttonClass, cx } from "@/components/ui";
@@ -34,7 +34,13 @@ import { stateFromLocation } from "@/lib/geo";
 import { loadSearchCost, requirePortalSession, truckSlotsLeft } from "@/lib/officer";
 import { isTruckSaved } from "@/lib/saved-trucks";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { SearchLog, TrackedTruck, TruckEvent, TruckGroup } from "@/lib/types";
+import type {
+  AlertRuleTemplate,
+  SearchLog,
+  TrackedTruck,
+  TruckEvent,
+  TruckGroup,
+} from "@/lib/types";
 
 import { CopyPlate } from "./CopyPlate";
 import { RouteTimeline } from "./RouteTimeline";
@@ -92,6 +98,8 @@ export default async function SearchResultPage({
     { data: lastSearch },
     { data: cases },
     saved,
+    { data: templates },
+    delivery,
   ] = await Promise.all([
     // One page of crossings plus one more: the extra row is never shown, it
     // only lets the last row on the page say how long after the previous
@@ -143,6 +151,15 @@ export default async function SearchResultPage({
       .maybeSingle<SearchLog>(),
     admin.from("truck_groups").select("*").eq("user_id", overview.id).order("name"),
     isTruckSaved(admin, overview.id, truckNumber),
+    /* For the "Track automatically" sheet, which is now the full add-truck
+       form (number fixed): the alert catalogue and where alerts would go -
+       the latter shares the layout's cached read. */
+    admin
+      .from("alert_rule_templates")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    loadAlertDelivery(overview.id),
   ]);
 
   const loaded = (events ?? []) as TruckEvent[];
@@ -246,29 +263,19 @@ export default async function SearchResultPage({
             title={`Track ${truckNumber}`}
             description={
               slots === Number.POSITIVE_INFINITY
-                ? "Adds the truck to My trucks so you can set alerts on it."
+                ? "Choose an alert and checking starts."
                 : `${slots} tracking slot${slots === 1 ? "" : "s"} free on your plan.`
             }
-            width="sm"
+            width="md"
           >
-            <ActionForm action={addTruck} closeOnSuccess={false}>
-              <input type="hidden" name="truck_number" value={truckNumber} />
-              <Field label="Label" name="label" hint="Optional. Something you will recognise later.">
-                <Input name="label" placeholder="e.g. Supplier vehicle — north route" />
-              </Field>
-              {/* Required by addTruck since 20 Nov 2026 - this sheet was missed then,
-                  so every add from a search result failed until 24 Nov. */}
-              <div className="mt-4">
-                <FailureLimitField />
-              </div>
-              <p className="mt-4 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-                Checking starts once the truck has an alert. After adding it, open the truck and
-                choose an alert.
-              </p>
-              <FormActions>
-                <SubmitButton pendingLabel="Adding…">Start tracking</SubmitButton>
-              </FormActions>
-            </ActionForm>
+            {/* The same form as My trucks' Add truck, with the number fixed:
+                it used to add a truck with no alert and send you back to pick
+                one, and a truck with no alert is never checked. */}
+            <AddTruckForm
+              templates={(templates ?? []) as AlertRuleTemplate[]}
+              telegram={delivery}
+              truckNumber={truckNumber}
+            />
           </Modal>
         )}
 

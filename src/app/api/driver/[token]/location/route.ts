@@ -1,6 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 
-import { recordDriverReport, type IncomingPoint } from "@/lib/live-location";
+import type { IncomingPoint } from "@/lib/live-location";
+import { evaluateAfterReport } from "@/lib/live/automation";
+import { recordReport } from "@/lib/live/driver";
 
 /**
  * POST /api/driver/<token>/location - the driver's phone reporting in.
@@ -10,7 +12,9 @@ import { recordDriverReport, type IncomingPoint } from "@/lib/live-location";
  * An empty points array is a heartbeat ("page still open").
  *
  * Validation, throttling (one request per ~8 s per token) and the India
- * bounding-box check live in recordDriverReport().
+ * bounding-box check live in recordReport() (src/lib/live/driver.ts), which
+ * serves live-module trips (0079) and falls back to the old truck-page links
+ * (0078). For a trip, the automation rules run after the answer is sent.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,11 +45,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     ? (raw.points.filter((p) => p && typeof p === "object") as IncomingPoint[])
     : [];
 
-  const result = await recordDriverReport(token, {
+  const { result, tripId } = await recordReport(token, {
     points,
     consent: raw.consent === true,
     stop: raw.stop === true,
   });
+  if (tripId) after(() => evaluateAfterReport(tripId));
 
   const headers: Record<string, string> = { "Cache-Control": "no-store" };
   if (result.status === 429 && "retryAfter" in result.body && result.body.retryAfter) {

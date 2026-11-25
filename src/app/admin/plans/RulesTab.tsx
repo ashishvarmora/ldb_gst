@@ -11,7 +11,7 @@ import { Checkbox, Field, FormActions, FormGrid, Input } from "@/components/form
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { Badge, EmptyState, LinkButton, Panel } from "@/components/ui";
-import { formatCredits, loadCreditPacks, loadCreditRates } from "@/lib/credits";
+import { CREDIT_ACTIONS, formatCredits, loadCreditPacks, loadCreditRates } from "@/lib/credits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -187,9 +187,20 @@ export async function RulesTab() {
               />
             </Panel>
           ) : (
-            rates.map((rate) => <RateEditor key={rate.action} rate={rate} />)
+            /* The WhatsApp per-message charge has one home: Settings -> Tracking,
+               where its on/off switch and amount are saved together. */
+            rates
+              .filter((rate) => rate.action !== CREDIT_ACTIONS.whatsappAlert)
+              .map((rate) => <RateEditor key={rate.action} rate={rate} />)
           )}
         </div>
+        <p className="mt-3 text-xs text-muted">
+          The charge for each WhatsApp alert is set under{" "}
+          <Link href="/admin/settings?section=tracking" className="underline">
+            Settings → Tracking
+          </Link>
+          .
+        </p>
       </FlowSection>
     </>
   );

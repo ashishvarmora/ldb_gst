@@ -8,7 +8,9 @@ import { cx } from "@/components/ui";
  * The truck page's four sections, one at a time (owner, 20 Nov 2026).
  *
  * Every panel is rendered on the server and handed in as a node; this only
- * decides which one is visible, so switching tabs fetches nothing. The URL hash
+ * decides which one is visible, so switching tabs fetches nothing (checked 24
+ * Nov 2026: no ?tab= navigation, no request on a tap - the tab is kept in the
+ * #hash with history.replaceState). The URL hash
  * follows the tab (#alerts, #route, #activity, #settings) so a link can land
  * on one, and the older anchors still work: #tracking opens Settings and
  * #alert-<id> opens Alerts and scrolls to that row.
@@ -48,11 +50,16 @@ export function TruckTabs({
      that tab is showing. */
   const followHash = useCallback(() => {
     const hash = window.location.hash;
-    const tab = tabForHash(hash, idsKey.split(",") as TruckTabId[]);
+    /* ?tab=route also lands on a tab (older links and shared URLs), without
+       a server round trip: it is only read here, on the client. */
+    const query = new URLSearchParams(window.location.search).get("tab");
+    const tab =
+      tabForHash(hash, idsKey.split(",") as TruckTabId[]) ??
+      (query ? tabForHash(`#${query}`, idsKey.split(",") as TruckTabId[]) : null);
     if (!tab) return;
     setActive(tab);
     const key = decodeURIComponent(hash.replace(/^#/, ""));
-    if (key !== tab) {
+    if (key && key !== tab) {
       requestAnimationFrame(() => {
         document.getElementById(key)?.scrollIntoView({ block: "start", behavior: "smooth" });
       });

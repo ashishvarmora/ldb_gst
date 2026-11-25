@@ -60,6 +60,8 @@ function splashMain(STILL: number, FILM_MAX: number, S: typeof SRC) {
   } catch (e) {}
   /* The driver's live-location page (/d/<token>): a phone on mobile data, there to tap one button. */
   if (location.pathname.indexOf("/d/") === 0) skip = true;
+  /* Public links opened by someone else (a dealer's /track, a shared /t trip): no intro film. */
+  if (location.pathname.indexOf("/track/") === 0 || location.pathname.indexOf("/t/") === 0) skip = true;
   /* Crawlers and speed tools (Lighthouse, PageSpeed) see the page itself,
      so search previews and Core Web Vitals scores never include the intro. */
   if (/bot|crawl|spider|slurp|lighthouse|pagespeed|headlesschrome|preview/i.test(navigator.userAgent) || (navigator as Navigator & { webdriver?: boolean }).webdriver) skip = true;

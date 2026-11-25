@@ -28,6 +28,7 @@ import {
 } from "./actions";
 import { PushSetup } from "@/app/portal/settings/PushSetup";
 import { ApkUpload } from "./ApkUpload";
+import { WhatsAppChargeFields } from "./WhatsAppChargeFields";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
 import { SectionTabs, activeSection, type Section } from "@/components/SectionTabs";
 import { Checkbox, Field, FormActions, FormGrid, Input, Select, Textarea } from "@/components/form";
@@ -37,7 +38,7 @@ import { loadRetentionRules } from "@/lib/backup";
 import { emailSenderProblem } from "@/lib/email";
 import { env, integrationHealth } from "@/lib/env";
 import { fmtRelative } from "@/lib/format";
-import { CREDIT_ACTIONS, costOf, formatCredits } from "@/lib/credits";
+import { CREDIT_ACTIONS, costOf } from "@/lib/credits";
 import { loadSettings } from "@/lib/settings";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { ALERT_BOT_USERNAME, ID_BOT_USERNAME } from "@/lib/telegram-bot";
@@ -677,29 +678,15 @@ export default async function SettingsPage({
 
           <Panel
             title="WhatsApp alerts for customers"
-            description="WhatsApp stays opt-in per customer. This decides whether each message they get costs credits."
+            description="WhatsApp stays opt-in per customer. This decides whether each message they get costs credits, and how much. A customer short of credits still gets the alert in the app and on Telegram."
           >
             <ActionForm action={saveWhatsAppChargeSettings} closeOnSuccess={false}>
-              <Checkbox
-                name="whatsapp_charge_enabled"
-                label="Charge credits for WhatsApp alerts"
-                hint="Truck alerts and the account notices that go on WhatsApp. Never charged: the customer's own test message, the admin daily summary, and the 'no credits left' notice. A customer without enough credits still gets the alert in the app and on Telegram, just not on WhatsApp. A message is charged only after WhatsApp accepted it."
-                defaultChecked={site.whatsappChargeEnabled}
-              />
-              <p className="mt-3 text-xs leading-relaxed text-muted">
-                {waCost === null ? (
-                  <>The WhatsApp rate is not set up yet (migration 0076), so nothing is charged.</>
-                ) : (
-                  <>
-                    Amount: <strong className="text-ink">{formatCredits(waCost)} credit per message</strong>.
-                    Change it under{" "}
-                    <Link href="/admin/plans?tab=rules" className="underline">
-                      Plans &amp; credits → Rules
-                    </Link>{" "}
-                    (the &ldquo;WhatsApp alert&rdquo; rate).
-                  </>
-                )}
-              </p>
+              <WhatsAppChargeFields enabled={site.whatsappChargeEnabled} amount={waCost} />
+              {waCost === null ? (
+                <p className="mt-3 text-xs leading-relaxed text-muted">
+                  The WhatsApp rate is not set up yet (migration 0076), so nothing is charged.
+                </p>
+              ) : null}
               <FormActions>
                 <SubmitButton>Save WhatsApp charging</SubmitButton>
               </FormActions>
@@ -1123,6 +1110,11 @@ export default async function SettingsPage({
           <Panel title="Connection health" description="Read from environment variables at runtime.">
             <ul className="space-y-2.5">
               <HealthRow ok={health.supabase} label="Supabase project" detail="URL + anon key" />
+              <HealthRow
+                ok={health.ai}
+                label="AI (Gemini / Groq)"
+                detail="Optional. GEMINI_API_KEY or GROQ_API_KEY (free tiers). Without one, Live tracking uses rule-based summaries and e-way bill reading"
+              />
               <HealthRow
                 ok={health.serviceRole}
                 label="Service role key"

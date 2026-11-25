@@ -198,6 +198,23 @@ export const env = {
     return process.env.EMAIL_FROM ?? "";
   },
   /**
+   * Optional LLM on a FREE tier (src/lib/ai.ts). Gemini (Google AI Studio)
+   * wins when both are set; with neither, every AI helper returns null and
+   * callers use their rule-based fallback. Server-only: never NEXT_PUBLIC_.
+   */
+  get geminiApiKey() {
+    return process.env.GEMINI_API_KEY ?? "";
+  },
+  get geminiModel() {
+    return process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  },
+  get groqApiKey() {
+    return process.env.GROQ_API_KEY ?? "";
+  },
+  get groqModel() {
+    return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  },
+  /**
    * Where a password-reset link points. Falls back to the host Vercel provides,
    * which is right in production and harmless in a preview deployment.
    */
@@ -269,5 +286,7 @@ export function integrationHealth() {
     razorpay: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
     razorpayWebhook: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET),
     email: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+    // Optional free-tier LLM (Gemini or Groq). Off means rule-based fallbacks.
+    ai: Boolean(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY),
   };
 }

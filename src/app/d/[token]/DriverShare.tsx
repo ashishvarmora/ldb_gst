@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BatteryMedium, MapPin, Square, Truck, WifiOff } from "lucide-react";
 
 import { REPORT_EVERY_MS, agoText } from "@/lib/live-location-shared";
+import type { DriverTripInfo } from "@/lib/live/driver";
+import { DriverTripCard } from "./DriverTripCard";
 
 /**
  * The driver's side: one big Start button, one big Stop button.
@@ -69,12 +71,18 @@ export function DriverShare({
   ownerLabel,
   driverName,
   wasSharing,
+  trip = null,
+  closed = false,
 }: {
   token: string;
   truckNumber: string;
   ownerLabel: string;
   driverName: string | null;
   wasSharing: boolean;
+  /** Live-module trip (0079) behind this link, or null for an old truck link. */
+  trip?: DriverTripInfo | null;
+  /** Trip already delivered/cancelled: nothing to share. */
+  closed?: boolean;
 }) {
   const QUEUE_KEY = `rx-d-q-${token}`;
   const ON_KEY = `rx-d-on-${token}`;
@@ -255,7 +263,7 @@ export function DriverShare({
     queue.current = readStore<Fix[]>(QUEUE_KEY, []);
     setQueued(queue.current.length);
     setOnline(navigator.onLine);
-    if (readStore<boolean>(ON_KEY, false)) start();
+    if (!closed && readStore<boolean>(ON_KEY, false)) start();
     return () => stopWatching();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -281,6 +289,16 @@ export function DriverShare({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [acquireWakeLock, flush]);
+
+  const onTripClosed = useCallback(
+    (text: string) => {
+      stopWatching();
+      writeStore(ON_KEY, null);
+      setPhase("revoked");
+      setMessage(text);
+    },
+    [ON_KEY, stopWatching],
+  );
 
   const sharing = phase === "sharing" || phase === "starting";
   const speedKmh = lastFix?.speed != null && lastFix.speed >= 0 ? Math.round(lastFix.speed * 3.6) : null;
@@ -314,7 +332,21 @@ export function DriverShare({
         </p>
       </section>
 
-      {phase === "revoked" ? (
+      {trip ? (
+        <DriverTripCard
+          token={token}
+          trip={trip}
+          lastFix={lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : null}
+          onClosed={onTripClosed}
+        />
+      ) : null}
+
+      {closed ? (
+        <section className="panel p-4 text-center">
+          <p className="font-bold text-strong">Trip completed / ट्रिप पूरी</p>
+          <p className="mt-1 text-sm text-muted">Nothing is being shared. Thank you! / अब कुछ शेयर नहीं हो रहा। धन्यवाद!</p>
+        </section>
+      ) : phase === "revoked" ? (
         <section className="panel p-4 text-center">
           <p className="font-bold text-strong">Link stopped / लिंक बंद</p>
           <p className="mt-1 text-sm text-muted">{message ?? "The owner has stopped this link. Nothing is being shared."}</p>

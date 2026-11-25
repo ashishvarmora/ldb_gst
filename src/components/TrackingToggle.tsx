@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2 } from "lucide-react";
 
 import { setTruckPaused } from "@/app/portal/trucks/actions";
@@ -64,14 +63,10 @@ export function TrackingToggle({
   resumable?: boolean;
 }) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(setTruckPaused, null);
-  const router = useRouter();
-
   /* The card's own copy - status, last checked, the pause reason - is all
-     server-rendered, so the row has to be re-fetched or it keeps claiming the
-     truck is live after this has paused it. */
-  useEffect(() => {
-    if (state?.ok) router.refresh();
-  }, [state, router]);
+     server-rendered. setTruckPaused() revalidates, so the action's response
+     already carries the re-rendered list; a router.refresh() on top was a
+     second full render of the page (removed 24 Nov 2026). */
 
   /*
    * A truck that cannot simply be switched back on gets a way IN instead of a

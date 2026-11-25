@@ -1,18 +1,20 @@
-import { cache, type ReactNode } from "react";
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   BellOff,
   CheckCircle2,
   History,
-  MapPin,
+  MoonStar,
   PauseCircle,
   PlayCircle,
   Plus,
   RefreshCw,
   Share2,
   Timer,
+  Wallet,
 } from "lucide-react";
 
 import { checkTruckNow, removeTruck, setTruckPaused, updateTruck } from "../actions";
@@ -22,16 +24,15 @@ import {
   InlineActionForm,
   SubmitButton,
 } from "@/components/ActionForm";
-import { InfoTip, LabelWithInfo } from "@/components/InfoTip";
-import { LiveLocationCard } from "@/components/LiveLocationCard";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { DestinationForm, ShareTrip } from "@/components/TripControls";
-import { TripLine } from "@/components/TripLine";
+import { ShareTrip } from "@/components/TripControls";
 import { TruckActivityTimeline, type LedgerDay } from "@/components/TruckActivityTimeline";
 import { TruckMenu } from "@/components/TruckMenu";
-import { Field, FormActions, Input, Select } from "@/components/form";
+import { Field, FormActions, Input } from "@/components/form";
 import { RouteHistory, directionLabel } from "@/components/Timeline";
 import {
+  AutoPauseField,
   FailureLimitField,
   TruckAlertForm,
   type TakenAlert,
@@ -40,14 +41,9 @@ import { TruckAlertRow, type AlertRowData } from "@/components/TruckAlertRow";
 import { TruckTabs } from "@/components/TruckTabs";
 import { lastCheckedLabel } from "@/components/TruckCard";
 import { Badge, LinkCard, Panel, buttonClass, cx } from "@/components/ui";
-import { alertCadence, alertIdentity } from "@/lib/alerts";
+import { alertCadence, alertIdentity, hoursLabel } from "@/lib/alerts";
 import { CREDIT_ACTIONS, TOPUP_HREF, costOf, formatCredits, loadRate } from "@/lib/credits";
-import {
-  destinationOf,
-  maskPlate,
-  tripProgress,
-  type DestinationColumns,
-} from "@/lib/destination";
+import { maskPlate } from "@/lib/destination";
 import { env } from "@/lib/env";
 import { fmtWhen, fmtWhenAgo } from "@/lib/format";
 import {
@@ -112,10 +108,17 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * time: Alerts, Route, Activity, Settings. Every panel is rendered here on the
  * server; TruckTabs only chooses which is visible, so a tap fetches nothing.
  *
- * Placement pass (owner, 24 Nov 2026), top card in reading order: plate +
- * chip + label + ⋯ menu / pause reason / last crossing and checks / where it
- * is going and roughly how far (TripLine) / Go live | Check now | Pause /
- * Destination | Share trip. Then the live-location slot, then the tabs.
+ * Top card in reading order (24 Nov 2026): plate + chip + label + ⋯ menu /
+ * pause reason / last crossing and checks / Go live | Check now | Pause /
+ * Share trip. Then the tabs. Destination, distance left, "moving away" and
+ * the live-location card left this page that day: they belong to the
+ * separate Live module, and this is the toll module.
+ *
+ * TABS ARE CLIENT-SIDE: all four panels are rendered in this one request and
+ * TruckTabs only toggles `hidden` (and the #hash), so switching tabs makes no
+ * request at all. Saving a form does not re-render twice either: the actions
+ * revalidate this path, so their own response carries the new page and the
+ * forms here pass refresh={false} (see ActionForm).
  */
 export default async function TruckDetailPage({
   params,
@@ -144,7 +147,6 @@ export default async function TruckDetailPage({
     { data: templates },
     manualRate,
     settings,
-    { data: plazaRows },
     { data: shareRow },
   ] = await Promise.all([
     requirePortalSession(),
@@ -162,9 +164,6 @@ export default async function TruckDetailPage({
       .order("sort_order", { ascending: true }),
     loadRate(admin, CREDIT_ACTIONS.manualSearch),
     loadSettings(admin),
-    /* Toll plazas with a position, offered beside the towns in the
-       destination picker. Names only; the server finds the position again. */
-    admin.from("toll_plazas").select("name").not("lat", "is", null).order("name").limit(1000),
     /* The truck's live trip link, if any (0077). Before the migration this
        errors and reads as "no link". */
     admin
@@ -279,28 +278,8 @@ export default async function TruckDetailPage({
   const latest = eventList[0] ?? null;
   const heading = latest ? directionLabel(latest.direction) : null;
 
-  /* Destination and distance left (0077): computed from the crossings already
-     loaded for the Route tab, so no extra read. */
-  const destination = destinationOf(truck as TrackedTruck & DestinationColumns);
-  const progress = tripProgress(destination, eventList);
-  const plazaNames = ((plazaRows ?? []) as { name: string }[]).map((row) => row.name);
   const shareUrl = shareRow ? `${env.siteUrl}/t/${shareRow.token}` : null;
-  const shareText = `Trip status of truck ${maskPlate(truck.truck_number)}${
-    destination ? ` to ${destination.name}` : ""
-  }:`;
-
-  /*
-   * ===================== LIVE LOCATION SLOT =====================
-   * The driver-phone GPS module hands over a self-contained "Live location"
-   * card. Wire it here, e.g.
-   *   const liveLocationCard = <LiveLocationCard truckId={truck.id} />;
-   * It renders directly under the top card, above the tabs. null = nothing
-   * shown, so the page is unchanged until it is wired.
-   * ==============================================================
-   */
-  const liveLocationCard: ReactNode = (
-    <LiveLocationCard truckId={truck.id} truckNumber={truck.truck_number} />
-  );
+  const shareText = `Trip status of truck ${maskPlate(truck.truck_number)}:`;
 
   /* Where the pause (i) sends somebody who wants to change the limit that
      stopped this truck. The stopped-moving pause belongs to the halt alert. */
@@ -373,62 +352,104 @@ export default async function TruckDetailPage({
     </div>
   );
 
+  /*
+   * WHAT STOPS THIS TRUCK BY ITSELF - the halt/pause mapping (24 Nov 2026),
+   * with this truck's own values, in one list:
+   *
+   *   End time          tracked_trucks.auto_pause_at       set here
+   *   No toll crossing  tracked_trucks.inactive_pause_hours  set in the HALT
+   *                     alert (its "pause after" is mirrored onto the truck;
+   *                     migration 0080 makes the database keep it in step)
+   *   Checks fail       tracked_trucks.max_consecutive_failures  set here
+   *   Credits run out   account-wide, always on
+   *
+   * The value shown for "no toll crossing" is the TRUCK column, because that
+   * is what the worker reads - so a truck still carrying a per-truck value
+   * from before 20 Nov is shown honestly instead of as "off".
+   */
+  const haltRule =
+    ruleList.find((rule) => rule.template.kind === "halt" && rule.is_enabled) ?? null;
+  const inactiveHours =
+    truck.inactive_pause_hours && truck.inactive_pause_hours >= 1 ? truck.inactive_pause_hours : null;
+  const failureLimit = truck.max_consecutive_failures;
+
   const settingsPanel = (
     <section id="tracking" className="truck-section">
-      {countdown ? (
-        <p className="truck-note">
-          <Timer size={14} aria-hidden className="mt-0.5 shrink-0" />
-          <span>
-            Checking stops by itself <strong className="text-ink">{countdown}</strong>.
-          </span>
-        </p>
-      ) : null}
+      <div className="stop-rules">
+        <InfoTip
+          label="automatic pauses"
+          rowClassName="flex-nowrap"
+          info={
+            <>
+              <p>
+                Whichever comes first pauses tracking on this truck. A paused truck uses no credits
+                and keeps its history; Go live at the top starts it again.
+              </p>
+              <p>
+                Alerts only send messages, with one exception: the halt alert&apos;s pause time is
+                this truck&apos;s &ldquo;no toll crossing&rdquo; pause.
+              </p>
+            </>
+          }
+        >
+          <h2 className="stop-rules-title">Tracking pauses by itself when</h2>
+        </InfoTip>
+        <ul className="stop-rules-list">
+          <li>
+            <Timer size={14} aria-hidden className="stop-rules-icon" />
+            <span className="stop-rules-what">The end time is reached</span>
+            <span className="stop-rules-value">{countdown ?? "No end time"}</span>
+          </li>
+          <li>
+            <MoonStar size={14} aria-hidden className="stop-rules-icon" />
+            <span className="stop-rules-what">No toll crossing</span>
+            <span className="stop-rules-value">
+              {inactiveHours ? `for ${hoursLabel(inactiveHours)}` : "Off"}
+              {haltRule ? (
+                <a href={`#alert-${haltRule.id}`} className="stop-rules-link">
+                  Halt alert
+                </a>
+              ) : inactiveHours ? (
+                <span className="stop-rules-note">older setting</span>
+              ) : (
+                <a href="#alerts" className="stop-rules-link">
+                  Add halt alert
+                </a>
+              )}
+            </span>
+          </li>
+          <li>
+            <AlertTriangle size={14} aria-hidden className="stop-rules-icon" />
+            <span className="stop-rules-what">Checks fail</span>
+            <span className="stop-rules-value">
+              {failureLimit ? `${failureLimit} times in a row` : "Not set"}
+            </span>
+          </li>
+          <li>
+            <Wallet size={14} aria-hidden className="stop-rules-icon" />
+            <span className="stop-rules-what">Credits run out</span>
+            <span className="stop-rules-value">Always on</span>
+          </li>
+        </ul>
+      </div>
 
-      {/* Settings only. The "Tracking active" box is gone: Go live / Pause at
-          the top do that, and updateTruck() no longer touches is_active. */}
-      <ActionForm action={updateTruck} closeOnSuccess={false}>
+      {/* Settings only. Go live / Pause at the top switch tracking; the
+          "no toll crossing" pause is edited on the halt alert. */}
+      <ActionForm action={updateTruck} closeOnSuccess={false} refresh={false}>
         <input type="hidden" name="truck_id" value={truck.id} />
         <div className="space-y-4">
-          <Field label="Label" name="label">
+          <Field label="Remark" name="label">
             <Input
               name="label"
               defaultValue={truck.label ?? ""}
-              placeholder="e.g. Supplier vehicle — north route"
+              maxLength={80}
+              placeholder="e.g. Supplier vehicle"
             />
           </Field>
 
-          <FailureLimitField defaultValue={truck.max_consecutive_failures} />
+          <AutoPauseField countdown={countdown} keep />
 
-          <div>
-            <LabelWithInfo
-              label="Pause automatically after"
-              htmlFor="auto_pause_amount"
-              info={
-                <>
-                  A countdown that starts when you save. When the time is up, tracking pauses and you
-                  are notified. Leave it empty for no end time; saving a number restarts the
-                  countdown.
-                </>
-              }
-            />
-            <div className="mt-1.5 flex gap-2">
-              <Input
-                id="auto_pause_amount"
-                name="auto_pause_amount"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={8760}
-                step={1}
-                placeholder="No end time"
-                className="min-w-0 flex-1"
-              />
-              <Select name="auto_pause_unit" defaultValue="hours" className="w-28 shrink-0">
-                <option value="hours">hours</option>
-                <option value="days">days</option>
-              </Select>
-            </div>
-          </div>
+          <FailureLimitField defaultValue={truck.max_consecutive_failures} />
         </div>
 
         <FormActions>
@@ -559,10 +580,6 @@ export default async function TruckDetailPage({
           ) : null}
         </dl>
 
-        {/* Where it is going and roughly how far is left; nothing when no
-            destination is set. */}
-        <TripLine destination={destination} progress={progress} className="mt-2" />
-
         {truck.consecutive_errors > 0 ? (
           <p className="mt-3 rounded-lg border border-bad-500/35 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
             {truck.consecutive_errors === 1
@@ -575,6 +592,7 @@ export default async function TruckDetailPage({
         <div className={cx("truck-actions", truck.is_active ? "is-live" : "is-paused")}>
           {truck.is_active ? null : (
             <InlineActionForm
+              refresh={false}
               action={setTruckPaused}
               hidden={{ truck_id: truck.id, is_active: "true" }}
             >
@@ -585,7 +603,7 @@ export default async function TruckDetailPage({
             </InlineActionForm>
           )}
 
-          <ActionForm action={checkTruckNow} closeOnSuccess={false}>
+          <ActionForm action={checkTruckNow} closeOnSuccess={false} refresh={false}>
             <input type="hidden" name="truck_id" value={truck.id} />
             <SubmitButton variant="secondary" className="w-full" pendingLabel="Checking…">
               <RefreshCw size={14} aria-hidden />
@@ -597,6 +615,7 @@ export default async function TruckDetailPage({
 
           {truck.is_active ? (
             <InlineActionForm
+              refresh={false}
               action={setTruckPaused}
               hidden={{ truck_id: truck.id, is_active: "false" }}
             >
@@ -608,26 +627,10 @@ export default async function TruckDetailPage({
           ) : null}
         </div>
 
-        {/* Trip row: destination and the public link. Free - no credits. */}
-        <div className="truck-trip-actions">
+        {/* The public trip link. Free - no credits, no message sent. */}
+        <div className="truck-share-row">
           <Modal
-            triggerLabel="Destination"
-            triggerIcon={<MapPin size={14} aria-hidden />}
-            triggerVariant="secondary"
-            triggerSize="sm"
-            triggerClassName="w-full"
-            title={destination ? `Going to ${destination.name}` : "Set a destination"}
-            description="Optional. Shows roughly how far is left after each toll crossing."
-            width="sm"
-          >
-            <DestinationForm
-              truckId={truck.id}
-              current={destination?.name ?? null}
-              plazas={plazaNames}
-            />
-          </Modal>
-          <Modal
-            triggerLabel={shareUrl ? "Link shared" : "Share trip"}
+            triggerLabel={shareUrl ? "Trip link shared" : "Share trip"}
             triggerIcon={<Share2 size={14} aria-hidden />}
             triggerVariant="secondary"
             triggerSize="sm"
@@ -645,9 +648,6 @@ export default async function TruckDetailPage({
           </Modal>
         </div>
       </Panel>
-
-      {/* LIVE LOCATION SLOT - see liveLocationCard above. */}
-      {liveLocationCard}
 
       {added ? (
         <p className="flex items-start gap-2 rounded-xl border border-good-500/40 bg-good-500/10 px-3 py-2.5 text-sm text-good-500">

@@ -7,6 +7,7 @@ import { ShieldCheck, Star, Truck, UserRound } from "lucide-react";
 
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { AlertDeliveryBanner, loadAlertDelivery } from "@/components/AlertDeliveryBanner";
+import { AppSwitcher } from "@/components/AppSwitcher";
 import { Announcements } from "@/components/Announcements";
 import { LogoMark } from "@/components/Logo";
 import { MessageBell } from "@/components/MessageBell";
@@ -190,6 +191,8 @@ export default async function PortalLayout({ children }: { children: React.React
                   Admin console
                 </Link>
               ) : null}
+              {/* Rahdari apps (0079): Toll tracking <-> Live tracking. */}
+              <AppSwitcher current="toll" />
               {/* Saved trucks (0066): one tap from anywhere to the daily list. */}
               <Link
                 href="/portal/saved"

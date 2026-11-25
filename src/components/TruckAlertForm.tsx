@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, MapPin, Navigation, Plus, Search } from "lucide-react";
 
 import { addTruckAlert, findPlazas, plazasAhead } from "@/app/portal/trucks/actions";
@@ -17,12 +17,13 @@ import {
   HALT_PAUSE_MAX_HOURS,
   HALT_PAUSE_ORDER_ERROR,
   alertIdentity,
+  hoursLabel,
   needsPlaza,
   normaliseLocation,
 } from "@/lib/alerts";
 import {
   MAX_INTERVAL_MINUTES,
-  describeCadence,
+  checksPerDay,
   intervalLabel,
   splitInterval,
   toMinutes,
@@ -279,6 +280,45 @@ export function AlertChooser({
 }
 
 /**
+ * One-tap answers under a number box (24 Nov 2026).
+ *
+ * NOT DEFAULTS. The owner's rule (20 Nov) is that how often to check and the
+ * halt hours are typed by the customer, never prefilled - the box stays empty
+ * and required. These only make the common answers one tap instead of a
+ * keyboard: the tapped value lands in the box, visibly, and can be changed.
+ * Each button is 36px tall (the portal's minimum tap target) and carries its
+ * unit, like every number on the form.
+ */
+export function QuickPicks({
+  label,
+  options,
+}: {
+  /** For screen readers: "Quick choices for Check every". */
+  label: string;
+  options: { key: string; text: string; active: boolean; onPick: () => void }[];
+}) {
+  if (options.length === 0) return null;
+  return (
+    <div className="quick-picks" role="group" aria-label={`Quick choices for ${label}`}>
+      {options.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          aria-pressed={option.active}
+          className={cx("quick-pick", option.active && "is-active")}
+          onClick={option.onPick}
+        >
+          {option.text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The interval quick picks: the cheap end of the scale, never under the rule's floor. */
+const INTERVAL_PICKS = [15, 30, 60, 180, 360, 720];
+
+/**
  * "Check every" - a number and a minutes/hours picker.
  *
  * REQUIRED and EMPTY by default (owner, 20 Nov 2026): never prefilled from the
@@ -286,7 +326,9 @@ export function AlertChooser({
  * saved value, which is the customer's earlier answer rather than a default.
  * A value faster than the rule's floor is refused here and by the server with
  * the same words ("Choose at least 15 minutes."); the input's own `min` makes
- * the browser hold the submit too.
+ * the browser hold the submit too. Quick picks fill the box in one tap, and
+ * once a value is there the daily check count - which is the daily credit
+ * spend on this truck - is shown as a fact under it.
  */
 export function IntervalFields({
   floorMinutes,
@@ -311,6 +353,8 @@ export function IntervalFields({
   const tooFast = minutes !== null && minutes < floorMinutes;
   const minInUnit = interval.unit === "hours" ? Math.max(1, Math.ceil(floorMinutes / 60)) : floorMinutes;
 
+  const picks = INTERVAL_PICKS.filter((value) => value >= floorMinutes).slice(0, 3);
+
   return (
     <div>
       {compact ? (
@@ -324,12 +368,9 @@ export function IntervalFields({
           required
           info={
             <>
-              {minutes !== null && !tooFast ? (
-                <strong className="font-medium text-ink">{describeCadence(minutes)} </strong>
-              ) : null}
-              More frequent checks mean faster alerts and higher credit use: each automatic check
-              uses credits at your plan&apos;s rate, and a 15-minute interval is about 96 checks a
-              day. Fastest allowed: {intervalLabel(floorMinutes)}.
+              Each automatic check uses credits at your plan&apos;s rate. More frequent checks mean
+              faster alerts and higher credit use: 15 minutes is 96 checks a day, 1 hour is 24.
+              Fastest allowed: {intervalLabel(floorMinutes)}.
             </>
           }
         />
@@ -344,7 +385,7 @@ export function IntervalFields({
           max={interval.unit === "hours" ? HOURS_MAX : MAX_INTERVAL_MINUTES}
           step={1}
           required
-          placeholder="e.g. 15"
+          placeholder="e.g. 30"
           aria-invalid={tooFast || undefined}
           value={interval.value}
           onChange={(event) => setInterval({ ...interval, value: event.target.value })}
@@ -364,9 +405,25 @@ export function IntervalFields({
           <option value="hours">hours</option>
         </Select>
       </div>
+      <QuickPicks
+        label="Check every"
+        options={picks.map((value) => {
+          const split = splitInterval(value);
+          return {
+            key: String(value),
+            text: intervalLabel(value),
+            active: minutes === value,
+            onPick: () => setInterval({ value: String(split.value), unit: split.unit }),
+          };
+        })}
+      />
       {tooFast ? (
         <p role="alert" className="field-error-inline">
           Choose at least {intervalLabel(floorMinutes)}.
+        </p>
+      ) : minutes !== null ? (
+        <p className="field-meta">
+          {checksPerDay(minutes).toLocaleString("en-IN")} checks a day
         </p>
       ) : null}
     </div>
@@ -374,22 +431,43 @@ export function IntervalFields({
 }
 
 /**
- * "Pause after this many failed checks" - REQUIRED on add and edit (owner,
- * 20 Nov 2026), 1 to 50, no admin default offered. Shared by the add-truck
- * form and the truck page's Settings tab so the two read the same.
+ * The failed-checks limit as the add forms PREFILL it (24 Nov 2026).
+ *
+ * The field stays REQUIRED (owner, 20 Nov) and the server still has no
+ * fallback - an empty box is refused. What changed is that the box is no
+ * longer blank on a NEW truck: nobody adding a lorry knows what number to put
+ * here, and the value every existing truck already runs with is 10 (0075
+ * backfilled the admin cutoff, 10). A visible, editable 10 is not a hidden
+ * admin default - it is written on the form, shown on the collapsed "More
+ * settings" line, and saved onto the truck as the customer's own answer.
  */
-export function FailureLimitField({ defaultValue }: { defaultValue?: number | null }) {
+export const SUGGESTED_FAILURE_LIMIT = 10;
+
+/**
+ * "Pause after this many failed checks" - REQUIRED on add and edit (owner,
+ * 20 Nov 2026), 1 to 50. Shared by the add-truck form and the truck page's
+ * Settings tab so the two read the same.
+ */
+export function FailureLimitField({
+  defaultValue,
+  onValue,
+}: {
+  defaultValue?: number | null;
+  /** The add form mirrors the value onto its collapsed "More settings" line. */
+  onValue?: (value: string) => void;
+}) {
   const id = useId();
   return (
     <div>
       <LabelWithInfo
-        label="Pause after this many failed checks"
+        label="Pause after failed checks"
         htmlFor={id}
         required
         info={
           <>
             If the toll network cannot answer for this number this many times in a row, tracking
-            pauses. The usual cause is a mistyped number. History is kept.
+            pauses so it stops using credits. The usual cause is a mistyped number. History is kept.
+            1 to 50 failed checks.
           </>
         }
       />
@@ -403,8 +481,9 @@ export function FailureLimitField({ defaultValue }: { defaultValue?: number | nu
           min={1}
           max={50}
           step={1}
-          placeholder="e.g. 10"
-          defaultValue={defaultValue ?? ""}
+          placeholder={String(SUGGESTED_FAILURE_LIMIT)}
+          defaultValue={defaultValue ?? SUGGESTED_FAILURE_LIMIT}
+          onChange={onValue ? (event) => onValue(event.target.value) : undefined}
         />
         <span className="unit-input-suffix" aria-hidden>
           failed checks
@@ -414,11 +493,104 @@ export function FailureLimitField({ defaultValue }: { defaultValue?: number | nu
   );
 }
 
+/**
+ * "Stop checking after" - the truck's own end time, as a countdown.
+ *
+ * Optional: empty means no end time, which is a real answer (plenty of trucks
+ * are watched indefinitely). On the truck page's Settings form (`keep`) an
+ * empty box leaves an existing end time alone - it used to cancel it, so
+ * renaming a truck silently removed its scheduled stop - and removing it is
+ * its own tick box.
+ */
+export function AutoPauseField({
+  countdown = null,
+  keep = false,
+  onValue,
+}: {
+  /** "in 6 hours" when an end time is already set. */
+  countdown?: string | null;
+  /** Settings form: empty box = keep what is stored. */
+  keep?: boolean;
+  onValue?: (value: { amount: string; unit: string }) => void;
+}) {
+  const id = useId();
+  const [amount, setAmount] = useState("");
+  const [unit, setUnit] = useState("hours");
+
+  return (
+    <div>
+      <LabelWithInfo
+        label="Stop checking after"
+        htmlFor={id}
+        info={
+          <>
+            Use this when you only need to follow the truck for one trip. The countdown starts when
+            you save; when it ends, tracking pauses and you are notified. History is kept. Leave it
+            empty for no end time.
+          </>
+        }
+      />
+      {keep ? <input type="hidden" name="auto_pause_mode" value="keep" /> : null}
+      <div className="mt-1.5 flex gap-2">
+        <Input
+          id={id}
+          name="auto_pause_amount"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={unit === "days" ? 365 : 8760}
+          step={1}
+          placeholder={countdown ? "Keep current" : "No end time"}
+          value={amount}
+          onChange={(event) => {
+            setAmount(event.target.value);
+            onValue?.({ amount: event.target.value, unit });
+          }}
+          className="min-w-0 flex-1"
+        />
+        <Select
+          name="auto_pause_unit"
+          aria-label="Hours or days"
+          value={unit}
+          onChange={(event) => {
+            setUnit(event.target.value);
+            onValue?.({ amount, unit: event.target.value });
+          }}
+          className="w-28 shrink-0"
+        >
+          <option value="hours">hours</option>
+          <option value="days">days</option>
+        </Select>
+      </div>
+      {countdown ? (
+        <div className="field-meta flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            Stops <strong className="text-ink">{countdown}</strong>. A new number restarts it.
+          </span>
+          {keep ? (
+            <label className="inline-flex min-h-9 cursor-pointer items-center gap-2">
+              <input type="hidden" name="auto_pause_clear" value="false" />
+              <input
+                type="checkbox"
+                name="auto_pause_clear"
+                value="true"
+                className="size-4 accent-[color:var(--color-brand-500)]"
+              />
+              Remove end time
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** A whole-number box with a fixed unit word after it. */
 function UnitNumber({
   id,
   name,
   label,
+  info,
   unit,
   min,
   max,
@@ -426,10 +598,12 @@ function UnitNumber({
   value,
   onChange,
   invalid,
+  children,
 }: {
   id: string;
   name: string;
   label: string;
+  info?: ReactNode;
   unit: string;
   min: number;
   max: number;
@@ -437,14 +611,20 @@ function UnitNumber({
   value: string;
   onChange: (next: string) => void;
   invalid?: boolean;
+  /** Quick picks, under the box. */
+  children?: ReactNode;
 }) {
   return (
     <div>
-      <label className="field-label" htmlFor={id}>
-        {label}
-        <span className="ml-0.5 text-bad-500">*</span>
-      </label>
-      <div className="unit-input">
+      {info ? (
+        <LabelWithInfo label={label} htmlFor={id} required info={info} />
+      ) : (
+        <label className="field-label" htmlFor={id}>
+          {label}
+          <span className="ml-0.5 text-bad-500">*</span>
+        </label>
+      )}
+      <div className={cx("unit-input", info ? "mt-1.5" : null)}>
         <Input
           id={id}
           name={name}
@@ -463,9 +643,13 @@ function UnitNumber({
           {unit}
         </span>
       </div>
+      {children}
     </div>
   );
 }
+
+const HALT_PICKS = [2, 4, 8];
+const HALT_PAUSE_PICKS = [12, 24, 48];
 
 /**
  * The halt alert's two required hour fields (owner, 20 Nov 2026).
@@ -474,6 +658,12 @@ function UnitNumber({
  * also the reminder beat, so the server sets interval_minutes itself. The pause
  * must come after the alert - refused here and in the server action with the
  * same sentence.
+ *
+ * THE PAUSE HERE IS THE TRUCK'S ONLY "NOT MOVING" PAUSE (24 Nov 2026 mapping):
+ * it is mirrored onto tracked_trucks.inactive_pause_hours, which the worker's
+ * auto-pause reads. Its (i) says so, and says the one consequence nobody would
+ * guess: once paused, nothing is checked, so "moving again" can only arrive
+ * while the truck is still being tracked.
  */
 export function HaltFields({
   defaultHaltHours,
@@ -498,36 +688,70 @@ export function HaltFields({
         id={`${id}-halt`}
         name="halt_after_hours"
         label="Alert after no toll crossing for"
+        info={
+          <>
+            Counted from the truck&apos;s last toll crossing. You get one message when it halts,
+            a reminder every 1 hour while it stays halted, and a message when it crosses a toll
+            again. 1 to {HALT_AFTER_MAX_HOURS} hours.
+          </>
+        }
         unit="hours"
         min={1}
         max={HALT_AFTER_MAX_HOURS}
         placeholder="e.g. 4"
         value={halt}
         onChange={setHalt}
-      />
+      >
+        <QuickPicks
+          label="Alert after"
+          options={HALT_PICKS.map((hours) => ({
+            key: String(hours),
+            text: hoursLabel(hours),
+            active: halt === String(hours),
+            onPick: () => setHalt(String(hours)),
+          }))}
+        />
+      </UnitNumber>
       <div>
         <UnitNumber
           id={`${id}-pause`}
           name="pause_after_hours"
-          label="Pause tracking after no toll crossing for"
+          label="Pause tracking after no crossing for"
+          info={
+            <>
+              This is the only setting that pauses this truck for not moving. Counted from the last
+              toll crossing, or from when tracking started if that is later. A paused truck uses no
+              credits and keeps its history; after the pause nothing is checked, so &ldquo;moving
+              again&rdquo; is only sent before it. Must be longer than the alert time, up to{" "}
+              {HALT_PAUSE_MAX_HOURS} hours.
+            </>
+          }
           unit="hours"
           min={haltValid ? Math.min(haltNumber + 1, HALT_PAUSE_MAX_HOURS) : 2}
           max={HALT_PAUSE_MAX_HOURS}
-          placeholder="e.g. 12"
+          placeholder="e.g. 24"
           value={pause}
           onChange={setPause}
           invalid={outOfOrder}
-        />
+        >
+          <QuickPicks
+            label="Pause after"
+            options={HALT_PAUSE_PICKS.filter((hours) => !haltValid || hours > haltNumber).map(
+              (hours) => ({
+                key: String(hours),
+                text: hoursLabel(hours),
+                active: pause === String(hours),
+                onPick: () => setPause(String(hours)),
+              }),
+            )}
+          />
+        </UnitNumber>
         {outOfOrder ? (
           <p role="alert" className="field-error-inline">
             {HALT_PAUSE_ORDER_ERROR}
           </p>
         ) : null}
       </div>
-      <ul className="halt-notes">
-        <li>Reminders every 1 hour until it moves.</li>
-        <li>You&apos;ll also be told when it moves again.</li>
-      </ul>
     </div>
   );
 }
@@ -861,7 +1085,7 @@ export function TruckAlertForm({
   const offered = offeredTemplates(templates, taken);
 
   return (
-    <ActionForm action={addTruckAlert} closeOnSuccess={false}>
+    <ActionForm action={addTruckAlert} closeOnSuccess={false} refresh={false}>
       <input type="hidden" name="truck_id" value={truckId} />
       <AlertChooser templates={templates} taken={taken} truckId={truckId} />
 
