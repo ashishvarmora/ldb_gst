@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { Building2, ExternalLink, MapPin, Pencil, Store, Warehouse } from "lucide-react";
+import { Archive, Building2, ExternalLink, MapPin, Pencil, Store, Trash2, Warehouse } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton } from "@/components/ActionForm";
 import { buttonClass } from "@/components/ui";
 import { loadPlaces, requireLiveSession, safeReturn } from "@/lib/live/server";
-import { PLACE_KINDS, PLACE_KIND_LABEL, mapsHref, type PlaceKind } from "@/lib/live/shared";
+import { PLACE_KINDS, PLACE_KIND_LABEL, customFieldsOf, mapsHref, type PlaceKind } from "@/lib/live/shared";
 import { formatIndianMobile } from "@/lib/phone";
 
-import { archivePlace } from "../actions";
+import { archivePlace, deletePlace } from "../actions";
 import { BackLink } from "../BackLink";
 import { PlaceForm } from "./PlaceForm";
 
-export const metadata = { title: "Live tracking - Warehouses & places" };
+export const metadata = { title: "Live tracking - Warehouses" };
 export const dynamic = "force-dynamic";
 
 const ICON: Record<PlaceKind, typeof MapPin> = {
@@ -28,24 +28,20 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
   const places = await loadPlaces(ownerId);
   const back = safeReturn(sp.return);
   const editing = sp.edit ? places.find((p) => p.id === sp.edit) ?? null : null;
-  const defaultKind: PlaceKind = PLACE_KINDS.includes(sp.add as PlaceKind)
-    ? (sp.add as PlaceKind)
-    : places.some((p) => p.kind === "factory")
-      ? "customer"
-      : "factory";
+  const defaultKind: PlaceKind = PLACE_KINDS.includes(sp.add as PlaceKind) ? (sp.add as PlaceKind) : "warehouse";
 
   return (
     <div className="live-page mx-auto max-w-4xl space-y-3">
       <BackLink href={back ?? "/live/masters"} label={back ? "Back to trip" : "Masters"} />
       <header className="live-page-head">
         <div>
-          <h1>Warehouses &amp; places</h1>
-          <p>Our factories and godowns (picked as From / To on trips), plus saved customers.</p>
+          <h1>Warehouses</h1>
+          <p>Our factories, godowns and branches - picked as From / To on trips. Customer places are typed on the trip, not saved here.</p>
         </div>
       </header>
 
       <details className="panel live-form-block" open={Boolean(editing || sp.add || places.length === 0)} id="place-form">
-        <summary className="live-h2 cursor-pointer">{editing ? `Edit ${editing.name}` : "+ Add a place"}</summary>
+        <summary className="live-h2 cursor-pointer">{editing ? `Edit ${editing.name}` : "+ Add a warehouse"}</summary>
         <div className="mt-3">
           <PlaceForm key={editing?.id ?? `new-${defaultKind}`} place={editing} defaultKind={defaultKind} back={back} />
           {editing ? (
@@ -64,7 +60,7 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
           <section key={kind}>
             <h2 className="live-section-title">
               <span>
-                {PLACE_KIND_LABEL[kind]} ({list.length})
+                {kind === "customer" || kind === "other" ? `Older saved places: ${PLACE_KIND_LABEL[kind]}` : PLACE_KIND_LABEL[kind]} ({list.length})
               </span>
             </h2>
             <ul className="live-list">
@@ -75,9 +71,10 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-strong">{p.name}</p>
-                    <p className="truncate text-sm text-muted">
-                      {[p.city, p.state].filter(Boolean).join(", ") || p.address || "No address"}
+                    <p className="truncate text-xs text-muted">
+                      {p.address || [p.city, p.state].filter(Boolean).join(", ") || "No address"}
                       {p.contact_phone ? ` · ${formatIndianMobile(p.contact_phone)}` : ""}
+                      {customFieldsOf(p.custom_fields).map(([k, x]) => ` · ${k}: ${x}`).join("")}
                     </p>
                     <p className="text-xs text-muted">
                       {p.lat != null && p.lng != null ? (
@@ -95,8 +92,14 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
                     </Link>
                     <ActionForm action={archivePlace} closeOnSuccess={false}>
                       <input type="hidden" name="id" value={p.id} />
-                      <ConfirmSubmitButton message={`Remove ${p.name}? Old trips keep their history.`} variant="ghost">
-                        Remove
+                      <ConfirmSubmitButton message={`Archive ${p.name}? It leaves the pickers; old trips keep it.`} variant="ghost">
+                        <Archive size={14} />
+                      </ConfirmSubmitButton>
+                    </ActionForm>
+                    <ActionForm action={deletePlace} closeOnSuccess={false}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <ConfirmSubmitButton message={`Delete ${p.name} for good? Old trips keep its name and location. This cannot be undone.`} variant="ghost">
+                        <Trash2 size={14} />
                       </ConfirmSubmitButton>
                     </ActionForm>
                   </div>

@@ -120,9 +120,25 @@ export type LiveTrip = {
   from_address?: string | null;
   to_address?: string | null;
   inline_driver?: boolean | null;
+  /* 0083 */
+  temp_truck?: boolean | null;
+  from_maps_url?: string | null;
+  to_maps_url?: string | null;
+  archived_at?: string | null;
+  route_waypoints?: RouteWaypoint[] | null;
+  route_at?: string | null;
+  route_lat?: number | null;
+  route_lng?: number | null;
+  route_source?: "ai" | "rules" | null;
   created_at: string;
   updated_at: string;
 };
+
+/** 0083: one city on the approximate road ahead. */
+export type RouteWaypoint = { name: string; lat: number; lng: number; km: number };
+
+/** 0083: user-defined master fields, key -> value. */
+export type CustomFields = Record<string, string>;
 
 export type LivePlace = {
   id: string;
@@ -142,6 +158,7 @@ export type LivePlace = {
   notes: string | null;
   archived_at: string | null;
   created_at: string;
+  custom_fields?: CustomFields | null;
 };
 
 export type LiveVehicle = {
@@ -157,6 +174,7 @@ export type LiveVehicle = {
   created_at: string;
   /* 0081 */
   owner_type?: VehicleOwnerType | null;
+  custom_fields?: CustomFields | null;
 };
 
 export type LiveDriver = {
@@ -182,6 +200,7 @@ export type LiveDriver = {
   last_speed_kmh: number | null;
   last_accuracy_m: number | null;
   last_point_at: string | null;
+  custom_fields?: CustomFields | null;
 };
 
 export type LiveAssignment = {
@@ -224,6 +243,9 @@ export type TripEvent = {
   lat: number | null;
   lng: number | null;
   created_at: string;
+  /* 0083 */
+  reason?: string | null;
+  phase?: TripState | null;
 };
 
 export type Point = {
@@ -644,4 +666,110 @@ export function tripTitle(trip: Pick<LiveTrip, "trip_seq" | "trip_name">): strin
 
 export function originText(trip: Pick<LiveTrip, "from_name">, placeName?: string | null): string | null {
   return placeName || trip.from_name || null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0083 (v4): four user-facing states over the six stored statuses             */
+/* -------------------------------------------------------------------------- */
+
+export type TripState = "planned" | "active" | "done" | "cancelled";
+export const TRIP_STATES: TripState[] = ["planned", "active", "done", "cancelled"];
+
+export const STATE_OF: Record<TripStatus, TripState> = {
+  planned: "planned",
+  loading: "planned",
+  in_transit: "active",
+  arrived: "active",
+  delivered: "done",
+  cancelled: "cancelled",
+};
+
+export const STATE_LABEL: Record<TripState, string> = {
+  planned: "Planned",
+  active: "Active",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+export const STATE_TONE: Record<TripState, "neutral" | "brand" | "good" | "bad"> = {
+  planned: "neutral",
+  active: "brand",
+  done: "good",
+  cancelled: "bad",
+};
+
+/** Stored statuses behind each state (filters, queries). */
+export const STATE_STATUSES: Record<TripState, TripStatus[]> = {
+  planned: ["planned", "loading"],
+  active: ["in_transit", "arrived"],
+  done: ["delivered"],
+  cancelled: ["cancelled"],
+};
+
+export const ACTIVE_STATUSES: TripStatus[] = STATE_STATUSES.active;
+
+export function tripState(trip: Pick<LiveTrip, "status">): TripState {
+  return STATE_OF[trip.status] ?? "planned";
+}
+
+/** The stored status a state change writes. Active keeps "arrived" when the truck had arrived. */
+export function statusForState(to: TripState, trip: Pick<LiveTrip, "status" | "arrived_at">): TripStatus {
+  if (to === "active") return trip.status === "arrived" || (trip.status === "delivered" && trip.arrived_at) ? "arrived" : "in_transit";
+  if (to === "done") return "delivered";
+  return to;
+}
+
+/** Changes on an Active trip that need a reason (logged in the trip activity). */
+export const REASON_FIELDS = ["driver", "truck", "to"] as const;
+
+/** Phase an activity row belongs to: stored (0083) or worked out from the trip's times. */
+export function eventPhase(
+  e: Pick<TripEvent, "phase" | "created_at">,
+  trip: Pick<LiveTrip, "started_at" | "delivered_at" | "cancelled_at"> | null,
+): TripState {
+  if (e.phase) return e.phase;
+  if (!trip) return "planned";
+  const t = new Date(e.created_at).getTime();
+  if (trip.cancelled_at && t >= new Date(trip.cancelled_at).getTime()) return "cancelled";
+  if (trip.delivered_at && t >= new Date(trip.delivered_at).getTime()) return "done";
+  if (trip.started_at && t >= new Date(trip.started_at).getTime()) return "active";
+  return "planned";
+}
+
+/** IST calendar day "2026-11-25" of an instant. */
+export function istDayKey(iso: string): string {
+  return new Date(new Date(iso).getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** "Wed, 25 Nov" for a day key. */
+export function dayLabel(key: string): string {
+  const d = new Date(`${key}T00:00:00Z`);
+  return d.toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+}
+
+/** Start of an IST day key, as ISO (UTC). */
+export function istDayStartOf(key: string): string {
+  return new Date(Date.parse(`${key}T00:00:00Z`) - 5.5 * 3_600_000).toISOString();
+}
+
+/** Clean user-defined fields from a stored value. */
+export function customFieldsOf(v: unknown): [string, string][] {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return [];
+  return Object.entries(v as Record<string, unknown>)
+    .filter(([k, x]) => k && typeof x === "string")
+    .map(([k, x]) => [k, x as string]);
+}
+
+/** The ETA factors shown behind the (i) on a trip. */
+export function etaBasis(points: Point[], distanceLeftKm: number | null, now = Date.now()) {
+  const kmph = recentAvgKmph(points, now);
+  const recent = points.filter((p) => now - new Date(p.recorded_at).getTime() <= 2 * 60 * 60 * 1000).length;
+  return {
+    roadFactor: ROAD_FACTOR,
+    kmph: Math.round(kmph),
+    fallback: recent < 4,
+    points2h: recent,
+    distanceLeftKm,
+    hoursLeft: distanceLeftKm != null ? distanceLeftKm / Math.max(kmph, 1) : null,
+  };
 }

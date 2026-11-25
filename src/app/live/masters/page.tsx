@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Receipt, Truck, UserRound, Warehouse } from "lucide-react";
+import { ChevronRight, History, Receipt, Truck, UserRound, Warehouse } from "lucide-react";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { requireLiveSession } from "@/lib/live/server";
@@ -24,15 +24,15 @@ export default async function MastersPage() {
   const [places, trucks, drivers] = await Promise.all([count("live_places", ownerId), count("live_vehicles", ownerId), count("live_drivers", ownerId)]);
   const items = [
     { href: "/live/masters/drivers", icon: UserRound, title: "Drivers", sub: "Your drivers, live status and last seen", n: drivers },
-    { href: "/live/masters/trucks", icon: Truck, title: "Trucks", sub: "Your trucks and hired trucks", n: trucks },
-    { href: "/live/places", icon: Warehouse, title: "Warehouses & places", sub: "Factories, godowns, saved customers", n: places },
+    { href: "/live/masters/trucks", icon: Truck, title: "Trucks", sub: "Own and hired trucks", n: trucks },
+    { href: "/live/places", icon: Warehouse, title: "Warehouses", sub: "Factories, godowns, branches", n: places },
   ];
   return (
     <div className="live-page mx-auto max-w-2xl space-y-3">
       <header className="live-page-head">
         <div>
           <h1>Masters</h1>
-          <p>The only place to add your drivers, trucks and warehouses. Trips pick from here.</p>
+          <p>Add, edit, archive or delete here. Who drives which truck is set only on a trip.</p>
         </div>
       </header>
       <nav className="live-menu" aria-label="Masters">
@@ -58,6 +58,16 @@ export default async function MastersPage() {
           <span className="min-w-0 flex-1">
             <strong>Today&apos;s summary</strong>
             <small>Trips in transit, late, e-way bills, deliveries</small>
+          </span>
+          <ChevronRight size={16} className="text-faint" />
+        </Link>
+        <Link href="/portal/profile/live/activity">
+          <span className="live-list-icon">
+            <History size={18} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <strong>Activity</strong>
+            <small>Trips, drivers, trucks, warehouses - by trip and by day</small>
           </span>
           <ChevronRight size={16} className="text-faint" />
         </Link>

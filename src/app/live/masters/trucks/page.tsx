@@ -1,20 +1,22 @@
 import Link from "next/link";
-import { Pencil, Truck } from "lucide-react";
+import { Pencil, Trash2, Truck } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
-import { Field, Input, Select } from "@/components/form";
+import { Field, Input } from "@/components/form";
 import { buttonClass } from "@/components/ui";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { loadDriverBoard, logLive, requireLiveSession, safeReturn } from "@/lib/live/server";
-import { VEHICLE_OWNER_LABEL, prettyVehicle, type LiveVehicle, type VehicleOwnerType } from "@/lib/live/shared";
+import { loadOpenTrips, loadVehicles, logLive, requireLiveSession, safeReturn } from "@/lib/live/server";
+import { ACTIVE_STATUSES, VEHICLE_OWNER_LABEL, customFieldsOf, prettyVehicle, tripNo, type LiveVehicle } from "@/lib/live/shared";
 
-import { archiveVehicle, restoreVehicle, saveVehicle } from "../../actions";
+import { archiveVehicle, deleteVehicle, restoreVehicle, saveVehicle } from "../../actions";
 import { BackLink } from "../../BackLink";
+import { CustomFieldsEditor } from "../../ui";
 
 export const metadata = { title: "Live tracking - Trucks" };
 export const dynamic = "force-dynamic";
 
 function TruckForm({ v, back }: { v: LiveVehicle | null; back?: string | null }) {
+  const own = (v?.owner_type ?? "own") === "own";
   return (
     <ActionForm action={saveVehicle} closeOnSuccess={false} resetOnSuccess={!v} refresh={false} className="mt-3">
       {v ? <input type="hidden" name="id" value={v.id} /> : null}
@@ -23,28 +25,25 @@ function TruckForm({ v, back }: { v: LiveVehicle | null; back?: string | null })
         <Field label="Truck number" name="number" required>
           <Input name="number" required defaultValue={v?.number ?? ""} autoCapitalize="characters" placeholder="GJ36X1234" className="font-mono uppercase" />
         </Field>
-        <Field label="Type" name="vehicle_type">
-          <Input name="vehicle_type" defaultValue={v?.vehicle_type ?? ""} placeholder="e.g. 10-wheeler" />
-        </Field>
-        <Field label="Truck owner" name="owner_type">
-          <Select name="owner_type" defaultValue={v?.owner_type ?? "own"}>
-            {(Object.keys(VEHICLE_OWNER_LABEL) as VehicleOwnerType[]).map((o) => (
-              <option key={o} value={o}>
-                {VEHICLE_OWNER_LABEL[o]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Owner / transporter name" name="transporter">
+        <div>
+          <span className="field-label">Truck is</span>
+          <div className="live-chips" role="radiogroup" aria-label="Truck owner">
+            <label className="live-chip-radio">
+              <input type="radio" name="owner_type" value="own" defaultChecked={own} />
+              <span>Our own</span>
+            </label>
+            <label className="live-chip-radio">
+              <input type="radio" name="owner_type" value="transporter" defaultChecked={!own} />
+              <span>Hired</span>
+            </label>
+          </div>
+        </div>
+        <Field label="Transporter (if hired)" name="transporter">
           <Input name="transporter" defaultValue={v?.transporter ?? ""} />
         </Field>
-        <Field label="Capacity (kg)" name="capacity_kg">
-          <Input name="capacity_kg" inputMode="numeric" defaultValue={v?.capacity_kg ?? ""} />
-        </Field>
-        <Field label="Notes" name="notes">
-          <Input name="notes" defaultValue={v?.notes ?? ""} />
-        </Field>
       </div>
+      <p className="field-label mt-3">Your fields</p>
+      <CustomFieldsEditor initial={customFieldsOf(v?.custom_fields)} />
       <div className="mt-3">
         <SubmitButton size="sm">{v ? "Save truck" : back ? "Save and go back" : "Add truck"}</SubmitButton>
       </div>
@@ -57,8 +56,9 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
   const { ownerId } = await requireLiveSession();
   const showArchived = sp.archived === "1";
   const back = safeReturn(sp.return);
-  const [{ rows, vehicles }, archived] = await Promise.all([
-    loadDriverBoard(ownerId),
+  const [vehicles, open, archived] = await Promise.all([
+    loadVehicles(ownerId),
+    loadOpenTrips(ownerId),
     showArchived
       ? getSupabaseAdmin()
           .from("live_vehicles")
@@ -73,7 +73,7 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
           })
       : Promise.resolve([] as LiveVehicle[]),
   ]);
-  const holder = new Map(rows.filter((r) => r.vehicle).map((r) => [r.vehicle!.id, r.driver]));
+  const onTrip = new Map(open.filter((t) => t.vehicle_id).map((t) => [t.vehicle_id!, t]));
   const list = showArchived ? archived : vehicles;
   const editing = sp.edit ? vehicles.find((v) => v.id === sp.edit) ?? null : null;
 
@@ -83,7 +83,7 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
       <header className="live-page-head">
         <div>
           <h1>Trucks</h1>
-          <p>Our trucks. A truck has one driver at a time; pick it on a trip.</p>
+          <p>Pick a truck on a trip; no standing driver. Old trips keep the number even after delete.</p>
         </div>
       </header>
 
@@ -103,7 +103,8 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
 
       <div className="live-list">
         {list.map((v) => {
-          const d = holder.get(v.id);
+          const t = onTrip.get(v.id);
+          const cf = customFieldsOf(v.custom_fields);
           return (
             <div key={v.id} className="panel live-list-row">
               <span className="live-list-icon">
@@ -112,17 +113,14 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
               <div className="min-w-0 flex-1">
                 <p className="font-mono font-semibold text-strong">{prettyVehicle(v.number)}</p>
                 <p className="text-xs text-muted">
-                  {[v.owner_type ? VEHICLE_OWNER_LABEL[v.owner_type] : null, v.vehicle_type, v.transporter].filter(Boolean).join(" · ") || "-"}
+                  {[v.owner_type === "own" ? "Own" : v.owner_type ? `Hired (${VEHICLE_OWNER_LABEL[v.owner_type]})` : null, v.transporter, ...cf.map(([k, x]) => `${k}: ${x}`)].filter(Boolean).join(" · ") || "-"}
                 </p>
-                {!showArchived ? (
+                {!showArchived && t ? (
                   <p className="text-xs text-ink">
-                    {d ? (
-                      <>
-                        Driver: <Link href={`/live/drivers/${d.id}`} className="font-semibold text-brand-600">{d.name}</Link>
-                      </>
-                    ) : (
-                      "No driver"
-                    )}
+                    <Link href={`/live/trips/${t.id}`} className="font-semibold text-brand-600">
+                      On {tripNo(t.trip_seq)}
+                    </Link>
+                    {ACTIVE_STATUSES.includes(t.status) ? " · Active" : " · Planned"}
                   </p>
                 ) : null}
               </div>
@@ -143,6 +141,12 @@ export default async function TrucksMaster({ searchParams }: { searchParams: Pro
                       <input type="hidden" name="id" value={v.id} />
                       <ConfirmSubmitButton message="Archive this truck? Its trips keep their history." variant="ghost" size="sm">
                         Archive
+                      </ConfirmSubmitButton>
+                    </ActionForm>
+                    <ActionForm action={deleteVehicle} closeOnSuccess={false} refresh={false}>
+                      <input type="hidden" name="id" value={v.id} />
+                      <ConfirmSubmitButton message={`Delete ${prettyVehicle(v.number)} for good? Old trips keep the number. This cannot be undone.`} variant="ghost" size="sm">
+                        <Trash2 size={14} />
                       </ConfirmSubmitButton>
                     </ActionForm>
                   </>

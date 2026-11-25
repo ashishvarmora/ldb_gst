@@ -11,6 +11,7 @@ import { tripNo, type LiveDriver } from "@/lib/live/shared";
 import { saveDriver } from "../../actions";
 import { BackLink } from "../../BackLink";
 import { DriverSignalPill } from "../../parts";
+import { CustomFieldsEditor } from "../../ui";
 
 export const metadata = { title: "Live tracking - Drivers" };
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export default async function DriversMaster({ searchParams }: { searchParams: Pr
       <header className="live-page-head">
         <div>
           <h1>Drivers</h1>
-          <p>Your own drivers. One mobile = one driver. Archived ones keep their history.</p>
+          <p>Your own drivers. One mobile = one driver; his tracking link is made now and reused on every trip.</p>
         </div>
       </header>
 
@@ -56,6 +57,8 @@ export default async function DriversMaster({ searchParams }: { searchParams: Pr
               <Input name="phone" required inputMode="tel" placeholder="98765 43210" autoComplete="off" />
             </Field>
           </div>
+          <p className="field-label mt-3">Your fields (optional)</p>
+          <CustomFieldsEditor initial={[]} />
           <div className="mt-3">
             <SubmitButton size="sm">{back ? "Save and go back" : "Save driver"}</SubmitButton>
           </div>

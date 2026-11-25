@@ -74,3 +74,15 @@ Everything is managed through **trips**. No "Track a driver" screen, no floating
 - **Nav**: Trips (home; `/live` redirects) · New trip · Masters · Profile (`/portal/profile`, the common profile). Live business settings moved to `/portal/profile/live` (section "Live tracking" on the profile only when the account has the module). `/live/profile` and `/live/new` redirect.
 - **Map picker**: `src/app/live/MapPicker.tsx`, plain OSM tiles (img-src `tile.openstreetmap.org` added to the report-only CSP).
 - **Before 0082 is applied**: sending trips work (new columns are stripped by `strip82()`), receiving trips are refused with a clear message, direction filter is ignored.
+
+## 0083 - v4 (25 Nov 2026)
+
+Full plan: `docs/LIVE-PLAN-v4.md`. In short:
+- **States** Planned / Active / Done / Cancelled over the six stored statuses (`STATE_OF` in shared.ts; generated `live_trips.phase`). New trips are Planned; **Start** makes them Active. Any state change is allowed and logged.
+- **Assignment only inside trips**: no driver-truck assignment anywhere else (`live_assignments` no longer read or written). One **Active** trip per driver (Planned trips can queue); the link reports into the Active trip, else the oldest Planned.
+- **Trip form** (`src/app/live/trips/TripForm.tsx`) for create and edit: driver Masters | Custom (temporary), truck Masters | Custom | None, From/To Warehouse | Custom location. Active trips: driver/truck/destination changes need a **reason** (`live_trip_events.reason`).
+- **Temporary drivers**: kind `one_time`, one per trip, link ends 1 h after Done/Cancelled (reopen within the hour keeps it), then the sweep deletes the row; the trip keeps name + mobile.
+- **Masters**: custom fields (`custom_fields` jsonb), archive and hard delete (BEFORE DELETE triggers copy names onto trips).
+- **Activity**: per trip, sectioned by `phase`; Profile > Live tracking > Activity (`/portal/profile/live/activity`, `src/lib/live/activity.ts`): trips, drivers per day, trucks per trip, warehouses per day.
+- **Road ahead**: `routeWaypoints()` (AI) / `routeWaypointsBasic()` (hub list) in live-ai.ts, cached on the trip (`src/lib/live/route.ts`), refreshed after 25 km.
+- **Nav**: Home · Masters · Profile; one "+" New trip on Home.

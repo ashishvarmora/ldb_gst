@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 /**
  * Live tracking section of the COMMON profile (0082). One account, one
  * profile for Toll and Live; this page holds only Live's business settings.
- * Sections fold (details/summary); the less-used fields sit under "View more".
+ * Sections are an accordion (one open at a time, v4); less-used fields sit under "View more".
  */
 export default async function LiveSettingsPage() {
   const live = await requireLiveSession();
@@ -37,7 +37,7 @@ export default async function LiveSettingsPage() {
       <PageHeader icon={<Navigation size={20} />} title="Live tracking" subtitle="Business details and trip defaults for Live tracking." />
 
       <ActionForm action={saveLiveProfile} closeOnSuccess={false} refresh={false} className="space-y-3">
-        <details className={sec} open>
+        <details className={sec} name="live-settings" open>
           <summary className={sum}>
             Business <span className="text-xs font-normal text-muted">shown to drivers and customers</span>
           </summary>
@@ -72,7 +72,7 @@ export default async function LiveSettingsPage() {
           </div>
         </details>
 
-        <details className={sec} open>
+        <details className={sec} name="live-settings">
           <summary className={sum}>Trips</summary>
           <div className={body}>
             <Field label="Default warehouse" name="default_place_id" hint="Pre-filled as From when sending, and as To when receiving.">
@@ -86,9 +86,9 @@ export default async function LiveSettingsPage() {
               </Select>
             </Field>
             <Field
-              label="Receiving trips: driver's link stops after the trip by"
+              label="Temporary driver's link stops after the trip by"
               name="one_time_expire_hours"
-              hint="Supplier drivers typed on a receiving trip. Your own drivers share until they stop."
+              hint="Drivers typed on a trip (not from masters). Reopening the trip before then keeps the link; after it the temporary driver is removed. Your own drivers share until they stop."
             >
               <Select name="one_time_expire_hours" defaultValue={String(profile.one_time_expire_hours)}>
                 {[1, 2, 4, 8, 24].map((h) => (
@@ -101,7 +101,7 @@ export default async function LiveSettingsPage() {
           </div>
         </details>
 
-        <details className={sec}>
+        <details className={sec} name="live-settings">
           <summary className={sum}>
             Notifications <span className="text-xs font-normal text-muted">app and Telegram</span>
           </summary>
@@ -128,6 +128,7 @@ export default async function LiveSettingsPage() {
 
       <nav className="app-menu-list" aria-label="Live tracking">
         {[
+          { href: "/portal/profile/live/activity", title: "Activity", detail: "Trips, drivers, trucks, warehouses - by trip and by day" },
           { href: "/live/masters", title: "Masters", detail: "Drivers, trucks, warehouses" },
           { href: "/live/trips", title: "Open Live tracking", detail: "Your trips" },
         ].map((i) => (

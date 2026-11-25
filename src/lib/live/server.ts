@@ -8,10 +8,12 @@ import { indianMobileDigits } from "@/lib/phone";
 import { requirePortalSession, type PortalSession } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
+  ACTIVE_STATUSES,
   OPEN_STATUSES,
+  STATE_STATUSES,
+  TRIP_STATES,
   prettyVehicle,
   tripNo,
-  type LiveAssignment,
   type LiveDriver,
   type LivePlace,
   type LiveProfile,
@@ -201,28 +203,33 @@ export async function loadOpenTrips(ownerId: string): Promise<LiveTrip[]> {
 }
 
 export type TripFilter = {
+  /** "open" | "all" | a stored status | 0083 state (planned/active/done/cancelled). */
   status?: string | null;
   q?: string | null;
-  from?: string | null; // ISO day start
-  to?: string | null;
+  from?: string | null; // ISO, inclusive
+  to?: string | null; // ISO, exclusive
   place?: string | null;
   /** 0082: "outgoing" | "incoming"; ignored before 0082 is applied. */
   direction?: string | null;
   page?: number;
+  pageSize?: number;
 };
 
 export const TRIPS_PAGE = 30;
 
 export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ rows: LiveTrip[]; more: boolean }> {
   let q = getSupabaseAdmin().from("live_trips").select(TRIP_COLUMNS).eq("owner_id", ownerId);
-  if (f.status === "open") q = q.in("status", OPEN_STATUSES);
-  else if (f.status && f.status !== "all") q = q.eq("status", f.status);
+  const st = f.status ?? "all";
+  if (st === "open") q = q.in("status", OPEN_STATUSES);
+  else if ((TRIP_STATES as string[]).includes(st)) q = q.in("status", STATE_STATUSES[st as keyof typeof STATE_STATUSES]);
+  else if (st !== "all") q = q.eq("status", st);
   if (f.from) q = q.gte("created_at", f.from);
   if (f.to) q = q.lt("created_at", f.to);
   if (f.place && /^[0-9a-f-]{36}$/i.test(f.place)) q = q.or(`from_place_id.eq.${f.place},to_place_id.eq.${f.place}`);
   const has82 = await liveSchema82();
   if (has82 && f.direction === "incoming") q = q.eq("direction", "incoming");
   if (has82 && f.direction === "outgoing") q = q.eq("direction", "outgoing");
+  if (await liveSchema83()) q = q.is("archived_at", null);
   const term = (f.q ?? "").trim();
   if (term) {
     const safe = term.replace(/[^A-Za-z0-9 ./-]/g, "").slice(0, 40);
@@ -234,33 +241,39 @@ export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ row
       `consignee_name.ilike.%${safe}%`,
       `to_name.ilike.%${safe}%`,
       `to_city.ilike.%${safe}%`,
+      `from_name.ilike.%${safe}%`,
       `driver_name.ilike.%${safe}%`,
       `trip_name.ilike.%${safe}%`,
       `material.ilike.%${safe}%`,
-      ...(has82 ? [`party_name.ilike.%${safe}%`] : []),
+      ...(has82 ? [`party_name.ilike.%${safe}%`, `to_address.ilike.%${safe}%`] : []),
     ];
     if (veh.length >= 3) ors.push(`vehicle_no.ilike.%${veh}%`);
-    if (digits.length >= 4) ors.push(`eway_bill_no.ilike.%${digits}%`);
+    if (digits.length >= 4) ors.push(`eway_bill_no.ilike.%${digits}%`, `driver_phone.ilike.%${digits}%`);
     const seq = /^t-?0*(\d+)$/i.exec(safe.replace(/\s/g, ""));
     if (seq) ors.push(`trip_seq.eq.${Number(seq[1])}`);
     if (safe) q = q.or(ors.join(","));
   }
+  const size = Math.min(100, Math.max(5, f.pageSize ?? TRIPS_PAGE));
   const page = Math.max(0, f.page ?? 0);
-  const { data, error } = await q
-    .order("created_at", { ascending: false })
-    .range(page * TRIPS_PAGE, page * TRIPS_PAGE + TRIPS_PAGE);
+  const { data, error } = await q.order("created_at", { ascending: false }).range(page * size, page * size + size);
   if (error) {
     logLive("trip search", error);
     return { rows: [], more: false };
   }
   const rows = (data ?? []) as LiveTrip[];
-  return { rows: rows.slice(0, TRIPS_PAGE), more: rows.length > TRIPS_PAGE };
+  return { rows: rows.slice(0, size), more: rows.length > size };
 }
 
-export async function loadTripEvents(tripId: string, limit = 80): Promise<TripEvent[]> {
+/** Activity columns; 0083 adds reason + phase. */
+export async function eventColumns(): Promise<string> {
+  const base = "id,trip_id,driver_id,vehicle_id,kind,title,detail,actor,lat,lng,field,old_value,new_value,created_at";
+  return (await liveSchema83()) ? `${base},reason,phase` : base;
+}
+
+export async function loadTripEvents(tripId: string, limit = 200): Promise<TripEvent[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("live_trip_events")
-    .select("id,trip_id,kind,title,detail,actor,lat,lng,created_at")
+    .select(await eventColumns())
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -268,7 +281,7 @@ export async function loadTripEvents(tripId: string, limit = 80): Promise<TripEv
     logLive("events", error);
     return [];
   }
-  return (data ?? []) as TripEvent[];
+  return (data ?? []) as unknown as TripEvent[];
 }
 
 export async function loadRecentEvents(ownerId: string, sinceIso: string, limit = 30) {
@@ -376,40 +389,28 @@ export async function loadDriver(ownerId: string, id: string): Promise<LiveDrive
   return data ?? null;
 }
 
-export async function loadOpenAssignments(ownerId: string): Promise<LiveAssignment[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("live_assignments")
-    .select("*")
-    .eq("owner_id", ownerId)
-    .is("ended_at", null)
-    .limit(1000);
-  if (error) {
-    logLive("assignments", error);
-    return [];
-  }
-  return (data ?? []) as LiveAssignment[];
-}
-
 export type DriverRow = {
   driver: LiveDriver;
+  /** 0083: the truck comes from the driver's current trip (no standing assignment). */
   vehicle: LiveVehicle | null;
   trip: LiveTrip | null;
 };
 
-/** Everything the Drivers home needs, in three reads. */
+/** Drivers with their current trip (Active first, else the oldest Planned) and that trip's truck. */
 export async function loadDriverBoard(ownerId: string): Promise<{ rows: DriverRow[]; vehicles: LiveVehicle[] }> {
-  const [drivers, vehicles, assignments, trips] = await Promise.all([
-    loadDrivers(ownerId),
-    loadVehicles(ownerId),
-    loadOpenAssignments(ownerId),
-    loadOpenTrips(ownerId),
-  ]);
+  const [drivers, vehicles, trips] = await Promise.all([loadDrivers(ownerId), loadVehicles(ownerId), loadOpenTrips(ownerId)]);
   const vehById = new Map(vehicles.map((v) => [v.id, v]));
-  const vehOf = new Map(assignments.map((a) => [a.driver_id, vehById.get(a.vehicle_id) ?? null]));
   const tripOf = new Map<string, LiveTrip>();
-  for (const t of trips) if (t.driver_id && !tripOf.has(t.driver_id)) tripOf.set(t.driver_id, t);
+  for (const t of trips) {
+    if (!t.driver_id) continue;
+    const cur = tripOf.get(t.driver_id);
+    if (!cur || (ACTIVE_STATUSES.includes(t.status) && !ACTIVE_STATUSES.includes(cur.status))) tripOf.set(t.driver_id, t);
+  }
   return {
-    rows: drivers.map((d) => ({ driver: d, vehicle: vehOf.get(d.id) ?? null, trip: tripOf.get(d.id) ?? null })),
+    rows: drivers.map((d) => {
+      const trip = tripOf.get(d.id) ?? null;
+      return { driver: d, trip, vehicle: trip?.vehicle_id ? (vehById.get(trip.vehicle_id) ?? null) : null };
+    }),
     vehicles,
   };
 }
@@ -421,11 +422,11 @@ export async function loadDriverOpenTrip(ownerId: string, driverId: string): Pro
     .eq("owner_id", ownerId)
     .eq("driver_id", driverId)
     .in("status", OPEN_STATUSES)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<LiveTrip>();
+    .order("created_at", { ascending: true })
+    .limit(20);
   if (error) logLive("driver open trip", error);
-  return data ?? null;
+  const rows = (data ?? []) as LiveTrip[];
+  return rows.find((t) => ACTIVE_STATUSES.includes(t.status)) ?? rows[0] ?? null;
 }
 
 export async function loadDriverTrips(ownerId: string, driverId: string, limit = 30): Promise<LiveTrip[]> {
@@ -441,34 +442,6 @@ export async function loadDriverTrips(ownerId: string, driverId: string, limit =
     return [];
   }
   return (data ?? []) as LiveTrip[];
-}
-
-export async function loadDriverActivity(driverId: string, limit = 60): Promise<TripEvent[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("live_trip_events")
-    .select("id,trip_id,driver_id,vehicle_id,kind,title,detail,actor,lat,lng,field,old_value,new_value,created_at")
-    .eq("driver_id", driverId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) {
-    logLive("driver activity", error);
-    return [];
-  }
-  return (data ?? []) as TripEvent[];
-}
-
-export async function loadVehicleOf(ownerId: string, driverId: string): Promise<LiveVehicle | null> {
-  const admin = getSupabaseAdmin();
-  const { data: a } = await admin
-    .from("live_assignments")
-    .select("vehicle_id")
-    .eq("owner_id", ownerId)
-    .eq("driver_id", driverId)
-    .is("ended_at", null)
-    .maybeSingle<{ vehicle_id: string }>();
-  if (!a) return null;
-  const { data } = await admin.from("live_vehicles").select("*").eq("id", a.vehicle_id).maybeSingle<LiveVehicle>();
-  return data ?? null;
 }
 
 export function driverShareLink(driver: Pick<LiveDriver, "share_token">): string | null {
@@ -515,6 +488,15 @@ export async function liveSchema82(): Promise<boolean> {
   const { error } = await getSupabaseAdmin().from("live_trips").select("direction,inline_driver").limit(1);
   if (!error) schema82 = true;
   return schema82;
+}
+
+/** True once migration 0083 (v4: custom fields, archive, reasons, phases, route cache) is applied. */
+let schema83 = false;
+export async function liveSchema83(): Promise<boolean> {
+  if (schema83) return true;
+  const { error } = await getSupabaseAdmin().from("live_trips").select("temp_truck,archived_at,route_at").limit(1);
+  if (!error) schema83 = true;
+  return schema83;
 }
 
 /** Only a same-site /live path may be a "come back here" target. */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Crosshair, Loader2, MapPin, Minus, Plus, Search } from "lucide-react";
+import { Crosshair, Loader2, LocateFixed, MapPin, Maximize2, Minimize2, Minus, Plus, Search } from "lucide-react";
 
 import { parseLatLng } from "@/lib/live/shared";
 
@@ -40,13 +40,22 @@ function unproject(x: number, y: number, z: number): LL {
 
 const fmt = (p: LL) => `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`;
 
+/**
+ * Pan (drag), zoom (+/-, mouse wheel, pinch, double-tap - all anchored where
+ * you point), tap to drop the pin, drag the pin to fine-tune, and a full-size
+ * toggle for phones. Plain OSM tiles; no library.
+ */
 function TileMap({ value, onPick }: { value: LL | null; onPick: (p: LL) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(340);
-  const h = 230;
-  const [zoom, setZoom] = useState(value ? 15 : 5);
+  const [big, setBig] = useState(false);
+  const h = big ? 440 : 260;
+  const [zoom, setZoom] = useState(value ? 16 : 5);
   const [center, setCenter] = useState<LL>(value ?? INDIA);
-  const drag = useRef<{ x: number; y: number; c: { x: number; y: number }; moved: boolean } | null>(null);
+  const [pinDrag, setPinDrag] = useState<LL | null>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ mode: "pan" | "pin" | "pinch"; x: number; y: number; c: { x: number; y: number }; moved: boolean; dist?: number } | null>(null);
+  const lastTap = useRef(0);
 
   useEffect(() => {
     const el = box.current;
@@ -59,9 +68,9 @@ function TileMap({ value, onPick }: { value: LL | null; onPick: (p: LL) => void 
   // Follow a point set from outside (search, paste, GPS).
   const key = value ? fmt(value) : "";
   useEffect(() => {
-    if (value) {
+    if (value && !gesture.current) {
       setCenter(value);
-      setZoom((z) => Math.max(z, 14));
+      setZoom((z) => Math.max(z, 15));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -78,54 +87,142 @@ function TileMap({ value, onPick }: { value: LL | null; onPick: (p: LL) => void 
       tiles.push({ k: `${zoom}/${tx}/${ty}`, src: `https://tile.openstreetmap.org/${zoom}/${wx}/${ty}.png`, x: tx * TILE - left, y: ty * TILE - top });
     }
   }
-  const pin = value ? project(value, zoom) : null;
+  const shown = pinDrag ?? value;
+  const pin = shown ? project(shown, zoom) : null;
+
+  // Wheel zoom without scrolling the page (a passive React listener cannot prevent that).
+  const zoomRef = useRef<(dz: number, px?: number, py?: number) => void>(() => undefined);
+  useEffect(() => {
+    zoomRef.current = zoomAt;
+  });
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    let last = 0;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const t = Date.now();
+      if (t - last < 220) return;
+      last = t;
+      const r = el.getBoundingClientRect();
+      zoomRef.current(e.deltaY < 0 ? 1 : -1, e.clientX - r.left, e.clientY - r.top);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const local = (clientX: number, clientY: number) => {
+    const r = box.current!.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  };
+  /** Zoom by `dz` keeping the map point under (px, py) where it is. */
+  const zoomAt = (dz: number, px = w / 2, py = h / 2) => {
+    const z2 = Math.min(19, Math.max(3, zoom + dz));
+    if (z2 === zoom) return;
+    const under = unproject(left + px, top + py, zoom);
+    const u2 = project(under, z2);
+    setCenter(unproject(u2.x - px + w / 2, u2.y - py + h / 2, z2));
+    setZoom(z2);
+  };
 
   return (
     <div className="live-picker-map" ref={box} style={{ height: h }}>
       <div
         className="live-picker-surface"
         onPointerDown={(e) => {
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-          drag.current = { x: e.clientX, y: e.clientY, c, moved: false };
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (pointers.current.size === 2) {
+            const [a, b] = [...pointers.current.values()];
+            gesture.current = { mode: "pinch", x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, c, moved: true, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+            return;
+          }
+          const onPin = (e.target as HTMLElement).closest?.(".live-picker-pin");
+          gesture.current = { mode: onPin ? "pin" : "pan", x: e.clientX, y: e.clientY, c, moved: false };
         }}
         onPointerMove={(e) => {
-          const d = drag.current;
-          if (!d) return;
-          const dx = e.clientX - d.x;
-          const dy = e.clientY - d.y;
-          if (!d.moved && Math.hypot(dx, dy) < 5) return;
-          d.moved = true;
-          setCenter(unproject(d.c.x - dx, d.c.y - dy, zoom));
+          if (!pointers.current.has(e.pointerId)) return;
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          const g = gesture.current;
+          if (!g) return;
+          if (g.mode === "pinch" && pointers.current.size === 2) {
+            const [a, b] = [...pointers.current.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            const ratio = d / (g.dist || d);
+            if (ratio > 1.35 || ratio < 0.74) {
+              const mid = local((a.x + b.x) / 2, (a.y + b.y) / 2);
+              zoomAt(ratio > 1 ? 1 : -1, mid.x, mid.y);
+              g.dist = d;
+            }
+            return;
+          }
+          const dx = e.clientX - g.x;
+          const dy = e.clientY - g.y;
+          if (!g.moved && Math.hypot(dx, dy) < 5) return;
+          g.moved = true;
+          if (g.mode === "pin") {
+            const p = local(e.clientX, e.clientY);
+            setPinDrag(unproject(left + p.x, top + p.y + 13, zoom));
+          } else {
+            setCenter(unproject(g.c.x - dx, g.c.y - dy, zoom));
+          }
         }}
         onPointerUp={(e) => {
-          const d = drag.current;
-          drag.current = null;
-          if (!d || d.moved) return;
-          const r = e.currentTarget.getBoundingClientRect();
-          onPick(unproject(left + (e.clientX - r.left), top + (e.clientY - r.top), zoom));
+          pointers.current.delete(e.pointerId);
+          const g = gesture.current;
+          if (pointers.current.size > 0) return;
+          gesture.current = null;
+          if (!g) return;
+          if (g.mode === "pin" && pinDrag) {
+            onPick(pinDrag);
+            setPinDrag(null);
+            return;
+          }
+          if (g.moved || g.mode === "pinch") return;
+          const p = local(e.clientX, e.clientY);
+          const now = Date.now();
+          if (now - lastTap.current < 300) {
+            lastTap.current = 0;
+            zoomAt(1, p.x, p.y);
+            return;
+          }
+          lastTap.current = now;
+          onPick(unproject(left + p.x, top + p.y, zoom));
         }}
-        onPointerCancel={() => (drag.current = null)}
+        onPointerCancel={(e) => {
+          pointers.current.delete(e.pointerId);
+          gesture.current = null;
+          setPinDrag(null);
+        }}
       >
         {tiles.map((t) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img key={t.k} src={t.src} alt="" width={TILE} height={TILE} draggable={false} style={{ left: t.x, top: t.y }} />
         ))}
         {pin ? (
-          <span className="live-picker-pin" style={{ left: pin.x - left, top: pin.y - top }} aria-hidden>
-            <MapPin size={26} strokeWidth={2.4} />
+          <span className="live-picker-pin" style={{ left: pin.x - left, top: pin.y - top }} aria-label="Pin - drag to adjust">
+            <MapPin size={30} strokeWidth={2.4} />
           </span>
         ) : null}
       </div>
       <div className="live-picker-zoom">
-        <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(18, z + 1))}>
+        <button type="button" aria-label="Zoom in" onClick={() => zoomAt(1)}>
           <Plus size={15} />
         </button>
-        <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(3, z - 1))}>
+        <button type="button" aria-label="Zoom out" onClick={() => zoomAt(-1)}>
           <Minus size={15} />
         </button>
+        <button type="button" aria-label={big ? "Smaller map" : "Bigger map"} onClick={() => setBig((b) => !b)}>
+          {big ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </button>
+        {value ? (
+          <button type="button" aria-label="Back to the pin" onClick={() => setCenter(value)}>
+            <LocateFixed size={14} />
+          </button>
+        ) : null}
       </div>
       <span className="live-picker-credit">© OpenStreetMap</span>
-      {!value ? <span className="live-picker-tip">Tap the exact gate to drop the pin</span> : null}
+      <span className="live-picker-tip">{value ? "Drag the pin to adjust · pinch or scroll to zoom" : "Tap the exact gate to drop the pin"}</span>
     </div>
   );
 }
@@ -232,7 +329,11 @@ export function LocationField({
         <button type="button" onClick={here} disabled={gps} className="live-btn-sm">
           {gps ? <Loader2 size={14} className="animate-spin" /> : <Crosshair size={14} />} My location
         </button>
-        {point ? <span className="self-center text-[11px] text-good-500">Pinned ✓</span> : null}
+        {point ? (
+          <span className="self-center text-[11px] text-good-500">Pinned ✓</span>
+        ) : /^https:\/\//i.test(loc.trim()) ? (
+          <span className="self-center text-[11px] text-warn-500">Link kept · pin it on the map for ETA</span>
+        ) : null}
       </div>
       {map ? <TileMap value={point} onPick={(p) => { setLoc(fmt(p)); setMsg(null); }} /> : null}
       {msg ? <p className={msg.tone === "good" ? "mt-1 text-[11px] text-good-500" : "mt-1 text-[11px] text-bad-500"}>{msg.text}</p> : null}

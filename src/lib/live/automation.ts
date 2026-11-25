@@ -10,6 +10,8 @@ import {
   EWAY_WARN_MS,
   NO_SIGNAL_MS,
   OPEN_STATUSES,
+  STATE_LABEL,
+  STATE_OF,
   STATUS_LABEL,
   STOPPAGE_MS,
   STOPPAGE_RADIUS_M,
@@ -23,6 +25,7 @@ import {
   type LivePlace,
   type LiveTrip,
   type Point,
+  type TripState,
   type TripStatus,
 } from "@/lib/live/shared";
 
@@ -59,12 +62,19 @@ type EventInput = {
   oldValue?: string | null;
   newValue?: string | null;
   actorUserId?: string | null;
+  /* 0083 */
+  reason?: string | null;
+  phase?: TripState | null;
 };
 
 type EventTrip = Pick<LiveTrip, "id" | "owner_id" | "trip_seq" | "vehicle_no"> & {
   driver_id?: string | null;
   vehicle_id?: string | null;
+  status?: TripStatus;
 };
+
+const COLS_81 = ["driver_id", "vehicle_id", "field", "old_value", "new_value", "actor_user_id"];
+const COLS_83 = ["reason", "phase"];
 
 /** Notification switches on the Live profile (0081). Missing row = both on. */
 async function wantsNotify(ownerId: string, kind: string): Promise<boolean> {
@@ -134,11 +144,18 @@ export async function recordEvent(trip: EventTrip, e: EventInput): Promise<boole
     row.new_value = clip(e.newValue, 300);
   }
   if (e.actorUserId) row.actor_user_id = e.actorUserId;
+  if (e.reason) row.reason = e.reason.slice(0, 300);
+  const phase = e.phase ?? (trip.status ? STATE_OF[trip.status] : null);
+  if (phase) row.phase = phase;
   let { error } = await admin().from("live_trip_events").insert(row);
   if (error && isMissingRelation(error)) {
-    // Database without 0081 yet: save the plain 0079 row.
-    for (const k of ["driver_id", "vehicle_id", "field", "old_value", "new_value", "actor_user_id"]) delete row[k];
+    // Database without 0083 (then 0081) yet: save the older row shape.
+    for (const k of COLS_83) delete row[k];
     ({ error } = await admin().from("live_trip_events").insert(row));
+    if (error && isMissingRelation(error)) {
+      for (const k of COLS_81) delete row[k];
+      ({ error } = await admin().from("live_trip_events").insert(row));
+    }
   }
   if (error) {
     if ((error as { code?: string }).code === "23505") return false;
@@ -217,14 +234,10 @@ export async function afterTripClosed(trip: LiveTrip): Promise<void> {
   const hours = Math.min(72, Math.max(1, prof?.one_time_expire_hours ?? 1));
   const until = new Date(Date.now() + hours * 3_600_000).toISOString();
   await db.from("live_drivers").update({ share_expires_at: until, updated_at: new Date().toISOString() }).eq("id", driver.id);
-  await db
-    .from("live_assignments")
-    .update({ ended_at: new Date().toISOString(), ended_reason: "trip closed (trip-only driver)", actor: "system" })
-    .eq("driver_id", driver.id)
-    .is("ended_at", null);
-  await recordDriverEvent(driver, {
+  await recordEvent(trip, {
     kind: "share",
-    title: `Sharing will end at ${fmtIst(until)} (trip-only driver, trip ${tripNo(trip.trip_seq)} closed)`,
+    title: `Temporary driver link ends ${fmtIst(until)}`,
+    detail: "Reopen the trip before then to keep it. After that the temporary driver is removed; his name and mobile stay on this trip.",
     actor: "system",
   });
 }
@@ -247,8 +260,9 @@ export function statusPatch(status: TripStatus, nowIso: string, trip?: Pick<Live
   if (status === "arrived") p.arrived_at = nowIso;
   if (status === "delivered") p.delivered_at = nowIso;
   if (status === "cancelled") p.cancelled_at = nowIso;
-  if (status === "planned") {
+  if (status === "planned" || status === "in_transit" || status === "arrived") {
     p.cancelled_at = null;
+    p.delivered_at = null;
   }
   return p;
 }
@@ -279,10 +293,13 @@ export async function changeStatus(
   }
   if (!data || data.length === 0) return false;
   const who = actor === "driver" ? "Driver" : actor === "system" ? "Auto" : "You";
-  await recordEvent(trip, {
+  const fromState = STATE_OF[trip.status];
+  const toState = STATE_OF[to];
+  const label = fromState === toState ? STATUS_LABEL[to] : STATE_LABEL[toState];
+  await recordEvent({ ...trip, status: to }, {
     kind: "status",
-    title: `${STATUS_LABEL[to]}${actor === "owner" ? "" : ` (${who.toLowerCase()})`}`,
-    detail: detail ?? `${who} marked the trip ${STATUS_LABEL[to].toLowerCase()}.`,
+    title: `${fromState === toState ? label : `${STATE_LABEL[fromState]} → ${label}`}${actor === "owner" ? "" : ` (${who.toLowerCase()})`}`,
+    detail: detail ?? `${who} marked the trip ${label.toLowerCase()}.`,
     actor,
     lat: at?.lat ?? null,
     lng: at?.lng ?? null,
@@ -342,7 +359,7 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
             lng: here.lng,
             dedupeKey: `enter-from:${from.id}`,
           });
-          if (trip.status === "planned") await changeStatus(trip, "loading", "system", `Truck reached ${from.name} - loading.`, here);
+          // v4 (0083): reaching the loading point is logged, the trip stays Planned until it leaves or is started.
         }
       } else if (trip.seen_at_origin_at && !inside(here, from, 200)) {
         await recordEvent(trip, {
@@ -352,7 +369,7 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
           lng: here.lng,
           dedupeKey: `exit-from:${from.id}`,
         });
-        await changeStatus(trip, "in_transit", "system", `Truck left ${from.name} - trip started.`, here);
+        await changeStatus(trip, "in_transit", "system", `Truck left ${from.name} - trip started automatically.`, here);
       }
     }
 
@@ -528,8 +545,21 @@ async function driverSweep(now: number) {
     logLive("driver expiry", error);
     return;
   }
-  for (const d of (expired ?? []) as { id: string; owner_id: string }[]) {
-    await recordDriverEvent(d, { kind: "share", title: "Sharing ended (trip-only driver, trip done)", actor: "system" });
+  void expired;
+
+  // v4 (0083): a temporary driver is removed once his link expired (trip done + grace) and he has no open trip.
+  // The BEFORE DELETE trigger keeps his name and mobile on the trip.
+  const { data: gone } = await db
+    .from("live_drivers")
+    .select("id")
+    .eq("kind", "one_time")
+    .lt("share_expires_at", nowIso)
+    .limit(200);
+  for (const d of (gone ?? []) as { id: string }[]) {
+    const { data: open } = await db.from("live_trips").select("id").eq("driver_id", d.id).in("status", OPEN_STATUSES).limit(1);
+    if (open && open.length) continue;
+    const { error: delErr } = await db.from("live_drivers").delete().eq("id", d.id).eq("kind", "one_time");
+    if (delErr) logLive("temp driver delete", delErr);
   }
 
   const cutoff = new Date(now - NO_SIGNAL_MS).toISOString();
