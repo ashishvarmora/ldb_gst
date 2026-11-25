@@ -1,13 +1,17 @@
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, Clock, FileWarning, MapPin, Navigation, PauseCircle, WifiOff } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock, FileWarning, Info, MapPin, Navigation, PauseCircle, WifiOff } from "lucide-react";
 
 import { cx } from "@/components/ui";
 import {
   DELAY_GRACE_MS,
   EWAY_DASH_MS,
   NO_SIGNAL_MS,
+  STATE_LABEL,
+  STATE_TONE,
   STATUS_LABEL,
   STATUS_TONE,
+  dayLabel,
+  tripState,
   agoShort,
   destinationText,
   fmtIst,
@@ -23,6 +27,7 @@ import {
   type LiveTrip,
   type LiveVehicle,
   type TripEvent,
+  type TripState,
   type TripStatus,
 } from "@/lib/live/shared";
 
@@ -30,6 +35,29 @@ import {
 
 export function StatusPill({ status, className }: { status: TripStatus; className?: string }) {
   return <span className={cx("live-status", `live-status-${STATUS_TONE[status]}`, className)}>{STATUS_LABEL[status]}</span>;
+}
+
+/** v4: Planned / Active / Done / Cancelled, with the sub-step (Arrived) when it helps. */
+export function StatePill({ trip, className }: { trip: Pick<LiveTrip, "status">; className?: string }) {
+  const st = tripState(trip);
+  return (
+    <span className={cx("live-status", `live-status-${STATE_TONE[st]}`, className)}>
+      {STATE_LABEL[st]}
+      {trip.status === "arrived" ? " · arrived" : ""}
+    </span>
+  );
+}
+
+/** (i) explanation that opens on tap; no JS. */
+export function InfoTip({ label = "What is this?", children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <details className="live-info">
+      <summary aria-label={label}>
+        <Info size={14} />
+      </summary>
+      <div className="live-info-pop">{children}</div>
+    </details>
+  );
 }
 
 export function SignalPill({ trip, now }: { trip: LiveTrip; now: number }) {
@@ -86,7 +114,7 @@ export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<st
             {trip.vehicle_no && trip.driver_name ? ` · ${prettyVehicle(trip.vehicle_no)}` : ""}
           </p>
         </div>
-        <StatusPill status={trip.status} />
+        <StatePill trip={trip} />
       </div>
       <p className="live-trip-route">
         <MapPin size={14} className="shrink-0" />
@@ -251,6 +279,7 @@ export function ActivityList({ events, showTrip = false }: { events: TripEvent[]
               </p>
             ) : null}
             {e.detail ? <p className="live-tl-detail">{e.detail}</p> : null}
+            {e.reason && !(e.detail ?? "").includes(e.reason) ? <p className="live-tl-detail">Reason: {e.reason}</p> : null}
             <p className="live-tl-when">
               {fmtIst(e.created_at)} · {e.actor === "owner" ? "You" : e.actor === "driver" ? "Driver" : "Auto"}
               {showTrip && e.trip_id ? (
@@ -264,5 +293,90 @@ export function ActivityList({ events, showTrip = false }: { events: TripEvent[]
         </li>
       ))}
     </ol>
+  );
+}
+
+const PHASE_NOTE: Record<TripState, string> = {
+  planned: "Set-up before the start",
+  active: "On the road",
+  done: "After delivery",
+  cancelled: "After cancelling",
+};
+
+/** A trip's activity in one accordion per phase (only one open at a time). */
+export function PhaseSections({
+  groups,
+  group,
+  openPhase,
+}: {
+  groups: { phase: TripState; events: TripEvent[] }[];
+  group: string;
+  openPhase?: TripState | null;
+}) {
+  if (!groups.length) return <p className="live-empty">Nothing recorded yet.</p>;
+  return (
+    <div className="live-acc">
+      {groups.map((g) => (
+        <details key={g.phase} name={group} open={g.phase === (openPhase ?? groups[groups.length - 1].phase) || undefined}>
+          <summary>
+            <span className={cx("live-status", `live-status-${STATE_TONE[g.phase]}`)}>{STATE_LABEL[g.phase]}</span>
+            <small>{PHASE_NOTE[g.phase]}</small>
+            <span className="live-acc-count">{g.events.length}</span>
+          </summary>
+          <div className="live-acc-body">
+            <ActivityList events={g.events} />
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+export type TripLabel = { id: string; trip_seq: number; trip_name?: string | null };
+
+/** Day accordions (driver / warehouse activity). */
+export function DaySections({
+  days,
+  group,
+  trips,
+}: {
+  days: { day: string; events: TripEvent[]; points: number | null }[];
+  group: string;
+  trips: Map<string, TripLabel>;
+}) {
+  if (!days.length) return <p className="live-empty">Nothing recorded yet.</p>;
+  return (
+    <div className="live-acc">
+      {days.map((d, i) => {
+        const tripIds = [...new Set(d.events.map((e) => e.trip_id).filter(Boolean) as string[])];
+        return (
+          <details key={d.day} name={group} open={i === 0 || undefined}>
+            <summary>
+              <strong>{dayLabel(d.day)}</strong>
+              <small>
+                {tripIds.length ? `${tripIds.length} trip${tripIds.length === 1 ? "" : "s"}` : "No trip"}
+                {d.points != null ? ` · ${d.points} positions` : ""}
+              </small>
+              <span className="live-acc-count">{d.events.length}</span>
+            </summary>
+            <div className="live-acc-body">
+              {tripIds.length ? (
+                <p className="live-acc-links">
+                  {tripIds.map((id) => {
+                    const t = trips.get(id);
+                    return (
+                      <Link key={id} href={`/live/trips/${id}`}>
+                        {t ? `${tripNo(t.trip_seq)}${t.trip_name ? ` · ${t.trip_name}` : ""}` : "Trip"} <ChevronRight size={12} />
+                      </Link>
+                    );
+                  })}
+                </p>
+              ) : null}
+              <ActivityList events={d.events} />
+            </div>
+          </details>
+        );
+      })}
+    </div>
   );
 }

@@ -21,6 +21,7 @@ export function ProfileView({ model: m, signOut }: { model: ProfileModel; signOu
     ] },
     ...(m.live ? [{ title: "Live tracking", items: [
       { href: "/portal/profile/live", title: "Live tracking settings", detail: m.live.businessName ? `${m.live.businessName} · trips, notifications` : "Business, default warehouse, notifications", icon: Building2, tone: "orange" },
+      { href: "/portal/profile/live/activity", title: "Live activity", detail: "Trips, drivers, trucks, warehouses", icon: History, tone: "violet" },
       { href: "/live/masters", title: "Masters", detail: "Drivers, trucks, warehouses", icon: Database, tone: "mint" },
       { href: "/live/trips", title: "Open Live tracking", detail: "Sending and receiving trips", icon: Navigation, tone: "blue" },
     ] }] : []),

@@ -327,15 +327,17 @@ async function resolve(token: string): Promise<Resolved> {
     driver = data ?? null;
     if (!driver) return { kind: "v79" };
   }
+  // v4 (0083): his Active trip, else his oldest Planned one (a driver may have trips queued).
   const { data: open } = await db
     .from("live_trips")
     .select("*")
     .eq("driver_id", driver.id)
     .in("status", OPEN_STATUSES)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<LiveTrip>();
-  return { kind: "driver", driver, trip: open ?? null, tokenTrip };
+    .order("created_at", { ascending: true })
+    .limit(20);
+  const rows = (open ?? []) as LiveTrip[];
+  const current = rows.find((t) => t.status === "in_transit" || t.status === "arrived") ?? rows[0] ?? null;
+  return { kind: "driver", driver, trip: current, tokenTrip };
 }
 
 /** Link switched off: by you (revoked), driver archived, or an old trip link you stopped. */
@@ -347,18 +349,8 @@ function linkExpired(d: LiveDriver, now = Date.now()): boolean {
   return d.share_status === "expired" || Boolean(d.share_expires_at && new Date(d.share_expires_at).getTime() <= now);
 }
 
-async function truckOf(driverId: string, trip: LiveTrip | null): Promise<string | null> {
-  const db = getSupabaseAdmin();
-  const { data: a } = await db
-    .from("live_assignments")
-    .select("vehicle_id")
-    .eq("driver_id", driverId)
-    .is("ended_at", null)
-    .maybeSingle<{ vehicle_id: string }>();
-  if (a) {
-    const { data: v } = await db.from("live_vehicles").select("number").eq("id", a.vehicle_id).maybeSingle<{ number: string }>();
-    if (v?.number) return v.number;
-  }
+/** v4 (0083): the truck is whatever his current trip says (no standing assignment). */
+async function truckOf(trip: LiveTrip | null): Promise<string | null> {
   return trip?.vehicle_no ?? null;
 }
 
@@ -377,7 +369,7 @@ export async function loadDriverView(token: string): Promise<DriverView> {
       : Promise.resolve({ data: [] as { id: string; name: string; city: string | null; lat: number | null; lng: number | null }[] }),
     admin.from("profiles").select("office,full_name").eq("id", driver.owner_id).maybeSingle<{ office: string | null; full_name: string | null }>(),
     admin.from("live_profiles").select("business_name").eq("owner_id", driver.owner_id).maybeSingle<{ business_name: string | null }>(),
-    truckOf(driver.id, trip),
+    truckOf(trip),
   ]);
   const byId = new Map((places ?? []).map((p) => [p.id, p]));
   const from = trip?.from_place_id ? byId.get(trip.from_place_id) : undefined;

@@ -1,20 +1,35 @@
 /**
- * Server-safe: turns a trip row into the trip form's initial values. Lives
- * outside TripFields.tsx (a client file) because the create and edit pages
- * call it on the server.
+ * Server-safe: a trip row -> the trip form's initial values (v4 TripForm).
+ * Kept outside the client component because the new/edit pages call it on
+ * the server.
  */
 import type { LiveTrip } from "@/lib/live/shared";
 import { toLocalInput } from "@/lib/live/shared";
 import { indianMobileDigits } from "@/lib/phone";
 
 export type TripPrefill = Record<
-  | "purpose"
+  | "direction"
+  | "driver_mode"
+  | "driver_id"
+  | "tmp_driver_name"
+  | "tmp_driver_phone"
+  | "truck_mode"
+  | "vehicle_id"
+  | "tmp_truck_no"
+  | "from_mode"
   | "from_place_id"
   | "from_name"
+  | "from_address"
+  | "from_location"
+  | "to_mode"
   | "to_place_id"
   | "to_name"
-  | "to_city"
+  | "to_address"
   | "to_location"
+  | "to_city"
+  | "purpose"
+  | "party_type"
+  | "party_name"
   | "consignee_name"
   | "consignee_phone"
   | "transporter"
@@ -30,48 +45,67 @@ export type TripPrefill = Record<
   | "freight_inr"
   | "planned_dispatch_at"
   | "promised_delivery_at"
-  | "notes"
-  /* 0082 */
-  | "party_type"
-  | "party_name"
-  | "from_address"
-  | "from_location"
-  | "to_address",
+  | "notes",
   string
 >;
 
 const s = (v: unknown) => (v == null ? "" : String(v));
 
-export function tripPrefill(trip: Partial<LiveTrip> | null, defaultFromId?: string | null): TripPrefill {
+function loc(lat: number | null | undefined, lng: number | null | undefined, url: string | null | undefined): string {
+  if (lat != null && lng != null) return `${lat}, ${lng}`;
+  return s(url);
+}
+
+/** `copy` = "same route again": route, goods and parties, not documents or people. */
+export function tripPrefill(
+  trip: Partial<LiveTrip> | null,
+  opts: { direction?: "outgoing" | "incoming"; defaultPlaceId?: string | null; copy?: boolean } = {},
+): TripPrefill {
+  const dir = (trip?.direction as string) || opts.direction || "outgoing";
+  const home = opts.defaultPlaceId ?? "";
+  const fromCustom = Boolean(trip && !trip.from_place_id && (trip.from_name || trip.from_lat != null));
+  const toCustom = Boolean(trip && !trip.to_place_id && (trip.to_name || trip.to_lat != null));
+  const people = trip && !opts.copy;
+  const tempDriver = Boolean(people && trip?.inline_driver);
+  const tempTruck = Boolean(people && trip?.vehicle_no && !trip?.vehicle_id);
   return {
-    purpose: s(trip?.purpose),
-    from_place_id: trip ? s(trip.from_place_id) : s(defaultFromId),
-    from_name: s(trip?.from_name),
-    to_place_id: s(trip?.to_place_id),
-    to_name: trip?.to_place_id ? "" : s(trip?.to_name),
+    direction: dir,
+    driver_mode: tempDriver ? "custom" : "master",
+    driver_id: people && !tempDriver ? s(trip?.driver_id) : "",
+    tmp_driver_name: tempDriver ? s(trip?.driver_name) : "",
+    tmp_driver_phone: tempDriver ? (indianMobileDigits(trip?.driver_phone) ?? "") : "",
+    truck_mode: tempTruck ? "custom" : people && !trip?.vehicle_no ? "none" : "master",
+    vehicle_id: people ? s(trip?.vehicle_id) : "",
+    tmp_truck_no: tempTruck ? s(trip?.vehicle_no) : "",
+    from_mode: fromCustom || (!trip && dir === "incoming") ? "custom" : "place",
+    from_place_id: trip ? s(trip.from_place_id) : dir === "outgoing" ? home : "",
+    from_name: fromCustom ? s(trip?.from_name) : "",
+    from_address: s(trip?.from_address),
+    from_location: fromCustom ? loc(trip?.from_lat, trip?.from_lng, trip?.from_maps_url) : "",
+    to_mode: toCustom || (!trip && dir === "outgoing") ? "custom" : "place",
+    to_place_id: trip ? s(trip.to_place_id) : dir === "incoming" ? home : "",
+    to_name: toCustom ? s(trip?.to_name) : "",
+    to_address: toCustom ? s(trip?.to_address) : "",
+    to_location: toCustom ? loc(trip?.to_lat, trip?.to_lng, trip?.to_maps_url) : "",
     to_city: s(trip?.to_city),
-    to_location: trip?.to_lat != null && trip?.to_lng != null ? `${trip.to_lat}, ${trip.to_lng}` : "",
+    purpose: s(trip?.purpose) || (dir === "incoming" ? "pickup" : "dispatch"),
+    party_type: s(trip?.party_type) || (dir === "incoming" ? "supplier" : "customer"),
+    party_name: s(trip?.party_name),
     consignee_name: s(trip?.consignee_name),
     consignee_phone: indianMobileDigits(trip?.consignee_phone) ?? "",
     transporter: s(trip?.transporter),
     material: s(trip?.material),
-    quantity: s(trip?.quantity),
+    quantity: people ? s(trip?.quantity) : "",
     quantity_unit: s(trip?.quantity_unit) || "boxes",
-    weight_kg: s(trip?.weight_kg),
-    invoice_no: s(trip?.invoice_no),
-    invoice_value_inr: s(trip?.invoice_value_inr),
-    eway_bill_no: s(trip?.eway_bill_no),
-    eway_valid_until: toLocalInput(trip?.eway_valid_until),
-    lr_no: s(trip?.lr_no),
-    freight_inr: s(trip?.freight_inr),
-    planned_dispatch_at: toLocalInput(trip?.planned_dispatch_at),
-    promised_delivery_at: toLocalInput(trip?.promised_delivery_at),
-    notes: s(trip?.notes),
-    party_type: s(trip?.party_type),
-    party_name: s(trip?.party_name),
-    from_address: s(trip?.from_address),
-    from_location: trip?.from_lat != null && trip?.from_lng != null ? `${trip.from_lat}, ${trip.from_lng}` : "",
-    to_address: s(trip?.to_address),
+    weight_kg: people ? s(trip?.weight_kg) : "",
+    invoice_no: people ? s(trip?.invoice_no) : "",
+    invoice_value_inr: people ? s(trip?.invoice_value_inr) : "",
+    eway_bill_no: people ? s(trip?.eway_bill_no) : "",
+    eway_valid_until: people ? toLocalInput(trip?.eway_valid_until) : "",
+    lr_no: people ? s(trip?.lr_no) : "",
+    freight_inr: people ? s(trip?.freight_inr) : "",
+    planned_dispatch_at: people ? toLocalInput(trip?.planned_dispatch_at) : "",
+    promised_delivery_at: people ? toLocalInput(trip?.promised_delivery_at) : "",
+    notes: people ? s(trip?.notes) : "",
   };
 }
-

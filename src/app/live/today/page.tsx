@@ -235,12 +235,12 @@ export default async function LiveDashboard() {
       <Setup places={places} hasTrips={hasAny || events.length > 0} />
 
       <div className="live-kpis">
-        <KpiTile label="In transit" value={inTransit.length} href="/live/trips?status=in_transit" tone="brand" icon={<Truck size={18} />} />
-        <KpiTile label="Likely late" value={delayed.length} href="/live/trips?status=in_transit" tone="bad" icon={<AlertTriangle size={18} />} />
-        <KpiTile label="E-way < 12 h" value={ewaySoon.length} href="/live/trips?status=open" tone="warn" icon={<FileWarning size={18} />} />
-        <KpiTile label="Stopped now" value={stoppedIds.size} href="/live/trips?status=in_transit" tone="warn" icon={<PauseCircle size={18} />} />
-        <KpiTile label="Arrived today" value={arrivedToday.length} href="/live/trips?status=arrived" tone="good" icon={<Flag size={18} />} />
-        <KpiTile label="Delivered today" value={deliveredToday.length} href="/live/trips?status=delivered" tone="good" icon={<PackageCheck size={18} />} />
+        <KpiTile label="In transit" value={inTransit.length} href="/live/trips?os=active&is=active" tone="brand" icon={<Truck size={18} />} />
+        <KpiTile label="Likely late" value={delayed.length} href="/live/trips?os=active&is=active" tone="bad" icon={<AlertTriangle size={18} />} />
+        <KpiTile label="E-way < 12 h" value={ewaySoon.length} href="/live/trips" tone="warn" icon={<FileWarning size={18} />} />
+        <KpiTile label="Stopped now" value={stoppedIds.size} href="/live/trips?os=active&is=active" tone="warn" icon={<PauseCircle size={18} />} />
+        <KpiTile label="Arrived today" value={arrivedToday.length} href="/live/trips?os=active&is=active" tone="good" icon={<Flag size={18} />} />
+        <KpiTile label="Delivered today" value={deliveredToday.length} href="/live/trips?os=done&od=today&is=done&id=today" tone="good" icon={<PackageCheck size={18} />} />
       </div>
 
       {hasAny ? (
@@ -251,7 +251,7 @@ export default async function LiveDashboard() {
 
       {attention.length ? (
         <section>
-          <SectionTitle title="Needs attention" href="/live/trips?status=open" />
+          <SectionTitle title="Needs attention" href="/live/trips" />
           <div className="live-trip-grid">
             {attention.map((t) => (
               <TripCard key={t.id} trip={t} places={byId} now={now} />
@@ -268,7 +268,7 @@ export default async function LiveDashboard() {
       ) : null}
 
       <section>
-        <SectionTitle title={`On the road (${inTransit.length})`} href="/live/trips?status=in_transit" />
+        <SectionTitle title={`On the road (${inTransit.length})`} href="/live/trips?os=active&is=active" />
         {inTransit.length ? (
           <div className="live-trip-grid">
             {inTransit.slice(0, 8).map((t) => (
@@ -282,7 +282,7 @@ export default async function LiveDashboard() {
 
       {loading.length ? (
         <section>
-          <SectionTitle title={`Planned / loading (${loading.length})`} href="/live/trips?status=open" />
+          <SectionTitle title={`Planned / loading (${loading.length})`} href="/live/trips" />
           <div className="live-trip-grid">
             {loading.slice(0, 6).map((t) => (
               <TripCard key={t.id} trip={t} places={byId} now={now} />

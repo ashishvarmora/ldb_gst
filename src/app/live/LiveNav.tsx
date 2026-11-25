@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { CSSProperties } from "react";
-import { Database, PlusCircle, Receipt, Route, UserRound } from "lucide-react";
+import { Database, House, Plus, Receipt, UserRound } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { LogoBadge } from "@/components/Logo";
@@ -11,25 +11,23 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { cx } from "@/components/ui";
 
 /**
- * Live tracking's navigation (0082, trips-first). Four tabs, like the Toll
- * app's bottom bar (its notch is drawn for exactly four):
- *   Trips     - home: sending and receiving trips, search, map
- *   New trip  - name + direction, then driver / truck / details
- *   Masters   - our drivers (with live status), trucks, warehouses
- *   Profile   - the common account profile (Live settings are a section there)
- * No floating button and no "Track" buttons: everything starts from a trip.
+ * Live tracking's navigation (v4, docs/LIVE-PLAN-v4.md §8). THREE tabs:
+ *   Home     - trips: "We are sending" | "We are receiving"
+ *   Masters  - drivers, trucks, warehouses
+ *   Profile  - the common account profile (Live settings + Activity inside)
+ * "Trips" duplicated Home and "New trip" sat idle most of the day, so both
+ * went; the one New-trip entry point is the "+" in the Home header (and the
+ * sidebar button on desktop). The notch is re-drawn for 3 tabs in live.css.
  */
 
 const NAV = [
-  { href: "/live/trips", label: "Trips", icon: Route },
-  { href: "/live/trips/new", label: "New trip", icon: PlusCircle },
+  { href: "/live/trips", label: "Home", icon: House },
   { href: "/live/masters", label: "Masters", icon: Database },
   { href: "/portal/profile", label: "Profile", icon: UserRound },
 ];
 
 function isActive(path: string, href: string) {
-  if (href === "/live/trips/new") return path === "/live/trips/new";
-  if (href === "/live/trips") return (path.startsWith("/live/trips") && path !== "/live/trips/new") || path === "/live" || path === "/live/today";
+  if (href === "/live/trips") return path.startsWith("/live/trips") || path === "/live" || path === "/live/today";
   if (href === "/live/masters") return path.startsWith("/live/masters") || path.startsWith("/live/places") || path.startsWith("/live/drivers") || path.startsWith("/live/fleet");
   return path === href || path.startsWith(`${href}/`);
 }
@@ -45,6 +43,9 @@ export function LiveSidebar({ brandName }: { brandName: string }) {
             {brandName}
             <small>Live tracking</small>
           </span>
+        </Link>
+        <Link href="/live/trips/new" className="live-cta live-cta-sm mb-3 justify-center">
+          <Plus size={15} /> New trip
         </Link>
         <nav className="app-sidebar-links" aria-label="Live tracking">
           {NAV.map(({ href, label, icon: Icon }) => (
@@ -77,7 +78,7 @@ export function LiveBottomNav() {
       <nav
         aria-label="Live tracking"
         style={{ "--active-tab": Math.max(0, NAV.findIndex((item) => isActive(pathname, item.href))) } as CSSProperties}
-        className="portal-bottom-nav app-chrome fixed z-40 app-bar lg:hidden"
+        className="portal-bottom-nav live-bottom-nav app-chrome fixed z-40 app-bar lg:hidden"
       >
         <div className="app-tab-bar mx-auto flex max-w-lg items-stretch">
           {NAV.map(({ href, label, icon: Icon }) => {

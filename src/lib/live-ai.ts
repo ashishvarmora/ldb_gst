@@ -631,3 +631,116 @@ export function explainDelayBasic(f: TripDelayFacts): string {
   }
   return `${reason} ${next}`;
 }
+
+/* ======================================================================
+ * 4. Road ahead (v4, 0083): major cities between here and the destination
+ * ==================================================================== */
+
+export type RoutePoint = { name: string; lat: number; lng: number; km: number };
+type LL = { lat: number; lng: number };
+
+/** Highway hubs and big cities, enough to describe most Indian truck routes. */
+const HUBS: [string, number, number][] = [
+  ["Ahmedabad", 23.02, 72.57], ["Rajkot", 22.3, 70.8], ["Morbi", 22.82, 70.84], ["Surendranagar", 22.73, 71.64],
+  ["Vadodara", 22.31, 73.19], ["Surat", 21.17, 72.83], ["Bharuch", 21.7, 72.98], ["Vapi", 20.37, 72.9],
+  ["Palanpur", 24.17, 72.43], ["Mehsana", 23.6, 72.38], ["Himmatnagar", 23.6, 72.97], ["Gandhidham", 23.08, 70.13],
+  ["Jamnagar", 22.47, 70.06], ["Bhavnagar", 21.76, 72.15], ["Godhra", 22.78, 73.62], ["Udaipur", 24.58, 73.71],
+  ["Jodhpur", 26.24, 73.02], ["Ajmer", 26.45, 74.64], ["Jaipur", 26.91, 75.79], ["Beawar", 26.1, 74.32],
+  ["Bhilwara", 25.35, 74.63], ["Chittorgarh", 24.88, 74.62], ["Kota", 25.18, 75.83], ["Bikaner", 28.02, 73.31],
+  ["Delhi", 28.61, 77.21], ["Gurugram", 28.46, 77.03], ["Agra", 27.18, 78.01], ["Mathura", 27.49, 77.67],
+  ["Kanpur", 26.45, 80.33], ["Lucknow", 26.85, 80.95], ["Varanasi", 25.32, 82.97], ["Prayagraj", 25.44, 81.85],
+  ["Gwalior", 26.22, 78.18], ["Jhansi", 25.45, 78.57], ["Indore", 22.72, 75.86], ["Ujjain", 23.18, 75.78],
+  ["Ratlam", 23.33, 75.04], ["Bhopal", 23.26, 77.41], ["Jabalpur", 23.18, 79.95], ["Sagar", 23.84, 78.74],
+  ["Dhule", 20.9, 74.77], ["Nashik", 20.0, 73.79], ["Mumbai", 19.08, 72.88], ["Thane", 19.22, 72.98],
+  ["Pune", 18.52, 73.86], ["Aurangabad", 19.88, 75.34], ["Nagpur", 21.15, 79.09], ["Amravati", 20.93, 77.75],
+  ["Solapur", 17.66, 75.91], ["Kolhapur", 16.7, 74.24], ["Belagavi", 15.85, 74.5], ["Hubballi", 15.36, 75.12],
+  ["Bengaluru", 12.97, 77.59], ["Hyderabad", 17.39, 78.49], ["Vijayawada", 16.51, 80.65], ["Chennai", 13.08, 80.27],
+  ["Raipur", 21.25, 81.63], ["Ludhiana", 30.9, 75.85], ["Ambala", 30.38, 76.78], ["Chandigarh", 30.73, 76.78],
+  ["Panipat", 29.39, 76.97], ["Kolkata", 22.57, 88.36], ["Patna", 25.59, 85.14], ["Goa", 15.5, 73.83],
+];
+
+function kmBetween(a: LL, b: LL): number {
+  const r = Math.PI / 180;
+  const h = Math.sin(((b.lat - a.lat) * r) / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(((b.lng - a.lng) * r) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Position along a->b (0..1) and sideways distance (km), on a flat local projection. */
+function along(a: LL, b: LL, p: LL): { t: number; offKm: number } {
+  const k = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180));
+  const bx = (b.lng - a.lng) * k * 111;
+  const by = (b.lat - a.lat) * 111;
+  const px = (p.lng - a.lng) * k * 111;
+  const py = (p.lat - a.lat) * 111;
+  const len2 = bx * bx + by * by || 1;
+  const t = (px * bx + py * by) / len2;
+  const offKm = Math.abs(px * by - py * bx) / Math.sqrt(len2);
+  return { t, offKm };
+}
+
+function finishRoute(current: LL, dest: LL, picks: { name: string; lat: number; lng: number }[]): RoutePoint[] {
+  const out: RoutePoint[] = [];
+  for (const p of picks) {
+    const km = Math.round(kmBetween(current, p) * 1.25);
+    if (out.some((o) => o.name.toLowerCase() === p.name.toLowerCase())) continue;
+    if (kmBetween(current, p) < 25 || kmBetween(dest, p) < 25) continue;
+    out.push({ name: p.name.slice(0, 40), lat: Number(p.lat.toFixed(3)), lng: Number(p.lng.toFixed(3)), km });
+  }
+  return out.sort((a, b) => a.km - b.km).slice(0, 8);
+}
+
+/** Rule-based road ahead: hubs near the straight line, in order, at least ~60 km apart. */
+export function routeWaypointsBasic(current: LL, dest: LL): RoutePoint[] {
+  const total = kmBetween(current, dest);
+  if (total < 60) return [];
+  const corridor = Math.max(35, total * 0.12);
+  const cands = HUBS.map(([name, lat, lng]) => ({ name, lat, lng, ...along(current, dest, { lat, lng }) }))
+    .filter((c) => c.t > 0.04 && c.t < 0.96 && c.offKm <= corridor)
+    .sort((a, b) => a.t - b.t);
+  const picked: typeof cands = [];
+  for (const c of cands) {
+    const last = picked[picked.length - 1];
+    if (last && (c.t - last.t) * total < 60) {
+      if (c.offKm < last.offKm) picked[picked.length - 1] = c;
+      continue;
+    }
+    picked.push(c);
+  }
+  return finishRoute(current, dest, picked);
+}
+
+const ROUTE_SYSTEM = `You know Indian truck routes (national highways). Given a truck's current position and its destination, list the major cities or highway towns it will most likely pass through, in order, excluding the start and the destination.
+Return JSON: {"cities":[{"name":"Palanpur","lat":24.17,"lng":72.43}]}. At most 8. Only real places with correct coordinates. If the trip is short (< 60 km), return {"cities":[]}.`;
+
+/** AI road ahead (validated to lie near the corridor and in order). Null when no key / invalid. */
+export async function routeWaypoints(from: { name?: string | null } & LL, to: { name?: string | null } & LL, current: LL): Promise<RoutePoint[] | null> {
+  if (!aiAvailable()) return null;
+  const total = kmBetween(current, to);
+  if (total < 60) return [];
+  const facts = {
+    tripFrom: from.name ? redact(from.name).slice(0, 60) : undefined,
+    destination: to.name ? redact(to.name).slice(0, 60) : undefined,
+    current: { lat: Number(current.lat.toFixed(3)), lng: Number(current.lng.toFixed(3)) },
+    destinationPoint: { lat: Number(to.lat.toFixed(3)), lng: Number(to.lng.toFixed(3)) },
+  };
+  return aiJson<RoutePoint[]>(JSON.stringify(facts), {
+    system: ROUTE_SYSTEM,
+    maxTokens: 400,
+    validate: (x) => {
+      const list = (x as { cities?: unknown })?.cities;
+      if (!Array.isArray(list) || list.length > 10) return null;
+      const ok: { name: string; lat: number; lng: number; t: number }[] = [];
+      for (const c of list) {
+        const name = typeof c?.name === "string" ? c.name.replace(/[^A-Za-z .-]/g, "").trim() : "";
+        const lat = Number(c?.lat);
+        const lng = Number(c?.lng);
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || lat < 6 || lat > 37 || lng < 68 || lng > 98) continue;
+        const a = along(current, to, { lat, lng });
+        if (a.t < 0 || a.t > 1.02 || a.offKm > Math.max(60, total * 0.3)) continue;
+        ok.push({ name, lat, lng, t: a.t });
+      }
+      ok.sort((a, b) => a.t - b.t);
+      return finishRoute(current, to, ok);
+    },
+  });
+}

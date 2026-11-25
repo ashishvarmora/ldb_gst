@@ -1,15 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, MessageCircle, Navigation, Phone } from "lucide-react";
+import { ChevronRight, ExternalLink, History, MessageCircle, Navigation, Phone } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
-import { Field, Input, Select } from "@/components/form";
+import { Field, Input } from "@/components/form";
 import { buttonClass } from "@/components/ui";
 import {
   driverLinkText,
   driverShareLink,
   loadDriver,
-  loadDriverActivity,
   loadDriverBoard,
   loadDriverTrips,
   loadLiveProfile,
@@ -21,6 +20,7 @@ import {
 } from "@/lib/live/server";
 import {
   agoShort,
+  customFieldsOf,
   destinationText,
   driverSignal,
   fmtIst,
@@ -31,18 +31,10 @@ import {
 } from "@/lib/live/shared";
 import { formatIndianMobile, indianMobileDigits } from "@/lib/phone";
 
-import {
-  archiveDriver,
-  assignTruck,
-  newDriverLink,
-  restoreDriver,
-  resumeDriverSharing,
-  saveDriver,
-  stopDriverSharing,
-  unassignTruck,
-} from "../../actions";
+import { archiveDriver, deleteDriver, newDriverLink, restoreDriver, resumeDriverSharing, saveDriver, stopDriverSharing } from "../../actions";
 import { BackLink } from "../../BackLink";
-import { ActivityList, DriverSignalPill, KindChip, TripCard } from "../../parts";
+import { DriverSignalPill, KindChip, TripCard } from "../../parts";
+import { CustomFieldsEditor } from "../../ui";
 import { AutoRefresh, CopyButton } from "../../widgets";
 
 export const metadata = { title: "Live tracking - Driver" };
@@ -60,18 +52,16 @@ export default async function DriverPage({
   const driver = await loadDriver(live.ownerId, id);
   if (!driver) notFound();
 
-  const [{ rows, vehicles }, places, activity, trips, profile] = await Promise.all([
+  const [{ rows }, places, trips, profile] = await Promise.all([
     loadDriverBoard(live.ownerId),
     loadPlaces(live.ownerId, { includeArchived: true }),
-    loadDriverActivity(driver.id),
-    loadDriverTrips(live.ownerId, driver.id),
+    loadDriverTrips(live.ownerId, driver.id, 10),
     loadLiveProfile(live.ownerId),
   ]);
   const byId = placeMap(places);
   const me = rows.find((r) => r.driver.id === driver.id);
   const vehicle = me?.vehicle ?? null;
   const trip = me?.trip ?? null;
-  const holder = new Map(rows.filter((r) => r.vehicle).map((r) => [r.vehicle!.id, r.driver.name]));
   const now = Date.now();
   const signal = driverSignal(driver, now);
   const archived = Boolean(driver.archived_at);
@@ -216,125 +206,89 @@ export default async function DriverPage({
         </section>
       ) : null}
 
-      {/* TRIP + TRUCK */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="panel p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="live-h2">Current trip</h2>
-
+      {/* TRIP (assignment happens only inside a trip) */}
+      <section className="panel p-3">
+        <h2 className="live-h2">Current trip</h2>
+        {trip ? (
+          <div className="mt-2">
+            <TripCard trip={trip} places={byId} now={now} />
+            {vehicle ? <p className="mt-1 text-xs text-muted">Truck on this trip: <span className="font-mono">{prettyVehicle(vehicle.number)}</span></p> : null}
           </div>
-          {trip ? (
-            <div className="mt-3">
-              <TripCard trip={trip} places={byId} now={now} />
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-muted">No open trip. Pick him on a trip to track a delivery.</p>
-          )}
-        </section>
-
-        <section className="panel p-4">
-          <h2 className="live-h2">Truck</h2>
-          <p className="mt-1 text-sm text-ink">
-            {vehicle ? <span className="font-mono font-semibold">{prettyVehicle(vehicle.number)}</span> : "No truck assigned."}
-          </p>
-          {!archived ? (
-            <details className="live-more mt-2">
-              <summary>{vehicle ? "Change truck" : "Assign a truck"}</summary>
-              <ActionForm action={assignTruck} closeOnSuccess={false} refresh={false} className="mt-2 space-y-2">
-                <input type="hidden" name="driver_id" value={driver.id} />
-                <Select name="vehicle_id" defaultValue="" aria-label="Saved truck">
-                  <option value="">Saved truck…</option>
-                  {vehicles
-                    .filter((v) => v.id !== vehicle?.id)
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {prettyVehicle(v.number)}
-                        {holder.get(v.id) ? ` · with ${holder.get(v.id)}` : ""}
-                      </option>
-                    ))}
-                </Select>
-                <Link href="/live/masters/trucks?add=1" className="text-xs font-semibold text-brand-600">
-                  + Add a new truck in Masters
-                </Link>
-                <label className="flex items-center gap-2 text-sm text-ink">
-                  <input type="checkbox" name="force" className="size-4" /> If it is with another driver, move it to {driver.name}
-                </label>
-                <SubmitButton size="sm">Save truck</SubmitButton>
-              </ActionForm>
-              {vehicle ? (
-                <ActionForm action={unassignTruck} closeOnSuccess={false} refresh={false} className="mt-2">
-                  <input type="hidden" name="driver_id" value={driver.id} />
-                  <SubmitButton variant="ghost" size="sm">
-                    Remove truck
-                  </SubmitButton>
-                </ActionForm>
-              ) : null}
-            </details>
-          ) : null}
-        </section>
-      </div>
-
-      {/* ACTIVITY */}
-      <section className="panel p-4">
-        <h2 className="live-h2">Activity</h2>
-        <p className="mb-3 text-xs text-muted">Sharing, location gaps, truck and trip changes, status moves.</p>
-        <ActivityList events={activity} showTrip />
+        ) : (
+          <p className="mt-1 text-sm text-muted">No open trip. Pick him on a trip; his link is reused.</p>
+        )}
       </section>
 
-      {/* HISTORY */}
-      {trips.length ? (
-        <section className="space-y-2">
-          <h2 className="live-h2">Trips ({trips.length})</h2>
-          <div className="live-trip-grid">
-            {trips.map((t) => (
-              <TripCard key={t.id} trip={t} places={byId} now={now} />
-            ))}
+      <div className="live-acc">
+        <details name="driver">
+          <summary>
+            <strong>Recent trips</strong>
+            <span className="live-acc-count">{trips.length}</span>
+          </summary>
+          <div className="live-acc-body space-y-2">
+            {trips.length ? trips.map((t) => <TripCard key={t.id} trip={t} places={byId} now={now} />) : <p className="live-empty">No trips yet.</p>}
           </div>
-        </section>
-      ) : null}
+        </details>
 
-      {/* DETAILS */}
-      <details className="panel live-form-block live-more">
-        <summary>Driver details</summary>
-        <ActionForm action={saveDriver} closeOnSuccess={false} refresh={false} className="mt-3">
-          <input type="hidden" name="id" value={driver.id} />
-          <div className="live-form-grid">
-            <Field label="Name" name="name" required>
-              <Input name="name" required defaultValue={driver.name} />
-            </Field>
-            <Field label="Mobile" name="phone">
-              <Input name="phone" inputMode="tel" defaultValue={indianMobileDigits(driver.phone) ?? ""} />
-            </Field>
-            <Field label="Licence no." name="license_no">
-              <Input name="license_no" defaultValue={driver.license_no ?? ""} />
-            </Field>
-            <Field label="Notes" name="notes">
-              <Input name="notes" defaultValue={driver.notes ?? ""} />
-            </Field>
-          </div>
-          <div className="mt-3">
-            <SubmitButton size="sm">Save</SubmitButton>
-          </div>
-        </ActionForm>
-        <div className="mt-4 border-t border-divider pt-3">
-          {archived ? (
-            <ActionForm action={restoreDriver} closeOnSuccess={false} refresh={false}>
+        <Link href={`/portal/profile/live/activity?tab=drivers&id=${driver.id}`} className="live-acc-link">
+          <History size={15} /> <strong>Activity by day</strong> <small>in Profile</small> <ChevronRight size={15} />
+        </Link>
+
+        <details name="driver">
+          <summary>
+            <strong>Driver details</strong>
+            <small>name, mobile, your fields</small>
+          </summary>
+          <div className="live-acc-body">
+            <ActionForm action={saveDriver} closeOnSuccess={false} refresh={false}>
               <input type="hidden" name="id" value={driver.id} />
-              <SubmitButton variant="secondary" size="sm">
-                Restore driver
-              </SubmitButton>
+              <div className="live-form-grid">
+                <Field label="Name" name="name" required>
+                  <Input name="name" required defaultValue={driver.name} />
+                </Field>
+                <Field label="Mobile" name="phone">
+                  <Input name="phone" inputMode="tel" defaultValue={indianMobileDigits(driver.phone) ?? ""} />
+                </Field>
+              </div>
+              <p className="field-label mt-3">Your fields</p>
+              <CustomFieldsEditor initial={customFieldsOf(driver.custom_fields)} />
+              <div className="mt-3">
+                <SubmitButton size="sm">Save</SubmitButton>
+              </div>
             </ActionForm>
-          ) : (
-            <ActionForm action={archiveDriver} closeOnSuccess={false} refresh={false}>
+          </div>
+        </details>
+
+        <details name="driver">
+          <summary>
+            <strong>{archived ? "Restore or delete" : "Archive or delete"}</strong>
+          </summary>
+          <div className="live-acc-body flex flex-wrap items-start gap-2">
+            {archived ? (
+              <ActionForm action={restoreDriver} closeOnSuccess={false} refresh={false}>
+                <input type="hidden" name="id" value={driver.id} />
+                <SubmitButton variant="secondary" size="sm">
+                  Restore
+                </SubmitButton>
+              </ActionForm>
+            ) : (
+              <ActionForm action={archiveDriver} closeOnSuccess={false} refresh={false}>
+                <input type="hidden" name="id" value={driver.id} />
+                <ConfirmSubmitButton message={`Archive ${driver.name}? His link stops; trips and history stay. You can restore him.`} variant="secondary">
+                  Archive
+                </ConfirmSubmitButton>
+              </ActionForm>
+            )}
+            <ActionForm action={deleteDriver} closeOnSuccess={false} refresh={false}>
               <input type="hidden" name="id" value={driver.id} />
-              <ConfirmSubmitButton message={`Archive ${driver.name}? His link stops; trips and history stay.`} size="sm">
-                Archive driver
+              <ConfirmSubmitButton message={`Delete ${driver.name} for good? His link stops. Old trips keep his name and mobile. This cannot be undone.`}>
+                Delete
               </ConfirmSubmitButton>
-              <p className="mt-1 text-xs text-muted">Archived drivers keep all trips and history. You can restore them.</p>
             </ActionForm>
-          )}
-        </div>
-      </details>
+            <p className="w-full text-xs text-muted">Not allowed while he is on an Active trip.</p>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }
