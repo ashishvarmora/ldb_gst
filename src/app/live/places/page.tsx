@@ -64,7 +64,7 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
                     <ExternalLink size={15} />
                   </a>
                 ) : null}
-                <Link href={`/live/history?place=${p.id}&range=all`} className="live-ib" aria-label="Trips" title="Trips">
+                <Link href={`/live/logbook/warehouses/${p.id}?range=all`} className="live-ib" aria-label={`Logbook of ${p.name}`} title="Logbook">
                   <History size={15} />
                 </Link>
                 <Link href={`${BASE}?edit=${p.id}`} className="live-ib" aria-label={`Edit ${p.name}`} title="Edit" scroll={false}>

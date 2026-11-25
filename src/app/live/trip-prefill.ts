@@ -45,11 +45,23 @@ export type TripPrefill = Record<
   | "freight_inr"
   | "planned_dispatch_at"
   | "promised_delivery_at"
+  | "journey_hours"
   | "notes",
   string
 >;
 
 const s = (v: unknown) => (v == null ? "" : String(v));
+
+function journeyText(trip: Partial<LiveTrip> | null | undefined): string {
+  if (!trip) return "";
+  const j = trip.journey_hours != null ? Number(trip.journey_hours) : NaN;
+  if (Number.isFinite(j) && j > 0) return String(Math.round(j * 4) / 4);
+  if (trip.planned_dispatch_at && trip.promised_delivery_at) {
+    const h = (Date.parse(trip.promised_delivery_at) - Date.parse(trip.planned_dispatch_at)) / 3_600_000;
+    if (Number.isFinite(h) && h > 0) return String(Math.round(h * 4) / 4);
+  }
+  return "";
+}
 
 function loc(lat: number | null | undefined, lng: number | null | undefined, url: string | null | undefined): string {
   if (lat != null && lng != null) return `${lat}, ${lng}`;
@@ -106,6 +118,8 @@ export function tripPrefill(
     freight_inr: people ? s(trip?.freight_inr) : "",
     planned_dispatch_at: people ? toLocalInput(trip?.planned_dispatch_at) : "",
     promised_delivery_at: people ? toLocalInput(trip?.promised_delivery_at) : "",
+    // v6: journey hours (0085), else what the old planned arrival implied. Copied with the route ("same route again").
+    journey_hours: journeyText(trip),
     notes: people ? s(trip?.notes) : "",
   };
 }

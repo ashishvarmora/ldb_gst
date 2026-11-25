@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { Navigation } from "lucide-react";
+import { UserRound } from "lucide-react";
 
 import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { AppSwitcher } from "@/components/AppSwitcher";
 import { LogoMark } from "@/components/Logo";
+import { MessageBell } from "@/components/MessageBell";
 import { NavProgress } from "@/components/NavProgress";
 import { PushAutoOn } from "@/components/PushAutoOn";
 import { publicSettings } from "@/components/SiteFooter";
+import { unreadForCustomer } from "@/lib/chat";
 import { integrationHealth } from "@/lib/env";
 import { isMissingRelation, liveSchemaReady, requireLiveSession } from "@/lib/live/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -37,7 +39,10 @@ async function liveAlerts(userId: string): Promise<AlertBellItem[]> {
 
 export default async function LiveLayout({ children }: { children: React.ReactNode }) {
   const [live, { brandName }, ready81] = await Promise.all([requireLiveSession(), publicSettings(), liveSchemaReady()]);
-  const alerts = live.enabled ? await liveAlerts(live.ownerId).catch(() => []) : [];
+  const [alerts, unreadMessages] = await Promise.all([
+    live.enabled ? liveAlerts(live.ownerId).catch(() => [] as AlertBellItem[]) : Promise.resolve([] as AlertBellItem[]),
+    unreadForCustomer(getSupabaseAdmin(), live.session.overview.id).catch(() => 0),
+  ]);
 
   return (
     <div className="theme-light portal-shell live-shell flex min-h-screen">
@@ -47,18 +52,23 @@ export default async function LiveLayout({ children }: { children: React.ReactNo
 
       <div className="portal-workspace flex min-w-0 flex-1 flex-col">
         <header className="portal-header safe-top sticky top-0 z-30 app-bar">
+          {/* v6: same strip as the toll app (portal layout): brand left on phones, app name as quiet
+              text on desktop, then App switcher, Help chat, Bell, Profile. No coloured "Live" pill. */}
           <div className="flex items-center justify-between gap-2 px-4 py-3">
-            <Link href="/live" className="-ml-1 flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-1 lg:hidden">
+            <Link href="/live/trips" className="-ml-1 flex min-h-10 min-w-[7.5rem] shrink-0 items-center gap-2 rounded-lg px-1 lg:hidden">
               <LogoMark size={30} className="text-saffron" />
               <span className="truncate font-display text-xl font-extrabold tracking-tight text-strong">{brandName}</span>
-              <span className="live-chip">
-                <Navigation size={11} /> Live
-              </span>
             </Link>
             <p className="hidden text-sm font-semibold text-muted lg:block">Live tracking</p>
             <div className="flex shrink-0 items-center gap-2">
-              {live.enabled ? <AlertBell alerts={alerts} unreadCount={alerts.filter((a) => a.read_at === null).length} scope="live" /> : null}
               <AppSwitcher current="live" />
+              <MessageBell unread={unreadMessages} href="/portal/support" className="support-chat-trigger" />
+              {live.enabled ? <AlertBell alerts={alerts} unreadCount={alerts.filter((a) => a.read_at === null).length} scope="live" /> : null}
+              <span className="hidden lg:inline-flex">
+                <Link href="/live/profile" aria-label="Open profile" className="app-header-avatar">
+                  <UserRound size={21} />
+                </Link>
+              </span>
             </div>
           </div>
         </header>

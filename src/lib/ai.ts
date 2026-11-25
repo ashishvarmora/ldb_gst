@@ -209,7 +209,10 @@ async function callGroq(a: CallArgs, apiKey: string): Promise<string | null> {
         model: env.groqModel,
         messages,
         temperature: a.temperature,
-        max_tokens: a.maxTokens,
+        // gpt-oss models reason before answering: keep that short and leave
+        // room for the answer, or JSON mode returns an empty generation (25 Nov 2026).
+        ...(env.groqModel.includes("gpt-oss") ? { reasoning_effort: "low" } : {}),
+        max_tokens: env.groqModel.includes("gpt-oss") ? Math.max(a.maxTokens, 1500) : a.maxTokens,
         ...(a.json ? { response_format: { type: "json_object" } } : {}),
       }),
     },

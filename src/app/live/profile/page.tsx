@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BellRing, Building2, Database, History, ListChecks, Settings } from "lucide-react";
+import { ArrowLeftRight, BellRing, BookOpen, Building2, Database, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { ACCOUNT_ITEMS, ProfileFooter, ProfileIdentity, ProfileMenu, type ProfileMenuSection } from "@/components/ProfileView";
@@ -24,8 +24,7 @@ export default async function LiveProfilePage() {
         { href: "/live/profile/settings", title: "Business settings", detail: lp.business_name ? `${lp.business_name} · trip defaults, customer page` : "Business, default warehouse, customer page", icon: Building2, tone: "orange" },
         { href: "/live/profile/alerts", title: "Alerts", detail: "Default trip alerts and thresholds", icon: BellRing, tone: "violet" },
         { href: "/live/masters", title: "Masters", detail: "Drivers, trucks, warehouses", icon: Database, tone: "mint" },
-        { href: "/live/history", title: "History", detail: "Past trips, search and filters", icon: ListChecks, tone: "blue" },
-        { href: "/live/activity", title: "Activity", detail: "Events per trip; driver day view", icon: History, tone: "violet" },
+        { href: "/live/logbook/trips", title: "Logbook", detail: "Trips, trucks, drivers, warehouses: what happened", icon: BookOpen, tone: "blue" },
         { href: "/portal", title: "Switch app", detail: "Toll tracking", icon: ArrowLeftRight, tone: "orange" },
       ],
     },

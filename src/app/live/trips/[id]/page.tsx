@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Archive, BellRing, Clock, Copy, ExternalLink, History, MessageCircle, Navigation, Pencil, Play, Power, Route, Sparkles, Trash2 } from "lucide-react";
+import { Archive, BellRing, Copy, ExternalLink, History, MessageCircle, Navigation, Pencil, Play, Power, Sparkles, Trash2 } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { buttonClass, cx } from "@/components/ui";
 import { explainDelay, explainDelayBasic, type TripDelayFacts } from "@/lib/live-ai";
 import { groupByPhase } from "@/lib/live/activity";
-import { roadAhead } from "@/lib/live/route";
 import {
   customerShareText,
   destinationPoint,
@@ -40,7 +39,6 @@ import {
   agoShort,
   destinationText,
   directionsHref,
-  etaBasis,
   fmtIst,
   inr,
   mapsHref,
@@ -62,6 +60,7 @@ import { addTripNote, archiveTrip, deleteTrip, saveTripAlerts, setActualStart, s
 import { BackLink } from "../../BackLink";
 import { DriverSignalPill, InfoTip, PhaseSections, SignalPill, StatePill, tripIssues } from "../../parts";
 import { DriverLinkActions } from "../../blocks";
+import { RouteTimeline } from "../../RouteTimeline";
 import { IconSubmit, StatusControl } from "../../ui";
 import { AutoRefresh, CopyButton, IconCopy } from "../../widgets";
 
@@ -74,37 +73,6 @@ async function DelayNote({ facts }: { facts: TripDelayFacts }) {
     <p className="live-delay-note">
       <Sparkles size={15} className="mt-0.5 shrink-0" /> <span>{text}</span>
     </p>
-  );
-}
-
-async function RoadAheadList({ trip, pos, dest, fromName }: { trip: LiveTrip; pos: { lat: number; lng: number }; dest: { lat: number; lng: number; name: string }; fromName: string | null }) {
-  const r = await roadAhead(trip, pos, dest, fromName).catch(() => null);
-  if (!r) return null;
-  return (
-    <div className="live-road">
-      <p className="live-road-head">
-        <Route size={14} /> Road ahead <small>approximate</small>
-        <InfoTip label="About the road ahead">
-          Major cities between the truck and the destination, worked out {r.source === "ai" ? "by AI" : "from a list of highway hubs"} from the straight line. Refreshed
-          only after the truck moves 25+ km ({fmtIst(r.at)}). Not turn-by-turn.
-        </InfoTip>
-      </p>
-      {r.points.length ? (
-        <ol className="live-road-list">
-          {r.points.map((p) => (
-            <li key={`${p.name}-${p.km}`}>
-              <span>{p.name}</span>
-              <small>~{p.km} km</small>
-            </li>
-          ))}
-          <li className="is-dest">
-            <span>{dest.name}</span>
-          </li>
-        </ol>
-      ) : (
-        <p className="text-xs text-muted">Short run - no big city on the way.</p>
-      )}
-    </div>
   );
 }
 
@@ -136,6 +104,8 @@ export default async function TripPage({ params, searchParams }: { params: Promi
   const to = trip.to_place_id ? byId.get(trip.to_place_id) : null;
   const toText = destinationText(trip, to?.name);
   const dest = destinationPoint(trip, to);
+  const originPt =
+    trip.from_lat != null && trip.from_lng != null ? { lat: trip.from_lat, lng: trip.from_lng } : from?.lat != null && from?.lng != null ? { lat: from.lat, lng: from.lng } : null;
   const now = Date.now();
   const state = tripState(trip);
   const open = state === "planned" || state === "active";
@@ -152,7 +122,6 @@ export default async function TripPage({ params, searchParams }: { params: Promi
   const driverWa =
     driver && dLink ? waHref(driver.phone, driverLinkText(driver, ownerLabel, { title: tripTitle(trip), toText, truck: prettyVehicle(trip.vehicle_no) || null })) : null;
   const customerWa = trip.track_token ? waHref(trip.consignee_phone ?? to?.contact_phone, customerShareText(trip, ownerLabel)) : null;
-  const basis = etaBasis(trail, trip.distance_left_km, now);
   const phases = groupByPhase(events, trip);
   const standing = state === "active" && trip.status !== "arrived" && trail[0] && now - new Date(trail[0].recorded_at).getTime() < 30 * 60_000 ? standingFor(trail) : null;
   const alerts = tripAlerts(profile.alert_settings, trip.alert_overrides);
@@ -287,24 +256,10 @@ export default async function TripPage({ params, searchParams }: { params: Promi
             <dd>{open && trip.distance_left_km != null ? `~${Math.round(trip.distance_left_km)} km` : "-"}</dd>
           </div>
           <div>
-            <dt className="flex items-center gap-1">
-              Live ETA
-              <InfoTip label="How ETA is worked out">
-                <span className="block">Distance left = straight line × {basis.roadFactor} (road factor){basis.distanceLeftKm != null ? ` = ~${Math.round(basis.distanceLeftKm)} km` : ""}.</span>
-                <span className="block">
-                  Speed = average of the last 2 h ({basis.points2h} positions){basis.fallback ? ": too few, so 40 km/h is used" : ""} = {basis.kmph} km/h (kept within 25-55).
-                </span>
-                {basis.hoursLeft != null ? <span className="block">Time left ≈ {basis.hoursLeft.toFixed(1)} h. Updates with every position.</span> : null}
-              </InfoTip>
-            </dt>
+            <dt>Live ETA</dt>
             <dd>{state === "active" && trip.eta_at && trip.status !== "arrived" ? fmtIst(trip.eta_at) : trip.status === "arrived" ? "Arrived" : "-"}</dd>
           </div>
         </dl>
-        {state === "active" && pos && dest ? (
-          <Suspense fallback={<p className="px-3 pb-3 text-xs text-muted">Working out the road ahead…</p>}>
-            <RoadAheadList trip={trip} pos={pos} dest={{ ...dest, name: toText }} fromName={fromText} />
-          </Suspense>
-        ) : null}
         <div className="flex flex-wrap gap-2 border-t border-divider p-2.5">
           {dest ? (
             <a href={directionsHref(dest.lat, dest.lng)} target="_blank" rel="noopener noreferrer" className={buttonClass("secondary", "sm")}>
@@ -325,46 +280,41 @@ export default async function TripPage({ params, searchParams }: { params: Promi
         </div>
       </section>
 
-      {/* TIMES (v5): planned (static) vs actual / live (dynamic) */}
-      <section className="panel live-times">
-        <div className="live-times-head">
-          <Clock size={14} /> <strong>Times</strong>
-          <InfoTip label="About planned and live times">
-            Planned times are what you set on the trip; they never move by themselves. Actual start is when the trip became Active (correct it with a reason).
-            Live ETA comes from the truck&apos;s position and recent speed and updates with every position.
-          </InfoTip>
-        </div>
-        <div className="live-times-grid">
-          <span />
-          <span className="live-mini-label">Planned</span>
-          <span className="live-mini-label">Actual / live</span>
-          <span className="live-times-k">Start</span>
-          <span>{fmtIst(trip.planned_dispatch_at)}</span>
-          <span>
-            {trip.started_at ? fmtIst(trip.started_at) : "-"}
-            {startVar ? <em className={`live-var live-var-${startVar.tone}`}>{startVar.text}</em> : null}
-          </span>
-          <span className="live-times-k">Arrival</span>
-          <span>{fmtIst(trip.promised_delivery_at)}</span>
-          <span>
-            {trip.arrived_at ? `${fmtIst(trip.arrived_at)} arrived` : trip.delivered_at ? `${fmtIst(trip.delivered_at)} done` : state === "active" && trip.eta_at ? `${fmtIst(trip.eta_at)} live` : "-"}
-            {arriveVar ? <em className={`live-var live-var-${arriveVar.tone}`}>{arriveVar.text}</em> : null}
-          </span>
-        </div>
-        {state !== "planned" ? (
-          <details className="live-times-edit">
-            <summary>Correct actual start</summary>
-            <ActionForm action={setActualStart} closeOnSuccess={false}>
-              {hidden}
-              <div className="live-form-row">
-                <input type="datetime-local" name="started_at" defaultValue={toLocalInput(trip.started_at)} className="field live-field-sm" aria-label="Actual start" required />
-                <input name="reason" maxLength={300} placeholder="Reason (required)" className="field live-field-sm min-w-0 flex-1" required />
-                <SubmitButton size="sm">Save</SubmitButton>
-              </div>
-            </ActionForm>
-          </details>
-        ) : null}
-      </section>
+      {/* WHERE IS MY TRUCK (v6): stops with scheduled vs actual / expected; replaces the v5 Times card and Road ahead */}
+      <Suspense fallback={<section className="panel rt"><p className="rt-empty">Working out the route…</p></section>}>
+        <RouteTimeline
+          trip={trip}
+          from={originPt ? { ...originPt, name: fromText ?? "Start" } : null}
+          to={dest ? { ...dest, name: toText } : null}
+          footer={
+            <div className="rt-foot">
+              <span>
+                Start: planned {fmtIst(trip.planned_dispatch_at)}
+                {trip.started_at ? <> · actual {fmtIst(trip.started_at)}</> : null}
+                {startVar ? <em className={`live-var live-var-${startVar.tone}`}>{startVar.text}</em> : null}
+              </span>
+              <span>
+                Arrival: planned {fmtIst(trip.promised_delivery_at)}
+                {arrivalLive ? <> · {trip.arrived_at || trip.delivered_at ? "actual" : "live"} {fmtIst(arrivalLive)}</> : null}
+                {arriveVar ? <em className={`live-var live-var-${arriveVar.tone}`}>{arriveVar.text}</em> : null}
+              </span>
+              {state !== "planned" ? (
+                <details className="live-times-edit">
+                  <summary>Correct actual start</summary>
+                  <ActionForm action={setActualStart} closeOnSuccess={false}>
+                    {hidden}
+                    <div className="live-form-row">
+                      <input type="datetime-local" name="started_at" defaultValue={toLocalInput(trip.started_at)} className="field live-field-sm" aria-label="Actual start" required />
+                      <input name="reason" maxLength={300} placeholder="Reason (required)" className="field live-field-sm min-w-0 flex-1" required />
+                      <SubmitButton size="sm">Save</SubmitButton>
+                    </div>
+                  </ActionForm>
+                </details>
+              ) : null}
+            </div>
+          }
+        />
+      </Suspense>
 
       {/* SECTIONS (one open at a time) */}
       <div className="live-acc">
@@ -558,7 +508,7 @@ export default async function TripPage({ params, searchParams }: { params: Promi
               </div>
             </ActionForm>
             <PhaseSections groups={phases} group={`trip-${trip.id}-phase`} openPhase={phases.length ? (phases.some((g) => g.phase === state) ? state : null) : null} />
-            <Link href={`/live/activity?q=${encodeURIComponent(tripNo(trip.trip_seq))}&range=all`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
+            <Link href={`/live/logbook/trips/${trip.id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
               <History size={12} /> Activity page
             </Link>
           </div>

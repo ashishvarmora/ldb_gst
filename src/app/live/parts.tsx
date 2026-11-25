@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, Clock, FileWarning, Info, MapPin, Navigation, PauseCircle, WifiOff } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock, FileWarning, Info, Navigation, PauseCircle, WifiOff } from "lucide-react";
 
 import { cx } from "@/components/ui";
 import {
@@ -98,51 +98,52 @@ export function tripIssues(trip: LiveTrip, now: number): { key: string; text: st
   return out;
 }
 
-export function TripCard({ trip, places, now }: { trip: LiveTrip; places: Map<string, LivePlace>; now: number }) {
+/**
+ * v6 compact trip row (list hierarchy: what you scan for, nothing more).
+ *   1  trip no + name · issue icons · status chip
+ *   2  driver · truck (truck in plate font, driver in body font)
+ *   3  from → to · right: km left + ETA / done time / planned start
+ * Everything else (goods, documents, timeline) lives on the trip page.
+ */
+export function TripCard({ trip, places, now, href }: { trip: LiveTrip; places: Map<string, LivePlace>; now: number; href?: string }) {
   const from = trip.from_place_id ? places.get(trip.from_place_id) : null;
   const to = trip.to_place_id ? places.get(trip.to_place_id) : null;
   const issues = tripIssues(trip, now);
-  const open = trip.status !== "delivered" && trip.status !== "cancelled";
+  const st = tripState(trip);
+  const fromText = from?.name ?? trip.party_name ?? trip.from_name ?? null;
+  let tail: string | null = null;
+  if (st === "active" && trip.status !== "arrived") {
+    tail = [trip.distance_left_km != null ? `${Math.round(trip.distance_left_km)} km` : null, trip.eta_at ? `ETA ${fmtIst(trip.eta_at, false)}` : null].filter(Boolean).join(" · ") || null;
+  } else if (trip.status === "arrived") tail = trip.arrived_at ? `Arrived ${fmtIst(trip.arrived_at, false)}` : "Arrived";
+  else if (st === "done" && trip.delivered_at) tail = `Done ${fmtIst(trip.delivered_at)}`;
+  else if (st === "planned" && trip.planned_dispatch_at) tail = `Starts ${fmtIst(trip.planned_dispatch_at)}`;
   return (
-    <Link href={`/live/trips/${trip.id}`} className="live-trip-card">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="live-trip-vehicle">{trip.driver_name || prettyVehicle(trip.vehicle_no) || "No driver yet"}</p>
-          <p className="live-trip-no">
-            {tripNo(trip.trip_seq)}
-            {trip.trip_name ? ` · ${trip.trip_name}` : ""}
-            {trip.vehicle_no && trip.driver_name ? ` · ${prettyVehicle(trip.vehicle_no)}` : ""}
-          </p>
-        </div>
-        <StatePill trip={trip} />
-      </div>
-      <p className="live-trip-route">
-        <MapPin size={14} className="shrink-0" />
+    <Link href={href ?? `/live/trips/${trip.id}`} className="live-trow">
+      <span className="live-trow-l1">
+        <strong className="truncate">
+          {tripNo(trip.trip_seq)}
+          {trip.trip_name ? <span className="live-trow-name"> {trip.trip_name}</span> : null}
+        </strong>
+        {issues.map((i) => (
+          <span key={i.key} className={cx("live-trow-ic", i.tone === "bad" ? "is-bad" : "is-warn")} title={i.text} aria-label={i.text}>
+            {i.key.startsWith("eway") ? <FileWarning size={12} /> : i.key === "nosig" ? <WifiOff size={12} /> : <AlertTriangle size={12} />}
+          </span>
+        ))}
+        <StatePill trip={trip} className="live-status-xs" />
+      </span>
+      <span className="live-trow-l2">
+        <span className={cx("live-dot", trip.direction === "incoming" ? "is-in" : "is-out")} title={trip.direction === "incoming" ? "Receiving" : "Sending"} aria-hidden />
+        <span className="truncate">{trip.driver_name || "No driver"}</span>
+        {trip.vehicle_no ? <span className="live-plate">{prettyVehicle(trip.vehicle_no)}</span> : null}
+        {trip.driver_id && st === "active" ? <SignalPill trip={trip} now={now} /> : null}
+      </span>
+      <span className="live-trow-l3">
         <span className="min-w-0 truncate">
-          {from || trip.party_name || trip.from_name ? `${from?.name ?? trip.party_name ?? trip.from_name} → ` : ""}
-          <strong>{destinationText(trip, to?.name)}</strong>
+          {fromText ? `${fromText} → ` : ""}
+          {destinationText(trip, to?.name)}
         </span>
-      </p>
-      <div className="live-trip-meta">
-        <span className={cx("live-dir", trip.direction === "incoming" ? "live-dir-incoming" : "live-dir-outgoing")}>
-          {trip.direction === "incoming" ? "Receiving" : "Sending"}
-        </span>
-        {trip.driver_id ? <SignalPill trip={trip} now={now} /> : null}
-        {open && trip.distance_left_km != null && trip.status !== "arrived" ? <span>{Math.round(trip.distance_left_km)} km left</span> : null}
-        {open && trip.eta_at && trip.status === "in_transit" ? <span>ETA {fmtIst(trip.eta_at)}</span> : null}
-        {trip.status === "delivered" && trip.delivered_at ? <span>Delivered {fmtIst(trip.delivered_at)}</span> : null}
-        {trip.status === "planned" && trip.planned_dispatch_at ? <span>Dispatch {fmtIst(trip.planned_dispatch_at)}</span> : null}
-      </div>
-      {issues.length ? (
-        <div className="live-trip-issues">
-          {issues.map((i) => (
-            <span key={i.key} className={cx("live-issue", i.tone === "bad" ? "live-issue-bad" : "live-issue-warn")}>
-              {i.key.startsWith("eway") ? <FileWarning size={12} /> : <AlertTriangle size={12} />} {i.text}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <ChevronRight size={16} className="live-trip-chevron" aria-hidden />
+        {tail ? <span className="live-trow-tail">{tail}</span> : null}
+      </span>
     </Link>
   );
 }

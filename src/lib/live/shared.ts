@@ -132,12 +132,26 @@ export type LiveTrip = {
   route_source?: "ai" | "rules" | null;
   /* 0084 */
   alert_overrides?: TripAlertOverrides | null;
+  /* 0085 */
+  journey_hours?: number | string | null;
+  route_plan?: RoutePlan | null;
   created_at: string;
   updated_at: string;
 };
 
 /** 0083: one city on the approximate road ahead. */
 export type RouteWaypoint = { name: string; lat: number; lng: number; km: number };
+
+/** 0085: the trip's main stops, built once per From/To (src/lib/live/route.ts). km = road km from the origin. */
+export type RoutePlan = {
+  v: 1;
+  from: { name: string; lat: number; lng: number };
+  to: { name: string; lat: number; lng: number };
+  total_km: number;
+  stops: RouteWaypoint[];
+  source: "ai" | "rules";
+  at: string;
+};
 
 /** 0083: user-defined master fields, key -> value. */
 export type CustomFields = Record<string, string>;
@@ -629,6 +643,7 @@ export const TRIP_FIELDS_DYNAMIC = [
   "vehicle_id",
   "to",
   "promised_delivery_at",
+  "journey_hours",
   "eway_bill_no",
   "eway_valid_until",
   "consignee_name",

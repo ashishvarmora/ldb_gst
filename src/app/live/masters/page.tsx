@@ -61,13 +61,13 @@ export default async function MastersPage() {
           </span>
           <ChevronRight size={16} className="text-faint" />
         </Link>
-        <Link href="/live/activity">
+        <Link href="/live/logbook/trips">
           <span className="live-list-icon">
             <History size={18} />
           </span>
           <span className="min-w-0 flex-1">
-            <strong>Activity</strong>
-            <small>Trips, drivers, trucks, warehouses - by trip and by day</small>
+            <strong>Logbook</strong>
+            <small>Trips, trucks, drivers, warehouses - what happened, when</small>
           </span>
           <ChevronRight size={16} className="text-faint" />
         </Link>
