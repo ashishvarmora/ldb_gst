@@ -6,6 +6,7 @@ import { sendUnseenChatEmails } from "@/lib/chat-email";
 import { maybeSendDailySummary } from "@/lib/daily-summary";
 import { env } from "@/lib/env";
 import { reconcileRecentPayments } from "@/lib/payment-reconcile";
+import { runLiveSweep } from "@/lib/live/automation";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { runTrackingSweep, sendPlanExpiryReminders } from "@/lib/tracking";
 
@@ -89,7 +90,7 @@ async function handle(request: NextRequest) {
   /* The mail work of /api/cron/notify, repeated here as its fallback: with no
      minute-schedule configured these still go out, just up to five minutes
      late. Both never throw and both are once-only, so running twice is safe. */
-  const [chatMail, dailySummary, planReminders, expiredHolds] = await Promise.all([
+  const [chatMail, dailySummary, planReminders, expiredHolds, live] = await Promise.all([
     sendUnseenChatEmails(getSupabaseAdmin()),
     maybeSendDailySummary(getSupabaseAdmin()),
     // 3 days / 1 day / last day / day after - each once per expiry date.
@@ -99,6 +100,8 @@ async function handle(request: NextRequest) {
     getSupabaseAdmin()
       .rpc("expire_credit_holds")
       .then(({ data, error }) => (error ? null : (data as number))),
+    // Live module (0079): e-way bill expiry and "no signal" alerts. Never throws.
+    runLiveSweep(),
   ]);
 
   try {
@@ -147,6 +150,7 @@ async function handle(request: NextRequest) {
       dailySummary,
       planReminders,
       expiredHolds,
+      live,
     });
   } catch (error) {
     // The caller here is a scheduler, not a person, so this one keeps the real

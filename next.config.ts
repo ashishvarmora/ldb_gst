@@ -305,6 +305,37 @@ const nextConfig: NextConfig = {
       },
       {
         /*
+         * Live tracking (0079): "Use my current location" when saving a
+         * factory or customer. Same as /d: geolocation for this origin only.
+         */
+        source: "/live/:path*",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: [
+              "accelerometer=()",
+              "camera=()",
+              "geolocation=(self)",
+              "gyroscope=()",
+              "magnetometer=()",
+              "microphone=()",
+              "usb=()",
+              "payment=()",
+            ].join(", "),
+          },
+        ],
+      },
+      {
+        /* The customer's read-only tracking page: never indexed. */
+        source: "/track/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
+      {
+        /*
          * Nothing under /api is a page, and none of it should ever be cached by
          * a CDN or a browser - a cached credit export is one officer's ledger
          * handed to whoever asks next.
