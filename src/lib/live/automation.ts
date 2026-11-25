@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { sendPushToUser } from "@/lib/push";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { destinationPoint, loadTrail, logLive } from "@/lib/live/server";
+import { destinationPoint, isMissingRelation, loadTrail, logLive } from "@/lib/live/server";
 import {
   DELAY_GRACE_MS,
   EWAY_WARN_MS,
@@ -52,7 +52,32 @@ type EventInput = {
   lng?: number | null;
   dedupeKey?: string | null;
   notify?: boolean;
+  /* 0081: audit trail */
+  driverId?: string | null;
+  vehicleId?: string | null;
+  field?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  actorUserId?: string | null;
 };
+
+type EventTrip = Pick<LiveTrip, "id" | "owner_id" | "trip_seq" | "vehicle_no"> & {
+  driver_id?: string | null;
+  vehicle_id?: string | null;
+};
+
+/** Notification switches on the Live profile (0081). Missing row = both on. */
+async function wantsNotify(ownerId: string, kind: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from("live_profiles")
+    .select("notify_status,notify_alerts")
+    .eq("owner_id", ownerId)
+    .maybeSingle<{ notify_status: boolean; notify_alerts: boolean }>();
+  if (error || !data) return true;
+  return kind === "status" ? data.notify_status : data.notify_alerts;
+}
+
+const clip = (v: string | null | undefined, n: number) => (v == null ? null : String(v).slice(0, n));
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -84,27 +109,43 @@ export async function notifyOwner(ownerId: string, payload: { title: string; bod
 }
 
 /** Inserts an event; returns false when the dedupe key was already used. */
-export async function recordEvent(trip: Pick<LiveTrip, "id" | "owner_id" | "trip_seq" | "vehicle_no">, e: EventInput): Promise<boolean> {
-  const { error } = await admin()
-    .from("live_trip_events")
-    .insert({
-      trip_id: trip.id,
-      owner_id: trip.owner_id,
-      kind: e.kind,
-      title: e.title.slice(0, 200),
-      detail: e.detail ? e.detail.slice(0, 1000) : null,
-      actor: e.actor ?? "system",
-      lat: e.lat ?? null,
-      lng: e.lng ?? null,
-      dedupe_key: e.dedupeKey ?? null,
-      notified: Boolean(e.notify),
-    });
+export async function recordEvent(trip: EventTrip, e: EventInput): Promise<boolean> {
+  const row: Record<string, unknown> = {
+    trip_id: trip.id,
+    owner_id: trip.owner_id,
+    kind: e.kind,
+    title: e.title.slice(0, 200),
+    detail: e.detail ? e.detail.slice(0, 1000) : null,
+    actor: e.actor ?? "system",
+    lat: e.lat ?? null,
+    lng: e.lng ?? null,
+    dedupe_key: e.dedupeKey ?? null,
+    notified: Boolean(e.notify),
+  };
+  // 0081 columns only when there is something to put in them, so a trip event
+  // still saves on a database without 0081.
+  const driverId = e.driverId !== undefined ? e.driverId : (trip.driver_id ?? null);
+  const vehicleId = e.vehicleId !== undefined ? e.vehicleId : (trip.vehicle_id ?? null);
+  if (driverId) row.driver_id = driverId;
+  if (vehicleId) row.vehicle_id = vehicleId;
+  if (e.field) {
+    row.field = e.field.slice(0, 40);
+    row.old_value = clip(e.oldValue, 300);
+    row.new_value = clip(e.newValue, 300);
+  }
+  if (e.actorUserId) row.actor_user_id = e.actorUserId;
+  let { error } = await admin().from("live_trip_events").insert(row);
+  if (error && isMissingRelation(error)) {
+    // Database without 0081 yet: save the plain 0079 row.
+    for (const k of ["driver_id", "vehicle_id", "field", "old_value", "new_value", "actor_user_id"]) delete row[k];
+    ({ error } = await admin().from("live_trip_events").insert(row));
+  }
   if (error) {
     if ((error as { code?: string }).code === "23505") return false;
     logLive("event", error);
     return false;
   }
-  if (e.notify) {
+  if (e.notify && (await wantsNotify(trip.owner_id, e.kind))) {
     const truck = prettyVehicle(trip.vehicle_no);
     await notifyOwner(trip.owner_id, {
       title: `${tripNo(trip.trip_seq)}${truck ? ` · ${truck}` : ""}: ${e.title}`,
@@ -114,6 +155,89 @@ export async function recordEvent(trip: Pick<LiveTrip, "id" | "owner_id" | "trip
     });
   }
   return true;
+}
+
+/**
+ * A driver-level activity row (sharing started/stopped, location gap, truck
+ * assigned...). trip is set when the driver is on one, so the trip log shows it too.
+ */
+export async function recordDriverEvent(
+  driver: { id: string; owner_id: string; name?: string | null },
+  e: EventInput,
+  trip?: EventTrip | null,
+): Promise<boolean> {
+  if (trip) return recordEvent(trip, { ...e, driverId: driver.id });
+  const { error } = await admin()
+    .from("live_trip_events")
+    .insert({
+      trip_id: null,
+      owner_id: driver.owner_id,
+      driver_id: driver.id,
+      vehicle_id: e.vehicleId ?? null,
+      kind: e.kind,
+      title: e.title.slice(0, 200),
+      detail: e.detail ? e.detail.slice(0, 1000) : null,
+      actor: e.actor ?? "system",
+      lat: e.lat ?? null,
+      lng: e.lng ?? null,
+      dedupe_key: e.dedupeKey ?? null,
+      field: e.field ?? null,
+      old_value: clip(e.oldValue, 300),
+      new_value: clip(e.newValue, 300),
+      actor_user_id: e.actorUserId ?? null,
+      notified: false,
+    });
+  if (error) {
+    if ((error as { code?: string }).code === "23505") return false;
+    logLive("driver event", error);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * A trip just closed (delivered / cancelled). A ONE-TIME driver's sharing
+ * ends N hours later (Live profile, default 1) and his truck is released.
+ * An own driver keeps sharing until he stops it himself.
+ */
+export async function afterTripClosed(trip: LiveTrip): Promise<void> {
+  if (!trip.driver_id) return;
+  const db = admin();
+  const { data: driver, error } = await db
+    .from("live_drivers")
+    .select("id,owner_id,kind")
+    .eq("id", trip.driver_id)
+    .maybeSingle<{ id: string; owner_id: string; kind: string }>();
+  if (error || !driver || driver.kind !== "one_time") return;
+  const { data: prof } = await db
+    .from("live_profiles")
+    .select("one_time_expire_hours")
+    .eq("owner_id", trip.owner_id)
+    .maybeSingle<{ one_time_expire_hours: number }>();
+  const hours = Math.min(72, Math.max(1, prof?.one_time_expire_hours ?? 1));
+  const until = new Date(Date.now() + hours * 3_600_000).toISOString();
+  await db.from("live_drivers").update({ share_expires_at: until, updated_at: new Date().toISOString() }).eq("id", driver.id);
+  await db
+    .from("live_assignments")
+    .update({ ended_at: new Date().toISOString(), ended_reason: "trip closed (one-time driver)", actor: "system" })
+    .eq("driver_id", driver.id)
+    .is("ended_at", null);
+  await recordDriverEvent(driver, {
+    kind: "share",
+    title: `Sharing will end at ${fmtIst(until)} (one-time driver, trip ${tripNo(trip.trip_seq)} closed)`,
+    actor: "system",
+  });
+}
+
+/** A closed trip was reopened: a one-time driver's countdown is cancelled. */
+async function afterTripReopened(trip: LiveTrip): Promise<void> {
+  if (!trip.driver_id) return;
+  await admin()
+    .from("live_drivers")
+    .update({ share_expires_at: null })
+    .eq("id", trip.driver_id)
+    .eq("kind", "one_time")
+    .neq("share_status", "expired");
 }
 
 /** Timestamps that go with each status. */
@@ -164,7 +288,10 @@ export async function changeStatus(
     lng: at?.lng ?? null,
     notify: actor !== "owner" && ["in_transit", "arrived", "delivered"].includes(to),
   });
+  const wasClosed = trip.status === "delivered" || trip.status === "cancelled";
   trip.status = to;
+  if (to === "delivered" || to === "cancelled") await afterTripClosed(trip);
+  else if (wasClosed) await afterTripReopened(trip);
   return true;
 }
 
@@ -368,9 +495,53 @@ export async function runLiveSweep(): Promise<{ trips: number } | { skipped: str
     const trips = (data ?? []) as LiveTrip[];
     const now = Date.now();
     for (const trip of trips) await timeRules(trip, now);
+    await driverSweep(now);
     return { trips: trips.length };
   } catch (error) {
     console.error("live sweep failed:", (error as Error).message);
     return { skipped: "error" };
+  }
+}
+
+/**
+ * 0081 driver rules, from the cron tick:
+ *   - one-time drivers whose share_expires_at passed -> "expired" (link stops);
+ *   - a driver sharing with no position for 30+ min gets ONE "no signal" row
+ *     in his activity (phone off / no network / page closed). The trip rule
+ *     above is the one that notifies.
+ */
+async function driverSweep(now: number) {
+  const db = admin();
+  const nowIso = new Date(now).toISOString();
+  const { data: expired, error } = await db
+    .from("live_drivers")
+    .update({ share_status: "expired", updated_at: nowIso })
+    .lt("share_expires_at", nowIso)
+    .in("share_status", ["invited", "active", "stopped"])
+    .select("id,owner_id");
+  if (error) {
+    logLive("driver expiry", error);
+    return;
+  }
+  for (const d of (expired ?? []) as { id: string; owner_id: string }[]) {
+    await recordDriverEvent(d, { kind: "share", title: "Sharing ended (one-time driver, trip done)", actor: "system" });
+  }
+
+  const cutoff = new Date(now - NO_SIGNAL_MS).toISOString();
+  const { data: quiet } = await db
+    .from("live_drivers")
+    .select("id,owner_id,share_last_seen_at")
+    .eq("share_status", "active")
+    .is("archived_at", null)
+    .lt("share_last_seen_at", cutoff)
+    .gt("share_last_seen_at", new Date(now - 24 * 3_600_000).toISOString())
+    .limit(2000);
+  for (const d of (quiet ?? []) as { id: string; owner_id: string; share_last_seen_at: string }[]) {
+    await recordDriverEvent(d, {
+      kind: "no_signal",
+      title: "No location for 30+ min",
+      detail: `Last heard ${fmtIst(d.share_last_seen_at)}. Phone off, no network, or the page was closed.`,
+      dedupeKey: `nosig:${d.share_last_seen_at.slice(0, 16)}`,
+    });
   }
 }

@@ -58,9 +58,14 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
       <header className="live-page-head">
         <div>
           <h1>Trips</h1>
-          <p>Every dispatch, newest first.</p>
+          <p>
+            Optional jobs on top of driver tracking. Closed trips stay here.{" "}
+            <Link href="/live/today" className="font-semibold text-brand-600">
+              Today&apos;s summary
+            </Link>
+          </p>
         </div>
-        <Link href="/live/trips/new" className="live-cta hidden lg:inline-flex">
+        <Link href="/live/new?trip=1" className="live-cta live-cta-sm hidden lg:inline-flex">
           + New trip
         </Link>
       </header>

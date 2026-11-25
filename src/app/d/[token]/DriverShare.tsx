@@ -81,7 +81,7 @@ export function DriverShare({
   wasSharing: boolean;
   /** Live-module trip (0079) behind this link, or null for an old truck link. */
   trip?: DriverTripInfo | null;
-  /** Trip already delivered/cancelled: nothing to share. */
+  /** Sharing has ended (one-time driver after his trip): nothing to share. */
   closed?: boolean;
 }) {
   const QUEUE_KEY = `rx-d-q-${token}`;
@@ -290,15 +290,12 @@ export function DriverShare({
     };
   }, [acquireWakeLock, flush]);
 
-  const onTripClosed = useCallback(
-    (text: string) => {
-      stopWatching();
-      writeStore(ON_KEY, null);
-      setPhase("revoked");
-      setMessage(text);
-    },
-    [ON_KEY, stopWatching],
-  );
+  /* Driver-first (0081): a delivered trip does NOT stop sharing. An own
+     driver shares until he taps Stop; a one-time driver's link ends by itself
+     a while later and the server then answers 410, which stops the page. */
+  const onTripClosed = useCallback((text: string) => {
+    setMessage(text);
+  }, []);
 
   const sharing = phase === "sharing" || phase === "starting";
   const speedKmh = lastFix?.speed != null && lastFix.speed >= 0 ? Math.round(lastFix.speed * 3.6) : null;
@@ -310,8 +307,17 @@ export function DriverShare({
           <Truck size={22} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-xs text-muted">Truck / ट्रक</p>
-          <h1 className="font-mono text-2xl font-bold tracking-wide text-strong">{truckNumber}</h1>
+          {truckNumber ? (
+            <>
+              <p className="text-xs text-muted">Truck / ट्रक</p>
+              <h1 className="font-mono text-2xl font-bold tracking-wide text-strong">{truckNumber}</h1>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted">Driver / ड्राइवर</p>
+              <h1 className="text-2xl font-bold text-strong">{driverName || "Location sharing"}</h1>
+            </>
+          )}
         </div>
       </header>
 

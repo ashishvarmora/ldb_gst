@@ -9,13 +9,15 @@ import { explainDelay, explainDelayBasic, type TripDelayFacts } from "@/lib/live
 import {
   customerShareText,
   destinationPoint,
-  driverInviteText,
-  driverLink,
+  driverLinkText,
+  driverShareLink,
+  loadDriver,
+  loadLiveProfile,
   loadPlaces,
   loadTrail,
   loadTrip,
   loadTripEvents,
-  ownerLabelOf,
+  ownerLabelFrom,
   placeMap,
   requireLiveSession,
   trackLink,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/live/server";
 import {
   NEXT_STATUSES,
+  PURPOSE_LABEL,
   STATUS_LABEL,
   agoShort,
   destinationText,
@@ -36,23 +39,17 @@ import {
   recentAvgKmph,
   signalState,
   tripNo,
+  tripPhase,
+  tripTitle,
   untilShort,
   type LiveTrip,
   type TripStatus,
 } from "@/lib/live/shared";
 import { formatIndianMobile } from "@/lib/phone";
 
-import {
-  addTripNote,
-  deleteTrip,
-  duplicateTrip,
-  resetDriverLink,
-  setCustomerLink,
-  setTripStatus,
-  stopDriverLink,
-} from "../../actions";
+import { addTripNote, deleteTrip, setCustomerLink, setTripStatus } from "../../actions";
 import { BackLink } from "../../BackLink";
-import { SignalPill, StatusPill, tripIssues } from "../../parts";
+import { ActivityList, DriverSignalPill, KindChip, SignalPill, StatusPill, tripIssues } from "../../parts";
 import { AutoRefresh, CopyButton } from "../../widgets";
 
 export const dynamic = "force-dynamic";
@@ -105,7 +102,13 @@ export default async function TripPage({
   const trip = await loadTrip(live.ownerId, id);
   if (!trip) notFound();
 
-  const [places, events, trail] = await Promise.all([loadPlaces(live.ownerId, { includeArchived: true }), loadTripEvents(trip.id), loadTrail(trip.id)]);
+  const [places, events, trail, driver, profile] = await Promise.all([
+    loadPlaces(live.ownerId, { includeArchived: true }),
+    loadTripEvents(trip.id),
+    loadTrail(trip.id),
+    trip.driver_id ? loadDriver(live.ownerId, trip.driver_id) : Promise.resolve(null),
+    loadLiveProfile(live.ownerId),
+  ]);
   const byId = placeMap(places);
   const from = trip.from_place_id ? byId.get(trip.from_place_id) : null;
   const to = trip.to_place_id ? byId.get(trip.to_place_id) : null;
@@ -117,9 +120,16 @@ export default async function TripPage({
   const issues = tripIssues(trip, now);
   const late = issues.some((i) => i.key === "late");
   const signal = signalState(trip, now);
-  const ownerLabel = ownerLabelOf(live.session);
+  const ownerLabel = ownerLabelFrom(live.session, profile);
+  const fromText = from?.name ?? trip.from_name ?? null;
+  const phase = tripPhase(trip.status);
 
-  const driverWa = trip.driver_token ? waHref(trip.driver_phone, driverInviteText(trip, ownerLabel, toText)) : null;
+  // Driver-first (0081): the trip uses the DRIVER's own link.
+  const dLink = driver ? driverShareLink(driver) : null;
+  const driverWa =
+    driver && dLink
+      ? waHref(driver.phone, driverLinkText(driver, ownerLabel, { title: tripTitle(trip), toText, truck: prettyVehicle(trip.vehicle_no) || null }))
+      : null;
   const customerWa = trip.track_token ? waHref(trip.consignee_phone ?? to?.contact_phone, customerShareText(trip, ownerLabel)) : null;
 
   const delayFacts: TripDelayFacts = {
@@ -146,13 +156,14 @@ export default async function TripPage({
       <header className="live-trip-head">
         <div className="min-w-0">
           <p className="live-trip-no">
-            {tripNo(trip.trip_seq)}
+            {trip.purpose ? `${PURPOSE_LABEL[trip.purpose].split(" (")[0]} · ` : ""}
+            {trip.vehicle_no ? prettyVehicle(trip.vehicle_no) : "No truck"}
             {trip.invoice_no ? ` · Invoice ${trip.invoice_no}` : ""}
           </p>
-          <h1 className="font-mono">{prettyVehicle(trip.vehicle_no) || "No vehicle yet"}</h1>
+          <h1>{tripTitle(trip)}</h1>
           <p className="live-trip-route-lg">
-            {from ? <span>{from.name}</span> : null}
-            {from ? <span aria-hidden> → </span> : null}
+            {fromText ? <span>{fromText}</span> : null}
+            {fromText ? <span aria-hidden> → </span> : null}
             <strong>{toText}</strong>
           </p>
         </div>
@@ -162,17 +173,17 @@ export default async function TripPage({
         </div>
       </header>
 
-      {sp.created && trip.driver_token ? (
+      {sp.created && dLink ? (
         <section className="live-callout">
-          <strong>Trip created. Now send the tracking link to the driver.</strong>
-          <p>He opens it, taps Start sharing - you see the truck here. No app needed.</p>
+          <strong>Trip created. Send {driver?.name ?? "the driver"} his link.</strong>
+          <p>Same link as always for this driver. He opens it, taps Start sharing - you see him here. No app needed.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {driverWa ? (
               <a href={driverWa} target="_blank" rel="noopener noreferrer" className="live-cta live-cta-sm live-cta-wa">
                 <MessageCircle size={15} /> Send on WhatsApp
               </a>
             ) : null}
-            <CopyButton value={driverLink(trip.driver_token)} />
+            <CopyButton value={dLink} />
           </div>
         </section>
       ) : null}
@@ -258,7 +269,7 @@ export default async function TripPage({
                 {hidden(trip)}
                 <input type="hidden" name="status" value={s} />
                 {s === "cancelled" ? (
-                  <ConfirmSubmitButton message="Cancel this trip? The driver link stops working." size="md">
+                  <ConfirmSubmitButton message="Cancel this trip? It stays in your records. Own drivers keep sharing; a one-time driver stops after the set hours." size="md">
                     {ACTION_LABEL[s]}
                   </ConfirmSubmitButton>
                 ) : (
@@ -281,51 +292,39 @@ export default async function TripPage({
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Driver link */}
+        {/* Driver (the phone that is tracked) */}
         <section className="panel p-4">
-          <h2 className="live-h2">Driver GPS link</h2>
-          <p className="mt-1 text-sm text-muted">
-            {trip.driver_name || "Driver"}
-            {trip.driver_phone ? ` · ${formatIndianMobile(trip.driver_phone)}` : " · no mobile saved"}
-          </p>
-          <p className="mt-1 text-sm text-ink">
-            {
-              {
-                live: "Sharing now.",
-                recent: `Last heard ${agoShort(trip.share_last_seen_at ?? trip.last_point_at, now)}.`,
-                waiting: "Sent, not opened yet.",
-                stopped: "The driver stopped sharing. Call him or send the link again.",
-                off: "Link is off.",
-              }[signal]
-            }
-          </p>
-          {open ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {trip.driver_token && trip.share_status !== "revoked" ? (
-                <>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="live-h2">Driver</h2>
+            {driver ? (
+              <Link href={`/live/drivers/${driver.id}`} className="text-sm font-semibold text-brand-600">
+                Manage
+              </Link>
+            ) : null}
+          </div>
+          {driver ? (
+            <>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink">
+                <strong>{driver.name}</strong>
+                <KindChip driver={driver} />
+                {driver.phone ? <a href={`tel:${driver.phone}`} className="text-muted">{formatIndianMobile(driver.phone)}</a> : null}
+              </p>
+              <p className="mt-1">
+                <DriverSignalPill driver={driver} now={now} />
+              </p>
+              {open && dLink ? (
+                <div className="mt-3 flex flex-wrap gap-2">
                   {driverWa ? (
                     <a href={driverWa} target="_blank" rel="noopener noreferrer" className="live-cta live-cta-sm live-cta-wa">
-                      <MessageCircle size={15} /> WhatsApp
+                      <MessageCircle size={15} /> WhatsApp link
                     </a>
                   ) : null}
-                  <CopyButton value={driverLink(trip.driver_token)} />
-                  <ActionForm action={stopDriverLink} closeOnSuccess={false}>
-                    {hidden(trip)}
-                    <ConfirmSubmitButton message="Stop the driver link? It stops working at once." size="sm">
-                      Stop link
-                    </ConfirmSubmitButton>
-                  </ActionForm>
-                </>
+                  <CopyButton value={dLink} />
+                </div>
               ) : null}
-              <ActionForm action={resetDriverLink} closeOnSuccess={false}>
-                {hidden(trip)}
-                <SubmitButton variant="secondary" size="sm">
-                  {trip.share_status === "revoked" ? "Turn link back on" : "New link"}
-                </SubmitButton>
-              </ActionForm>
-            </div>
+            </>
           ) : (
-            <p className="mt-2 text-xs text-muted">Trip closed - the driver link no longer sends positions.</p>
+            <p className="mt-1 text-sm text-muted">{trip.driver_name || "No driver"} · {signal === "off" ? "link off" : "no driver record"}</p>
           )}
         </section>
 
@@ -370,12 +369,18 @@ export default async function TripPage({
       <section className="panel p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="live-h2">Details</h2>
-          <Link href={`/live/trips/${trip.id}/edit`} className={buttonClass("secondary", "sm")}>
-            <Pencil size={14} /> Edit
-          </Link>
+          {phase !== "closed" ? (
+            <Link href={`/live/trips/${trip.id}/edit`} className={buttonClass("secondary", "sm")}>
+              <Pencil size={14} /> {phase === "started" ? "Change" : "Edit"}
+            </Link>
+          ) : null}
         </div>
         <dl className="live-dl mt-2">
-          <Row label="From">{from?.name ?? "-"}</Row>
+          <Row label="Trip">{tripNo(trip.trip_seq)}{trip.trip_name ? ` · ${trip.trip_name}` : ""} (fixed)</Row>
+          <Row label="Purpose">{trip.purpose ? PURPOSE_LABEL[trip.purpose] : "-"}</Row>
+          <Row label="Driver">{trip.driver_name ?? "-"}</Row>
+          <Row label="Truck">{trip.vehicle_no ? <span className="font-mono">{prettyVehicle(trip.vehicle_no)}</span> : "-"}</Row>
+          <Row label="From">{fromText ?? "-"}</Row>
           <Row label="To">{toText}</Row>
           {trip.consignee_name ? <Row label="Customer contact">{trip.consignee_name}{trip.consignee_phone ? ` · ${formatIndianMobile(trip.consignee_phone)}` : ""}</Row> : null}
           <Row label="Material">
@@ -391,8 +396,8 @@ export default async function TripPage({
           <Row label="LR / bilty">{trip.lr_no ?? "-"}</Row>
           <Row label="Transporter">{trip.transporter ?? "-"}</Row>
           {trip.freight_inr != null ? <Row label="Freight">{inr(trip.freight_inr)}</Row> : null}
-          <Row label="Planned dispatch">{fmtIst(trip.planned_dispatch_at)}</Row>
-          <Row label="Promised delivery">{fmtIst(trip.promised_delivery_at)}</Row>
+          <Row label="Planned start">{fmtIst(trip.planned_dispatch_at)}</Row>
+          <Row label="Expected arrival">{fmtIst(trip.promised_delivery_at)}</Row>
           {trip.started_at ? <Row label="Started">{fmtIst(trip.started_at)}</Row> : null}
           {trip.arrived_at ? <Row label="Arrived">{fmtIst(trip.arrived_at)}</Row> : null}
           {trip.delivered_at ? <Row label="Delivered">{fmtIst(trip.delivered_at)}</Row> : null}
@@ -402,7 +407,8 @@ export default async function TripPage({
 
       {/* Timeline */}
       <section className="panel p-4">
-        <h2 className="live-h2">Timeline</h2>
+        <h2 className="live-h2">Activity log</h2>
+        <p className="text-xs text-muted">Every change: who, when, old → new. Kept after the trip closes.</p>
         <ActionForm action={addTripNote} closeOnSuccess={false} resetOnSuccess className="mt-3">
           {hidden(trip)}
           <div className="flex gap-2">
@@ -410,45 +416,22 @@ export default async function TripPage({
             <SubmitButton variant="secondary">Add</SubmitButton>
           </div>
         </ActionForm>
-        <ol className="live-timeline mt-4">
-          {events.map((e) => (
-            <li key={e.id} className={`live-tl-${e.kind}`}>
-              <span className="live-tl-dot" aria-hidden />
-              <div className="min-w-0">
-                <p className="live-tl-title">{e.title}</p>
-                {e.detail ? <p className="live-tl-detail">{e.detail}</p> : null}
-                <p className="live-tl-when">
-                  {fmtIst(e.created_at)} · {e.actor === "owner" ? "You" : e.actor === "driver" ? "Driver" : "Auto"}
-                  {e.lat != null && e.lng != null ? (
-                    <>
-                      {" · "}
-                      <a href={mapsHref(e.lat, e.lng)} target="_blank" rel="noopener noreferrer">
-                        map
-                      </a>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            </li>
-          ))}
-          {events.length === 0 ? <li className="text-sm text-muted">Nothing yet.</li> : null}
-        </ol>
+        <div className="mt-4">
+          <ActivityList events={events} />
+        </div>
       </section>
 
-      <section className="flex flex-wrap gap-2 pb-4">
-        <ActionForm action={duplicateTrip} closeOnSuccess={false}>
-          {hidden(trip)}
-          <SubmitButton variant="secondary" size="sm">
-            Same route again
-          </SubmitButton>
-        </ActionForm>
-        <ActionForm action={deleteTrip} closeOnSuccess={false}>
-          {hidden(trip)}
-          <ConfirmSubmitButton message={`Delete ${tripNo(trip.trip_seq)} with its positions and timeline? This cannot be undone.`}>
-            Delete trip
-          </ConfirmSubmitButton>
-        </ActionForm>
-        <span className="self-center text-xs text-muted">Status now: {STATUS_LABEL[trip.status]}</span>
+      <section className="flex flex-wrap items-center gap-2 pb-4">
+        <Link href={`/live/new?copy=${trip.id}`} className={buttonClass("secondary", "sm")}>
+          Same route again
+        </Link>
+        {trip.status === "planned" && !trip.started_at && !trip.last_point_at ? (
+          <ActionForm action={deleteTrip} closeOnSuccess={false}>
+            {hidden(trip)}
+            <ConfirmSubmitButton message={`Delete ${tripNo(trip.trip_seq)}? It never started. This cannot be undone.`}>Delete trip</ConfirmSubmitButton>
+          </ActionForm>
+        ) : null}
+        <span className="text-xs text-muted">Status now: {STATUS_LABEL[trip.status]}</span>
       </section>
     </div>
   );

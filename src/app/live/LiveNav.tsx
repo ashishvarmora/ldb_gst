@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { CSSProperties } from "react";
-import { LayoutDashboard, MapPinned, Plus, Receipt, Route, Truck } from "lucide-react";
+import { Database, Plus, Receipt, Route, UserRound, Users } from "lucide-react";
 
 import { NavSpinner, NavTabPending } from "@/components/NavPending";
 import { LogoBadge } from "@/components/Logo";
@@ -11,20 +11,27 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { cx } from "@/components/ui";
 
 /**
- * Live tracking's own navigation. Four tabs on a phone (the shared bottom-bar
- * styling draws its notch for exactly four), a sidebar on a desktop. "New trip"
- * is the floating action on the phone and the first link on the desktop.
+ * Live tracking's navigation (0081, driver-first). Four tabs, like the Toll
+ * app's bottom bar (its notch is drawn for exactly four):
+ *   Drivers  - home: every driver, live / last seen / idle
+ *   Trips    - open and closed trips, search, today's summary
+ *   Masters  - fixed data: drivers, trucks, warehouses & places
+ *   Profile  - business details, sharing defaults, notifications
+ * "+ Track" (new driver / truck / trip, one screen) is the floating button on
+ * Drivers and Trips, and the first link in the desktop sidebar.
  */
 
 const NAV = [
-  { href: "/live", label: "Today", icon: LayoutDashboard },
+  { href: "/live", label: "Drivers", icon: Users },
   { href: "/live/trips", label: "Trips", icon: Route },
-  { href: "/live/places", label: "Places", icon: MapPinned },
-  { href: "/live/fleet", label: "Fleet", icon: Truck },
+  { href: "/live/masters", label: "Masters", icon: Database },
+  { href: "/live/profile", label: "Profile", icon: UserRound },
 ];
 
 function isActive(path: string, href: string) {
-  if (href === "/live") return path === "/live";
+  if (href === "/live") return path === "/live" || path.startsWith("/live/drivers/") || path === "/live/new";
+  if (href === "/live/trips") return path.startsWith("/live/trips") || path === "/live/today";
+  if (href === "/live/masters") return path.startsWith("/live/masters") || path.startsWith("/live/places") || path.startsWith("/live/fleet");
   return path === href || path.startsWith(`${href}/`);
 }
 
@@ -40,8 +47,8 @@ export function LiveSidebar({ brandName }: { brandName: string }) {
             <small>Live tracking</small>
           </span>
         </Link>
-        <Link href="/live/trips/new" className="live-new-trip-side">
-          <Plus size={18} /> New trip
+        <Link href="/live/new" className="live-new-trip-side">
+          <Plus size={18} /> Track a driver
         </Link>
         <nav className="app-sidebar-links" aria-label="Live tracking">
           {NAV.map(({ href, label, icon: Icon }) => (
@@ -73,9 +80,9 @@ export function LiveBottomNav() {
   return (
     <>
       {showFab ? (
-        <Link href="/live/trips/new" className="live-fab lg:hidden" aria-label="New trip">
+        <Link href="/live/new" className="live-fab lg:hidden" aria-label="Track a driver">
           <Plus size={22} strokeWidth={2.4} />
-          <span>New trip</span>
+          <span>Track</span>
         </Link>
       ) : null}
       <nav

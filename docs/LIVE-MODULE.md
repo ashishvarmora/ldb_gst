@@ -48,3 +48,16 @@ delivery or cancel. Customer page never shows driver number, invoice value, frei
 0079 copies each open `truck_drivers` link into a trip **with the same token** (+ vehicle, driver, last 7 days of points)
 and switches Live on for those accounts. `/d/<token>` and its report API look up `live_trips` first and fall back to
 the 0078 code path for any token not found (or if 0079 is not applied yet). 0078 tables are untouched.
+
+## 0081 - driver-first (25 Nov 2026)
+
+Tracking follows the **driver's phone**. The driver owns the link (`live_drivers.share_token`, `/d/<token>`); a trip is optional.
+
+- **Driver kinds**: `own` (shares until he taps Stop, no expiry) and `one_time` (dealer/supplier; `share_expires_at` = trip delivered/cancelled + `live_profiles.one_time_expire_hours`, default 1 h; sweep marks `expired`, `/d` answers 410).
+- **Masters**: drivers, trucks (`owner_type` own/dealer/supplier/transporter), warehouses & places. Soft delete (`archived_at`); history stays.
+- **Truck assignment**: `live_assignments`, one open row per driver and per truck (unique partial indexes). Moving a held truck needs an explicit "move it" tick; logged on both drivers and the trip.
+- **Trips**: `trip_seq` + `trip_name` fixed (DB trigger). `purpose` + from or to required when trip details are on. Edit rules in `shared.ts` (`TRIP_FIELDS_DYNAMIC` after start; everything before start; nothing when closed). One open trip per driver (server + unique index).
+- **Activity**: `live_trip_events` now carries `driver_id`, `vehicle_id`, `field`, `old_value`, `new_value`, `actor_user_id`; `trip_id` may be null (driver-only rows: sharing, gaps, truck changes).
+- **Positions**: `live_locations.driver_id` (+ `trip_id` when on a trip). Driver row caches last position.
+- **Token resolution** (`src/lib/live/driver.ts`): driver token -> old trip token -> its driver -> 0079 trip-only -> 0078 truck link.
+- **Pages**: `/live` Drivers (Live / Last seen / Idle), `/live/new` one-screen create (driver required; Truck and Trip toggles), `/live/drivers/[id]`, `/live/trips` (+ `/live/today` summary), `/live/masters` (+ drivers, trucks, `/live/places`), `/live/profile`.

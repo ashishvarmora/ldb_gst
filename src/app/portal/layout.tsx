@@ -167,7 +167,7 @@ export default async function PortalLayout({ children }: { children: React.React
           <div className="flex items-center justify-between gap-2 px-4 py-3">
             <Link
               href="/portal"
-              className="-ml-1 flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-1 lg:hidden"
+              className="-ml-1 flex min-h-10 min-w-[7.5rem] shrink-0 items-center gap-2 rounded-lg px-1 lg:hidden"
             >
               <LogoMark size={30} className="text-saffron" />
               <span className="truncate font-display text-xl font-extrabold tracking-tight text-strong">

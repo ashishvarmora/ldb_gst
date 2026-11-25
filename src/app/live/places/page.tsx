@@ -8,9 +8,10 @@ import { PLACE_KINDS, PLACE_KIND_LABEL, mapsHref, type PlaceKind } from "@/lib/l
 import { formatIndianMobile } from "@/lib/phone";
 
 import { archivePlace } from "../actions";
+import { BackLink } from "../BackLink";
 import { PlaceForm } from "./PlaceForm";
 
-export const metadata = { title: "Live tracking - Places" };
+export const metadata = { title: "Live tracking - Warehouses & places" };
 export const dynamic = "force-dynamic";
 
 const ICON: Record<PlaceKind, typeof MapPin> = {
@@ -34,10 +35,11 @@ export default async function PlacesPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="live-page mx-auto max-w-4xl space-y-4">
+      <BackLink href="/live/masters" label="Masters" />
       <header className="live-page-head">
         <div>
-          <h1>Places</h1>
-          <p>Your factories, godowns and customers. Saved once, used on every trip.</p>
+          <h1>Warehouses &amp; places</h1>
+          <p>Your factories and godowns, plus customers and dealers. Saved once, used on every trip.</p>
         </div>
       </header>
 

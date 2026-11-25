@@ -11,8 +11,10 @@ import {
   OPEN_STATUSES,
   prettyVehicle,
   tripNo,
+  type LiveAssignment,
   type LiveDriver,
   type LivePlace,
+  type LiveProfile,
   type LiveTrip,
   type LiveVehicle,
   type Point,
@@ -228,6 +230,7 @@ export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ row
       `to_name.ilike.%${safe}%`,
       `to_city.ilike.%${safe}%`,
       `driver_name.ilike.%${safe}%`,
+      `trip_name.ilike.%${safe}%`,
       `material.ilike.%${safe}%`,
     ];
     if (veh.length >= 3) ors.push(`vehicle_no.ilike.%${veh}%`);
@@ -323,4 +326,178 @@ export function destinationPoint(trip: LiveTrip, to: LivePlace | null | undefine
   if (to && to.lat != null && to.lng != null) return { lat: to.lat, lng: to.lng };
   if (trip.to_lat != null && trip.to_lng != null) return { lat: trip.to_lat, lng: trip.to_lng };
   return null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0081: driver-first reads                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+export const DEFAULT_LIVE_PROFILE = (ownerId: string): LiveProfile => ({
+  owner_id: ownerId,
+  business_name: null,
+  gstin: null,
+  contact_name: null,
+  contact_phone: null,
+  business_type: null,
+  default_place_id: null,
+  one_time_expire_hours: 1,
+  notify_status: true,
+  notify_alerts: true,
+});
+
+export async function loadLiveProfile(ownerId: string): Promise<LiveProfile> {
+  const { data, error } = await getSupabaseAdmin().from("live_profiles").select("*").eq("owner_id", ownerId).maybeSingle<LiveProfile>();
+  if (error) logLive("profile", error);
+  return data ?? DEFAULT_LIVE_PROFILE(ownerId);
+}
+
+/** Name shown to drivers/customers: the Live business name, else the account's. */
+export function ownerLabelFrom(session: PortalSession, profile: LiveProfile | null): string {
+  return (profile?.business_name || ownerLabelOf(session)).trim().slice(0, 80);
+}
+
+export async function loadDriver(ownerId: string, id: string): Promise<LiveDriver | null> {
+  if (!UUID_RE.test(id)) return null;
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_drivers")
+    .select("*")
+    .eq("id", id)
+    .eq("owner_id", ownerId)
+    .maybeSingle<LiveDriver>();
+  if (error) logLive("driver", error);
+  return data ?? null;
+}
+
+export async function loadOpenAssignments(ownerId: string): Promise<LiveAssignment[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_assignments")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .is("ended_at", null)
+    .limit(1000);
+  if (error) {
+    logLive("assignments", error);
+    return [];
+  }
+  return (data ?? []) as LiveAssignment[];
+}
+
+export type DriverRow = {
+  driver: LiveDriver;
+  vehicle: LiveVehicle | null;
+  trip: LiveTrip | null;
+};
+
+/** Everything the Drivers home needs, in three reads. */
+export async function loadDriverBoard(ownerId: string): Promise<{ rows: DriverRow[]; vehicles: LiveVehicle[] }> {
+  const [drivers, vehicles, assignments, trips] = await Promise.all([
+    loadDrivers(ownerId),
+    loadVehicles(ownerId),
+    loadOpenAssignments(ownerId),
+    loadOpenTrips(ownerId),
+  ]);
+  const vehById = new Map(vehicles.map((v) => [v.id, v]));
+  const vehOf = new Map(assignments.map((a) => [a.driver_id, vehById.get(a.vehicle_id) ?? null]));
+  const tripOf = new Map<string, LiveTrip>();
+  for (const t of trips) if (t.driver_id && !tripOf.has(t.driver_id)) tripOf.set(t.driver_id, t);
+  return {
+    rows: drivers.map((d) => ({ driver: d, vehicle: vehOf.get(d.id) ?? null, trip: tripOf.get(d.id) ?? null })),
+    vehicles,
+  };
+}
+
+export async function loadDriverOpenTrip(ownerId: string, driverId: string): Promise<LiveTrip | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_trips")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .eq("driver_id", driverId)
+    .in("status", OPEN_STATUSES)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<LiveTrip>();
+  if (error) logLive("driver open trip", error);
+  return data ?? null;
+}
+
+export async function loadDriverTrips(ownerId: string, driverId: string, limit = 30): Promise<LiveTrip[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_trips")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .eq("driver_id", driverId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    logLive("driver trips", error);
+    return [];
+  }
+  return (data ?? []) as LiveTrip[];
+}
+
+export async function loadDriverActivity(driverId: string, limit = 60): Promise<TripEvent[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("live_trip_events")
+    .select("id,trip_id,driver_id,vehicle_id,kind,title,detail,actor,lat,lng,field,old_value,new_value,created_at")
+    .eq("driver_id", driverId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    logLive("driver activity", error);
+    return [];
+  }
+  return (data ?? []) as TripEvent[];
+}
+
+export async function loadVehicleOf(ownerId: string, driverId: string): Promise<LiveVehicle | null> {
+  const admin = getSupabaseAdmin();
+  const { data: a } = await admin
+    .from("live_assignments")
+    .select("vehicle_id")
+    .eq("owner_id", ownerId)
+    .eq("driver_id", driverId)
+    .is("ended_at", null)
+    .maybeSingle<{ vehicle_id: string }>();
+  if (!a) return null;
+  const { data } = await admin.from("live_vehicles").select("*").eq("id", a.vehicle_id).maybeSingle<LiveVehicle>();
+  return data ?? null;
+}
+
+export function driverShareLink(driver: Pick<LiveDriver, "share_token">): string | null {
+  return driver.share_token ? driverLink(driver.share_token) : null;
+}
+
+/** The WhatsApp text for a driver's own link, with or without a trip. */
+export function driverLinkText(
+  driver: Pick<LiveDriver, "name" | "share_token">,
+  ownerLabel: string,
+  trip: { title: string; toText: string | null; truck: string | null } | null,
+): string {
+  const link = driver.share_token ? driverLink(driver.share_token) : "";
+  const name = driver.name?.trim();
+  const hi = trip
+    ? `${ownerLabel} - ट्रिप ${trip.title}${trip.truck ? `, गाड़ी ${trip.truck}` : ""}${trip.toText ? `, ${trip.toText} तक` : ""}।`
+    : `${ownerLabel} - लोकेशन शेयरिंग।`;
+  const en = trip
+    ? `${ownerLabel} - trip ${trip.title}${trip.truck ? `, truck ${trip.truck}` : ""}${trip.toText ? ` to ${trip.toText}` : ""}.`
+    : `${ownerLabel} - location sharing.`;
+  return [
+    `${name ? `नमस्ते ${name},` : "नमस्ते,"} ${hi} लिंक खोलें और "Start sharing" दबाएँ।`,
+    "",
+    `${name ? `Hello ${name},` : "Hello,"} ${en} Open the link and tap "Start sharing".`,
+    "",
+    link,
+  ].join("\n");
+}
+
+/** True once migration 0081 (driver-first) is applied. Cached for the process once true. */
+let schema81 = false;
+export async function liveSchemaReady(): Promise<boolean> {
+  if (schema81) return true;
+  const { error } = await getSupabaseAdmin().from("live_drivers").select("kind,share_token").limit(1);
+  if (!error) schema81 = true;
+  else if (!isMissingRelation(error)) logLive("schema check", error);
+  return schema81 || !isMissingRelation(error);
 }
