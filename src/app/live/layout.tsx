@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { Navigation } from "lucide-react";
 
+import { AlertBell, type AlertBellItem } from "@/components/AlertBell";
 import { AppSwitcher } from "@/components/AppSwitcher";
 import { LogoMark } from "@/components/Logo";
 import { NavProgress } from "@/components/NavProgress";
 import { PushAutoOn } from "@/components/PushAutoOn";
 import { publicSettings } from "@/components/SiteFooter";
 import { integrationHealth } from "@/lib/env";
-import { liveSchemaReady, requireLiveSession } from "@/lib/live/server";
+import { isMissingRelation, liveSchemaReady, requireLiveSession } from "@/lib/live/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 import { LiveBottomNav, LiveSidebar } from "./LiveNav";
 import { EnableLive } from "./EnableLive";
@@ -24,8 +26,18 @@ import "./live.css";
 
 export const metadata = { robots: { index: false, follow: false } };
 
+/** v5: the Live bell lists only Live alerts (alert_logs kind live_*). Never throws. */
+async function liveAlerts(userId: string): Promise<AlertBellItem[]> {
+  const q = (cols: string) =>
+    getSupabaseAdmin().from("alert_logs").select(cols).eq("user_id", userId).like("kind", "live_%").is("cleared_at", null).order("created_at", { ascending: false }).limit(20);
+  let { data, error } = await q("id,title,truck_number,delivered,read_at,created_at,url");
+  if (error && isMissingRelation(error)) ({ data, error } = await q("id,title,truck_number,delivered,read_at,created_at"));
+  return error ? [] : ((data ?? []) as unknown as AlertBellItem[]);
+}
+
 export default async function LiveLayout({ children }: { children: React.ReactNode }) {
   const [live, { brandName }, ready81] = await Promise.all([requireLiveSession(), publicSettings(), liveSchemaReady()]);
+  const alerts = live.enabled ? await liveAlerts(live.ownerId).catch(() => []) : [];
 
   return (
     <div className="theme-light portal-shell live-shell flex min-h-screen">
@@ -45,6 +57,7 @@ export default async function LiveLayout({ children }: { children: React.ReactNo
             </Link>
             <p className="hidden text-sm font-semibold text-muted lg:block">Live tracking</p>
             <div className="flex shrink-0 items-center gap-2">
+              {live.enabled ? <AlertBell alerts={alerts} unreadCount={alerts.filter((a) => a.read_at === null).length} scope="live" /> : null}
               <AppSwitcher current="live" />
             </div>
           </div>

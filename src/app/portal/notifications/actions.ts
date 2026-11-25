@@ -5,6 +5,16 @@ import { revalidatePath } from "next/cache";
 import { assertPortalUser } from "@/lib/officer";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+/** v5: which app's bell - Live alerts are alert_logs rows with kind live_*. */
+export type AlertScope = "toll" | "live";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function scoped(q: any, scope: AlertScope | undefined) {
+  if (scope === "live") return q.like("kind", "live_%");
+  if (scope === "toll") return q.or("kind.is.null,kind.not.like.live_%");
+  return q;
+}
+
 /**
  * Marks every unread alert as read.
  *
@@ -12,17 +22,16 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
  * "I have looked at these" gesture - there is no list page left to visit and no
  * per-row tick to press.
  */
-export async function markAlertsRead(): Promise<void> {
+export async function markAlertsRead(scope?: AlertScope): Promise<void> {
   const session = await assertPortalUser();
 
-  await getSupabaseAdmin()
-    .from("alert_logs")
-    .update({ read_at: new Date().toISOString() })
-    .eq("user_id", session.id)
-    .is("read_at", null);
+  await scoped(
+    getSupabaseAdmin().from("alert_logs").update({ read_at: new Date().toISOString() }).eq("user_id", session.id).is("read_at", null),
+    scope,
+  );
 
   // The unread count lives in the portal layout, so the whole segment is stale.
-  revalidatePath("/portal", "layout");
+  revalidatePath(scope === "live" ? "/live" : "/portal", "layout");
 }
 
 /**
@@ -37,7 +46,7 @@ export async function markAlertsRead(): Promise<void> {
  * cleared should not keep the badge lit from behind a panel that no longer
  * shows it.
  */
-export async function clearAlerts(): Promise<void> {
+export async function clearAlerts(scope?: AlertScope): Promise<void> {
   const session = await assertPortalUser();
   const admin = getSupabaseAdmin();
   const now = new Date().toISOString();
@@ -49,18 +58,9 @@ export async function clearAlerts(): Promise<void> {
    * read_at is null so a row that was genuinely read last Tuesday keeps saying
    * Tuesday rather than being back-dated to this click.
    */
-  await admin
-    .from("alert_logs")
-    .update({ read_at: now })
-    .eq("user_id", session.id)
-    .is("read_at", null)
-    .is("cleared_at", null);
+  await scoped(admin.from("alert_logs").update({ read_at: now }).eq("user_id", session.id).is("read_at", null).is("cleared_at", null), scope);
 
-  await admin
-    .from("alert_logs")
-    .update({ cleared_at: now })
-    .eq("user_id", session.id)
-    .is("cleared_at", null);
+  await scoped(admin.from("alert_logs").update({ cleared_at: now }).eq("user_id", session.id).is("cleared_at", null), scope);
 
-  revalidatePath("/portal", "layout");
+  revalidatePath(scope === "live" ? "/live" : "/portal", "layout");
 }

@@ -130,6 +130,8 @@ export type LiveTrip = {
   route_lat?: number | null;
   route_lng?: number | null;
   route_source?: "ai" | "rules" | null;
+  /* 0084 */
+  alert_overrides?: TripAlertOverrides | null;
   created_at: string;
   updated_at: string;
 };
@@ -159,6 +161,9 @@ export type LivePlace = {
   archived_at: string | null;
   created_at: string;
   custom_fields?: CustomFields | null;
+  /* 0084 */
+  site_type?: string | null;
+  maps_url?: string | null;
 };
 
 export type LiveVehicle = {
@@ -226,6 +231,10 @@ export type LiveProfile = {
   one_time_expire_hours: number;
   notify_status: boolean;
   notify_alerts: boolean;
+  /* 0084 */
+  alert_settings?: AlertSettings | null;
+  track_show_driver?: boolean | null;
+  track_call_driver?: boolean | null;
 };
 
 export type TripEvent = {
@@ -772,4 +781,103 @@ export function etaBasis(points: Point[], distanceLeftKm: number | null, now = D
     distanceLeftKm,
     hoursLeft: distanceLeftKm != null ? distanceLeftKm / Math.max(kmph, 1) : null,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* v5 (0084): alerts, master presets, planned vs actual                        */
+/* -------------------------------------------------------------------------- */
+
+export type AlertKey = "started" | "late" | "stopped" | "no_signal" | "eway" | "arrived" | "done" | "driver_changed";
+export type AlertSetting = { on: boolean; min?: number };
+export type AlertSettings = Partial<Record<AlertKey, AlertSetting>>;
+export type TripAlertOverrides = { off?: AlertKey[]; on?: AlertKey[]; late_min?: number };
+
+export const ALERT_KEYS: AlertKey[] = ["started", "late", "stopped", "no_signal", "eway", "arrived", "done", "driver_changed"];
+
+/** Label, help text and threshold (minutes; e-way bill in hours) of each default alert. */
+export const ALERT_META: Record<AlertKey, { label: string; help: string; min?: { def: number; unit: "min" | "h"; options: number[] } }> = {
+  started: { label: "Trip started", help: "The trip becomes Active (driver, auto or you)." },
+  late: { label: "Likely late", help: "Live ETA goes past the planned arrival by more than this.", min: { def: 30, unit: "min", options: [15, 30, 60, 120] } },
+  stopped: { label: "Stopped", help: "Truck standing in one spot, not at a saved place.", min: { def: 30, unit: "min", options: [15, 30, 60, 120] } },
+  no_signal: { label: "No signal", help: "No position from the driver's phone on an Active trip.", min: { def: 30, unit: "min", options: [15, 30, 60, 120] } },
+  eway: { label: "E-way bill expiring", help: "Before the e-way bill validity ends, and when it has expired.", min: { def: 6, unit: "h", options: [2, 4, 6, 12] } },
+  arrived: { label: "Arrived", help: "Truck reaches the destination." },
+  done: { label: "Done", help: "Trip marked delivered." },
+  driver_changed: { label: "Driver changed", help: "The driver on an Active trip is changed." },
+};
+
+/** Which event kinds belong to which alert. */
+export const ALERT_OF_KIND: Record<string, AlertKey> = {
+  delay: "late",
+  stoppage: "stopped",
+  no_signal: "no_signal",
+  eway_expiring: "eway",
+  eway_expired: "eway",
+};
+
+/** Account defaults merged with built-in defaults (every alert on). */
+export function alertDefaults(s: AlertSettings | null | undefined): Record<AlertKey, Required<AlertSetting>> {
+  const out = {} as Record<AlertKey, Required<AlertSetting>>;
+  for (const k of ALERT_KEYS) {
+    const v = s?.[k];
+    const def = ALERT_META[k].min?.def ?? 0;
+    const min = typeof v?.min === "number" && v.min > 0 ? v.min : def;
+    out[k] = { on: v?.on !== false, min };
+  }
+  return out;
+}
+
+/** Final switches for one trip: defaults, then the trip's own off / on, then a custom late threshold. */
+export function tripAlerts(s: AlertSettings | null | undefined, o: TripAlertOverrides | null | undefined): Record<AlertKey, Required<AlertSetting>> {
+  const out = alertDefaults(s);
+  for (const k of o?.off ?? []) if (out[k]) out[k].on = false;
+  for (const k of o?.on ?? []) if (out[k]) out[k].on = true;
+  if (typeof o?.late_min === "number" && o.late_min > 0) out.late.min = o.late_min;
+  return out;
+}
+
+/** Warehouse type presets; "Other" lets the user type one. `kind` is the coarse bucket automation uses. */
+export const SITE_TYPES: { label: string; kind: PlaceKind }[] = [
+  { label: "Factory", kind: "factory" },
+  { label: "Warehouse", kind: "warehouse" },
+  { label: "Depot", kind: "warehouse" },
+  { label: "Branch office", kind: "branch" },
+  { label: "Customer site", kind: "customer" },
+];
+
+export function siteTypeLabel(p: Pick<LivePlace, "kind" | "site_type">): string {
+  if (p.site_type) return p.site_type;
+  return { factory: "Factory", warehouse: "Warehouse", branch: "Branch office", customer: "Customer site", other: "Other" }[p.kind] ?? "Other";
+}
+
+export const VEHICLE_TYPES = ["Truck", "Trailer", "Container", "Tanker", "Tipper", "Pickup / LCV", "Tempo"];
+
+/** "45 min" / "1 h 20 min" */
+export function durationShort(min: number): string {
+  const m = Math.round(Math.abs(min));
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+}
+
+/** actual - planned: "+45 min late" / "1 h early" / "on time" (within 5 min). Null when either is missing. */
+export function variance(actualIso: string | null | undefined, plannedIso: string | null | undefined): { text: string; tone: "good" | "warn" | "bad" } | null {
+  if (!actualIso || !plannedIso) return null;
+  const diff = (new Date(actualIso).getTime() - new Date(plannedIso).getTime()) / 60000;
+  if (!Number.isFinite(diff)) return null;
+  if (Math.abs(diff) <= 5) return { text: "on time", tone: "good" };
+  if (diff > 0) return { text: `+${durationShort(diff)} late`, tone: diff > 30 ? "bad" : "warn" };
+  return { text: `${durationShort(diff)} early`, tone: "good" };
+}
+
+/** Standing still: how long the newest points stayed within STOPPAGE_RADIUS_M (points newest first). */
+export function standingFor(points: Point[]): { minutes: number; since: string } | null {
+  const latest = points[0];
+  if (!latest) return null;
+  let anchor = latest;
+  for (const p of points) {
+    if (metersBetween(p, latest) > STOPPAGE_RADIUS_M) break;
+    anchor = p;
+  }
+  const minutes = Math.round((new Date(latest.recorded_at).getTime() - new Date(anchor.recorded_at).getTime()) / 60000);
+  return minutes >= 10 ? { minutes, since: anchor.recorded_at } : null;
 }

@@ -39,6 +39,41 @@ export function CopyButton({ value, label = "Copy link", className }: { value: s
   );
 }
 
+/** v5: icon-only copy button (32 px) with a tick when copied. */
+export function IconCopy({ value, label = "Copy link" }: { value: string; label?: string }) {
+  const { copied, copy } = useCopy();
+  return (
+    <button type="button" onClick={() => void copy(value)} className="live-ib" aria-label={copied ? "Copied" : label} title={copied ? "Copied" : label}>
+      {copied ? <Check size={15} className="text-good-500" /> : <Copy size={15} />}
+    </button>
+  );
+}
+
+/** v5: filter select that navigates on change (history / activity icon filters). */
+export function NavSelect({ name, value, options, base, label }: { name: string; value: string; options: { v: string; label: string }[]; base: string; label: string }) {
+  const router = useRouter();
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      className="field live-field-sm w-full"
+      onChange={(e) => {
+        const u = new URL(base, "http://x");
+        if (e.target.value) u.searchParams.set(name, e.target.value);
+        else u.searchParams.delete(name);
+        u.searchParams.delete("page");
+        router.push(`${u.pathname}${u.search}`);
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.v} value={o.v}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** Native share sheet where the phone has one; WhatsApp link otherwise. */
 export function ShareButton({ text, title, fallbackHref, label = "Share" }: { text: string; title: string; fallbackHref: string; label?: string }) {
   const [canShare, setCanShare] = useState(false);

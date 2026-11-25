@@ -61,7 +61,7 @@ export default async function MastersPage() {
           </span>
           <ChevronRight size={16} className="text-faint" />
         </Link>
-        <Link href="/portal/profile/live/activity">
+        <Link href="/live/activity">
           <span className="live-list-icon">
             <History size={18} />
           </span>

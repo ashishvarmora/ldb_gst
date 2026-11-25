@@ -6,8 +6,16 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { extractDispatch, type DispatchExtract } from "@/lib/live-ai";
 import { changeStatus, recordEvent } from "@/lib/live/automation";
-import { isMissingRelation, liveSchema82, liveSchema83, logLive, newToken, safeReturn, withParam } from "@/lib/live/server";
+import { isMissingRelation, liveSchema82, liveSchema83, liveSchema84, logLive, newToken, safeReturn, withParam } from "@/lib/live/server";
 import {
+  ALERT_KEYS,
+  ALERT_META,
+  SITE_TYPES,
+  alertDefaults,
+  fmtIst,
+  type AlertKey,
+  type AlertSettings,
+  type TripAlertOverrides,
   PLACE_KINDS,
   PURPOSES,
   REASON_FIELDS,
@@ -146,16 +154,32 @@ export async function savePlace(_prev: ActionResult | null, fd: FormData): Promi
   const id = uuidOrNull(fd, "id");
   const name = str(fd, "name", 120);
   if (!name) return { ok: false, error: "Give the place a name." };
-  const kind = (str(fd, "kind", 20) ?? "customer") as PlaceKind;
+  // v5: Type = a preset (Factory, Warehouse, Depot, Branch office, Customer site) or "Other" with own text.
+  let kind = (str(fd, "kind", 20) ?? "warehouse") as PlaceKind;
+  let siteType: string | null = null;
+  const st = str(fd, "site_type", 40);
+  if (st) {
+    const preset = SITE_TYPES.find((t) => t.label === st);
+    if (preset) {
+      kind = preset.kind;
+      siteType = preset.label;
+    } else {
+      kind = "other";
+      siteType = str(fd, "site_type_custom", 40);
+      if (!siteType) return { ok: false, error: "Type: write the type, e.g. Cold store." };
+    }
+  }
   if (!PLACE_KINDS.includes(kind)) return { ok: false, error: "Pick a type." };
 
   const rawPhone = str(fd, "contact_phone", 20);
   const phone = rawPhone ? normaliseIndianMobile(rawPhone) : null;
-  if (rawPhone && !phone) return { ok: false, error: PHONE_ERROR };
+  if (rawPhone && !phone) return { ok: false, error: `Contact phone: ${PHONE_ERROR}` };
 
-  const loc = parseLatLng(str(fd, "location", 500));
-  if (str(fd, "location", 500) && !loc) {
-    return { ok: false, error: "Location not understood. Paste 'lat, lng' or a full Google Maps link (not a short maps.app link)." };
+  const rawLoc = str(fd, "location", 500);
+  const loc = parseLatLng(rawLoc);
+  const locUrl = rawLoc && !loc && /^https:\/\/[^\s]{6,}$/i.test(rawLoc) ? rawLoc.slice(0, 500) : null;
+  if (rawLoc && !loc && !locUrl) {
+    return { ok: false, error: "Location not understood. Pick it on the map, paste 'lat, lng' or a Google Maps link." };
   }
   const radius = Number(str(fd, "radius_m", 6) ?? 500);
   if (!Number.isFinite(radius) || radius < 50 || radius > 20000) return { ok: false, error: "Geofence radius must be 50 to 20,000 m." };
@@ -179,6 +203,10 @@ export async function savePlace(_prev: ActionResult | null, fd: FormData): Promi
     ...(readCustomFields(fd) ? { custom_fields: readCustomFields(fd) } : {}),
   };
   for (const [k, v] of Object.entries(optional)) if (fd.has(k)) row[k] = v;
+  if (await liveSchema84()) {
+    if (st) row.site_type = siteType;
+    if (fd.has("location")) row.maps_url = locUrl;
+  }
   const admin = getSupabaseAdmin();
   const row83 = await strip83(row);
   const res = id
@@ -188,6 +216,8 @@ export async function savePlace(_prev: ActionResult | null, fd: FormData): Promi
   revalidatePath("/live", "layout");
   const back = safeReturn(str(fd, "return", 200));
   if (back && res.data?.id) redirect(withParam(back, "picked_place", res.data.id));
+  const after = safeReturn(str(fd, "after", 200));
+  if (after) redirect(after);
   return { ok: true, message: id ? "Place updated." : "Place added." };
 }
 
@@ -348,6 +378,17 @@ function vehicleRowFrom(fd: FormData): { ok: true; number: string; row: Record<s
   const owner_type = str(fd, "owner_type", 12) === "transporter" ? "transporter" : "own";
   const row: Record<string, unknown> = { number, owner_type, ownership: owner_type === "own" ? "own" : "market" };
   row.transporter = owner_type === "own" ? null : str(fd, "transporter", 120);
+  // v5: vehicle type (preset or "Other" text) and capacity in tonnes (stored as kg).
+  if (fd.has("vehicle_type")) {
+    const vt = str(fd, "vehicle_type", 40);
+    row.vehicle_type = vt === "__other" ? str(fd, "vehicle_type_custom", 40) : vt;
+  }
+  if (fd.has("capacity_t")) {
+    const raw = str(fd, "capacity_t", 8);
+    const t = raw ? Number(raw.replace(",", ".")) : null;
+    if (t != null && (!Number.isFinite(t) || t <= 0 || t > 100)) return { ok: false, error: "Capacity: tonnes between 0.1 and 100." };
+    row.capacity_kg = t != null ? Math.round(t * 1000) : null;
+  }
   const cf = readCustomFields(fd);
   if (cf) row.custom_fields = cf;
   return { ok: true, number, row };
@@ -380,6 +421,8 @@ export async function saveVehicle(_prev: ActionResult | null, fd: FormData): Pro
   revalidatePath("/live", "layout");
   const back = safeReturn(str(fd, "return", 200));
   if (!id && back && savedId) redirect(withParam(back, "picked_vehicle", savedId));
+  const after = safeReturn(str(fd, "after", 200));
+  if (after) redirect(after);
   return { ok: true, message: id ? "Truck updated." : "Truck saved." };
 }
 
@@ -472,6 +515,8 @@ export async function saveDriver(_prev: ActionResult | null, fd: FormData): Prom
     revalidatePath("/live", "layout");
     const back = safeReturn(str(fd, "return", 200));
     if (back) redirect(withParam(back, "picked_driver", driverId));
+    const after = safeReturn(str(fd, "after", 200));
+    if (after) redirect(after);
     return { ok: true, message };
   }
 
@@ -484,6 +529,8 @@ export async function saveDriver(_prev: ActionResult | null, fd: FormData): Prom
     return dbError(error, "driver");
   }
   revalidatePath("/live", "layout");
+  const after = safeReturn(str(fd, "after", 200));
+  if (after) redirect(after);
   return { ok: true, message: "Driver updated." };
 }
 
@@ -953,6 +1000,8 @@ async function saveTripForm(a: Actor, fd: FormData, trip: LiveTrip | null): Prom
           reason: (REASON_FIELDS as readonly string[]).includes(c.field) ? reason : null,
           actor: "owner",
           actorUserId: a.userId,
+          // v5: "Driver changed" alert (in-app; you made it, so no push).
+          ...(active && c.field === "driver" ? { notify: true, alert: "driver_changed" as const, push: false } : {}),
         },
       );
     }
@@ -1003,10 +1052,96 @@ export async function setTripState(_prev: ActionResult | null, fd: FormData): Pr
   }
   const note = str(fd, "note", 500);
   const ok = await changeStatus(trip, statusForState(to, trip), "owner", note ? `You: ${note}` : null);
-  if (!ok) return { ok: false, error: "The trip changed meanwhile. Refresh and try again." };
+  if (!ok) {
+    // v5: say what actually happened instead of a generic "changed meanwhile".
+    const now = await ownTrip(a.ownerId, trip.id);
+    if (now && tripState(now) === to) {
+      revalidatePath("/live", "layout");
+      return { ok: true, message: `Trip is ${STATE_LABEL[to].toLowerCase()}.` };
+    }
+    if (now && now.status !== trip.status) return { ok: false, error: `The trip is now ${STATE_LABEL[tripState(now)]} (changed by the driver or automatically). Check and try again.` };
+    return { ok: false, error: "Could not save the status. Please try again." };
+  }
   if (to === "done" && note) await getSupabaseAdmin().from("live_trips").update({ pod_note: note }).eq("id", trip.id);
   revalidatePath("/live", "layout");
   return { ok: true, message: `Trip is ${STATE_LABEL[to].toLowerCase()}.` };
+}
+
+/** v5: the actual start time (started_at), corrected by the owner with a reason. */
+export async function setActualStart(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const a = await actor();
+  if (!isActor(a)) return a;
+  const trip = await ownTrip(a.ownerId, uuidOrNull(fd, "id"));
+  if (!trip) return { ok: false, error: "Trip not found." };
+  if (tripState(trip) === "planned") return { ok: false, error: "The trip has not started yet. Start it first." };
+  const at = fromLocalInput(str(fd, "started_at", 30));
+  if (!at) return { ok: false, error: "Enter the actual start date and time." };
+  if (Date.parse(at) > Date.now() + 5 * 60_000) return { ok: false, error: "Actual start cannot be in the future." };
+  const reason = str(fd, "reason", 300);
+  if (!reason) return { ok: false, error: "Write the reason for changing the actual start." };
+  const { error } = await getSupabaseAdmin().from("live_trips").update({ started_at: at, updated_at: new Date().toISOString() }).eq("id", trip.id).eq("owner_id", a.ownerId);
+  if (error) return dbError(error, "actual start");
+  await recordEvent(trip, {
+    kind: "edit",
+    title: "Actual start changed",
+    detail: `${fmtIst(trip.started_at)} → ${fmtIst(at)} · Reason: ${reason}`,
+    field: "started_at",
+    oldValue: trip.started_at,
+    newValue: at,
+    reason,
+    actor: "owner",
+    actorUserId: a.userId,
+  });
+  revalidatePath(`/live/trips/${trip.id}`);
+  return { ok: true, message: "Actual start saved." };
+}
+
+/** v5 (0084): this trip's alert switches (defaults come from Live profile > Alerts). */
+export async function saveTripAlerts(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const a = await actor();
+  if (!isActor(a)) return a;
+  const trip = await ownTrip(a.ownerId, uuidOrNull(fd, "id"));
+  if (!trip) return { ok: false, error: "Trip not found." };
+  if (!(await liveSchema84())) return { ok: false, error: "Trip alerts need database update 0084." };
+  const prof = await getSupabaseAdmin().from("live_profiles").select("alert_settings").eq("owner_id", a.ownerId).maybeSingle<{ alert_settings: AlertSettings | null }>();
+  const defs = alertDefaults(prof.data?.alert_settings);
+  const off: AlertKey[] = [];
+  const on: AlertKey[] = [];
+  for (const k of ALERT_KEYS) {
+    const want = fd.get(`a_${k}`) === "on";
+    if (want !== defs[k].on) (want ? on : off).push(k);
+  }
+  const lateRaw = Number(str(fd, "late_min", 4) ?? 0);
+  const late_min = Number.isInteger(lateRaw) && lateRaw >= 5 && lateRaw <= 1440 && lateRaw !== defs.late.min ? lateRaw : undefined;
+  const overrides: TripAlertOverrides = { ...(off.length ? { off } : {}), ...(on.length ? { on } : {}), ...(late_min ? { late_min } : {}) };
+  const { error } = await getSupabaseAdmin().from("live_trips").update({ alert_overrides: overrides }).eq("id", trip.id).eq("owner_id", a.ownerId);
+  if (error) return dbError(error, "trip alerts");
+  await recordEvent(trip, { kind: "edit", title: "Trip alerts changed", detail: [off.length ? `Off: ${off.map((k) => ALERT_META[k].label).join(", ")}` : null, on.length ? `On: ${on.map((k) => ALERT_META[k].label).join(", ")}` : null, late_min ? `Late after ${late_min} min` : null].filter(Boolean).join(" · ") || "Back to defaults", actor: "owner", actorUserId: a.userId });
+  revalidatePath(`/live/trips/${trip.id}`);
+  return { ok: true, message: "Trip alerts saved." };
+}
+
+/** v5 (0084): default alerts for every trip. */
+export async function saveAlertSettings(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const a = await actor();
+  if (!isActor(a)) return a;
+  if (!(await liveSchema84())) return { ok: false, error: "Alert settings need database update 0084." };
+  const settings: AlertSettings = {};
+  for (const k of ALERT_KEYS) {
+    const meta = ALERT_META[k];
+    const s: { on: boolean; min?: number } = { on: fd.get(`a_${k}`) === "on" };
+    if (meta.min) {
+      const n = Number(str(fd, `m_${k}`, 4) ?? meta.min.def);
+      if (Number.isInteger(n) && n > 0 && n <= (meta.min.unit === "h" ? 48 : 1440)) s.min = n;
+    }
+    settings[k] = s;
+  }
+  const { error } = await getSupabaseAdmin()
+    .from("live_profiles")
+    .upsert({ owner_id: a.ownerId, alert_settings: settings, updated_at: new Date().toISOString() }, { onConflict: "owner_id" });
+  if (error) return dbError(error, "alert settings");
+  revalidatePath("/live", "layout");
+  return { ok: true, message: "Alerts saved. They apply to every trip." };
 }
 
 export async function addTripNote(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -1090,26 +1225,28 @@ export async function saveLiveProfile(_prev: ActionResult | null, fd: FormData):
     const { data } = await getSupabaseAdmin().from("live_places").select("id").eq("id", placeId).eq("owner_id", a.ownerId).maybeSingle();
     if (!data) return { ok: false, error: "That warehouse is not in your list." };
   }
-  const { error } = await getSupabaseAdmin()
-    .from("live_profiles")
-    .upsert(
-      {
-        owner_id: a.ownerId,
-        business_name: str(fd, "business_name", 120),
-        gstin,
-        contact_name: str(fd, "contact_name", 80),
-        contact_phone,
-        business_type: bt && BUSINESS_TYPES.includes(bt) ? bt : null,
-        default_place_id: placeId,
-        one_time_expire_hours: hours,
-        notify_status: fd.get("notify_status") === "on",
-        notify_alerts: fd.get("notify_alerts") === "on",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "owner_id" },
-    );
+  const row: Record<string, unknown> = {
+    owner_id: a.ownerId,
+    business_name: str(fd, "business_name", 120),
+    gstin,
+    contact_name: str(fd, "contact_name", 80),
+    contact_phone,
+    business_type: bt && BUSINESS_TYPES.includes(bt) ? bt : null,
+    default_place_id: placeId,
+    one_time_expire_hours: hours,
+    updated_at: new Date().toISOString(),
+  };
+  // Older switches: written only when the form carries them (v5 moved alerts to their own page).
+  if (fd.has("notify_present")) {
+    row.notify_status = fd.get("notify_status") === "on";
+    row.notify_alerts = fd.get("notify_alerts") === "on";
+  }
+  if (fd.has("track_present") && (await liveSchema84())) {
+    row.track_show_driver = fd.get("track_show_driver") === "on";
+    row.track_call_driver = fd.get("track_call_driver") === "on";
+  }
+  const { error } = await getSupabaseAdmin().from("live_profiles").upsert(row, { onConflict: "owner_id" });
   if (error) return dbError(error, "live profile");
   revalidatePath("/live", "layout");
-  revalidatePath("/portal/profile", "layout");
   return { ok: true, message: "Saved." };
 }

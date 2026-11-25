@@ -4,16 +4,18 @@ import { env } from "@/lib/env";
 import { sendPushToUser } from "@/lib/push";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { destinationPoint, isMissingRelation, loadTrail, logLive } from "@/lib/live/server";
+import { destinationPoint, isMissingRelation, liveSchema84, loadTrail, logLive } from "@/lib/live/server";
 import {
-  DELAY_GRACE_MS,
-  EWAY_WARN_MS,
-  NO_SIGNAL_MS,
+  ALERT_OF_KIND,
+  NO_SIGNAL_MS as DRIVER_NO_SIGNAL_MS,
   OPEN_STATUSES,
+  tripAlerts,
+  type AlertKey,
+  type AlertSettings,
+  type TripAlertOverrides,
   STATE_LABEL,
   STATE_OF,
   STATUS_LABEL,
-  STOPPAGE_MS,
   STOPPAGE_RADIUS_M,
   etaFrom,
   fmtIst,
@@ -65,12 +67,16 @@ type EventInput = {
   /* 0083 */
   reason?: string | null;
   phase?: TripState | null;
+  /* 0084: which default alert this is (else from the kind); push false = in-app only */
+  alert?: AlertKey;
+  push?: boolean;
 };
 
 type EventTrip = Pick<LiveTrip, "id" | "owner_id" | "trip_seq" | "vehicle_no"> & {
   driver_id?: string | null;
   vehicle_id?: string | null;
   status?: TripStatus;
+  alert_overrides?: TripAlertOverrides | null;
 };
 
 const COLS_81 = ["driver_id", "vehicle_id", "field", "old_value", "new_value", "actor_user_id"];
@@ -162,16 +168,68 @@ export async function recordEvent(trip: EventTrip, e: EventInput): Promise<boole
     logLive("event", error);
     return false;
   }
-  if (e.notify && (await wantsNotify(trip.owner_id, e.kind))) {
-    const truck = prettyVehicle(trip.vehicle_no);
-    await notifyOwner(trip.owner_id, {
-      title: `${tripNo(trip.trip_seq)}${truck ? ` · ${truck}` : ""}: ${e.title}`,
-      body: e.detail ?? e.title,
-      url: `/live/trips/${trip.id}`,
-      tag: `live-${trip.id}-${e.kind}`,
-    });
-  }
+  if (e.notify) await deliverAlert(trip, e);
   return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* v5 (0084) alerts: in-app bell (alert_logs) + push. App only, no Telegram.   */
+/* -------------------------------------------------------------------------- */
+
+type AlertCfg = Record<AlertKey, { on: boolean; min: number }>;
+const cfgCache = new Map<string, { at: number; settings: AlertSettings | null }>();
+
+/** Account alert defaults (cached 60 s per owner) merged with the trip's own switches. */
+export async function alertConfig(trip: Pick<LiveTrip, "id" | "owner_id"> & { alert_overrides?: TripAlertOverrides | null }): Promise<AlertCfg> {
+  let hit = cfgCache.get(trip.owner_id);
+  if (!hit || Date.now() - hit.at > 60_000) {
+    const { data } = await admin().from("live_profiles").select("alert_settings").eq("owner_id", trip.owner_id).maybeSingle<{ alert_settings: AlertSettings | null }>();
+    hit = { at: Date.now(), settings: data?.alert_settings ?? null };
+    cfgCache.set(trip.owner_id, hit);
+  }
+  let overrides = trip.alert_overrides;
+  if (overrides === undefined && !(await liveSchema84())) overrides = null;
+  if (overrides === undefined) {
+    const { data } = await admin().from("live_trips").select("alert_overrides").eq("id", trip.id).maybeSingle<{ alert_overrides: TripAlertOverrides | null }>();
+    overrides = data?.alert_overrides ?? null;
+  }
+  return tripAlerts(hit.settings, overrides);
+}
+
+async function deliverAlert(trip: EventTrip, e: EventInput) {
+  const key: AlertKey | undefined = e.alert ?? ALERT_OF_KIND[e.kind];
+  if (await liveSchema84()) {
+    if (key) {
+      const cfg = await alertConfig(trip);
+      if (!cfg[key].on) return;
+    }
+  } else if (!(await wantsNotify(trip.owner_id, e.kind))) return;
+  const truck = prettyVehicle(trip.vehicle_no);
+  const title = `${tripNo(trip.trip_seq)}${truck ? ` · ${truck}` : ""}: ${e.title}`;
+  const url = `/live/trips/${trip.id}`;
+  let pushed = false;
+  if (e.push !== false) {
+    try {
+      pushed = (await sendPushToUser(trip.owner_id, { title, body: e.detail ?? e.title, url, tag: `live-${trip.id}-${e.kind}` })).ok;
+    } catch (error) {
+      console.error("live push failed:", (error as Error).message);
+    }
+  }
+  const row: Record<string, unknown> = {
+    user_id: trip.owner_id,
+    kind: `live_${key ?? e.kind}`.slice(0, 40),
+    truck_number: truck || null,
+    title: title.slice(0, 200),
+    message: (e.detail ?? e.title).slice(0, 1000),
+    delivered: e.push === false ? true : pushed,
+    url,
+  };
+  let { error } = await admin().from("alert_logs").insert(row);
+  if (error && isMissingRelation(error)) {
+    delete row.url;
+    ({ error } = await admin().from("alert_logs").insert(row));
+  }
+  if (error) logLive("live alert log", error);
 }
 
 /**
@@ -303,7 +361,15 @@ export async function changeStatus(
     actor,
     lat: at?.lat ?? null,
     lng: at?.lng ?? null,
-    notify: actor !== "owner" && ["in_transit", "arrived", "delivered"].includes(to),
+    // 0084: started / arrived / done alerts; your own clicks land in the bell only (no push).
+    ...(toState === "active" && fromState !== "active"
+      ? { notify: true, alert: "started" as const }
+      : to === "arrived"
+        ? { notify: true, alert: "arrived" as const }
+        : to === "delivered"
+          ? { notify: true, alert: "done" as const }
+          : {}),
+    push: actor !== "owner",
   });
   const wasClosed = trip.status === "delivered" || trip.status === "cancelled";
   trip.status = to;
@@ -337,6 +403,7 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
   const latest = points[0] ?? null;
   const nowIso = new Date(now).toISOString();
   const patch: Record<string, unknown> = {};
+  const cfg = await alertConfig(trip);
 
   if (latest) {
     const here = { lat: latest.lat, lng: latest.lng };
@@ -396,11 +463,11 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
       // 4. Delay risk: ETA later than the promise.
       if (trip.status === "in_transit" && trip.promised_delivery_at) {
         const promised = new Date(trip.promised_delivery_at).getTime();
-        if (eta.getTime() > promised + DELAY_GRACE_MS) {
+        if (eta.getTime() > promised + cfg.late.min * 60_000) {
           await recordEvent(trip, {
             kind: "delay",
             title: "Likely late",
-            detail: `About ${Math.round(km)} km left; expected ${fmtIst(eta.toISOString())}, promised ${fmtIst(trip.promised_delivery_at)}.`,
+            detail: `About ${Math.round(km)} km left; live ETA ${fmtIst(eta.toISOString())}, planned arrival ${fmtIst(trip.promised_delivery_at)}.`,
             lat: here.lat,
             lng: here.lng,
             dedupeKey: `delay:${trip.promised_delivery_at}`,
@@ -411,7 +478,7 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
     }
 
     // 5. Stoppage: standing within 300 m for 30+ min, not at a known place.
-    if (trip.status === "in_transit" && now - new Date(latest.recorded_at).getTime() < NO_SIGNAL_MS) {
+    if (trip.status === "in_transit" && now - new Date(latest.recorded_at).getTime() < cfg.no_signal.min * 60_000) {
       let anchor = latest;
       for (const p of points) {
         if (metersBetween(p, latest) > STOPPAGE_RADIUS_M) break;
@@ -419,7 +486,7 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
       }
       const stoodMs = new Date(latest.recorded_at).getTime() - new Date(anchor.recorded_at).getTime();
       const atKnownPlace = [...places.values()].some((pl) => inside(here, pl));
-      if (stoodMs >= STOPPAGE_MS && !atKnownPlace) {
+      if (stoodMs >= cfg.stopped.min * 60_000 && !atKnownPlace) {
         await recordEvent(trip, {
           kind: "stoppage",
           title: `Stopped for ${Math.round(stoodMs / 60000)} min`,
@@ -445,6 +512,9 @@ export async function evaluateTrip(trip: LiveTrip, places: Map<string, LivePlace
 /** Rules that need only the clock: e-way bill, no signal. */
 async function timeRules(trip: LiveTrip, now: number) {
   const moving = trip.status === "loading" || trip.status === "in_transit";
+  const cfg = await alertConfig(trip);
+  const EWAY_WARN_MS = cfg.eway.min * 3_600_000;
+  const NO_SIGNAL_MS = cfg.no_signal.min * 60_000;
   if (moving && trip.eway_valid_until) {
     const left = new Date(trip.eway_valid_until).getTime() - now;
     if (left <= 0) {
@@ -472,7 +542,7 @@ async function timeRules(trip: LiveTrip, now: number) {
       const key = (trip.share_last_seen_at ?? trip.last_point_at ?? "").slice(0, 16);
       await recordEvent(trip, {
         kind: "no_signal",
-        title: "No location for 30+ min",
+        title: `No location for ${cfg.no_signal.min}+ min`,
         detail: `Last heard ${fmtIst(trip.share_last_seen_at ?? trip.last_point_at)}. The driver's page may be closed or the phone has no network. Call the driver.`,
         dedupeKey: `nosig:${key}`,
         notify: true,
@@ -562,7 +632,7 @@ async function driverSweep(now: number) {
     if (delErr) logLive("temp driver delete", delErr);
   }
 
-  const cutoff = new Date(now - NO_SIGNAL_MS).toISOString();
+  const cutoff = new Date(now - DRIVER_NO_SIGNAL_MS).toISOString();
   const { data: quiet } = await db
     .from("live_drivers")
     .select("id,owner_id,share_last_seen_at")

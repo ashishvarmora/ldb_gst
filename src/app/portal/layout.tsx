@@ -93,6 +93,8 @@ export default async function PortalLayout({ children }: { children: React.React
       .from("alert_logs")
       .select("id,title,truck_number,delivered,read_at,created_at")
       .eq("user_id", userId)
+      // v5: Live tracking alerts (kind live_*) have their own bell in /live.
+      .or("kind.is.null,kind.not.like.live_%")
       // Cleared rows are kept in the table for the admin log and the account's
       // own history; the bell is the one surface that stops listing them.
       .is("cleared_at", null)
@@ -143,6 +145,9 @@ export default async function PortalLayout({ children }: { children: React.React
   const delivery = overview.total_trucks > 0 ? deliveryRead : ("ready" as const);
 
   const alerts = (alertRows ?? []) as AlertBellItem[];
+  // v5: the badge counts toll alerts only (Live has its own bell); the overview count covers both.
+  const listedUnread = alerts.filter((a) => a.read_at === null).length;
+  const tollUnread = listedUnread >= BELL_LIMIT ? overview.alerts_unread : listedUnread;
 
 
 
@@ -211,7 +216,7 @@ export default async function PortalLayout({ children }: { children: React.React
 
               <AlertBell
                 alerts={alerts}
-                unreadCount={overview.alerts_unread}
+                unreadCount={tollUnread}
                 unreadMessages={unreadMessages}
               />
 

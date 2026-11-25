@@ -16,6 +16,8 @@ export type AlertBellItem = {
   delivered: boolean;
   read_at: string | null;
   created_at: string;
+  /** v5 (0084): where the alert opens (Live alerts open their trip). */
+  url?: string | null;
 };
 
 /**
@@ -52,11 +54,14 @@ export function AlertBell({
    */
   unreadMessages = 0,
   messagesHref = "/portal/support",
+  scope,
 }: {
   alerts: AlertBellItem[];
   unreadCount: number;
   unreadMessages?: number;
   messagesHref?: string;
+  /** v5: "live" for the Live app's bell (only live_* rows are read / cleared). */
+  scope?: "toll" | "live";
 }) {
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(false);
@@ -127,7 +132,7 @@ export function AlertBell({
        * portal on the server a second time, and that refresh queued behind
        * any other action - a tab tapped right after opening the bell waited.
        */
-      markAlertsRead().catch(() => setSeen(false));
+      markAlertsRead(scope).catch(() => setSeen(false));
     }
   }
 
@@ -175,7 +180,7 @@ export function AlertBell({
                 onClick={() => {
                   setCleared(true);
                   // Revalidates the layout itself - see markAlertsRead above.
-                  clearAlerts().catch(() => setCleared(false));
+                  clearAlerts(scope).catch(() => setCleared(false));
                 }}
                 className="-mr-1.5 inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 text-[11px] font-medium text-muted transition hover:bg-sunken hover:text-ink"
               >
@@ -229,7 +234,13 @@ export function AlertBell({
                   className={cx("px-4 py-2.5", fresh.includes(alert.id) && "bg-brand-500/[0.07]")}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 text-sm text-ink">{alert.title}</p>
+                    {alert.url ? (
+                      <Link href={alert.url} onClick={close} className="min-w-0 text-sm text-ink hover:underline">
+                        {alert.title}
+                      </Link>
+                    ) : (
+                      <p className="min-w-0 text-sm text-ink">{alert.title}</p>
+                    )}
                     {alert.delivered ? null : <Badge tone="warn">not sent</Badge>}
                   </div>
                   <p className="mt-0.5 text-xs text-faint">
