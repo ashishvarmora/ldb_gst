@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Archive, Copy, ExternalLink, MessageCircle, Navigation, Pencil, Play, Route, Sparkles, Trash2 } from "lucide-react";
+import { Archive, BellRing, Clock, Copy, ExternalLink, History, MessageCircle, Navigation, Pencil, Play, Power, Route, Sparkles, Trash2 } from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { buttonClass, cx } from "@/components/ui";
@@ -19,6 +19,7 @@ import {
   loadTrail,
   loadTrip,
   loadTripEvents,
+  liveSchema84,
   ownerLabelFrom,
   placeMap,
   requireLiveSession,
@@ -26,6 +27,12 @@ import {
   waHref,
 } from "@/lib/live/server";
 import {
+  ALERT_KEYS,
+  ALERT_META,
+  standingFor,
+  toLocalInput,
+  tripAlerts,
+  variance,
   DIRECTION_LABEL,
   PARTY_TYPE_LABEL,
   PURPOSE_LABEL,
@@ -51,11 +58,12 @@ import {
 } from "@/lib/live/shared";
 import { formatIndianMobile } from "@/lib/phone";
 
-import { addTripNote, archiveTrip, deleteTrip, setCustomerLink, setTripState } from "../../actions";
+import { addTripNote, archiveTrip, deleteTrip, saveTripAlerts, setActualStart, setCustomerLink, setTripState } from "../../actions";
 import { BackLink } from "../../BackLink";
 import { DriverSignalPill, InfoTip, PhaseSections, SignalPill, StatePill, tripIssues } from "../../parts";
-import { StateBar } from "../../ui";
-import { AutoRefresh, CopyButton } from "../../widgets";
+import { DriverLinkActions } from "../../blocks";
+import { IconSubmit, StatusControl } from "../../ui";
+import { AutoRefresh, CopyButton, IconCopy } from "../../widgets";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Live tracking - Trip" };
@@ -115,12 +123,13 @@ export default async function TripPage({ params, searchParams }: { params: Promi
   const trip = await loadTrip(live.ownerId, id);
   if (!trip) notFound();
 
-  const [places, events, trail, driver, profile] = await Promise.all([
+  const [places, events, trail, driver, profile, has84] = await Promise.all([
     loadPlaces(live.ownerId, { includeArchived: true }),
     loadTripEvents(trip.id),
     loadTrail(trip.id),
     trip.driver_id ? loadDriver(live.ownerId, trip.driver_id) : Promise.resolve(null),
     loadLiveProfile(live.ownerId),
+    liveSchema84(),
   ]);
   const byId = placeMap(places);
   const from = trip.from_place_id ? byId.get(trip.from_place_id) : null;
@@ -145,6 +154,14 @@ export default async function TripPage({ params, searchParams }: { params: Promi
   const customerWa = trip.track_token ? waHref(trip.consignee_phone ?? to?.contact_phone, customerShareText(trip, ownerLabel)) : null;
   const basis = etaBasis(trail, trip.distance_left_km, now);
   const phases = groupByPhase(events, trip);
+  const standing = state === "active" && trip.status !== "arrived" && trail[0] && now - new Date(trail[0].recorded_at).getTime() < 30 * 60_000 ? standingFor(trail) : null;
+  const alerts = tripAlerts(profile.alert_settings, trip.alert_overrides);
+  const ovr = trip.alert_overrides ?? {};
+  const changedAlerts = (ovr.off?.length ?? 0) + (ovr.on?.length ?? 0) + (ovr.late_min ? 1 : 0);
+  // Planned vs actual / live (docs/LIVE-PLAN-v5.md section 3).
+  const arrivalLive = trip.arrived_at ?? trip.delivered_at ?? (state === "active" ? trip.eta_at : null);
+  const startVar = variance(trip.started_at, trip.planned_dispatch_at);
+  const arriveVar = variance(arrivalLive, trip.promised_delivery_at);
 
   const delayFacts: TripDelayFacts = {
     vehicleNo: prettyVehicle(trip.vehicle_no),
@@ -159,6 +176,8 @@ export default async function TripPage({ params, searchParams }: { params: Promi
       .reverse()
       .map((p) => p.speed_kmh ?? 0),
     lastSeenMinutesAgo: trip.last_point_at ? Math.round((now - new Date(trip.last_point_at).getTime()) / 60000) : undefined,
+    stoppedMinutes: standing?.minutes,
+    stoppedSince: standing?.since,
     notes: issues.filter((i) => i.key.startsWith("eway")).map((i) => i.text),
   };
   const hidden = <input type="hidden" name="id" value={trip.id} />;
@@ -181,12 +200,33 @@ export default async function TripPage({ params, searchParams }: { params: Promi
             <strong>{toText}</strong>
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <StatePill trip={trip} />
-          {open ? <SignalPill trip={trip} now={now} /> : null}
-          {trip.archived_at ? <span className="live-kind">Archived</span> : null}
-        </div>
       </header>
+
+      {/* STATUS (v5): current status + a small control that actually changes it */}
+      <section className="live-statusbar">
+        <span className="live-mini-label">Status</span>
+        <StatePill trip={trip} />
+        {open ? <SignalPill trip={trip} now={now} /> : null}
+        {trip.archived_at ? <span className="live-kind">Archived</span> : null}
+        <span className="ml-auto flex items-center gap-1.5">
+          {state === "planned" && trip.driver_id ? (
+            <ActionForm action={setTripState} closeOnSuccess={false}>
+              {hidden}
+              <input type="hidden" name="state" value="active" />
+              <SubmitButton size="sm" pendingLabel="Starting">
+                <Play size={13} /> Start
+              </SubmitButton>
+            </ActionForm>
+          ) : null}
+          <StatusControl tripId={trip.id} current={state} labels={STATE_LABEL} canStart={Boolean(trip.driver_id)} />
+          <InfoTip label="About trip status">
+            Planned: set up, not moving. Active: on the road (Start, the driver&apos;s Started button, or leaving the From place). Done: delivered. Cancelled: kept in
+            records. Change it any time; every change is in the activity.
+          </InfoTip>
+        </span>
+      </section>
+      {state === "planned" && !trip.driver_id ? <p className="text-xs text-muted">Add a driver to start: tracking follows his phone.</p> : null}
+      {trip.pod_note ? <p className="text-xs text-ink">Delivery note: {trip.pod_note}</p> : null}
 
       {sendLink ? (
         <section className="live-callout">
@@ -202,28 +242,6 @@ export default async function TripPage({ params, searchParams }: { params: Promi
           </div>
         </section>
       ) : null}
-
-      {/* STATUS */}
-      <section className="panel p-3">
-        <ActionForm action={setTripState} closeOnSuccess={false} refresh={false}>
-          {hidden}
-          {state === "planned" ? (
-            <button type="submit" name="state" value="active" className="live-cta live-start" disabled={!trip.driver_id}>
-              <Play size={16} /> Start trip
-            </button>
-          ) : null}
-          {state === "planned" && !trip.driver_id ? <p className="mt-1 text-xs text-muted">Add a driver to start (tracking follows his phone).</p> : null}
-          <div className="mt-2 flex items-center gap-1">
-            <StateBar current={state} labels={STATE_LABEL} />
-            <InfoTip label="About trip status">
-              Planned: set up, not moving. Active: on the road (Start, the driver&apos;s Started button, or leaving the From place). Done: delivered. Cancelled: kept in
-              records. You can switch any time; every change is in the activity.
-            </InfoTip>
-          </div>
-          <input name="note" maxLength={500} placeholder="Note with the change (optional; delivery note when Done)" className="field mt-2 w-full text-sm" />
-        </ActionForm>
-        {trip.pod_note ? <p className="mt-2 text-xs text-ink">Delivery note: {trip.pod_note}</p> : null}
-      </section>
 
       {issues.length ? (
         <div className="flex flex-wrap gap-1.5">
@@ -270,7 +288,7 @@ export default async function TripPage({ params, searchParams }: { params: Promi
           </div>
           <div>
             <dt className="flex items-center gap-1">
-              ETA
+              Live ETA
               <InfoTip label="How ETA is worked out">
                 <span className="block">Distance left = straight line × {basis.roadFactor} (road factor){basis.distanceLeftKm != null ? ` = ~${Math.round(basis.distanceLeftKm)} km` : ""}.</span>
                 <span className="block">
@@ -307,6 +325,47 @@ export default async function TripPage({ params, searchParams }: { params: Promi
         </div>
       </section>
 
+      {/* TIMES (v5): planned (static) vs actual / live (dynamic) */}
+      <section className="panel live-times">
+        <div className="live-times-head">
+          <Clock size={14} /> <strong>Times</strong>
+          <InfoTip label="About planned and live times">
+            Planned times are what you set on the trip; they never move by themselves. Actual start is when the trip became Active (correct it with a reason).
+            Live ETA comes from the truck&apos;s position and recent speed and updates with every position.
+          </InfoTip>
+        </div>
+        <div className="live-times-grid">
+          <span />
+          <span className="live-mini-label">Planned</span>
+          <span className="live-mini-label">Actual / live</span>
+          <span className="live-times-k">Start</span>
+          <span>{fmtIst(trip.planned_dispatch_at)}</span>
+          <span>
+            {trip.started_at ? fmtIst(trip.started_at) : "-"}
+            {startVar ? <em className={`live-var live-var-${startVar.tone}`}>{startVar.text}</em> : null}
+          </span>
+          <span className="live-times-k">Arrival</span>
+          <span>{fmtIst(trip.promised_delivery_at)}</span>
+          <span>
+            {trip.arrived_at ? `${fmtIst(trip.arrived_at)} arrived` : trip.delivered_at ? `${fmtIst(trip.delivered_at)} done` : state === "active" && trip.eta_at ? `${fmtIst(trip.eta_at)} live` : "-"}
+            {arriveVar ? <em className={`live-var live-var-${arriveVar.tone}`}>{arriveVar.text}</em> : null}
+          </span>
+        </div>
+        {state !== "planned" ? (
+          <details className="live-times-edit">
+            <summary>Correct actual start</summary>
+            <ActionForm action={setActualStart} closeOnSuccess={false}>
+              {hidden}
+              <div className="live-form-row">
+                <input type="datetime-local" name="started_at" defaultValue={toLocalInput(trip.started_at)} className="field live-field-sm" aria-label="Actual start" required />
+                <input name="reason" maxLength={300} placeholder="Reason (required)" className="field live-field-sm min-w-0 flex-1" required />
+                <SubmitButton size="sm">Save</SubmitButton>
+              </div>
+            </ActionForm>
+          </details>
+        ) : null}
+      </section>
+
       {/* SECTIONS (one open at a time) */}
       <div className="live-acc">
         <details name="trip" open={(state === "planned" && !sendLink) || undefined}>
@@ -332,15 +391,10 @@ export default async function TripPage({ params, searchParams }: { params: Promi
                   ) : null}
                   <DriverSignalPill driver={driver} now={now} />
                 </p>
-                {temp ? <p className="mt-1 text-xs text-muted">Temporary driver: link for this trip only, removed 1 h after the trip ends.</p> : null}
-                {open && dLink ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {driverWa ? (
-                      <a href={driverWa} target="_blank" rel="noopener noreferrer" className="live-cta live-cta-sm live-cta-wa">
-                        <MessageCircle size={15} /> Driver link
-                      </a>
-                    ) : null}
-                    <CopyButton value={dLink} />
+                {temp ? <p className="mt-1 text-xs text-muted">Temporary driver: link for this trip only; it stops {profile.one_time_expire_hours} h after the trip ends.</p> : null}
+                {open ? (
+                  <div className="mt-2">
+                    <DriverLinkActions driver={driver} link={dLink} wa={driverWa} />
                   </div>
                 ) : null}
               </div>
@@ -357,31 +411,35 @@ export default async function TripPage({ params, searchParams }: { params: Promi
             <div className="border-t border-divider pt-3">
               <p className="text-xs font-semibold text-strong">
                 Customer link{" "}
-                <InfoTip label="About the customer link">Read-only page: truck position, status and ETA. No invoice value, no driver number.</InfoTip>
+                <InfoTip label="About the customer link">Read-only page for your customer: route, status, map, planned arrival and live ETA, truck, goods. Never invoice value, freight or e-way bill. Driver name / call button: Profile &gt; Business settings.</InfoTip>
               </p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-1.5 live-ibar">
                 {trip.track_token ? (
                   <>
                     {customerWa ? (
-                      <a href={customerWa} target="_blank" rel="noopener noreferrer" className="live-cta live-cta-sm live-cta-wa">
-                        <MessageCircle size={15} /> WhatsApp
+                      <a href={customerWa} target="_blank" rel="noopener noreferrer" className="live-ib live-ib-wa" aria-label="Send customer link on WhatsApp" title="WhatsApp">
+                        <MessageCircle size={15} />
                       </a>
                     ) : null}
-                    <CopyButton value={trackLink(trip.track_token)} />
+                    <IconCopy value={trackLink(trip.track_token)} label="Copy customer link" />
+                    <a href={trackLink(trip.track_token)} target="_blank" rel="noopener noreferrer" className="live-ib" aria-label="Open customer page" title="Open customer page">
+                      <ExternalLink size={15} />
+                    </a>
                     <ActionForm action={setCustomerLink} closeOnSuccess={false}>
                       {hidden}
                       <input type="hidden" name="on" value="0" />
-                      <SubmitButton variant="ghost" size="sm">
-                        Turn off
-                      </SubmitButton>
+                      <IconSubmit label="Turn customer link off" tone="bad" confirm="Turn the customer link off? The customer page stops working.">
+                        <Power size={15} />
+                      </IconSubmit>
                     </ActionForm>
+                    <span className="live-ibar-note">On</span>
                   </>
                 ) : (
                   <ActionForm action={setCustomerLink} closeOnSuccess={false}>
                     {hidden}
                     <input type="hidden" name="on" value="1" />
                     <SubmitButton variant="secondary" size="sm">
-                      <Copy size={14} /> Make customer link
+                      <Copy size={13} /> Make link
                     </SubmitButton>
                   </ActionForm>
                 )}
@@ -439,6 +497,50 @@ export default async function TripPage({ params, searchParams }: { params: Promi
           </div>
         </details>
 
+        <details name="trip">
+          <summary>
+            <strong>Alerts</strong>
+            <small>{changedAlerts ? `${changedAlerts} change${changedAlerts === 1 ? "" : "s"} for this trip` : "account defaults"}</small>
+            <BellRing size={14} className="shrink-0 text-faint" />
+          </summary>
+          <div className="live-acc-body">
+            {has84 ? (
+              <ActionForm action={saveTripAlerts} closeOnSuccess={false}>
+                {hidden}
+                <ul className="live-toggles">
+                  {ALERT_KEYS.map((k) => (
+                    <li key={k}>
+                      <label>
+                        <input type="checkbox" name={`a_${k}`} defaultChecked={alerts[k].on} className="live-switch" />
+                        <span>{ALERT_META[k].label}</span>
+                      </label>
+                      {k === "late" ? (
+                        <span className="live-toggles-x">
+                          after
+                          <input name="late_min" inputMode="numeric" defaultValue={String(alerts.late.min)} className="field live-field-xs" aria-label="Late after minutes" />
+                          min
+                        </span>
+                      ) : ALERT_META[k].min ? (
+                        <small>
+                          {alerts[k].min} {ALERT_META[k].min!.unit}
+                        </small>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <Link href="/live/profile/alerts" className="text-xs font-semibold text-brand-600">
+                    Edit defaults
+                  </Link>
+                  <SubmitButton size="sm">Save</SubmitButton>
+                </div>
+              </ActionForm>
+            ) : (
+              <p className="text-xs text-muted">Trip alerts need database update 0084.</p>
+            )}
+          </div>
+        </details>
+
         <details name="trip" open={(state !== "planned" && !sendLink) || undefined}>
           <summary>
             <strong>Activity</strong>
@@ -456,6 +558,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
               </div>
             </ActionForm>
             <PhaseSections groups={phases} group={`trip-${trip.id}-phase`} openPhase={phases.length ? (phases.some((g) => g.phase === state) ? state : null) : null} />
+            <Link href={`/live/activity?q=${encodeURIComponent(tripNo(trip.trip_seq))}&range=all`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
+              <History size={12} /> Activity page
+            </Link>
           </div>
         </details>
 

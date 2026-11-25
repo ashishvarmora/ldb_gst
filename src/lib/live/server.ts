@@ -211,6 +211,9 @@ export type TripFilter = {
   place?: string | null;
   /** 0082: "outgoing" | "incoming"; ignored before 0082 is applied. */
   direction?: string | null;
+  /* v5: history / activity filters */
+  driver?: string | null;
+  vehicle?: string | null;
   page?: number;
   pageSize?: number;
 };
@@ -221,11 +224,14 @@ export async function searchTrips(ownerId: string, f: TripFilter): Promise<{ row
   let q = getSupabaseAdmin().from("live_trips").select(TRIP_COLUMNS).eq("owner_id", ownerId);
   const st = f.status ?? "all";
   if (st === "open") q = q.in("status", OPEN_STATUSES);
+  else if (st === "past") q = q.in("status", ["delivered", "cancelled"]);
   else if ((TRIP_STATES as string[]).includes(st)) q = q.in("status", STATE_STATUSES[st as keyof typeof STATE_STATUSES]);
   else if (st !== "all") q = q.eq("status", st);
   if (f.from) q = q.gte("created_at", f.from);
   if (f.to) q = q.lt("created_at", f.to);
   if (f.place && /^[0-9a-f-]{36}$/i.test(f.place)) q = q.or(`from_place_id.eq.${f.place},to_place_id.eq.${f.place}`);
+  if (f.driver && /^[0-9a-f-]{36}$/i.test(f.driver)) q = q.eq("driver_id", f.driver);
+  if (f.vehicle && /^[0-9a-f-]{36}$/i.test(f.vehicle)) q = q.eq("vehicle_id", f.vehicle);
   const has82 = await liveSchema82();
   if (has82 && f.direction === "incoming") q = q.eq("direction", "incoming");
   if (has82 && f.direction === "outgoing") q = q.eq("direction", "outgoing");
@@ -509,4 +515,24 @@ export function safeReturn(raw: string | null | undefined): string | null {
 /** Append ?key=value (or &key=value) to a return path. */
 export function withParam(path: string, key: string, value: string): string {
   return `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
+}
+
+/** True once migration 0084 (v5: alert settings, place type, bell links) is applied. */
+let schema84 = false;
+export async function liveSchema84(): Promise<boolean> {
+  if (schema84) return true;
+  const { error } = await getSupabaseAdmin().from("live_trips").select("alert_overrides").limit(1);
+  if (!error) schema84 = true;
+  return schema84;
+}
+
+/** "7d" | "30d" | "90d" | "all" -> ISO lower bound (null = no bound). */
+export function rangeStart(range: string | null | undefined, now = Date.now()): string | null {
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : range === "today" ? 0 : null;
+  if (days === null) return null;
+  if (days === 0) {
+    const ist = new Date(now + 5.5 * 3_600_000);
+    return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 5.5 * 3_600_000).toISOString();
+  }
+  return new Date(now - days * 86_400_000).toISOString();
 }

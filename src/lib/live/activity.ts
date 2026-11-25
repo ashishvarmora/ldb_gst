@@ -87,6 +87,9 @@ export async function tripsActivity(ownerId: string, page: number, size = 8): Pr
   return { sections: await sectionsFor(trips), more: all.length > size };
 }
 
+/** v5: activity sections for a given list of trips (history / activity filters). */
+export const tripSections = (trips: LiveTrip[]) => sectionsFor(trips);
+
 async function sectionsFor(trips: LiveTrip[]): Promise<TripSection[]> {
   if (!trips.length) return [];
   const { data, error } = await db()

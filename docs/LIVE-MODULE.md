@@ -86,3 +86,9 @@ Full plan: `docs/LIVE-PLAN-v4.md`. In short:
 - **Activity**: per trip, sectioned by `phase`; Profile > Live tracking > Activity (`/portal/profile/live/activity`, `src/lib/live/activity.ts`): trips, drivers per day, trucks per trip, warehouses per day.
 - **Road ahead**: `routeWaypoints()` (AI) / `routeWaypointsBasic()` (hub list) in live-ai.ts, cached on the trip (`src/lib/live/route.ts`), refreshed after 25 km.
 - **Nav**: Home · Masters · Profile; one "+" New trip on Home.
+
+## 0084 - v5 (25 Nov 2026)
+
+Full plan: `docs/LIVE-PLAN-v5.md`. Status control (chip + Change), planned vs actual/live times, one `DriverLinkActions`, compact masters with sheets,
+`/live/history` + `/live/activity` (filters in the URL), Live profile at `/live/profile` (settings, alerts), richer `/track/<token>`, app-only alerts
+(`alert_logs` kind `live_*` + push; defaults in `live_profiles.alert_settings`, per trip `live_trips.alert_overrides`).

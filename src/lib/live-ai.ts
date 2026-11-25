@@ -544,6 +544,8 @@ export type TripDelayFacts = {
   /** Minutes stopped at the current spot, if stopped now. */
   stoppedMinutes?: number;
   stoppedAt?: string;
+  /** v5: when the current standing began (ISO). */
+  stoppedSince?: string;
   /** Minutes since the last position fix. */
   lastSeenMinutesAgo?: number;
   /** Known context, e.g. "e-way bill expires in 3 h", "toll plaza queue". */
@@ -573,6 +575,7 @@ function delayFactsForModel(f: TripDelayFacts) {
     avgSpeedKmph: f.avgSpeedKmph != null ? Math.round(f.avgSpeedKmph) : undefined,
     stoppedFor: f.stoppedMinutes ? durationLabel(f.stoppedMinutes) : undefined,
     stoppedAt: f.stoppedAt,
+    standingSinceIst: f.stoppedSince ? istLabel(f.stoppedSince) : undefined,
     lastSignal: f.lastSeenMinutesAgo != null ? `${durationLabel(f.lastSeenMinutesAgo)} ago` : undefined,
     notes: (f.notes ?? []).slice(0, 5).map(redact),
   };
@@ -581,7 +584,10 @@ function delayFactsForModel(f: TripDelayFacts) {
 const DELAY_SYSTEM = `You help an Indian factory owner understand why a truck is late.
 Given trip facts, write one or two short sentences: the most likely reason (only from the facts: long stoppage, slow speed, night halt, no GPS signal, distance left) and one practical next step (e.g. call the driver, inform the customer of the new ETA, extend the e-way bill).
 Use ONLY the given facts and numbers; never invent places, causes like accidents, or new numbers. Plain simple English; common Hindi words in Latin script are fine.
+If stoppedFor is given or recent speeds are near 0, the truck is STANDING: say "standing/stopped for <stoppedFor> (since <standingSinceIst>)". Never write "moving slowly" or "0 km/h" for a standing truck.
 Return JSON: {"text": "..."}`;
+/** v5: a standing truck described as "moving slowly at 0 km/h" is refused (rule text is used instead). */
+const DELAY_BAD = /\b0\s*km\s*\/?\s*h|moving slowly[^.]*\b[0-2]\s*km/i;
 
 /** AI explanation, max 2 sentences. Null if unavailable/invalid. */
 export async function explainDelay(f: TripDelayFacts): Promise<string | null> {
@@ -597,6 +603,7 @@ export async function explainDelay(f: TripDelayFacts): Promise<string | null> {
       const s = t.replace(/\s+/g, " ").trim();
       if (s.length < 10 || s.length > 400) return null;
       if (!numbersAllowed(s, factsJson)) return null;
+      if (DELAY_BAD.test(s)) return null;
       return s;
     },
   });
@@ -608,25 +615,29 @@ export function explainDelayBasic(f: TripDelayFacts): string {
   const speeds = mf.recentSpeedsKmph ?? [];
   const recentAvg = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : mf.avgSpeedKmph;
   const dest = mf.toPlace ? ` to ${mf.toPlace}` : "";
+  const truck = f.vehicleNo?.trim() || "The truck";
+  const since = mf.standingSinceIst ? ` (since ${mf.standingSinceIst})` : "";
   let reason: string;
   let next: string;
 
   if (f.lastSeenMinutesAgo != null && f.lastSeenMinutesAgo >= 60) {
-    reason = `No GPS signal from ${f.vehicleNo} for ${durationLabel(f.lastSeenMinutesAgo)}, so its position is uncertain.`;
+    reason = `No GPS signal from ${truck} for ${durationLabel(f.lastSeenMinutesAgo)}, so its position is uncertain.`;
     next = "Call the driver to confirm where the truck is.";
-  } else if (f.stoppedMinutes && f.stoppedMinutes >= 30) {
-    reason = `${f.vehicleNo} has been stopped${mf.stoppedAt ? ` at ${mf.stoppedAt}` : ""} for ${durationLabel(f.stoppedMinutes)}${mf.nightTime ? ", likely a night halt" : ""}.`;
+  } else if ((f.stoppedMinutes && f.stoppedMinutes >= 10) || (recentAvg != null && recentAvg < 3)) {
+    // v5: a speed near 0 is "standing", never "moving slowly at 0 km/h".
+    const forText = f.stoppedMinutes ? ` for ${durationLabel(f.stoppedMinutes)}` : "";
+    reason = `${truck} is standing${mf.stoppedAt ? ` at ${mf.stoppedAt}` : ""}${forText}${since}${mf.nightTime ? ", likely a night halt" : ""}.`;
     next = mf.nightTime
       ? "Expect it to move in the morning; update the customer if the ETA matters."
       : "Call the driver to check the reason for the halt.";
   } else if (recentAvg != null && recentAvg < 25) {
-    reason = `${f.vehicleNo} is moving slowly${dest} (about ${Math.round(recentAvg)} km/h recently), possibly traffic, a ghat section or a toll queue.`;
+    reason = `${truck} is moving slowly${dest} (about ${Math.round(recentAvg)} km/h recently), possibly traffic, a ghat section or a toll queue.`;
     next = "Watch the next hour; inform the customer if the ETA keeps slipping.";
   } else if (mf.lateBy) {
-    reason = `${f.vehicleNo} is on the move${dest} but the ETA is ${mf.lateBy} past the promised time${mf.distanceLeftKm != null ? ` with ${mf.distanceLeftKm} km left` : ""}.`;
+    reason = `${truck} is on the move${dest} but the live ETA is ${mf.lateBy} past the planned arrival${mf.distanceLeftKm != null ? ` with ${mf.distanceLeftKm} km left` : ""}.`;
     next = "Share the new ETA with the customer.";
   } else {
-    reason = `${f.vehicleNo} looks on track${dest}${mf.distanceLeftKm != null ? `, ${mf.distanceLeftKm} km left` : ""}.`;
+    reason = `${truck} looks on track${dest}${mf.distanceLeftKm != null ? `, ${mf.distanceLeftKm} km left` : ""}.`;
     next = "No action needed right now.";
   }
   return `${reason} ${next}`;
