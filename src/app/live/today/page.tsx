@@ -21,10 +21,10 @@ import {
   Play,
   Plus,
   Satellite,
-  SignalZero,
   Sparkles,
   Target,
   Truck,
+  WifiOff,
 } from "lucide-react";
 
 import { cx } from "@/components/ui";
@@ -362,7 +362,7 @@ export default async function LiveDashboard() {
         </p>
         <div className="lv-kpis">
           <Kpi href="/live/sending?s=active" icon={AlertTriangle} label="Late" value={delayed.length} tone="bad" />
-          <Kpi href="/live/sending?s=active" icon={SignalZero} label="No GPS" value={noGps.length} tone="bad" />
+          <Kpi href="/live/sending?s=active" icon={WifiOff} label="No GPS" value={noGps.length} tone="bad" />
           <Kpi href="/live/sending?s=active" icon={PauseCircle} label="Standing" value={stoppedIds.size} tone="warn" />
           <Kpi href="/live/sending?s=active" icon={FileWarning} label="E-way < 12 h" value={ewaySoon.length} tone="warn" hint={ewayExpired.length ? `${ewayExpired.length} expired` : undefined} />
         </div>
@@ -461,7 +461,7 @@ export default async function LiveDashboard() {
           </div>
           <ul className="lv-legend">
             <li className="lv-t-brand">Dispatched {dispatchedToday.length}</li>
-            <li className="lv-t-good">Arrived {arrivedToday.length}</li>
+            <li className="lv-t-good">Arrived / delivered {ends.reduce((a, b) => a + b, 0)}</li>
             <li className="lv-legend-axis">0 · 6 · 12 · 18 · 24</li>
           </ul>
         </section>

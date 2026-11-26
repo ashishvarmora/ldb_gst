@@ -126,7 +126,9 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
         : state === "cancelled"
           ? { icon: XCircle, text: "Trip cancelled", sub: "Please contact the sender", tone: "bad" }
           : moving
-            ? { icon: Truck, text: "On the way", sub: liveEta ? `Arriving around ${fmtIst(liveEta, false)}` : "Arrival time updates as the truck moves", tone: eta?.tone === "bad" ? "bad" : eta?.tone === "warn" ? "warn" : "brand" }
+            ? liveEta && new Date(liveEta).getTime() < now - 10 * 60_000
+              ? { icon: Truck, text: "On the way - running late", sub: "Waiting for the truck's next location update", tone: "warn" }
+              : { icon: Truck, text: "On the way", sub: liveEta ? `Arriving around ${fmtIst(liveEta, false)}` : "Arrival time updates as the truck moves", tone: eta?.tone === "bad" ? "bad" : eta?.tone === "warn" ? "warn" : "brand" }
             : { icon: CalendarClock, text: "Not started yet", sub: trip.planned_dispatch_at ? `Planned start ${fmtIst(trip.planned_dispatch_at)}` : "The sender will start it soon", tone: "neutral" };
 
   return (
@@ -198,8 +200,8 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
             <span className="lv-tile-label">
               <Satellite size={12} aria-hidden /> Updated
             </span>
-            <strong>{trip.last_point_at ? (fresh ? "Live" : agoShort(trip.last_point_at, now)) : "-"}</strong>
-            <small>{fresh ? "right now" : " "}</small>
+            <strong>{trip.last_point_at ? (fresh ? "Live" : agoShort(trip.last_point_at, now).replace(" ago", "")) : "-"}</strong>
+            <small>{fresh ? "right now" : trip.last_point_at ? "ago" : " "}</small>
           </div>
         </div>
       ) : null}

@@ -357,9 +357,10 @@ export default async function TripPage({ params, searchParams }: { params: Promi
         </section>
       ) : null}
 
-      {issues.length ? (
+      {/* Late and no-GPS already show in the tiles; only what has no tile is repeated here. */}
+      {issues.some((i) => i.key.startsWith("eway")) ? (
         <div className="flex flex-wrap gap-1.5">
-          {issues.map((i) => (
+          {issues.filter((i) => i.key.startsWith("eway")).map((i) => (
             <span key={i.key} className={cx("lv-chip", i.tone === "bad" ? "lv-t-bad" : "lv-t-warn")}>
               <AlertTriangle size={11} /> {i.text}
             </span>

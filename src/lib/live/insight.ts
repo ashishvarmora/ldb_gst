@@ -128,12 +128,12 @@ export function speedView(
   now: number = Date.now(),
 ): View | null {
   if (tripState(trip as LiveTrip) !== "active" || trip.status === "arrived") return null;
-  if (!trip.last_point_at || now - new Date(trip.last_point_at).getTime() > NO_SIGNAL_MS) return { text: "-", sub: "Speed", tone: "neutral" };
+  if (!trip.last_point_at || now - new Date(trip.last_point_at).getTime() > NO_SIGNAL_MS) return { text: "-", sub: "no recent GPS", tone: "neutral" };
   if (standingMinutes != null && standingMinutes >= 10) {
     return { text: "Stopped", sub: durationShort(standingMinutes), tone: standingMinutes >= 30 ? "warn" : "neutral" };
   }
   const v = trip.last_speed_kmh;
-  if (v == null) return { text: "-", sub: "Speed", tone: "neutral" };
+  if (v == null) return { text: "-", sub: "not sent by phone", tone: "neutral" };
   if (v < STOPPED_KMPH) return { text: "Stopped", sub: "now", tone: "neutral" };
   return { text: `${Math.round(v)}`, sub: "km/h", tone: v > 80 ? "warn" : "brand" };
 }

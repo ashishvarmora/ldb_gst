@@ -792,3 +792,15 @@ select.live-field-xs { width: auto; }
 .lv-split-bar { display: flex; min-width: 4px; height: 12px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
 .lv-split-row b { text-align: right; font-weight: 800; color: #0f1b2d; }
 @media (max-width: 400px) { .lv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* v7 fixes after the live check */
+.lv-card-meta, .lv-card-foot { font-size: 11.5px; color: #64748b; }
+.lv-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); overflow: visible; }
+.lv-actions > form, .lv-actions > .live-statusctl { display: flex; }
+.lv-actions > form > .lv-act, .lv-actions > .live-statusctl > .lv-act { width: 100%; }
+.lv-act { width: auto; }
+.lv-actions > .live-info { justify-self: center; margin-left: 0; }
+.lv-drow-main { overflow: hidden; }
+.lv-drow-main > span.min-w-0 { overflow: hidden; }
+.lv-drow-main small .live-dsig { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lv-drow-main .lv-chip { margin-left: auto; }
+.lv-drow-acts { margin-left: auto; }
