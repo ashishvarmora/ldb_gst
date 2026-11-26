@@ -34,8 +34,8 @@ export default async function DriverPage({ params }: { params: Promise<{ token: 
         </h1>
         <p className="text-[15px] text-muted">
           {data.kind === "revoked"
-            ? "यह लिंक बंद कर दिया गया है। आपकी लोकेशन शेयर नहीं हो रही है।"
-            : "यह लिंक सही नहीं है या पुराना हो गया है।"}
+            ? "Yeh link band kar diya gaya hai. Aapki location share nahi ho rahi."
+            : "Yeh link sahi nahi hai ya purana ho gaya hai."}
         </p>
         <p className="text-sm text-muted">
           {data.kind === "revoked"

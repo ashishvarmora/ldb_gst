@@ -351,20 +351,46 @@ export function roadKm(a: { lat: number; lng: number }, b: { lat: number; lng: n
  * Average speed from the recent trail (newest first), for the ETA. Path length
  * over elapsed time for the last ~2 hours, clamped to a believable truck range,
  * falling back to 40 km/h when there is too little to go on.
+ *
+ * v7: a step shorter than the fixes' own accuracy (and never less than 40 m)
+ * is GPS jitter, not travel, and is left out of the path - otherwise a parked
+ * truck's wandering position adds kilometres and makes a halt look like slow
+ * driving (the usual "zero-speed drift" filter in fleet tracking).
  */
 export function recentAvgKmph(points: Point[], now: number = Date.now()): number {
   const recent = points.filter((p) => now - new Date(p.recorded_at).getTime() <= 2 * 60 * 60 * 1000);
   if (recent.length < 4) return FALLBACK_KMPH;
   let km = 0;
-  for (let i = 1; i < recent.length; i++) km += haversineKm(recent[i - 1], recent[i]);
+  for (let i = 1; i < recent.length; i++) {
+    const step = haversineKm(recent[i - 1], recent[i]);
+    const noiseKm = Math.max(40, recent[i - 1].accuracy_m ?? 0, recent[i].accuracy_m ?? 0) / 1000;
+    if (step >= noiseKm) km += step;
+  }
   const hours =
     (new Date(recent[0].recorded_at).getTime() - new Date(recent[recent.length - 1].recorded_at).getTime()) / 3_600_000;
   if (hours < 0.25 || km < 2) return FALLBACK_KMPH;
   return Math.min(55, Math.max(25, km / hours));
 }
 
+/** Hours a truck drives before halts start to count (meals, rest, night). */
+export const DRIVE_HOURS_BEFORE_REST = 12;
+/** Halt time per driving hour beyond that: 1 h, i.e. about 12 h of driving in each day after the first. */
+export const REST_PER_DRIVE_HOUR = 1;
+
+/**
+ * ETA = distance / speed, plus halts on long hauls (v7).
+ *
+ * Driving time alone was always optimistic beyond a day's run: Indian trucks
+ * average roughly 300-400 km a day once meals, rest and night halts are in
+ * (IIM-A puts it near 300 km/day). So after the first 12 hours of driving,
+ * every further driving hour costs another hour of halts - about 12 h of
+ * driving a day. Up to ~540 km at 45 km/h nothing changes; 800 km goes from
+ * 17.8 h to ~23.6 h, 1500 km from 33 h to ~55 h.
+ */
 export function etaFrom(distanceKm: number, kmph: number, from: number = Date.now()): Date {
-  return new Date(from + (distanceKm / Math.max(kmph, 1)) * 3_600_000);
+  const drive = distanceKm / Math.max(kmph, 1);
+  const rest = Math.max(0, drive - DRIVE_HOURS_BEFORE_REST) * REST_PER_DRIVE_HOUR;
+  return new Date(from + (drive + rest) * 3_600_000);
 }
 
 /** "https://www.google.com/maps?q=23.02,72.57" */

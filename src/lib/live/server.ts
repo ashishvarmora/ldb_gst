@@ -14,13 +14,17 @@ import {
   TRIP_STATES,
   prettyVehicle,
   tripNo,
+  tripState,
   type LiveDriver,
   type LivePlace,
   type LiveProfile,
   type LiveTrip,
   type LiveVehicle,
   type Point,
+  type TripDirection,
   type TripEvent,
+  type TripState,
+  type TripStatus,
 } from "@/lib/live/shared";
 
 /**
@@ -569,5 +573,33 @@ export async function loadTripTrack(tripId: string, sinceIso: string | null, max
   }
   const last = rows[rows.length - 1];
   if (last && out[out.length - 1]?.t !== Date.parse(last.recorded_at)) out.push({ lat: Number(last.lat), lng: Number(last.lng), t: Date.parse(last.recorded_at), speed: last.speed_kmh == null ? null : Number(last.speed_kmh) });
+  return out;
+}
+
+/**
+ * v7: how many trips each direction has in each state, for the Sending /
+ * Receiving switch and the status chips. One small query (status and direction
+ * only) rather than four counts; archived trips are left out like the lists.
+ */
+export async function tripCounts(ownerId: string): Promise<Record<TripDirection, Record<TripState | "all", number>>> {
+  const blank = (): Record<TripState | "all", number> => ({ all: 0, planned: 0, active: 0, done: 0, cancelled: 0 });
+  const out: Record<TripDirection, Record<TripState | "all", number>> = { outgoing: blank(), incoming: blank() };
+  const has82 = await liveSchema82();
+  let q = getSupabaseAdmin()
+    .from("live_trips")
+    .select(has82 ? "status,direction" : "status")
+    .eq("owner_id", ownerId)
+    .limit(10000);
+  if (await liveSchema83()) q = q.is("archived_at", null);
+  const { data, error } = await q;
+  if (error) {
+    logLive("trip counts", error);
+    return out;
+  }
+  for (const row of (data ?? []) as unknown as { status: TripStatus; direction?: string | null }[]) {
+    const dir: TripDirection = row.direction === "incoming" ? "incoming" : "outgoing";
+    out[dir].all += 1;
+    out[dir][tripState(row)] += 1;
+  }
   return out;
 }

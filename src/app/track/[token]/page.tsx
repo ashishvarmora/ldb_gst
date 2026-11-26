@@ -1,18 +1,32 @@
 import type { Metadata } from "next";
-import { CheckCircle2, MapPin, Package, Phone, Truck, UserRound } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  Flag,
+  MapPin,
+  Package,
+  Phone,
+  PlayCircle,
+  Route,
+  Satellite,
+  Truck,
+  UserRound,
+  XCircle,
+} from "lucide-react";
+
+import { cx } from "@/components/ui";
+import { etaView, progressPct, tripHeading } from "@/lib/live/insight";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logLive, plausibleToken } from "@/lib/live/server";
 import {
   LIVE_WINDOW_MS,
-  STATE_LABEL,
-  STATE_TONE,
   agoShort,
   fmtIst,
   mapsHref,
   osmEmbed,
   prettyVehicle,
-  tripNo,
   tripState,
   variance,
   type LiveTrip,
@@ -21,6 +35,7 @@ import {
 import { Suspense } from "react";
 
 import { RouteTimeline } from "@/app/live/RouteTimeline";
+import { InfoTip } from "@/app/live/parts";
 import { AutoRefresh } from "@/app/live/widgets";
 import "@/app/live/live.css";
 
@@ -99,70 +114,108 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
   const goods = [trip.material, trip.quantity != null ? `${trip.quantity} ${trip.quantity_unit ?? ""}`.trim() : null, trip.weight_kg != null ? `${trip.weight_kg} kg` : null].filter(Boolean).join(" · ");
   const driverFirst = trip.driver_name?.trim().split(/\s+/)[0] ?? "";
 
+  const heading = tripHeading(trip, fromName || null, toName || null);
+  const eta = etaView(trip, now);
+  const pct = progressPct(fromPt, toPt, trip);
+  const moving = state === "active" && trip.status !== "arrived";
+  const headline =
+    trip.status === "delivered"
+      ? { icon: CheckCircle2, text: "Delivered", sub: fmtIst(trip.delivered_at), tone: "good" }
+      : trip.status === "arrived"
+        ? { icon: Flag, text: "Truck has arrived", sub: fmtIst(trip.arrived_at), tone: "good" }
+        : state === "cancelled"
+          ? { icon: XCircle, text: "Trip cancelled", sub: "Please contact the sender", tone: "bad" }
+          : moving
+            ? { icon: Truck, text: "On the way", sub: liveEta ? `Arriving around ${fmtIst(liveEta, false)}` : "Arrival time updates as the truck moves", tone: eta?.tone === "bad" ? "bad" : eta?.tone === "warn" ? "warn" : "brand" }
+            : { icon: CalendarClock, text: "Not started yet", sub: trip.planned_dispatch_at ? `Planned start ${fmtIst(trip.planned_dispatch_at)}` : "The sender will start it soon", tone: "neutral" };
+
   return (
     <main className="theme-light live-track mx-auto min-h-screen max-w-xl space-y-3 bg-page px-4 py-5">
-      {!closed ? <AutoRefresh ms={60_000} /> : null}
-      <header className="flex items-start gap-3">
-        <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-[#fff1e6] text-[#c2570c]">
-          <Truck size={20} />
+      {!closed ? <AutoRefresh ms={45_000} /> : null}
+      <header className="flex items-center gap-2.5">
+        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-[#fff1e6] text-[#c2570c]">
+          <Package size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted">{sender ? `Shipment from ${sender}` : "Shipment"}</p>
-          <h1 className="truncate text-lg font-bold text-strong">
-            {tripNo(trip.trip_seq)}
-            {trip.trip_name ? ` · ${trip.trip_name}` : ""}
-          </h1>
-          <p className="truncate text-sm text-ink">
-            {fromName ? `${fromName} → ` : ""}
-            <strong>{toName || "-"}</strong>
-          </p>
+          <p className="text-[11px] text-muted">{sender ? `Shipment from ${sender}` : "Your shipment"}</p>
+          <h1 className="truncate text-base font-bold text-strong">{heading}</h1>
         </div>
-        <span className={`live-status live-status-${STATE_TONE[state]}`}>
-          {STATE_LABEL[state]}
-          {trip.status === "arrived" ? " · arrived" : ""}
-        </span>
+        <InfoTip label="About this page">
+          This page shows where your shipment is. The truck&apos;s location comes from the driver&apos;s phone and refreshes by itself. Distance and
+          arrival time are estimates and change as the truck moves. Only the sender can change this trip.
+        </InfoTip>
       </header>
 
-      {trip.status === "delivered" ? (
-        <section className="panel p-3 text-good-500">
-          <p className="flex items-center gap-2 font-semibold">
-            <CheckCircle2 size={18} /> Delivered {fmtIst(trip.delivered_at)}
+      <section className={cx("lv-cust-hero", `lv-t-${headline.tone}`)}>
+        <headline.icon size={26} className="shrink-0" aria-hidden />
+        <div className="min-w-0">
+          <p className="lv-cust-head">{headline.text}</p>
+          <p className="lv-cust-sub" suppressHydrationWarning>
+            {headline.sub}
+            {v && !closed && moving ? <em className={`live-var live-var-${v.tone}`}>{v.text}</em> : null}
           </p>
-          {trip.pod_note ? <p className="mt-1 text-sm text-ink">{trip.pod_note}</p> : null}
-        </section>
+        </div>
+      </section>
+
+      <section className="lv-hero">
+        <div className="lv-route" aria-label={`From ${fromName || "start"} to ${toName || "destination"}`}>
+          <span className="lv-route-end">
+            <span className="lv-route-pin" aria-hidden />
+            <span className="truncate">{fromName || "Start"}</span>
+          </span>
+          <span className="lv-route-track" aria-hidden>
+            <span className="lv-route-fill" style={{ width: `${pct ?? (moving ? 50 : 0)}%` }} />
+            {moving ? (
+              <span className="lv-route-truck" style={{ left: `${pct ?? 50}%` }}>
+                <Truck size={12} />
+              </span>
+            ) : null}
+          </span>
+          <span className="lv-route-end is-to">
+            <MapPin size={13} className="shrink-0" aria-hidden />
+            <span className="truncate">{toName || "Destination"}</span>
+          </span>
+        </div>
+      </section>
+
+      {!closed ? (
+        <div className="lv-tiles lv-tiles-3">
+          <div className={cx("lv-tile", `lv-t-${eta?.tone ?? "neutral"}`)} suppressHydrationWarning>
+            <span className="lv-tile-label">
+              <Clock size={12} aria-hidden /> {trip.status === "arrived" ? "Arrived" : liveEta ? "Expected" : "Planned"}
+            </span>
+            <strong>{trip.status === "arrived" ? fmtIst(trip.arrived_at, false) : liveEta ? fmtIst(liveEta, false) : fmtIst(trip.promised_delivery_at)}</strong>
+            <small>{liveEta && trip.promised_delivery_at ? `Planned ${fmtIst(trip.promised_delivery_at)}` : " "}</small>
+          </div>
+          <div className="lv-tile lv-t-brand">
+            <span className="lv-tile-label">
+              <Route size={12} aria-hidden /> Distance left
+            </span>
+            <strong>{moving && trip.distance_left_km != null ? `${Math.round(trip.distance_left_km)} km` : "-"}</strong>
+            <small>approx</small>
+          </div>
+          <div className={cx("lv-tile", fresh ? "lv-t-good" : "lv-t-neutral")} suppressHydrationWarning>
+            <span className="lv-tile-label">
+              <Satellite size={12} aria-hidden /> Updated
+            </span>
+            <strong>{trip.last_point_at ? (fresh ? "Live" : agoShort(trip.last_point_at, now)) : "-"}</strong>
+            <small>{fresh ? "right now" : " "}</small>
+          </div>
+        </div>
       ) : null}
 
-      <section className="panel overflow-hidden">
-        {pos ? (
+      {trip.status === "delivered" && trip.pod_note ? <p className="lv-note">Note from delivery: {trip.pod_note}</p> : null}
+
+      {pos ? (
+        <section className="panel overflow-hidden">
           <div className="live-map-frame live-map-lg">
-            <iframe title="Truck position" src={osmEmbed(pos)} loading="lazy" referrerPolicy="no-referrer" />
+            <iframe title="Truck position" src={osmEmbed(pos, toPt)} loading="lazy" referrerPolicy="no-referrer" />
             <a href={mapsHref(pos.lat, pos.lng)} target="_blank" rel="noopener noreferrer" className="live-map-open">
-              <MapPin size={13} /> Maps
+              <MapPin size={13} /> Open in Maps
             </a>
           </div>
-        ) : null}
-        <dl className="live-stats">
-          <div>
-            <dt>Last update</dt>
-            <dd>{trip.last_point_at && !closed ? `${agoShort(trip.last_point_at, now)}${fresh ? " · live" : ""}` : "-"}</dd>
-          </div>
-          <div>
-            <dt>Distance left</dt>
-            <dd>{!closed && trip.distance_left_km != null && trip.status !== "arrived" ? `~${Math.round(trip.distance_left_km)} km` : "-"}</dd>
-          </div>
-          <div>
-            <dt>Planned arrival</dt>
-            <dd>{fmtIst(trip.promised_delivery_at)}</dd>
-          </div>
-          <div>
-            <dt>{trip.status === "arrived" ? "Arrived" : "Live ETA"}</dt>
-            <dd>
-              {trip.status === "arrived" ? fmtIst(trip.arrived_at) : liveEta ? fmtIst(liveEta) : "-"}
-              {v && !closed ? <em className={`live-var live-var-${v.tone}`}>{v.text}</em> : null}
-            </dd>
-          </div>
-        </dl>
-      </section>
+        </section>
+      ) : null}
 
       {state !== "cancelled" ? (
         <Suspense fallback={null}>
@@ -170,46 +223,48 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
         </Suspense>
       ) : null}
 
-      <section className="panel p-3">
-        <dl className="live-dl live-dl-tight">
-          <div className="live-dl-row">
-            <dt>
-              <Truck size={13} className="inline" /> Truck
-            </dt>
-            <dd className="font-mono">{prettyVehicle(trip.vehicle_no) || "-"}</dd>
-          </div>
-          {showDriver && driverFirst ? (
-            <div className="live-dl-row">
-              <dt>
-                <UserRound size={13} className="inline" /> Driver
-              </dt>
-              <dd className="flex items-center gap-2">
-                {driverFirst}
-                {callDriver && trip.driver_phone && !closed ? (
-                  <a href={`tel:${trip.driver_phone}`} className="live-ib" aria-label={`Call ${driverFirst}`}>
-                    <Phone size={14} />
-                  </a>
-                ) : null}
-              </dd>
-            </div>
-          ) : null}
-          {goods ? (
-            <div className="live-dl-row">
-              <dt>
-                <Package size={13} className="inline" /> Goods
-              </dt>
-              <dd>{goods}</dd>
-            </div>
-          ) : null}
-          {trip.started_at ? (
-            <div className="live-dl-row">
-              <dt>Started</dt>
-              <dd>{fmtIst(trip.started_at)}</dd>
-            </div>
-          ) : null}
-        </dl>
+      <section className="lv-facts">
+        <span className="lv-fact">
+          <Truck size={14} aria-hidden />
+          <span>
+            <small>Truck</small>
+            <b className="font-mono">{prettyVehicle(trip.vehicle_no) || "-"}</b>
+          </span>
+        </span>
+        {showDriver && driverFirst ? (
+          <span className="lv-fact">
+            <UserRound size={14} aria-hidden />
+            <span>
+              <small>Driver</small>
+              <b>{driverFirst}</b>
+            </span>
+            {callDriver && trip.driver_phone && !closed ? (
+              <a href={`tel:${trip.driver_phone}`} className="lv-fact-call" aria-label={`Call ${driverFirst}`}>
+                <Phone size={14} /> Call
+              </a>
+            ) : null}
+          </span>
+        ) : null}
+        {goods ? (
+          <span className="lv-fact">
+            <Package size={14} aria-hidden />
+            <span>
+              <small>Goods</small>
+              <b>{goods}</b>
+            </span>
+          </span>
+        ) : null}
+        {trip.started_at ? (
+          <span className="lv-fact">
+            <PlayCircle size={14} aria-hidden />
+            <span>
+              <small>Started</small>
+              <b>{fmtIst(trip.started_at)}</b>
+            </span>
+          </span>
+        ) : null}
       </section>
-      <p className="text-xs text-faint">Location from the driver&apos;s phone; distance and ETA are approximate. Powered by Rahdari.</p>
+      <p className="text-center text-[11px] text-faint">Powered by Rahdari</p>
     </main>
   );
 }

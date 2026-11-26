@@ -1221,7 +1221,7 @@ export async function deleteTrip(_prev: ActionResult | null, fd: FormData): Prom
     if (!other?.length) await admin.from("live_drivers").delete().eq("id", trip.driver_id).eq("kind", "one_time");
   }
   revalidatePath("/live", "layout");
-  redirect("/live/trips");
+  redirect(trip.direction === "incoming" ? "/live/receiving" : "/live/sending");
 }
 
 /* -------------------------------------------------------------------------- */

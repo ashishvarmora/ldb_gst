@@ -21,13 +21,14 @@ import { cx } from "@/components/ui";
  */
 
 const NAV = [
-  { href: "/live/trips", label: "Home", icon: House },
+  { href: "/live/sending", label: "Home", icon: House },
   { href: "/live/masters", label: "Masters", icon: Database },
   { href: "/live/profile", label: "Profile", icon: UserRound },
 ];
 
 function isActive(path: string, href: string) {
-  if (href === "/live/trips") return path.startsWith("/live/trips") || path === "/live" || path === "/live/today";
+  if (href === "/live/sending")
+    return path.startsWith("/live/trips") || path.startsWith("/live/sending") || path.startsWith("/live/receiving") || path === "/live" || path === "/live/today";
   if (href === "/live/masters") return path.startsWith("/live/masters") || path.startsWith("/live/places") || path.startsWith("/live/drivers") || path.startsWith("/live/fleet");
   if (href === "/live/profile") return path.startsWith("/live/profile") || path.startsWith("/live/history") || path.startsWith("/live/activity") || path.startsWith("/live/logbook");
   return path === href || path.startsWith(`${href}/`);

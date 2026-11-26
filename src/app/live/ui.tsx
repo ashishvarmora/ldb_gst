@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Plus, X } from "lucide-react";
+import { ChevronDown, Plus, RefreshCw, X } from "lucide-react";
 
 import { ActionForm, SubmitButton, useActionPending } from "@/components/ActionForm";
 
@@ -100,11 +100,14 @@ export function StatusControl({
   current,
   labels,
   canStart,
+  asAction = false,
 }: {
   tripId: string;
   current: "planned" | "active" | "done" | "cancelled";
   labels: Record<string, string>;
   canStart: boolean;
+  /** v7: drawn as an icon tile in the trip page's action bar. */
+  asAction?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const order = ["planned", "active", "done", "cancelled"] as const;
@@ -126,9 +129,16 @@ export function StatusControl({
           : "Marks the trip delivered. The note becomes the delivery note.";
   return (
     <div className="live-statusctl">
-      <button type="button" className="live-btn-sm" aria-expanded={open} onClick={() => setOpen((x) => !x)}>
-        Change <ChevronDown size={13} />
-      </button>
+      {asAction ? (
+        <button type="button" className="lv-act" aria-expanded={open} aria-label="Change status" onClick={() => setOpen((x) => !x)}>
+          <RefreshCw size={17} />
+          <span>Status</span>
+        </button>
+      ) : (
+        <button type="button" className="live-btn-sm" aria-expanded={open} onClick={() => setOpen((x) => !x)}>
+          Change <ChevronDown size={13} />
+        </button>
+      )}
       {open ? (
         <div className="live-pop" role="dialog" aria-label="Change status">
           <ActionForm action={setTripState} closeOnSuccess={false}>

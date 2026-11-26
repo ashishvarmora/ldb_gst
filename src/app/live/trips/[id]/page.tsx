@@ -1,7 +1,39 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { Archive, BellRing, Copy, ExternalLink, History, MessageCircle, Navigation, Pencil, Play, Power, Sparkles, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  ArrowDownLeft,
+  ArrowUpRight,
+  BellRing,
+  Clock,
+  Copy,
+  ExternalLink,
+  Flag,
+  Gauge,
+  FileText,
+  History,
+  Link2,
+  MapPin,
+  MoreHorizontal,
+  Package,
+  MessageCircle,
+  Navigation,
+  Pencil,
+  Phone,
+  Play,
+  Power,
+  ReceiptText,
+  Route,
+  Satellite,
+  Share2,
+  Sparkles,
+  Timer,
+  Trash2,
+  Truck,
+  UserRound,
+} from "lucide-react";
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { buttonClass, cx } from "@/components/ui";
@@ -36,7 +68,9 @@ import {
   PARTY_TYPE_LABEL,
   PURPOSE_LABEL,
   STATE_LABEL,
+  STATE_TONE,
   agoShort,
+  durationShort,
   destinationText,
   directionsHref,
   fmtIst,
@@ -54,10 +88,12 @@ import {
   untilShort,
   type LiveTrip,
 } from "@/lib/live/shared";
+import { etaView, gpsView, progressPct, speedView, tripHeading } from "@/lib/live/insight";
 import { formatIndianMobile } from "@/lib/phone";
 
 import { addTripNote, archiveTrip, deleteTrip, saveTripAlerts, setActualStart, setCustomerLink, setTripState } from "../../actions";
 import { BackLink } from "../../BackLink";
+import { BOARD_PATH } from "../../TripBoard";
 import { DriverSignalPill, InfoTip, PhaseSections, SignalPill, StatePill, tripIssues } from "../../parts";
 import { DriverLinkActions } from "../../blocks";
 import { RouteTimeline } from "../../RouteTimeline";
@@ -153,50 +189,158 @@ export default async function TripPage({ params, searchParams }: { params: Promi
   const hidden = <input type="hidden" name="id" value={trip.id} />;
   const sendLink = (sp.created || sp.sent) && dLink && open;
 
+  const heading = tripHeading(trip, fromText, toText);
+  const gps = open && trip.driver_id ? gpsView(trip, now) : null;
+  const speed = speedView(trip, standing?.minutes ?? null, now);
+  const eta = etaView(trip, now);
+  const pct = progressPct(originPt, dest, trip);
+  const DirIcon = direction === "incoming" ? ArrowDownLeft : ArrowUpRight;
+  const callPhone = driver?.phone ?? trip.driver_phone ?? null;
+  const kmLeft = state === "active" && trip.distance_left_km != null && trip.status !== "arrived" ? Math.round(trip.distance_left_km) : null;
+  const endAt = trip.delivered_at ?? trip.arrived_at;
+  const tiles: { key: string; icon: typeof Gauge; label: string; text: string; sub?: string; tone: string }[] = open
+    ? [
+        { key: "speed", icon: Gauge, label: "Speed", text: speed?.text ?? "-", sub: speed?.sub, tone: speed?.tone ?? "neutral" },
+        { key: "km", icon: Route, label: "Km left", text: kmLeft != null ? String(kmLeft) : "-", sub: kmLeft != null ? "km approx" : dest ? "after start" : "pin destination", tone: "brand" },
+        { key: "eta", icon: Clock, label: eta?.sub ?? "ETA", text: eta?.text ?? "-", tone: eta?.tone ?? "neutral" },
+        { key: "gps", icon: Satellite, label: "GPS", text: gps?.text ?? (trip.driver_id ? "-" : "No driver"), tone: gps?.tone ?? "neutral" },
+      ]
+    : [
+        { key: "start", icon: Play, label: "Started", text: trip.started_at ? fmtIst(trip.started_at) : "-", tone: "neutral" },
+        { key: "end", icon: Flag, label: trip.status === "delivered" ? "Delivered" : "Closed", text: fmtIst(endAt), tone: state === "done" ? "good" : "bad" },
+        { key: "plan", icon: Clock, label: "Planned arrival", text: fmtIst(trip.promised_delivery_at), sub: arriveVar?.text, tone: arriveVar?.tone ?? "neutral" },
+        {
+          key: "dur",
+          icon: Timer,
+          label: "Trip time",
+          text: trip.started_at && endAt ? durationShort((new Date(endAt).getTime() - new Date(trip.started_at).getTime()) / 60000) : "-",
+          tone: "neutral",
+        },
+      ];
+
   return (
     <div className="live-page mx-auto max-w-3xl space-y-3">
       {open ? <AutoRefresh ms={30_000} /> : null}
-      <BackLink href="/live/trips" label="Home" />
+      <BackLink href={BOARD_PATH[direction]} label={DIRECTION_LABEL[direction]} />
 
-      <header className="live-trip-head">
-        <div className="min-w-0">
-          <p className="live-trip-no">
-            <span className={`live-dir live-dir-${direction}`}>{DIRECTION_LABEL[direction]}</span> {trip.vehicle_no ? prettyVehicle(trip.vehicle_no) : "No truck"}
-            {trip.invoice_no ? ` · Inv ${trip.invoice_no}` : ""}
-          </p>
-          <h1>{tripTitle(trip)}</h1>
-          <p className="live-trip-route-lg">
-            {fromText ? <span>{fromText} → </span> : null}
-            <strong>{toText}</strong>
-          </p>
+      {/* HERO (v7): name, status, where the truck is between From and To */}
+      <section className={cx("lv-hero", `lv-edge-${STATE_TONE[state]}`)}>
+        <div className="lv-hero-tags">
+          <span className={`lv-tag lv-tag-${direction}`}>
+            <DirIcon size={12} /> {DIRECTION_LABEL[direction]}
+          </span>
+          <span className={cx("lv-chip", `lv-t-${STATE_TONE[state]}`)}>{trip.status === "arrived" ? "Arrived" : STATE_LABEL[state]}</span>
+          {trip.archived_at ? <span className="lv-chip lv-t-neutral">Archived</span> : null}
+          <span className="lv-ref" title="Trip number, for records">
+            {tripNo(trip.trip_seq)}
+          </span>
         </div>
-      </header>
-
-      {/* STATUS (v5): current status + a small control that actually changes it */}
-      <section className="live-statusbar">
-        <span className="live-mini-label">Status</span>
-        <StatePill trip={trip} />
-        {open ? <SignalPill trip={trip} now={now} /> : null}
-        {trip.archived_at ? <span className="live-kind">Archived</span> : null}
-        <span className="ml-auto flex items-center gap-1.5">
-          {state === "planned" && trip.driver_id ? (
-            <ActionForm action={setTripState} closeOnSuccess={false}>
-              {hidden}
-              <input type="hidden" name="state" value="active" />
-              <SubmitButton size="sm" pendingLabel="Starting">
-                <Play size={13} /> Start
-              </SubmitButton>
-            </ActionForm>
+        <h1 className="lv-hero-title">{heading}</h1>
+        <div className="lv-route" aria-label={`From ${fromText ?? "start"} to ${toText}`}>
+          <span className="lv-route-end">
+            <span className="lv-route-pin" aria-hidden />
+            <span className="truncate">{fromText ?? "Start"}</span>
+          </span>
+          <span className="lv-route-track" aria-hidden>
+            <span className="lv-route-fill" style={{ width: `${pct ?? (state === "active" ? 50 : 0)}%` }} />
+            {state === "active" && trip.status !== "arrived" ? (
+              <span className="lv-route-truck" style={{ left: `${pct ?? 50}%` }}>
+                <Truck size={12} />
+              </span>
+            ) : null}
+          </span>
+          <span className="lv-route-end is-to">
+            <MapPin size={13} className="shrink-0" aria-hidden />
+            <span className="truncate">{toText}</span>
+          </span>
+        </div>
+        <div className="lv-card-meta">
+          {trip.vehicle_no ? (
+            <span className="lv-m lv-plate">
+              <Truck size={11} aria-hidden /> {prettyVehicle(trip.vehicle_no)}
+            </span>
           ) : null}
-          <StatusControl tripId={trip.id} current={state} labels={STATE_LABEL} canStart={Boolean(trip.driver_id)} />
-          <InfoTip label="About trip status">
-            Planned: set up, not moving. Active: on the road (Start, the driver&apos;s Started button, or leaving the From place). Done: delivered. Cancelled: kept in
-            records. Change it any time; every change is in the activity.
-          </InfoTip>
-        </span>
+          <span className={cx("lv-m min-w-0", !trip.driver_name && "is-faint")}>
+            <UserRound size={11} aria-hidden /> <span className="truncate">{trip.driver_name ?? "No driver"}</span>
+          </span>
+          {trip.invoice_no ? (
+            <span className="lv-m min-w-0">
+              <ReceiptText size={11} aria-hidden /> <span className="truncate">{trip.invoice_no}</span>
+            </span>
+          ) : null}
+        </div>
       </section>
-      {state === "planned" && !trip.driver_id ? <p className="text-xs text-muted">Add a driver to start: tracking follows his phone.</p> : null}
-      {trip.pod_note ? <p className="text-xs text-ink">Delivery note: {trip.pod_note}</p> : null}
+
+      {/* AT A GLANCE (v7): four tiles; colour = on time / at risk / late */}
+      <div className="lv-tiles">
+        {tiles.map((t) => (
+          <div key={t.key} className={cx("lv-tile", `lv-t-${t.tone}`)} suppressHydrationWarning>
+            <span className="lv-tile-label">
+              <t.icon size={12} aria-hidden /> {t.label}
+            </span>
+            <strong>{t.text}</strong>
+            {t.sub ? <small>{t.sub}</small> : null}
+          </div>
+        ))}
+      </div>
+
+      {/* ACTIONS (v7): icon + one word; the long explanation is behind (i) */}
+      <nav className="lv-actions" aria-label="Trip actions">
+        {state === "planned" && trip.driver_id ? (
+          <ActionForm action={setTripState} closeOnSuccess={false}>
+            {hidden}
+            <input type="hidden" name="state" value="active" />
+            <button type="submit" className="lv-act lv-act-primary" aria-label="Start trip">
+              <Play size={17} />
+              <span>Start</span>
+            </button>
+          </ActionForm>
+        ) : null}
+        <StatusControl tripId={trip.id} current={state} labels={STATE_LABEL} canStart={Boolean(trip.driver_id)} asAction />
+        {callPhone && open ? (
+          <a href={`tel:${callPhone}`} className="lv-act" aria-label="Call driver">
+            <Phone size={17} />
+            <span>Call</span>
+          </a>
+        ) : null}
+        {driverWa && open ? (
+          <a href={driverWa} target="_blank" rel="noopener noreferrer" className="lv-act lv-act-wa" aria-label="Send driver link on WhatsApp">
+            <MessageCircle size={17} />
+            <span>Driver</span>
+          </a>
+        ) : null}
+        {customerWa && open ? (
+          <a href={customerWa} target="_blank" rel="noopener noreferrer" className="lv-act" aria-label="Send customer link on WhatsApp">
+            <Share2 size={17} />
+            <span>Customer</span>
+          </a>
+        ) : null}
+        {dest || trip.to_maps_url ? (
+          <a href={dest ? directionsHref(dest.lat, dest.lng) : trip.to_maps_url!} target="_blank" rel="noopener noreferrer" className="lv-act" aria-label="Directions to destination">
+            <Navigation size={17} />
+            <span>Navigate</span>
+          </a>
+        ) : null}
+        {open ? (
+          <Link href={`/live/trips/${trip.id}/edit`} className="lv-act" aria-label={state === "active" ? "Change trip" : "Edit trip"}>
+            <Pencil size={17} />
+            <span>Edit</span>
+          </Link>
+        ) : (
+          <Link href={`/live/trips/new?copy=${trip.id}`} className="lv-act" aria-label="Same route again">
+            <Copy size={17} />
+            <span>Repeat</span>
+          </Link>
+        )}
+        <InfoTip label="How to read this trip">
+          Planned: set up, not moving. Active: on the road (Start, the driver&apos;s Started button, or leaving the From place). Done: delivered.
+          Cancelled: kept in records. Change it with Status; every change is in Activity. Speed under 4 km/h counts as stopped. Km left is the
+          straight line × 1.25. ETA uses the truck&apos;s average speed over the last 2 hours, plus halt time on trips longer than about 12 hours of driving: green on time, amber up to 30 min late, red later. GPS turns amber after
+          10 min without a position and red after 30 min.
+        </InfoTip>
+      </nav>
+      {state === "planned" && !trip.driver_id ? <p className="lv-note">Add a driver to start: tracking follows his phone.</p> : null}
+      {trip.pod_note ? <p className="lv-note">Delivery note: {trip.pod_note}</p> : null}
 
       {sendLink ? (
         <section className="live-callout">
@@ -216,8 +360,8 @@ export default async function TripPage({ params, searchParams }: { params: Promi
       {issues.length ? (
         <div className="flex flex-wrap gap-1.5">
           {issues.map((i) => (
-            <span key={i.key} className={cx("live-issue", i.tone === "bad" ? "live-issue-bad" : "live-issue-warn")}>
-              {i.text}
+            <span key={i.key} className={cx("lv-chip", i.tone === "bad" ? "lv-t-bad" : "lv-t-warn")}>
+              <AlertTriangle size={11} /> {i.text}
             </span>
           ))}
         </div>
@@ -228,7 +372,7 @@ export default async function TripPage({ params, searchParams }: { params: Promi
         </Suspense>
       ) : null}
 
-      {/* WHERE */}
+      {/* MAP */}
       <section className="panel overflow-hidden">
         {pos ? (
           <div className="live-map-frame live-map-lg">
@@ -243,42 +387,12 @@ export default async function TripPage({ params, searchParams }: { params: Promi
             <p>{signal === "waiting" ? "Waiting for the driver to open the link and tap Start sharing." : signal === "off" ? "The driver link is off." : "No position yet."}</p>
           </div>
         )}
-        <dl className="live-stats">
-          <div>
-            <dt>Last position</dt>
-            <dd suppressHydrationWarning>{trip.last_point_at ? agoShort(trip.last_point_at, now) : "-"}</dd>
-          </div>
-          <div>
-            <dt>Speed</dt>
-            <dd>{trip.last_speed_kmh != null && open ? `${Math.round(trip.last_speed_kmh)} km/h` : "-"}</dd>
-          </div>
-          <div>
-            <dt>Distance left</dt>
-            <dd>{open && trip.distance_left_km != null ? `~${Math.round(trip.distance_left_km)} km` : "-"}</dd>
-          </div>
-          <div>
-            <dt>Live ETA</dt>
-            <dd>{state === "active" && trip.eta_at && trip.status !== "arrived" ? fmtIst(trip.eta_at) : trip.status === "arrived" ? "Arrived" : "-"}</dd>
-          </div>
-        </dl>
-        <div className="flex flex-wrap gap-2 border-t border-divider p-2.5">
-          {dest ? (
-            <a href={directionsHref(dest.lat, dest.lng)} target="_blank" rel="noopener noreferrer" className={buttonClass("secondary", "sm")}>
-              <Navigation size={14} /> Destination
-            </a>
-          ) : trip.to_maps_url ? (
-            <a href={trip.to_maps_url} target="_blank" rel="noopener noreferrer" className={buttonClass("secondary", "sm")}>
-              <Navigation size={14} /> Destination link
-            </a>
-          ) : (
-            <span className="self-center text-xs text-muted">Pin the destination on the map for distance and ETA.</span>
-          )}
-          {open ? (
-            <Link href={`/live/trips/${trip.id}/edit`} className={buttonClass("secondary", "sm")}>
-              <Pencil size={14} /> {state === "active" ? "Change" : "Edit"}
-            </Link>
-          ) : null}
-        </div>
+        {pos && trip.last_point_at ? (
+          <p className="lv-map-foot" suppressHydrationWarning>
+            <Satellite size={11} /> Updated {agoShort(trip.last_point_at, now)} · from the driver&apos;s phone
+          </p>
+        ) : null}
+        {!dest && open ? <p className="lv-map-foot">Pin the destination (Edit) to get km left and ETA.</p> : null}
       </section>
 
       {/* WHERE IS MY TRUCK (v6): stops with scheduled vs actual / expected; replaces the v5 Times card and Road ahead */}
@@ -321,6 +435,7 @@ export default async function TripPage({ params, searchParams }: { params: Promi
       <div className="live-acc">
         <details name="trip" open={(state === "planned" && !sendLink) || undefined}>
           <summary>
+            <Link2 size={15} className="lv-acc-ic" aria-hidden />
             <strong>Driver &amp; links</strong>
             <small>{driver?.name ?? trip.driver_name ?? "No driver"}{temp ? " · temporary" : ""}</small>
           </summary>
@@ -401,12 +516,16 @@ export default async function TripPage({ params, searchParams }: { params: Promi
 
         <details name="trip">
           <summary>
+            <FileText size={15} className="lv-acc-ic" aria-hidden />
             <strong>Details</strong>
             <small>{[trip.material, trip.invoice_no ? `Inv ${trip.invoice_no}` : null].filter(Boolean).join(" · ") || "route, goods, documents"}</small>
           </summary>
           <div className="live-acc-body">
             <dl className="live-dl">
-              <Row label="Trip">{tripTitle(trip)} (fixed)</Row>
+              <p className="lv-dl-head">
+                <MapPin size={11} /> Who &amp; where
+              </p>
+              <Row label="Trip no.">{tripNo(trip.trip_seq)}{trip.trip_name ? ` · ${trip.trip_name}` : ""}</Row>
               <Row label="Direction">
                 {DIRECTION_LABEL[direction]}
                 {trip.party_type ? ` · ${PARTY_TYPE_LABEL[trip.party_type]}` : ""}
@@ -425,6 +544,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
                   {trip.consignee_phone ? ` · ${formatIndianMobile(trip.consignee_phone)}` : ""}
                 </Row>
               ) : null}
+              <p className="lv-dl-head">
+                <Package size={11} /> Goods &amp; papers
+              </p>
               <Row label="Material">
                 {[trip.material, trip.quantity != null ? `${trip.quantity} ${trip.quantity_unit ?? ""}`.trim() : null, trip.weight_kg != null ? `${trip.weight_kg} kg` : null]
                   .filter(Boolean)
@@ -438,6 +560,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
               {trip.lr_no ? <Row label="LR / bilty">{trip.lr_no}</Row> : null}
               {trip.transporter ? <Row label="Transporter">{trip.transporter}</Row> : null}
               {trip.freight_inr != null ? <Row label="Freight">{inr(trip.freight_inr)}</Row> : null}
+              <p className="lv-dl-head">
+                <Clock size={11} /> Times
+              </p>
               <Row label="Planned start">{fmtIst(trip.planned_dispatch_at)}</Row>
               <Row label="Expected arrival">{fmtIst(trip.promised_delivery_at)}</Row>
               {trip.started_at ? <Row label="Started">{fmtIst(trip.started_at)}</Row> : null}
@@ -450,9 +575,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
 
         <details name="trip">
           <summary>
+            <BellRing size={15} className="lv-acc-ic" aria-hidden />
             <strong>Alerts</strong>
             <small>{changedAlerts ? `${changedAlerts} change${changedAlerts === 1 ? "" : "s"} for this trip` : "account defaults"}</small>
-            <BellRing size={14} className="shrink-0 text-faint" />
           </summary>
           <div className="live-acc-body">
             {has84 ? (
@@ -494,8 +619,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
 
         <details name="trip" open={(state !== "planned" && !sendLink) || undefined}>
           <summary>
+            <History size={15} className="lv-acc-ic" aria-hidden />
             <strong>Activity</strong>
-            <small>by phase · who, when, old → new, reason</small>
+            <small>who, when, what changed</small>
             <span className="live-acc-count">{events.length}</span>
           </summary>
           <div className="live-acc-body space-y-3">
@@ -517,8 +643,9 @@ export default async function TripPage({ params, searchParams }: { params: Promi
 
         <details name="trip">
           <summary>
-            <strong>More actions</strong>
-            <small>same route, archive, delete</small>
+            <MoreHorizontal size={15} className="lv-acc-ic" aria-hidden />
+            <strong>More</strong>
+            <small>repeat, archive, delete</small>
           </summary>
           <div className="live-acc-body flex flex-wrap items-center gap-2">
             <Link href={`/live/trips/new?copy=${trip.id}`} className={buttonClass("secondary", "sm")}>

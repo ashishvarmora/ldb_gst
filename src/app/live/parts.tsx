@@ -1,5 +1,20 @@
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, Clock, FileWarning, Info, Navigation, PauseCircle, WifiOff } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileWarning,
+  Info,
+  MapPin,
+  Navigation,
+  PauseCircle,
+  Route,
+  Truck,
+  UserRound,
+  WifiOff,
+} from "lucide-react";
 
 import { cx } from "@/components/ui";
 import {
@@ -30,6 +45,8 @@ import {
   type TripState,
   type TripStatus,
 } from "@/lib/live/shared";
+import { etaView, gpsView, progressPct, tripHeading } from "@/lib/live/insight";
+import { destinationPoint } from "@/lib/live/server";
 
 /** Server-rendered building blocks shared by the Live pages. */
 
@@ -99,11 +116,13 @@ export function tripIssues(trip: LiveTrip, now: number): { key: string; text: st
 }
 
 /**
- * v6 compact trip row (list hierarchy: what you scan for, nothing more).
- *   1  trip no + name · issue icons · status chip
- *   2  driver · truck (truck in plate font, driver in body font)
- *   3  from → to · right: km left + ETA / done time / planned start
- * Everything else (goods, documents, timeline) lives on the trip page.
+ * v7 trip card - the first impression, nothing more (docs/LIVE-PLAN-v7.md).
+ *   1  trip name (never the T-number) · issue icons · status chip
+ *   2  small icon facts: truck plate · driver · GPS freshness (coloured dot)
+ *   3  route (when the title is the trip's own name) · km left · ETA coloured
+ *      green on time / amber at risk / red late
+ *   a thin progress bar while it is on the road
+ * Everything else lives on the trip page, one tap away.
  */
 export function TripCard({ trip, places, now, href }: { trip: LiveTrip; places: Map<string, LivePlace>; now: number; href?: string }) {
   const from = trip.from_place_id ? places.get(trip.from_place_id) : null;
@@ -111,39 +130,66 @@ export function TripCard({ trip, places, now, href }: { trip: LiveTrip; places: 
   const issues = tripIssues(trip, now);
   const st = tripState(trip);
   const fromText = from?.name ?? trip.party_name ?? trip.from_name ?? null;
-  let tail: string | null = null;
-  if (st === "active" && trip.status !== "arrived") {
-    tail = [trip.distance_left_km != null ? `${Math.round(trip.distance_left_km)} km` : null, trip.eta_at ? `ETA ${fmtIst(trip.eta_at, false)}` : null].filter(Boolean).join(" · ") || null;
-  } else if (trip.status === "arrived") tail = trip.arrived_at ? `Arrived ${fmtIst(trip.arrived_at, false)}` : "Arrived";
-  else if (st === "done" && trip.delivered_at) tail = `Done ${fmtIst(trip.delivered_at)}`;
-  else if (st === "planned" && trip.planned_dispatch_at) tail = `Starts ${fmtIst(trip.planned_dispatch_at)}`;
+  const toText = destinationText(trip, to?.name);
+  const heading = tripHeading(trip, fromText, toText);
+  const showRoute = Boolean(trip.trip_name?.trim());
+  const eta = etaView(trip, now);
+  const gps = trip.driver_id && st === "active" ? gpsView(trip, now) : null;
+  const origin =
+    trip.from_lat != null && trip.from_lng != null ? { lat: trip.from_lat, lng: trip.from_lng } : from?.lat != null && from?.lng != null ? { lat: from.lat, lng: from.lng } : null;
+  const pct = st === "active" ? progressPct(origin, destinationPoint(trip, to), trip) : null;
+  const EtaIcon = trip.status === "delivered" ? CheckCircle2 : st === "planned" ? CalendarClock : Clock;
   return (
-    <Link href={href ?? `/live/trips/${trip.id}`} className="live-trow">
-      <span className="live-trow-l1">
-        <strong className="truncate">
-          {tripNo(trip.trip_seq)}
-          {trip.trip_name ? <span className="live-trow-name"> {trip.trip_name}</span> : null}
-        </strong>
+    <Link href={href ?? `/live/trips/${trip.id}`} className={cx("lv-card", `lv-edge-${STATE_TONE[st]}`)}>
+      <span className="lv-card-top">
+        <strong className="lv-card-title">{heading}</strong>
         {issues.map((i) => (
-          <span key={i.key} className={cx("live-trow-ic", i.tone === "bad" ? "is-bad" : "is-warn")} title={i.text} aria-label={i.text}>
-            {i.key.startsWith("eway") ? <FileWarning size={12} /> : i.key === "nosig" ? <WifiOff size={12} /> : <AlertTriangle size={12} />}
+          <span key={i.key} className={cx("lv-ic", i.tone === "bad" ? "is-bad" : "is-warn")} title={i.text} aria-label={i.text}>
+            {i.key.startsWith("eway") ? <FileWarning size={11} /> : i.key === "nosig" ? <WifiOff size={11} /> : <AlertTriangle size={11} />}
           </span>
         ))}
-        <StatePill trip={trip} className="live-status-xs" />
+        <span className={cx("lv-chip", `lv-t-${STATE_TONE[st]}`)}>{trip.status === "arrived" ? "Arrived" : STATE_LABEL[st]}</span>
       </span>
-      <span className="live-trow-l2">
-        <span className={cx("live-dot", trip.direction === "incoming" ? "is-in" : "is-out")} title={trip.direction === "incoming" ? "Receiving" : "Sending"} aria-hidden />
-        <span className="truncate">{trip.driver_name || "No driver"}</span>
-        {trip.vehicle_no ? <span className="live-plate">{prettyVehicle(trip.vehicle_no)}</span> : null}
-        {trip.driver_id && st === "active" ? <SignalPill trip={trip} now={now} /> : null}
-      </span>
-      <span className="live-trow-l3">
-        <span className="min-w-0 truncate">
-          {fromText ? `${fromText} → ` : ""}
-          {destinationText(trip, to?.name)}
+      <span className="lv-card-meta">
+        {trip.vehicle_no ? (
+          <span className="lv-m lv-plate">
+            <Truck size={11} aria-hidden /> {prettyVehicle(trip.vehicle_no)}
+          </span>
+        ) : null}
+        <span className={cx("lv-m min-w-0", !trip.driver_name && "is-faint")}>
+          <UserRound size={11} aria-hidden /> <span className="truncate">{trip.driver_name || "No driver"}</span>
         </span>
-        {tail ? <span className="live-trow-tail">{tail}</span> : null}
+        {gps ? (
+          <span className={cx("lv-m", `lv-t-${gps.tone}`)} suppressHydrationWarning>
+            <span className="lv-dot" aria-hidden /> {gps.text}
+          </span>
+        ) : null}
       </span>
+      <span className="lv-card-foot">
+        <span className="lv-m min-w-0 flex-1">
+          {showRoute ? (
+            <>
+              <MapPin size={11} aria-hidden /> <span className="truncate">{fromText ? `${fromText} → ` : ""}{toText}</span>
+            </>
+          ) : null}
+        </span>
+        {st === "active" && trip.status !== "arrived" && trip.distance_left_km != null ? (
+          <span className="lv-m">
+            <Route size={11} aria-hidden /> {Math.round(trip.distance_left_km)} km
+          </span>
+        ) : null}
+        {eta ? (
+          <span className={cx("lv-m lv-eta", `lv-t-${eta.tone}`)} title={eta.sub} suppressHydrationWarning>
+            <EtaIcon size={11} aria-hidden /> {eta.text}
+            {eta.tone === "bad" || eta.tone === "warn" ? <em>{eta.sub}</em> : null}
+          </span>
+        ) : null}
+      </span>
+      {pct != null ? (
+        <span className="lv-progress" aria-label={`${pct}% of the way`}>
+          <span style={{ width: `${pct}%` }} />
+        </span>
+      ) : null}
     </Link>
   );
 }

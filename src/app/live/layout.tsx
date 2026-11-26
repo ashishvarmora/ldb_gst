@@ -55,7 +55,7 @@ export default async function LiveLayout({ children }: { children: React.ReactNo
           {/* v6: same strip as the toll app (portal layout): brand left on phones, app name as quiet
               text on desktop, then App switcher, Help chat, Bell, Profile. No coloured "Live" pill. */}
           <div className="flex items-center justify-between gap-2 px-4 py-3">
-            <Link href="/live/trips" className="-ml-1 flex min-h-10 min-w-[7.5rem] shrink-0 items-center gap-2 rounded-lg px-1 lg:hidden">
+            <Link href="/live/sending" className="-ml-1 flex min-h-10 min-w-[7.5rem] shrink-0 items-center gap-2 rounded-lg px-1 lg:hidden">
               <LogoMark size={30} className="text-saffron" />
               <span className="truncate font-display text-xl font-extrabold tracking-tight text-strong">{brandName}</span>
             </Link>

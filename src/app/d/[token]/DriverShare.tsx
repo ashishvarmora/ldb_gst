@@ -1,7 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BatteryMedium, MapPin, Square, Truck, WifiOff } from "lucide-react";
+import {
+  BatteryMedium,
+  CheckCircle2,
+  Crosshair,
+  Gauge,
+  HelpCircle,
+  Inbox,
+  MapPin,
+  MapPinOff,
+  PauseCircle,
+  Send,
+  Settings,
+  Smartphone,
+  Square,
+  Truck,
+  WifiOff,
+} from "lucide-react";
+
+import "@/app/live/live.css";
 
 import { REPORT_EVERY_MS, agoText } from "@/lib/live-location-shared";
 import type { DriverTripInfo } from "@/lib/live/driver";
@@ -242,7 +260,7 @@ export function DriverShare({
       const label = truckNumber || trip?.tripNo || driverName || "this trip";
       void startNativeWatch(label, ownerLabel, onFix, (kind) => {
         if (kind === "gps-off" || kind === "failed") {
-          setMessage("GPS not available right now. Turn on Location. / लोकेशन (GPS) चालू करें।");
+          setMessage("GPS nahi mil raha. Location (GPS) chalu karein.");
           if (kind === "failed") return;
         }
         stopWatching();
@@ -270,8 +288,8 @@ export function DriverShare({
         } else {
           setMessage(
             err.code === err.TIMEOUT
-              ? "Waiting for GPS... go near a window or outside. / GPS का इंतज़ार..."
-              : "GPS not available right now. Turn on Location. / लोकेशन (GPS) चालू करें।",
+              ? "GPS ka intezaar... khule mein ya khidki ke paas jaayein."
+              : "GPS nahi mil raha. Location (GPS) chalu karein.",
           );
         }
       },
@@ -342,179 +360,181 @@ export function DriverShare({
   const speedKmh = lastFix?.speed != null && lastFix.speed >= 0 ? Math.round(lastFix.speed * 3.6) : null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-4 bg-page px-4 pt-6 pb-10">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-3 bg-page px-4 pt-5 pb-10">
       <header className="flex items-center gap-3">
-        <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-mint text-brand-600">
-          <Truck size={22} aria-hidden />
+        <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-mint text-brand-600">
+          <Truck size={20} aria-hidden />
         </span>
-        <div className="min-w-0">
-          {truckNumber ? (
-            <>
-              <p className="text-xs text-muted">Truck / ट्रक</p>
-              <h1 className="font-mono text-2xl font-bold tracking-wide text-strong">{truckNumber}</h1>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-muted">Driver / ड्राइवर</p>
-              <h1 className="text-2xl font-bold text-strong">{driverName || "Location sharing"}</h1>
-            </>
-          )}
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] text-muted">{driverName ? `Namaste ${driverName}` : "Location sharing"}</p>
+          <h1 className={truckNumber ? "font-mono text-xl font-bold tracking-wide text-strong" : "text-xl font-bold text-strong"}>
+            {truckNumber || driverName || "Rahdari"}
+          </h1>
         </div>
+        <details className="lv-help">
+          <summary aria-label="Help">
+            <HelpCircle size={20} />
+          </summary>
+          <div className="lv-help-pop">
+            <p>
+              <b>Kya share hota hai?</b> Sirf aapki location, accuracy aur speed - aur kuch nahi. Only location, accuracy and speed are sent.
+            </p>
+            <p>
+              <b>Kis ke saath?</b> {ownerLabel}. Aap kabhi bhi Stop daba kar band kar sakte hain.
+            </p>
+            {inApp ? (
+              <p>
+                <b>Phone lock ho to?</b> App mein sharing chalti rehti hai, notification dikhega. Band karne ke liye Stop dabayein.
+              </p>
+            ) : (
+              <p>
+                <b>Phone lock ho to?</b> Browser mein page khula rakhein - lock hone par sharing ruk jaati hai. Keep this page open.
+                {wakeLockOn ? " (Screen on rakhi gayi hai.)" : ""}
+              </p>
+            )}
+            <p>
+              <b>Battery:</b> Ho sake to phone charge par rakhein. Keep the phone on charge if you can.
+            </p>
+          </div>
+        </details>
       </header>
 
-      {driverName ? (
-        <p className="text-[15px] text-ink">
-          नमस्ते {driverName} / Hello {driverName}
-        </p>
-      ) : null}
-
-      <section className="panel space-y-2 p-4 text-[15px] leading-relaxed">
-        <p className="text-ink">
-          आपकी लोकेशन <strong className="text-strong">{ownerLabel}</strong> के साथ शेयर होगी, जब तक यह पेज खुला
-          है और शेयरिंग चालू है। आप कभी भी बंद कर सकते हैं।
-        </p>
-        <p className="text-sm text-muted">
-          Your location will be shared with <strong className="text-strong">{ownerLabel}</strong> while this page is
-          open and sharing is ON. You can stop anytime.
-        </p>
-      </section>
-
-      {trip ? (
-        <DriverTripCard
-          token={token}
-          trip={trip}
-          lastFix={lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : null}
-          onClosed={onTripClosed}
-        />
-      ) : null}
-
       {closed ? (
-        <section className="panel p-4 text-center">
-          <p className="font-bold text-strong">Trip completed / ट्रिप पूरी</p>
-          <p className="mt-1 text-sm text-muted">Nothing is being shared. Thank you! / अब कुछ शेयर नहीं हो रहा। धन्यवाद!</p>
+        <section className="lv-drv-state lv-t-good">
+          <CheckCircle2 size={22} aria-hidden />
+          <div>
+            <p className="lv-drv-head">Trip complete / Trip poori</p>
+            <p className="lv-drv-sub">Ab kuch share nahi ho raha. Dhanyavaad! Nothing is being shared.</p>
+          </div>
         </section>
       ) : phase === "revoked" ? (
-        <section className="panel p-4 text-center">
-          <p className="font-bold text-strong">Link stopped / लिंक बंद</p>
-          <p className="mt-1 text-sm text-muted">{message ?? "The owner has stopped this link. Nothing is being shared."}</p>
+        <section className="lv-drv-state lv-t-neutral">
+          <PauseCircle size={22} aria-hidden />
+          <div>
+            <p className="lv-drv-head">Link band / Link stopped</p>
+            <p className="lv-drv-sub">{message ?? "Owner ne yeh link band kar diya. Nothing is being shared."}</p>
+          </div>
         </section>
       ) : sharing ? (
-        <>
-          <div className="flex items-center justify-center gap-2 rounded-2xl border border-good-500/40 bg-good-500/12 px-4 py-3 text-good-500">
-            <span className="relative inline-flex size-3">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-good-500 opacity-60" />
-              <span className="relative inline-flex size-3 rounded-full bg-good-500" />
-            </span>
-            <span className="font-bold">
-              {phase === "starting" ? "Finding GPS... / GPS ढूँढ रहे हैं..." : "Sharing ON / शेयरिंग चालू है"}
-            </span>
+        <section className="lv-drv-state lv-t-good">
+          <span className="relative inline-flex size-3 shrink-0">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-good-500 opacity-60" />
+            <span className="relative inline-flex size-3 rounded-full bg-good-500" />
+          </span>
+          <div>
+            <p className="lv-drv-head">{phase === "starting" ? "GPS dhoond rahe hain..." : "Sharing ON / chalu hai"}</p>
+            <p className="lv-drv-sub">{phase === "starting" ? "Finding GPS - khule mein ya khidki ke paas jaayein." : `${ownerLabel} aapki location dekh sakte hain.`}</p>
           </div>
-
-          <dl className="panel grid grid-cols-2 gap-3 p-4 text-sm">
-            <div>
-              <dt className="text-muted">Last sent / आखिरी भेजा</dt>
-              <dd className="font-semibold text-strong">{lastSentAt ? agoText(new Date(lastSentAt).toISOString()) : "--"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Accuracy / सटीकता</dt>
-              <dd className="font-semibold text-strong">
-                {lastFix?.accuracy != null ? `± ${Math.round(lastFix.accuracy)} m` : "--"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted">Speed / गति</dt>
-              <dd className="font-semibold text-strong">{speedKmh != null ? `${speedKmh} km/h` : "--"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Waiting to send / बाकी</dt>
-              <dd className="font-semibold text-strong">{queued}</dd>
-            </div>
-          </dl>
-
-          {!online ? (
-            <p className="flex items-center gap-2 rounded-xl border border-warn-500/40 bg-warn-500/12 px-3 py-2 text-sm text-warn-500">
-              <WifiOff size={16} aria-hidden /> No internet - positions are saved and will be sent later. / नेटवर्क नहीं
-              है, बाद में भेजेंगे।
+        </section>
+      ) : (
+        <section className="lv-drv-state lv-t-neutral">
+          <MapPinOff size={22} aria-hidden />
+          <div>
+            <p className="lv-drv-head">Sharing OFF / band hai</p>
+            <p className="lv-drv-sub">
+              {wasSharing && phase === "idle" ? "Pehle chalu thi - Start dabakar jaari rakhein." : `Start dabayein - location ${ownerLabel} ko jaayegi.`}
             </p>
-          ) : null}
-          {message ? <p className="text-sm text-warn-500">{message}</p> : null}
+          </div>
+        </section>
+      )}
 
+      {!closed && phase !== "revoked" ? (
+        sharing ? (
+          <>
+            <div className="lv-tiles">
+              <div className="lv-tile lv-t-good">
+                <span className="lv-tile-label">
+                  <Send size={12} aria-hidden /> Sent
+                </span>
+                <strong>{lastSentAt ? agoText(new Date(lastSentAt).toISOString()) : "--"}</strong>
+              </div>
+              <div className="lv-tile lv-t-brand">
+                <span className="lv-tile-label">
+                  <Gauge size={12} aria-hidden /> Speed
+                </span>
+                <strong>{speedKmh != null ? (speedKmh < 4 ? "Ruka" : `${speedKmh}`) : "--"}</strong>
+                <small>{speedKmh != null && speedKmh >= 4 ? "km/h" : " "}</small>
+              </div>
+              <div className="lv-tile lv-t-neutral">
+                <span className="lv-tile-label">
+                  <Crosshair size={12} aria-hidden /> GPS
+                </span>
+                <strong>{lastFix?.accuracy != null ? `±${Math.round(lastFix.accuracy)}m` : "--"}</strong>
+              </div>
+              <div className={queued ? "lv-tile lv-t-warn" : "lv-tile lv-t-neutral"}>
+                <span className="lv-tile-label">
+                  <Inbox size={12} aria-hidden /> Baaki
+                </span>
+                <strong>{queued}</strong>
+              </div>
+            </div>
+
+            {!online ? (
+              <p className="flex items-center gap-2 rounded-xl border border-warn-500/40 bg-warn-500/12 px-3 py-2 text-sm text-warn-500">
+                <WifiOff size={16} aria-hidden /> Network nahi hai - location save ho rahi hai, baad mein jaayegi.
+              </p>
+            ) : null}
+            {message ? <p className="text-sm text-warn-500">{message}</p> : null}
+          </>
+        ) : (
+          <>
+            {phase === "denied" ? (
+              <p className="rounded-xl border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
+                Location ki permission band hai. Settings mein is site ke liye Location &quot;Allow&quot; karein, phir Start dabayein.
+                {inApp ? (
+                  <button type="button" onClick={openNativeSettings} className="mt-2 flex min-h-10 items-center gap-1.5 font-semibold underline">
+                    <Settings size={15} /> App settings kholein
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
+            {phase === "unsupported" ? (
+              <p className="rounded-xl border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
+                Yeh browser location share nahi kar sakta. Link Chrome mein kholein.
+              </p>
+            ) : null}
+            {phase === "stopped" ? <p className="text-sm text-muted">Sharing band hai. Kuch nahi bheja ja raha.</p> : null}
+          </>
+        )
+      ) : null}
+
+      {!closed && phase !== "revoked" ? (
+        sharing ? (
           <button
             type="button"
             onClick={() => void stop()}
-            className="flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl border border-bad-500/50 bg-bad-500/12 text-lg font-bold text-bad-500 active:scale-[0.99]"
+            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-bad-500/50 bg-bad-500/12 text-base font-bold text-bad-500 active:scale-[0.99]"
           >
-            <Square size={20} aria-hidden /> Stop sharing / शेयरिंग बंद करें
+            <Square size={18} aria-hidden /> Stop sharing / Band karein
           </button>
-        </>
-      ) : (
-        <>
-          {phase === "denied" ? (
-            <p className="rounded-xl border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
-              Location permission is blocked. Allow Location for this site in your browser settings, then tap Start
-              again. / ब्राउज़र सेटिंग में इस साइट के लिए Location की अनुमति दें।
-              {inApp ? (
-                <button type="button" onClick={openNativeSettings} className="mt-2 block font-semibold underline">
-                  Open app settings / ऐप सेटिंग खोलें
-                </button>
-              ) : null}
-            </p>
-          ) : null}
-          {phase === "unsupported" ? (
-            <p className="rounded-xl border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-sm text-bad-500">
-              This browser cannot share location. Open the link in Chrome. / यह लिंक Chrome में खोलें।
-            </p>
-          ) : null}
-          {phase === "stopped" ? (
-            <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-sm text-muted">
-              Sharing stopped. Nothing is being sent. / शेयरिंग बंद है।
-            </p>
-          ) : wasSharing && phase === "idle" ? (
-            <p className="text-sm text-muted">You were sharing earlier. Tap Start to continue. / जारी रखने के लिए Start दबाएँ।</p>
-          ) : null}
-
+        ) : (
           <button
             type="button"
             onClick={start}
             className="brand-fill flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl border border-brand-600 bg-brand-500 text-lg font-bold text-on-brand active:scale-[0.99]"
           >
-            <MapPin size={22} aria-hidden /> Start sharing location / लोकेशन शेयर करें
+            <MapPin size={22} aria-hidden /> Start sharing / Location bhejein
           </button>
-        </>
-      )}
+        )
+      ) : null}
 
-      <section className="space-y-2 text-sm text-muted">
-        <p className="flex items-start gap-2">
-          <BatteryMedium size={16} className="mt-0.5 shrink-0" aria-hidden />
-          {inApp ? (
-            <span>
-              Sharing continues when the phone is locked or the app is closed. A notification shows while it is on;
-              tap Stop sharing here to end it. / फ़ोन लॉक होने या ऐप बंद होने पर भी शेयरिंग चलती रहती है। बंद
-              करने के लिए Stop दबाएँ।
-            </span>
-          ) : (
-            <span>
-              Keep this page open. The screen can be dimmed{wakeLockOn ? " (screen is kept awake)" : ""}. If the phone
-              locks or you switch apps, sharing pauses until you come back. / यह पेज खुला रखें। फ़ोन लॉक होने पर
-              शेयरिंग रुक जाती है।
-            </span>
-          )}
-        </p>
-        {androidWeb && !closed ? (
-          /* [native-app bg location] hint: the app keeps sharing when the phone is locked */
-          <p className="rounded-xl border border-line bg-sunken px-3 py-2">
-            Use the Rahdari app for background sharing (Android) - it keeps sharing when the phone is locked. / फ़ोन
-            लॉक होने पर भी शेयरिंग के लिए Rahdari ऐप इस्तेमाल करें।{" "}
-            <a href={openInAppHref(`/d/${encodeURIComponent(token)}`)} className="font-semibold text-brand-600 underline">
-              Open in app / ऐप में खोलें
-            </a>
-          </p>
-        ) : null}
-        <p>Keep the phone on charge if you can. / हो सके तो फ़ोन चार्ज पर रखें।</p>
-        <p className="text-xs text-faint">
-          Only your location, accuracy and speed are sent - nothing else from your phone. Rahdari.
-        </p>
-      </section>
+      {trip ? (
+        <DriverTripCard token={token} trip={trip} lastFix={lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : null} onClosed={onTripClosed} />
+      ) : null}
+
+      {androidWeb && !closed ? (
+        /* [native-app bg location] hint: the app keeps sharing when the phone is locked */
+        <a href={openInAppHref(`/d/${encodeURIComponent(token)}`)} className="lv-fact">
+          <Smartphone size={16} aria-hidden />
+          <span>
+            <small>Phone lock hone par bhi sharing chahiye?</small>
+            <b>Rahdari app mein kholein</b>
+          </span>
+        </a>
+      ) : null}
+      <p className="flex items-center justify-center gap-1.5 text-[11px] text-faint">
+        <BatteryMedium size={13} aria-hidden /> Phone charge par rakhein · Only location is sent
+      </p>
     </main>
   );
 }

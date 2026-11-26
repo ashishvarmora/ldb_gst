@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Archive, ArchiveRestore, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, MoreVertical, Pencil, Phone, Plus, Trash2 } from "lucide-react";
 
-import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
+import { cx } from "@/components/ui";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { loadOpenTrips, logLive, requireLiveSession, safeReturn } from "@/lib/live/server";
 import { formatIndianMobile, indianMobileDigits } from "@/lib/phone";
-import { ACTIVE_STATUSES, customFieldsOf, tripNo, type LiveDriver } from "@/lib/live/shared";
+import { ACTIVE_STATUSES, customFieldsOf, type LiveDriver } from "@/lib/live/shared";
 
 import { archiveDriver, deleteDriver, restoreDriver, saveDriver } from "../../actions";
 import { BackLink } from "../../BackLink";
@@ -66,7 +67,7 @@ export default async function DriversMaster({ searchParams }: { searchParams: Pr
   const listHref = showArchived ? `${BASE}?archived=1` : BASE;
 
   return (
-    <div className="live-page mx-auto max-w-2xl space-y-3">
+    <div className="live-page mx-auto max-w-2xl space-y-2.5">
       <BackLink href={back ?? "/live/masters"} label={back ? "Back to trip" : "Masters"} />
       <header className="live-mhead">
         <h1>Drivers</h1>
@@ -83,20 +84,26 @@ export default async function DriversMaster({ searchParams }: { searchParams: Pr
         </Link>
       </header>
 
-      <ul className="live-rows">
+      <ul className="lv-drows">
         {drivers.map((d) => {
           const t = onTrip.get(d.id);
+          const active = t ? ACTIVE_STATUSES.includes(t.status) : false;
           return (
-            <li key={d.id} className="live-row">
-              <Link href={`/live/drivers/${d.id}`} className="live-row-main">
-                <strong>{d.name}</strong>
-                <small>
-                  {d.phone ? formatIndianMobile(d.phone) : "No mobile"}
-                  {t ? ` · ${tripNo(t.trip_seq)} ${ACTIVE_STATUSES.includes(t.status) ? "Active" : "Planned"}` : ""}
-                </small>
+            <li key={d.id} className="lv-drow">
+              <Link href={`/live/drivers/${d.id}`} className="lv-drow-main">
+                <span className="lv-drow-av" aria-hidden>
+                  {d.name.trim().charAt(0).toUpperCase() || "D"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong>{d.name}</strong>
+                  <small>
+                    {d.phone ? formatIndianMobile(d.phone) : "No mobile"}
+                    {showArchived ? null : <DriverSignalPill driver={d} now={now} />}
+                  </small>
+                </span>
+                {t ? <span className={cx("lv-chip", active ? "lv-t-brand" : "lv-t-neutral")}>{active ? "On trip" : "Planned"}</span> : null}
               </Link>
-              {showArchived ? null : <DriverSignalPill driver={d} now={now} />}
-              <div className="live-ibar">
+              <div className="lv-drow-acts">
                 {showArchived ? (
                   <ActionForm action={restoreDriver} closeOnSuccess={false} refresh={false}>
                     <input type="hidden" name="id" value={d.id} />
@@ -106,23 +113,37 @@ export default async function DriversMaster({ searchParams }: { searchParams: Pr
                   </ActionForm>
                 ) : (
                   <>
+                    {d.phone ? (
+                      <a href={`tel:${d.phone}`} className="live-ib" aria-label={`Call ${d.name}`} title="Call">
+                        <Phone size={15} />
+                      </a>
+                    ) : null}
                     <Link href={`${BASE}?edit=${d.id}`} className="live-ib" aria-label={`Edit ${d.name}`} title="Edit" scroll={false}>
                       <Pencil size={15} />
                     </Link>
-                    <ActionForm action={archiveDriver} closeOnSuccess={false} refresh={false}>
-                      <input type="hidden" name="id" value={d.id} />
-                      <IconSubmit label={`Archive ${d.name}`} confirm={`Archive ${d.name}? His link stops; trips and history stay. You can restore him.`}>
-                        <Archive size={15} />
-                      </IconSubmit>
-                    </ActionForm>
                   </>
                 )}
-                <ActionForm action={deleteDriver} closeOnSuccess={false} refresh={false}>
-                  <input type="hidden" name="id" value={d.id} />
-                  <IconSubmit label={`Delete ${d.name}`} tone="bad" confirm={`Delete ${d.name} for good? His link stops. Old trips keep his name and mobile. This cannot be undone.`}>
-                    <Trash2 size={15} />
-                  </IconSubmit>
-                </ActionForm>
+                <details name="driver-menu" className="lv-menu">
+                  <summary className="live-ib" aria-label={`More for ${d.name}`} title="More">
+                    <MoreVertical size={15} />
+                  </summary>
+                  <div className="lv-menu-pop">
+                    {showArchived ? null : (
+                      <ActionForm action={archiveDriver} closeOnSuccess={false} refresh={false}>
+                        <input type="hidden" name="id" value={d.id} />
+                        <ConfirmSubmitButton message={`Archive ${d.name}? His link stops; trips and history stay. You can restore him.`} variant="ghost" size="sm" className="lv-menu-item">
+                          <Archive size={14} /> Archive
+                        </ConfirmSubmitButton>
+                      </ActionForm>
+                    )}
+                    <ActionForm action={deleteDriver} closeOnSuccess={false} refresh={false}>
+                      <input type="hidden" name="id" value={d.id} />
+                      <ConfirmSubmitButton message={`Delete ${d.name} for good? His link stops. Old trips keep his name and mobile. This cannot be undone.`} variant="ghost" size="sm" className="lv-menu-item is-bad">
+                        <Trash2 size={14} /> Delete
+                      </ConfirmSubmitButton>
+                    </ActionForm>
+                  </div>
+                </details>
               </div>
             </li>
           );
