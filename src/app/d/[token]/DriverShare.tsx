@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BatteryMedium,
   CheckCircle2,
+  CircleAlert,
   Crosshair,
   Gauge,
   HelpCircle,
@@ -33,6 +34,9 @@ import {
   openNativeSettings,
   startNativeWatch,
   stopNativeWatch,
+  disclose,
+  nativeTracker,
+  type TrackerStatus,
 } from "@/lib/native-bg-location";
 
 /**
@@ -116,6 +120,8 @@ export function DriverShare({
   const ON_KEY = `rx-d-on-${token}`;
 
   const [phase, setPhase] = useState<Phase>("idle");
+  /** v7: the native tracker's view of things, in app builds that have it. */
+  const [tracker, setTracker] = useState<TrackerStatus | null>(null);
   const [lastFix, setLastFix] = useState<Fix | null>(null);
   const [lastSentAt, setLastSentAt] = useState<number | null>(null);
   const [queued, setQueued] = useState(0);
@@ -232,6 +238,32 @@ export function DriverShare({
   }, []);
 
   const start = useCallback(() => {
+    // v7: the native tracker posts by itself, so it survives screen-off, swipe-away and reboot.
+    const t = nativeTracker();
+    if (t) {
+      void (async () => {
+        setMessage(null);
+        setPhase("starting");
+        if (!(await disclose(ownerLabel))) {
+          setPhase("idle");
+          return;
+        }
+        try {
+          const st = await t.start({
+            url: `${window.location.origin}/api/driver/${encodeURIComponent(token)}/location`,
+            page: window.location.href,
+            label: truckNumber || trip?.tripNo || driverName || "this trip",
+            owner: ownerLabel,
+          });
+          setTracker(st);
+          sharingRef.current = true;
+          setPhase("sharing");
+        } catch (e) {
+          setPhase(String((e as Error)?.message ?? e).includes("denied") ? "denied" : "idle");
+        }
+      })();
+      return;
+    }
     const native = nativeBgLocation(); // [native-app bg location]
     if (!native && !("geolocation" in navigator)) {
       setPhase("unsupported");
@@ -309,6 +341,13 @@ export function DriverShare({
   }, [ON_KEY, acquireWakeLock, enqueue, flush, stopWatching, truckNumber, trip, driverName, ownerLabel]);
 
   const stop = useCallback(async () => {
+    const t = nativeTracker();
+    if (t) {
+      await t.stop().catch(() => {});
+      sharingRef.current = false;
+      setPhase("stopped");
+      return;
+    }
     stopWatching();
     writeStore(ON_KEY, null);
     setPhase("stopped");
@@ -322,9 +361,38 @@ export function DriverShare({
     setOnline(navigator.onLine);
     setInApp(nativeBgLocation() !== null); // [native-app bg location]
     setAndroidWeb(isAndroidBrowser());
-    if (!closed && readStore<boolean>(ON_KEY, false)) start();
+    if (!closed && !nativeTracker() && readStore<boolean>(ON_KEY, false)) start();
     return () => stopWatching();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // v7: poll the native tracker while the page is open - it runs on its own, this only shows it.
+  useEffect(() => {
+    const t = nativeTracker();
+    if (!t) return;
+    let alive = true;
+    const read = () =>
+      t
+        .status()
+        .then((st) => {
+          if (!alive) return;
+          setTracker(st);
+          if (st.fix) setLastFix({ lat: st.fix.lat, lng: st.fix.lng, accuracy: st.fix.accuracy, speed: st.fix.speed, heading: null, t: st.fix.t });
+          if (st.lastSentAt) setLastSentAt(st.lastSentAt);
+          setQueued(st.queued);
+          sharingRef.current = st.on;
+          setPhase((p) => (st.on ? (p === "starting" && !st.fix ? p : "sharing") : st.error === "link-stopped" ? "revoked" : p === "sharing" || p === "starting" ? "stopped" : p));
+        })
+        .catch(() => {});
+    void read();
+    const id = setInterval(() => document.visibilityState === "visible" && void read(), 5_000);
+    const onVisible = () => document.visibilityState === "visible" && void read();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -518,6 +586,8 @@ export function DriverShare({
         )
       ) : null}
 
+      {tracker && !closed ? <TrackerChecklist status={tracker} /> : null}
+
       {trip ? (
         <DriverTripCard token={token} trip={trip} lastFix={lastFix ? { lat: lastFix.lat, lng: lastFix.lng } : null} onClosed={onTripClosed} />
       ) : null}
@@ -536,5 +606,57 @@ export function DriverShare({
         <BatteryMedium size={13} aria-hidden /> Phone charge par rakhein · Only location is sent
       </p>
     </main>
+  );
+}
+
+/**
+ * v7: everything that can stop background sharing on an Android phone, with
+ * one tap to fix each. Green = fine. Shown in the app only (a browser cannot
+ * share in the background at all, so there is nothing to fix there).
+ */
+function TrackerChecklist({ status }: { status: TrackerStatus }) {
+  const t = nativeTracker();
+  if (!t) return null;
+  const brand = status.autostartBrand;
+  const items: { ok: boolean | null; title: string; hint: string; fix: () => unknown }[] = [
+    { ok: status.gps, title: "GPS / Location ON", hint: "Phone ki Location chalu karein", fix: () => t.fixGps() },
+    { ok: status.background, title: "Location: Allow all the time", hint: "Permissions → Location → \"Allow all the time\"", fix: () => t.fixBackground() },
+    { ok: status.battery, title: "Battery: Unrestricted", hint: "Battery saver Rahdari ko band na kare", fix: () => t.fixBattery() },
+    { ok: status.notifications, title: "Notifications ON", hint: "Sharing ki notification dikhni chahiye", fix: () => t.fixNotifications() },
+    ...(brand
+      ? [{ ok: null, title: "Autostart ON", hint: "Is phone mein Autostart / Background start ON karein", fix: () => t.fixAutostart() }]
+      : []),
+  ];
+  const bad = items.filter((i) => i.ok === false).length;
+  return (
+    <details className="lv-help-list" open={bad > 0 || undefined}>
+      <summary>
+        {bad ? <CircleAlert size={16} className="text-bad-500" /> : <CheckCircle2 size={16} className="text-good-500" />}
+        <span>{bad ? `${bad} setting${bad === 1 ? "" : "s"} theek karein - background sharing ke liye` : "Background sharing ready"}</span>
+      </summary>
+      <ul>
+        {items.map((i) => (
+          <li key={i.title}>
+            {i.ok === false ? <CircleAlert size={15} className="text-bad-500" /> : i.ok ? <CheckCircle2 size={15} className="text-good-500" /> : <Settings size={15} className="text-muted" />}
+            <span className="min-w-0 flex-1">
+              <b>{i.title}</b>
+              <small>{i.hint}</small>
+            </span>
+            {i.ok === true ? null : (
+              <button type="button" onClick={() => void i.fix()} className="lv-help-fix">
+                {i.ok === null ? "Open" : "Fix"}
+              </button>
+            )}
+          </li>
+        ))}
+        <li>
+          <Smartphone size={15} className="text-muted" />
+          <span className="min-w-0 flex-1">
+            <b>Recent apps mein lock karein</b>
+            <small>Recent apps kholein → Rahdari par lock (taala) dabayein</small>
+          </span>
+        </li>
+      </ul>
+    </details>
   );
 }

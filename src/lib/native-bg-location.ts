@@ -66,10 +66,11 @@ type CapWindow = Window & {
   };
 };
 
-/** Play Store listing (or a direct APK page). TODO(owner): set NEXT_PUBLIC_ANDROID_APP_URL once the app is listed. */
-export const ANDROID_APP_URL =
-  process.env.NEXT_PUBLIC_ANDROID_APP_URL ||
-  "https://play.google.com/store/apps/details?id=in.rahdari.app";
+/**
+ * Where "Open in app" sends a phone without the app. The app is not on Play;
+ * /download/android serves whichever APK is published in Admin -> Mobile app.
+ */
+export const ANDROID_APP_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || "https://rahdari.in/download/android";
 const ANDROID_PACKAGE = "in.rahdari.app";
 const DISCLOSED_KEY = "rx-bg-loc-disclosed";
 
@@ -106,7 +107,7 @@ export function openInAppHref(path: string): string {
  * Google Play "prominent disclosure": shown in the app before the location
  * permission prompt, once per install (remembered after "Agree").
  */
-function disclose(label: string): Promise<boolean> {
+export function disclose(label: string): Promise<boolean> {
   try {
     if (localStorage.getItem(DISCLOSED_KEY) === "1")
       return Promise.resolve(true);
@@ -262,4 +263,44 @@ export async function nativePostJson(
     status: res.status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* v7: native tracker (TrackerService) - runs without the WebView              */
+/* -------------------------------------------------------------------------- */
+
+export type TrackerStatus = {
+  on: boolean;
+  location: boolean;
+  precise: boolean;
+  background: boolean;
+  notifications: boolean;
+  battery: boolean;
+  gps: boolean;
+  autostartBrand: string;
+  lastSentAt: number;
+  queued: number;
+  error: string | null;
+  fix?: { lat: number; lng: number; accuracy: number | null; speed: number | null; t: number };
+};
+
+export type TrackerPlugin = {
+  start(o: { url: string; page: string; label: string; owner: string }): Promise<TrackerStatus>;
+  stop(): Promise<void>;
+  status(): Promise<TrackerStatus>;
+  fixBackground(): Promise<unknown>;
+  fixBattery(): Promise<void>;
+  fixNotifications(): Promise<void>;
+  fixAutostart(): Promise<void>;
+  fixGps(): Promise<void>;
+};
+
+/**
+ * The v7 tracker in app builds that have it (TrackerPlugin.java), else null -
+ * a browser, an iPhone, or an older APK, which keep using the paths above.
+ */
+export function nativeTracker(): TrackerPlugin | null {
+  if (!isNativeApp() || !/android/i.test(navigator.userAgent)) return null;
+  const p = (plugins() as Record<string, unknown> | undefined)?.RahdariTracker;
+  return (p as TrackerPlugin | undefined) ?? null;
 }

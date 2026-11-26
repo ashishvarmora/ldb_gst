@@ -41,6 +41,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // v7: native driver location sharing (tracker/TrackerPlugin). Registered before super.onCreate, as Capacitor requires.
+        registerPlugin(in.rahdari.app.tracker.TrackerPlugin.class);
         super.onCreate(savedInstanceState);
 
         WebView webView = getBridge().getWebView();

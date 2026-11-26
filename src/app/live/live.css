@@ -806,3 +806,14 @@ select.live-field-xs { width: auto; }
 .lv-drow-acts { margin-left: auto; }
 .lv-drows { grid-template-columns: minmax(0, 1fr); }
 .lv-drow { min-width: 0; }
+
+/* Driver app: background checklist (v7) */
+.lv-help-list { border: 1px solid var(--c-line, #e6ecf2); border-radius: 14px; background: #fff; }
+.lv-help-list > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; color: #0f1b2d; }
+.lv-help-list > summary::-webkit-details-marker { display: none; }
+.lv-help-list ul { display: grid; border-top: 1px solid var(--c-divider, #edf1f5); }
+.lv-help-list li { display: flex; align-items: center; gap: 9px; padding: 8px 12px; border-top: 1px solid var(--c-divider, #edf1f5); }
+.lv-help-list li:first-child { border-top: 0; }
+.lv-help-list b { display: block; font-size: 12.5px; color: #0f1b2d; }
+.lv-help-list small { display: block; font-size: 11px; color: #64748b; }
+.lv-help-fix { flex-shrink: 0; min-height: 34px; padding: 0 14px; border-radius: 10px; background: #1558b8; font-size: 12.5px; font-weight: 700; color: #fff; }
