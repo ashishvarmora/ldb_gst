@@ -804,3 +804,5 @@ select.live-field-xs { width: auto; }
 .lv-drow-main small .live-dsig { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lv-drow-main .lv-chip { margin-left: auto; }
 .lv-drow-acts { margin-left: auto; }
+.lv-drows { grid-template-columns: minmax(0, 1fr); }
+.lv-drow { min-width: 0; }
