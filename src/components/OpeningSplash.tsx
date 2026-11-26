@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * The opening moment (v3, 19 Nov 2026): a drone shot over a highway toll plaza.
  *
@@ -223,49 +225,43 @@ function splashMain(STILL: number, FILM_MAX: number, S: typeof SRC) {
 
 const SPLASH_SCRIPT = `try{(${splashMain.toString()})(${STILL_MS},${FILM_MAX_MS},${JSON.stringify(SRC)})}catch(e){document.documentElement.classList.add('splash-skip')}`;
 
-const BIRDS = [1, 2, 3, 4] as const;
+const BIRD = (n: number) =>
+  `<svg class="rx-bird rx-bird-${n}" viewBox="0 0 24 10" focusable="false"><path d="M0 6 Q6 0 12 6 Q18 0 24 6"></path></svg>`;
+
+/*
+ * The splash's contents as plain HTML, the same markup the JSX version used to
+ * produce. It is handed to React as one opaque block on purpose: the script
+ * above runs while the page is still loading - before React hydrates - and
+ * changes these nodes (the still's src, the ghosts' styles, the rx-src and
+ * rx-ring markers it adds). Rendered as React children, every one of those
+ * changes was a hydration mismatch (React error #418 in production, on every
+ * page where the intro played before hydration finished - slow phones, the
+ * still-only version), and React then re-rendered the whole page on the client.
+ * React never looks inside dangerouslySetInnerHTML when hydrating, so the
+ * script owns this subtree outright.
+ */
+const SPLASH_HTML =
+  /* Both start empty: the script fills them only when the intro plays. */
+  `<div class="rx-scene"><img class="rx-poster" alt="" decoding="async"/><video class="rx-video" muted="" playsinline="" preload="none" disablepictureinpicture="" tabindex="-1"></video></div>` +
+  /* Light layers over the film. */
+  `<div class="rx-birds">${[1, 2, 3, 4].map(BIRD).join("")}</div><i class="rx-vignette"></i>` +
+  /* The phone notification, as the truck crosses the plaza. */
+  `<div class="rx-notify"><img src="/brand/rahdari-mark-v2.webp" alt="" width="256" height="131"/><span><b><span>Rahdari</span><em>now</em></b><span>Your truck just crossed a toll plaza.</span></span></div>` +
+  /* Copies of the truck's logo and name that fly up to the header. */
+  `<img class="rx-ghost rx-ghost-mark" src="/brand/rahdari-mark-v2.webp" alt="" width="256" height="131"/><b class="rx-ghost rx-ghost-name"><span class="rx-paint">RAHDARI</span><span class="rx-ink">Rahdari</span></b>` +
+  `<span class="rx-skip">Tap to skip</span>` +
+  `<script>${SPLASH_SCRIPT}</script>`;
+
+/*
+ * One object for the life of the page. React 19 rewrites innerHTML whenever
+ * this prop is a different object (it compares by identity, not by __html),
+ * which would wipe a playing intro on any router.refresh() or server-action
+ * revalidation. That is also why this file is a client component: a server
+ * component's props arrive as a fresh object with every RSC payload.
+ */
+const SPLASH_INNER = { __html: SPLASH_HTML };
 
 export function OpeningSplash() {
-  return (
-    <div className="app-splash" aria-hidden="true">
-      <div className="rx-scene">
-        {/* Both start empty: the script fills them only when the intro plays. */}
-        <img className="rx-poster" alt="" decoding="async" />
-        <video className="rx-video" muted playsInline preload="none" disablePictureInPicture tabIndex={-1} />
-      </div>
-
-      {/* Light layers over the film. */}
-      <div className="rx-birds">
-        {BIRDS.map((n) => (
-          <svg key={n} className={`rx-bird rx-bird-${n}`} viewBox="0 0 24 10" focusable="false">
-            <path d="M0 6 Q6 0 12 6 Q18 0 24 6" />
-          </svg>
-        ))}
-      </div>
-      <i className="rx-vignette" />
-
-      {/* The phone notification, as the truck crosses the plaza. */}
-      <div className="rx-notify">
-        <img src="/brand/rahdari-mark-v2.webp" alt="" width={256} height={131} />
-        <span>
-          <b>
-            <span>Rahdari</span>
-            <em>now</em>
-          </b>
-          <span>Your truck just crossed a toll plaza.</span>
-        </span>
-      </div>
-
-      {/* Copies of the truck's logo and name that fly up to the header. */}
-      <img className="rx-ghost rx-ghost-mark" src="/brand/rahdari-mark-v2.webp" alt="" width={256} height={131} />
-      <b className="rx-ghost rx-ghost-name">
-        <span className="rx-paint">RAHDARI</span>
-        <span className="rx-ink">Rahdari</span>
-      </b>
-
-      <span className="rx-skip">Tap to skip</span>
-
-      <script dangerouslySetInnerHTML={{ __html: SPLASH_SCRIPT }} />
-    </div>
-  );
+  /* suppressHydrationWarning: dev mode compares innerHTML, which the script has changed by then, on purpose. */
+  return <div className="app-splash" aria-hidden="true" suppressHydrationWarning dangerouslySetInnerHTML={SPLASH_INNER} />;
 }
