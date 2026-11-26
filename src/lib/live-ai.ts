@@ -1,4 +1,6 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
+
 import { aiAvailable, aiJson, redact } from "@/lib/ai";
 
 /**
@@ -607,6 +609,45 @@ export async function explainDelay(f: TripDelayFacts): Promise<string | null> {
       return s;
     },
   });
+}
+
+/** How long one AI delay note is reused for the same trip in the same situation. */
+const DELAY_NOTE_TTL_SECONDS = 10 * 60;
+
+/**
+ * explainDelay() for a page that refreshes itself.
+ *
+ * The trip page reloads every 30 s while a trip is open, and a late trip used
+ * to ask the model afresh on every reload - two calls a minute for each open
+ * tab. That spent the free Gemini quota within minutes (429s in the live logs,
+ * 26 Nov 2026) and starved route planning and dispatch reading, which share it.
+ *
+ * Now one note is kept per trip for ten minutes, keyed on what kind of delay it
+ * is - no signal, standing, slow, or just a late ETA - plus night and the
+ * hours late. When that changes, the next view asks again straight away; when
+ * it does not, the note's numbers can be up to ten minutes old, which is what
+ * "a few minutes ago" reads as on this page anyway. Shared across server
+ * instances (Next's data cache), so one tab or ten costs the same.
+ */
+export async function explainDelayCached(tripId: string, f: TripDelayFacts): Promise<string | null> {
+  if (!aiAvailable()) return null;
+  const mf = delayFactsForModel(f);
+  const speeds = mf.recentSpeedsKmph ?? [];
+  const recentAvg = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : mf.avgSpeedKmph;
+  const kind =
+    f.lastSeenMinutesAgo != null && f.lastSeenMinutesAgo >= 60
+      ? "signal"
+      : (f.stoppedMinutes && f.stoppedMinutes >= 10) || (recentAvg != null && recentAvg < 3)
+        ? "standing"
+        : recentAvg != null && recentAvg < 25
+          ? "slow"
+          : "late";
+  const lateHours =
+    f.etaAt && f.promisedAt
+      ? Math.floor((new Date(f.etaAt).getTime() - new Date(f.promisedAt).getTime()) / 3_600_000)
+      : -1;
+  const key = ["live-delay-note", tripId, kind, mf.nightTime ? "night" : "day", String(lateHours)];
+  return unstable_cache(() => explainDelay(f), key, { revalidate: DELAY_NOTE_TTL_SECONDS })();
 }
 
 /** Rule-based explanation with the same shape as explainDelay(). */

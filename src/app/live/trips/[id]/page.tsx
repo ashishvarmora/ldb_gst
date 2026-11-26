@@ -5,7 +5,7 @@ import { Archive, BellRing, Copy, ExternalLink, History, MessageCircle, Navigati
 
 import { ActionForm, ConfirmSubmitButton, SubmitButton } from "@/components/ActionForm";
 import { buttonClass, cx } from "@/components/ui";
-import { explainDelay, explainDelayBasic, type TripDelayFacts } from "@/lib/live-ai";
+import { explainDelayBasic, explainDelayCached, type TripDelayFacts } from "@/lib/live-ai";
 import { groupByPhase } from "@/lib/live/activity";
 import {
   customerShareText,
@@ -67,8 +67,9 @@ import { AutoRefresh, CopyButton, IconCopy } from "../../widgets";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Live tracking - Trip" };
 
-async function DelayNote({ facts }: { facts: TripDelayFacts }) {
-  const text = (await explainDelay(facts).catch(() => null)) ?? explainDelayBasic(facts);
+async function DelayNote({ tripId, facts }: { tripId: string; facts: TripDelayFacts }) {
+  // Cached: this page refreshes every 30 s and must not ask the model each time.
+  const text = (await explainDelayCached(tripId, facts).catch(() => null)) ?? explainDelayBasic(facts);
   return (
     <p className="live-delay-note">
       <Sparkles size={15} className="mt-0.5 shrink-0" /> <span>{text}</span>
@@ -223,7 +224,7 @@ export default async function TripPage({ params, searchParams }: { params: Promi
       ) : null}
       {late ? (
         <Suspense fallback={null}>
-          <DelayNote facts={delayFacts} />
+          <DelayNote tripId={trip.id} facts={delayFacts} />
         </Suspense>
       ) : null}
 

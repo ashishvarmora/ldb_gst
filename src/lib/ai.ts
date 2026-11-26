@@ -252,7 +252,15 @@ async function fetchWithTimeout(
   }
 }
 
-async function run(a: CallArgs): Promise<string | null> {
+/**
+ * Tries each configured key in turn until one gives an answer `accept` takes.
+ * A key on cooldown is skipped. Without `accept`, any non-empty answer wins.
+ *
+ * `accept` exists for aiJson: an answer that does not parse or fails its
+ * validator used to end the whole call with null, even with a second provider
+ * (Groq) configured and idle. Now the next key gets its turn.
+ */
+async function run(a: CallArgs, accept?: (out: string, provider: AiProvider) => boolean): Promise<string | null> {
   const provider = aiProvider();
   if (!provider) return null;
   if (!takeRateSlot()) {
@@ -266,7 +274,7 @@ async function run(a: CallArgs): Promise<string | null> {
     if ((keyCooldown.get(key) ?? 0) > now) continue;
     try {
       const out = p === "gemini" ? await callGemini(args, key) : await callGroq(args, key);
-      if (out) return out;
+      if (out && (!accept || accept(out, p))) return out;
     } catch (e) {
       logFail(p, `error ${(e as Error)?.name ?? "unknown"}`);
     }
@@ -297,30 +305,34 @@ export async function aiText(prompt: string, opts: AiTextOptions = {}): Promise<
  * Null when AI is off, the call fails, or validation rejects it.
  */
 export async function aiJson<T>(prompt: string, opts: AiJsonOptions<T>): Promise<T | null> {
-  const provider = aiProvider();
   const system = [opts.system, "Respond with a single JSON object only. No prose, no markdown."]
     .filter(Boolean)
     .join("\n");
-  const out = await run({
-    prompt,
-    system,
-    maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-    temperature: opts.temperature ?? 0,
-    timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    json: true,
-  });
-  if (out == null) return null;
-  const parsed = parseJsonLoose(out);
-  if (parsed == null) {
-    if (provider) logFail(provider, "unparseable json");
-    return null;
-  }
-  try {
-    const v = opts.validate(parsed);
-    if (v == null && provider) logFail(provider, "json failed validation");
-    return v;
-  } catch {
-    if (provider) logFail(provider, "validator threw");
-    return null;
-  }
+  let value: T | null = null;
+  const out = await run(
+    {
+      prompt,
+      system,
+      maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+      temperature: opts.temperature ?? 0,
+      timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      json: true,
+    },
+    (text, provider) => {
+      const parsed = parseJsonLoose(text);
+      if (parsed == null) {
+        logFail(provider, "unparseable json");
+        return false;
+      }
+      try {
+        value = opts.validate(parsed);
+      } catch {
+        logFail(provider, "validator threw");
+        return false;
+      }
+      if (value == null) logFail(provider, "json failed validation");
+      return value != null;
+    },
+  );
+  return out == null ? null : value;
 }
